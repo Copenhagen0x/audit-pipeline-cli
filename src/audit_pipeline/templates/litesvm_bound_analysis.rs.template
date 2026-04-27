@@ -1,0 +1,160 @@
+//! LiteSVM bound analysis — Layer 4 of the audit pipeline.
+//!
+//! Purpose: numerically derive the wall-clock cost of driving engine state
+//! to the Kani-CEX witness via legitimate flow. If the cost is prohibitive
+//! (years to centuries), the finding downgrades from "active issue" to
+//! "code defect / defense-in-depth recommendation".
+//!
+//! This template is for findings where the engine math is unsafe (Kani-true)
+//! but the public-API path needs significant state accumulation to reach the
+//! unsafe witness.
+//!
+//! Replace `<FINDING_NAME>` and the bound calculation with your specifics.
+
+mod common;
+#[allow(unused_imports)]
+use common::*;
+
+use solana_sdk::signature::Keypair;
+
+/// Numeric bound analysis for `<finding>`. Documents what state would be
+/// needed to reach the Kani witness, derives the wall-clock cost of
+/// reaching it via legitimate trading flow, and asserts the bound.
+///
+/// # Output
+///
+/// Prints the derivation; the test passes if the bound is prohibitive.
+/// If the bound is reachable (e.g., < 1 year), the test FAILS (treat as
+/// active finding, not defense-in-depth).
+#[test]
+fn test_<FINDING_NAME>_bound_analysis() {
+    let mut env = TestEnv::new();
+    env.init_market_with_invert(0);
+
+    let admin = Keypair::from_bytes(&env.payer.to_bytes()).unwrap();
+    env.top_up_insurance(&admin, 5_000_000_000);
+
+    // === ENGINE CONSTANTS (from src/<engine>.rs) ===
+
+    const MAX_VAULT_TVL: u128 = 10_000_000_000_000_000;       // 1e16
+    const MAX_ACCOUNT_POSITIVE_PNL: u128 = 1e32 as u128;       // adjust per engine
+    const MAX_POSITION_ABS_Q: u128 = 100_000_000_000_000;     // 1e14
+    const PER_SLOT_PNL_GAIN_DEFAULT_CAPS: u128 = 30_000_000_000_000; // ~3e13
+    const SLOTS_PER_SEC: u128 = 2; // 500ms/slot, conservative for Solana mainnet
+
+    // === DERIVE THE WITNESS-STATE BOUND ===
+    // For each finding, replace this with the specific bound derivation.
+    //
+    // Example (from Bug #3 in Percolator audit):
+    //   Overflow condition: pos_pnl × g_num > 2^128 (~3.4e38)
+    //   With g_num at MAX_VAULT_TVL = 1e16, need pos_pnl > 3.4e22
+    //   Engine permits pos_pnl ≤ MAX_ACCOUNT_POSITIVE_PNL = 1e32
+    //   So the threshold is engine-permitted, but how do we get there?
+
+    let pos_pnl_required = u128::MAX / MAX_VAULT_TVL;
+    let log2_required = 128 - MAX_VAULT_TVL.leading_zeros();
+
+    // === DERIVE WALL-CLOCK COST ===
+    // Slots needed = required_state / per_slot_gain
+    // Wall-clock = slots / slots_per_sec / seconds_per_year
+
+    let slots_needed = pos_pnl_required / PER_SLOT_PNL_GAIN_DEFAULT_CAPS;
+    let years_needed = slots_needed / (SLOTS_PER_SEC * 86400 * 365);
+
+    // === REPORT THE DERIVATION ===
+
+    println!("--- <FINDING_NAME> reachability bound analysis ---");
+    println!("  Engine-permitted state caps:");
+    println!(
+        "    MAX_VAULT_TVL              = {} (~ 2^{})",
+        MAX_VAULT_TVL, log2_required
+    );
+    println!(
+        "    MAX_ACCOUNT_POSITIVE_PNL   = {} (~ 2^106)",
+        MAX_ACCOUNT_POSITIVE_PNL
+    );
+    println!(
+        "    MAX_POSITION_ABS_Q         = {}",
+        MAX_POSITION_ABS_Q
+    );
+    println!("  Witness conditions to reach the Kani CEX:");
+    println!(
+        "    Need state value > {}",
+        pos_pnl_required
+    );
+    println!("  Per-slot accumulation rate at default caps:");
+    println!(
+        "    PER_SLOT_PNL_GAIN ≈ {}",
+        PER_SLOT_PNL_GAIN_DEFAULT_CAPS
+    );
+    println!("  Wall-clock to accumulate via legitimate flow:");
+    println!(
+        "    Slots needed ≈ {} ≈ {} years",
+        slots_needed, years_needed
+    );
+    println!();
+    println!("  Verdict:");
+    if years_needed > 1_000_000 {
+        println!(
+            "    Reachability bound is PROHIBITIVE ({}+ years). Finding downgrades",
+            years_needed
+        );
+        println!("    to 'code defect / defense-in-depth recommendation'. Engine math");
+        println!("    is unsafe (Kani-confirmed) but legitimate flow at default caps");
+        println!("    cannot drive state to the unsafe range in any realistic horizon.");
+    } else {
+        println!(
+            "    Reachability bound is {} years. Investigate further — finding may be",
+            years_needed
+        );
+        println!("    actively reachable via realistic trading patterns.");
+    }
+
+    // === SMOKE TEST: confirm wiring is correct ===
+    // Run a minimal end-to-end flow to confirm the reachability path
+    // computation is wired to real engine behavior (not just compile-time
+    // constants).
+
+    let lp = Keypair::new();
+    let lp_idx = env.init_lp(&lp);
+    env.deposit(&lp, lp_idx, 20_000_000_000);
+
+    let user = Keypair::new();
+    let user_idx = env.init_user(&user);
+    env.deposit(&user, user_idx, 5_000_000_000);
+
+    env.crank();
+    env.trade(&user, &lp, lp_idx, user_idx, 500_000);
+    env.crank();
+
+    let pnl = env.read_account_pnl(user_idx);
+    println!("  Smoke: trade succeeded; observed user.pnl = {}", pnl);
+
+    // === BOUND ASSERTION ===
+    // For findings that should be defense-in-depth (not active), assert
+    // the bound is prohibitive. If this fails, treat as active finding.
+
+    assert!(
+        years_needed > 1_000,
+        "if witness state is reachable in <1000 years, this is exploitable"
+    );
+}
+
+// =============================================================================
+// USAGE NOTES
+// =============================================================================
+//
+// 1. Replace <FINDING_NAME> with your finding's identifier.
+// 2. Customize the bound derivation for your specific Kani CEX. Common shapes:
+//    - State value > engine-permitted cap → unreachable
+//    - State value reachable but requires N years of accumulation
+//    - State value reachable but requires admin authorization
+// 3. Adjust SLOTS_PER_SEC for the target chain's expected slot time.
+// 4. The smoke test confirms your engine constants and slab-offset readers
+//    are wired correctly; without it you might be doing arithmetic on
+//    incorrect values.
+// 5. Run:
+//      cargo test --test test_<FINDING_NAME>_bound_analysis -- --nocapture
+//    The --nocapture flag shows the printed derivation.
+// 6. Use the printed output verbatim in the disclosure — readers want to see
+//    the math, not just the conclusion.

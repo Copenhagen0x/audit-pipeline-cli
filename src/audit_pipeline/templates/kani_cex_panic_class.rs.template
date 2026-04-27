@@ -1,0 +1,115 @@
+//! Kani CEX harness — Layer 3 of the audit pipeline.
+//!
+//! Purpose: formally verify that an engine function does NOT panic over the
+//! full symbolic state space (bounded by engine invariants). If Kani returns
+//! a counterexample (CEX), the panic class is formally proven to be reachable
+//! on engine-permitted state.
+//!
+//! Use this template when the empirical PoC (Layer 2) fired the panic on a
+//! specific witness, and you want to generalize: "does this fire for ALL
+//! inputs in the symbolic state space, or just the one I happened to write?"
+//!
+//! Replace `<FINDING_NAME>`, `<engine_function_name>`, and the witness state
+//! setup with your finding's specifics.
+
+#![cfg(kani)]
+
+use percolator::*;
+
+#[kani::proof]
+#[kani::unwind(10)]  // Minimum: MAX_ACCOUNTS_KANI + 2. Use 10 unless tighter is justified.
+fn proof_<FINDING_NAME>_does_not_panic() {
+    // === SYMBOLIC PARAMETER SETUP ===
+    // Bound each kani::any() with kani::assume() to the engine's accepted
+    // surface-level limits. Aggressive bounding keeps the symbolic state
+    // space tractable for the solver.
+
+    let h_max: u64 = kani::any();
+    kani::assume(h_max > 0);
+    kani::assume(h_max <= 1u64 << 32); // adjust based on engine cap
+
+    let h_min: u64 = kani::any();
+    kani::assume(h_min > 0);
+    kani::assume(h_min <= h_max);
+
+    let params = RiskParams {
+        maintenance_margin_bps: 500,
+        initial_margin_bps: 1000,
+        trading_fee_bps: 10,
+        max_accounts: MAX_ACCOUNTS as u64, // MAX_ACCOUNTS = 4 under cfg(kani)
+        liquidation_fee_bps: 100,
+        liquidation_fee_cap: i128::U128::new(1_000_000),
+        min_liquidation_abs: i128::U128::new(0),
+        min_nonzero_mm_req: 10,
+        min_nonzero_im_req: 11,
+        h_min,
+        h_max,
+        resolve_price_deviation_bps: 1000,
+        max_accrual_dt_slots: 100,
+        max_abs_funding_e9_per_slot: 10_000,
+        min_funding_lifetime_slots: 10_000_000,
+        max_active_positions_per_side: 64,
+        max_price_move_bps_per_slot: 3,
+    };
+
+    let mut engine = RiskEngine::new(params);
+
+    // === MATERIALIZE AN ACCOUNT ===
+    // Filter CEXes where deposit fails for unrelated reasons.
+
+    let idx: usize = 0;
+    let dep_result = engine.deposit_not_atomic(idx as u16, 1, 100);
+    kani::assume(dep_result.is_ok());
+
+    // === SYMBOLIC WITNESS STATE ===
+    // Bound the symbolic values with engine invariants (caps, sign,
+    // monotonicity, etc.). Each kani::assume tightens the search space.
+    //
+    // Replace below with your finding's specifics.
+
+    let pnl_u: u128 = kani::any();
+    kani::assume(pnl_u > 0);
+    kani::assume(pnl_u <= MAX_ACCOUNT_POSITIVE_PNL);
+
+    let pnl: i128 = pnl_u as i128;
+    engine.accounts[idx].pnl = pnl;
+    engine.pnl_pos_tot = pnl_u;
+    engine.accounts[idx].reserved_pnl = pnl_u;
+
+    // Add other state setup as the path requires...
+
+    // === SYMBOLIC TRIGGER ARGUMENT ===
+
+    let arg: u64 = kani::any();
+    kani::assume(arg < h_max); // adjust per finding
+    engine.current_slot = arg;
+
+    // === PROPERTY ===
+    // Assert: the engine function does NOT panic for any reachable input.
+    // Kani returns a CEX when the path leads to a panic.
+
+    let _ = engine.<engine_function_name>(idx);
+}
+
+// =============================================================================
+// USAGE NOTES
+// =============================================================================
+//
+// 1. Replace <FINDING_NAME> with a unique short identifier matching your
+//    Layer-2 PoC name (e.g. `bug3_trade_open_g_num`).
+// 2. Replace <engine_function_name> with the actual engine function under
+//    verification.
+// 3. Bound symbolic values with kani::assume to match engine surface-level
+//    invariants. Over-broad symbolic state = solver doesn't converge.
+// 4. Run on VPS via tmux (see scripts/dispatch_kani.sh):
+//      cargo kani --tests --features test --harness proof_<FINDING_NAME>_does_not_panic
+// 5. Interpret results:
+//    - VERIFICATION:- SUCCESSFUL → property holds; your Layer-2 finding is
+//      wrong (engine has guard you missed).
+//    - VERIFICATION:- FAILED with `expect_failed.assertion.1` at option.rs:2184
+//      → CEX confirmed. Real panic class found.
+//    - VERIFICATION:- FAILED with `unwinding assertion loop 0` at builtin
+//      memcmp or init code → noise. Increase `kani::unwind(N)` or tighten
+//      kani::assume bounds.
+// 6. If CEX confirmed, proceed to Layer 4 (LiteSVM reachability test) to
+//    determine if the public BPF API can drive engine state to the witness.

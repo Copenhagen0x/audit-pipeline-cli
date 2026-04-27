@@ -1,0 +1,115 @@
+//! Kani SAFE invariant harness — Layer 3 of the audit pipeline.
+//!
+//! Purpose: formally verify that a desired engine invariant holds across a
+//! bounded sequence of symbolic state mutations. If Kani returns SUCCESSFUL,
+//! you have a formal proof of the property within the bounded state space.
+//!
+//! This template is for INVARIANTS that the engine should maintain. Use it to:
+//!   - Formally prove conservation properties (V = I + C + P + R)
+//!   - Formally prove implicit invariants the code relies on but doesn't
+//!     explicitly assert
+//!   - Formalize the maintainer's prose claims into machine-checked theorems
+//!
+//! Replace `<INVARIANT_NAME>` and the property logic with your specific claim.
+
+#![cfg(kani)]
+
+use percolator::*;
+
+#[kani::proof]
+#[kani::unwind(10)]
+fn proof_<INVARIANT_NAME>() {
+    // === SYMBOLIC ENGINE STATE ===
+    // Construct an engine in an arbitrary reachable state, bounded by
+    // engine surface-level invariants.
+
+    let h_max: u64 = kani::any();
+    kani::assume(h_max > 0);
+    kani::assume(h_max <= 1u64 << 32);
+
+    let h_min: u64 = kani::any();
+    kani::assume(h_min > 0);
+    kani::assume(h_min <= h_max);
+
+    let params = canonical_params(h_min, h_max);
+    let mut engine = RiskEngine::new(params);
+
+    // Materialize accounts. Filter cases where setup fails for unrelated
+    // reasons.
+    let dep_a = engine.deposit_not_atomic(0u16, 1, 100);
+    kani::assume(dep_a.is_ok());
+    let dep_b = engine.deposit_not_atomic(1u16, 1, 100);
+    kani::assume(dep_b.is_ok());
+
+    // === PRE-STATE SNAPSHOT ===
+    // Capture the values that the invariant relates.
+
+    let pre_v = engine.vault.get();
+    let pre_i = engine.insurance_fund.balance.get();
+    let pre_c = engine.c_tot.get();
+    let pre_p = engine.pnl_pos_tot;
+    let pre_r = engine.matured_pos_tot;
+
+    // === PRECONDITION ASSERTION ===
+    // Verify the invariant holds BEFORE the operation.
+    // (Kani treats `assert!` failures as bugs; we want this to hold by
+    //  engine construction. If it doesn't, the engine init has a bug.)
+    assert_eq!(
+        pre_v,
+        pre_i + pre_c + pre_p + pre_r,
+        "conservation must hold pre-operation"
+    );
+
+    // === SYMBOLIC OPERATION ===
+    // Apply a bounded number of symbolic state mutations.
+    // For multi-step invariants, repeat with different operations.
+
+    let result = engine.<engine_function_name>(/* args */);
+    kani::assume(result.is_ok()); // filter execution failures
+
+    // === POST-STATE SNAPSHOT ===
+
+    let post_v = engine.vault.get();
+    let post_i = engine.insurance_fund.balance.get();
+    let post_c = engine.c_tot.get();
+    let post_p = engine.pnl_pos_tot;
+    let post_r = engine.matured_pos_tot;
+
+    // === POSTCONDITION ASSERTION (the invariant) ===
+    // This is what Kani is verifying. If the assertion fails, Kani returns
+    // a CEX showing the witness state where the invariant is broken.
+
+    assert_eq!(
+        post_v,
+        post_i + post_c + post_p + post_r,
+        "conservation must hold post-operation"
+    );
+}
+
+// =============================================================================
+// USAGE NOTES
+// =============================================================================
+//
+// 1. Replace <INVARIANT_NAME> with a descriptive identifier (e.g.
+//    `finalize_preserves_conservation`).
+// 2. Replace <engine_function_name> with the operation under test.
+// 3. Adjust the assertion to encode YOUR specific invariant.
+// 4. Common invariant patterns:
+//    - Conservation:    sum_pre == sum_post
+//    - Monotonicity:    field_pre <= field_post  (or >=)
+//    - Bounded delta:   abs(field_post - field_pre) <= bound
+//    - Implication:     condition_pre => condition_post
+//    - Equality on state subset: pre.fields == post.fields (for fields that
+//                                                          shouldn't change)
+// 5. Run on VPS:
+//      cargo kani --tests --features test --harness proof_<INVARIANT_NAME>
+// 6. Interpret results:
+//    - VERIFICATION:- SUCCESSFUL → invariant formally proven for the bounded
+//      state space. Strong positive result for the audit.
+//    - VERIFICATION:- FAILED → CEX shows a witness where invariant breaks.
+//      That's a real bug. Investigate.
+//    - VERIFICATION:- FAILED with unwinding-noise → harness needs more
+//      symbolic-state bounding or higher unwind.
+// 7. Successful SAFE proofs go into the disclosure under the
+//    "Formal SAFE proofs" section. They demonstrate the audit checked for
+//    things AND verified them, not just looked for bugs.

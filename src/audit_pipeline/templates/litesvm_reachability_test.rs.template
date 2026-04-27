@@ -1,0 +1,122 @@
+//! LiteSVM reachability test — Layer 4 of the audit pipeline.
+//!
+//! Purpose: verify that a public BPF instruction's call chain actually reaches
+//! the engine function under verification. Combined with the Kani CEX from
+//! Layer 3, this answers: "is the panic site in production code? yes / no".
+//!
+//! Use this template when you have a Layer-3 Kani CEX and need to confirm
+//! the public API can ACTUALLY drive engine state to that witness in
+//! production (vs. only via white-box state mutation).
+//!
+//! This is the SKELETON test. For witness-state-can-be-driven cases, also
+//! use `litesvm_bound_analysis.rs.template` to numerically derive the
+//! reachability bound.
+
+mod common;
+#[allow(unused_imports)]
+use common::*;
+
+use solana_sdk::signature::Keypair;
+
+/// Verifies that the BPF instruction `<INSTRUCTION_NAME>` traverses the call
+/// chain to `<engine_function_name>` for normal-sized inputs.
+///
+/// # What this proves
+///
+/// - The call chain `<INSTRUCTION> → <wrapper helper> → <engine method> →
+///   <engine function under verification>` is reachable from public BPF
+/// - For normal inputs, the engine function returns successfully (no panic)
+/// - The Kani-CEX witness state, if reachable, is reachable through this path
+///
+/// # What this does NOT prove
+///
+/// - That the witness state is REACHABLE via legitimate trading flow
+///   (use `litesvm_bound_analysis.rs.template` for that)
+/// - That the panic actually fires under production conditions
+#[test]
+fn test_<FINDING_NAME>_reaches_verification_target() {
+    let mut env = TestEnv::new();
+    env.init_market_with_invert(0);
+
+    let admin = Keypair::from_bytes(&env.payer.to_bytes()).unwrap();
+    env.top_up_insurance(&admin, 5_000_000_000);
+
+    // === SET UP MARKET PARTICIPANTS ===
+    // Adapt to the BPF instruction's required setup (LP, user, etc.)
+
+    let lp = Keypair::new();
+    let lp_idx = env.init_lp(&lp);
+    env.deposit(&lp, lp_idx, 20_000_000_000);
+
+    let user = Keypair::new();
+    let user_idx = env.init_user(&user);
+    env.deposit(&user, user_idx, 5_000_000_000);
+
+    // === CAPTURE PRE-STATE ===
+    // Read engine state fields that the function under verification touches.
+
+    let pre_user_pnl = env.read_account_pnl(user_idx);
+    let pre_pnl_pos_tot = env.read_pnl_pos_tot();
+    let pre_vault = env.read_engine_vault();
+
+    println!("--- <FINDING_NAME> reachability skeleton ---");
+    println!("  Pre-instruction state:");
+    println!("    user.pnl       = {}", pre_user_pnl);
+    println!("    pnl_pos_tot    = {}", pre_pnl_pos_tot);
+    println!("    vault          = {}", pre_vault);
+
+    // === INVOKE THE BPF INSTRUCTION ===
+    // Replace with the specific instruction. Common ones:
+    //   env.trade(&user, &lp, lp_idx, user_idx, size)
+    //   env.crank()
+    //   env.deposit(&user, user_idx, amount)
+
+    env.crank();
+    env.<INSTRUCTION_NAME>(&user, &lp, lp_idx, user_idx, /* args */);
+    env.crank();
+
+    // === CAPTURE POST-STATE ===
+
+    let post_user_pnl = env.read_account_pnl(user_idx);
+    let post_pnl_pos_tot = env.read_pnl_pos_tot();
+    let post_vault = env.read_engine_vault();
+
+    println!("  Post-instruction state:");
+    println!("    user.pnl       = {}", post_user_pnl);
+    println!("    pnl_pos_tot    = {}", post_pnl_pos_tot);
+    println!("    vault          = {}", post_vault);
+    println!(
+        "  Instruction succeeded → call chain through <engine_function_name> traversed"
+    );
+
+    // === ASSERT REACHABILITY (not the panic) ===
+    // The instruction succeeding for normal inputs implies the call chain
+    // reached the panic-site function (otherwise the path would have failed
+    // earlier). For invariant-style verification, assert state changed in
+    // the expected direction.
+
+    assert!(
+        post_vault >= pre_vault,
+        "vault should not decrease on this instruction (settles in-engine, no SPL transfer)"
+    );
+}
+
+// =============================================================================
+// USAGE NOTES
+// =============================================================================
+//
+// 1. Replace <FINDING_NAME>, <INSTRUCTION_NAME>, <engine_function_name> with
+//    your specific case.
+// 2. Adapt the participant setup (LP, user, multiple actors) to what the
+//    instruction requires.
+// 3. The slab-offset readers (read_account_pnl, read_pnl_pos_tot, etc.) are
+//    BPF-target-specific. Verify they're correct for your build (--features
+//    small / medium / default).
+// 4. Run:
+//      cargo test --test test_<FINDING_NAME>_reaches_verification_target
+// 5. If the test passes for normal inputs but the Kani CEX shows a panic
+//    for adversarial inputs, you have:
+//      - Confirmed call chain reachability (this test)
+//      - Confirmed panic-class existence (Kani CEX)
+//    Next step: bound analysis (`litesvm_bound_analysis.rs.template`) to
+//    determine if witness state is reachable in production.

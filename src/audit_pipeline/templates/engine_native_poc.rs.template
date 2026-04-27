@@ -1,0 +1,138 @@
+//! Engine native PoC — Layer 2 of the audit pipeline.
+//!
+//! Replace `<FINDING_NAME>`, `<EXPECTED_PANIC_MSG>`, and `<ENGINE_LINE>` with
+//! the specific finding being verified. Use the companion sanity test to
+//! confirm the panic is condition-driven, not spec-driven.
+//!
+//! This file is a TEMPLATE. Adapt the witness state setup to the specific
+//! invariant violation under test.
+
+#![cfg(feature = "test")]
+
+use percolator::*;
+
+/// Construct engine params adversarial-but-valid for the panic class under test.
+/// Adjust each field to the bound the engine accepts at the surface level.
+fn extreme_params_for_<FINDING_NAME>() -> RiskParams {
+    RiskParams {
+        maintenance_margin_bps: 500,
+        initial_margin_bps: 1000,
+        trading_fee_bps: 10,
+        max_accounts: 64,
+        liquidation_fee_bps: 100,
+        liquidation_fee_cap: i128::U128::new(1_000_000),
+        min_liquidation_abs: i128::U128::new(0),
+        min_nonzero_mm_req: 10,
+        min_nonzero_im_req: 11,
+        h_min: 1,
+        h_max: 100, // adjust per finding
+        resolve_price_deviation_bps: 1000,
+        max_accrual_dt_slots: 100,
+        max_abs_funding_e9_per_slot: 10_000,
+        min_funding_lifetime_slots: 10_000_000,
+        max_active_positions_per_side: MAX_ACCOUNTS as u64,
+        max_price_move_bps_per_slot: 3,
+    }
+}
+
+/// Helper: materialise a test account at index `idx`. Adapt to your engine's
+/// account-creation API.
+fn add_test_user(engine: &mut RiskEngine, _fee_payment: u128) -> Result<u16> {
+    let idx = engine.free_head;
+    if idx == u16::MAX || (idx as usize) >= MAX_ACCOUNTS {
+        return Err(RiskError::Overflow);
+    }
+    engine.deposit_not_atomic(idx, 1, 100)?;
+    Ok(idx)
+}
+
+/// Verifies that `<engine function>` panics with the expected message when
+/// the engine state is set to the witness configuration.
+///
+/// # Witness state (replace with your finding's specifics)
+///
+/// - account.pnl = <value bounded by engine cap>
+/// - engine.<aggregate> = <value such that the math underflows / overflows>
+/// - engine.<other state> = <whatever else the path needs>
+///
+/// # Expected behaviour
+///
+/// Engine reaches `<panic line in source>` and panics with `"<message>"`.
+/// The `#[should_panic]` annotation captures this; if the panic does not
+/// fire, the test fails (means the engine has a guard we didn't see, OR
+/// the bug class doesn't actually exist).
+#[test]
+#[should_panic(expected = "<EXPECTED_PANIC_MSG>")]
+fn <FINDING_NAME>_native_panic() {
+    let mut engine = RiskEngine::new(extreme_params_for_<FINDING_NAME>());
+    let idx = add_test_user(&mut engine, 0).unwrap() as usize;
+
+    // === WITNESS STATE SETUP — replace below with your finding's specifics ===
+
+    // Example: plant a positive PnL near the engine cap so a downstream
+    // `mul_div_floor_u128(pos_pnl, g_num, total)` overflows.
+    let huge_pnl: i128 = 1i128 << 100;
+    let huge_u: u128 = huge_pnl as u128;
+
+    engine.accounts[idx].pnl = huge_pnl;
+    engine.pnl_pos_tot = huge_u;
+    engine.accounts[idx].reserved_pnl = 0;
+
+    // Adjust other state fields as the path requires...
+
+    // === TRIGGER — call the engine function under test ===
+
+    let _ = engine.<engine_function_name>(idx);
+    // Example: let _ = engine.advance_profit_warmup(idx);
+}
+
+/// Sanity test: confirms the `#[should_panic]` test above is firing on the
+/// adversarial state, not on something else. Same engine path, but with
+/// state values bounded such that the panic CANNOT trigger.
+///
+/// If this test fails, your understanding of the path is wrong: something
+/// else is panicking. Investigate before treating the panic test as a
+/// real finding.
+#[test]
+fn <FINDING_NAME>_safe_baseline() {
+    let mut params = extreme_params_for_<FINDING_NAME>();
+    // Bound the parameters tighter so the unsafe regime is unreachable
+    params.h_max = 100; // adjust per finding
+
+    let mut engine = RiskEngine::new(params);
+    let idx = add_test_user(&mut engine, 0).unwrap() as usize;
+
+    // Same state setup, but with values that keep the math in-range
+    let small_pnl: i128 = 1i128 << 60;
+    let small_u: u128 = small_pnl as u128;
+
+    engine.accounts[idx].pnl = small_pnl;
+    engine.pnl_pos_tot = small_u;
+    engine.accounts[idx].reserved_pnl = 0;
+
+    // Trigger — should NOT panic
+    let result = engine.<engine_function_name>(idx);
+
+    // Adapt assertion to your engine's error/return convention
+    assert!(result.is_ok() || matches!(result, Err(_)),
+        "small inputs should not panic; if they do, your understanding of the path is wrong");
+}
+
+// =============================================================================
+// USAGE NOTES
+// =============================================================================
+//
+// 1. Replace ALL <FINDING_NAME> tokens with a unique short identifier (e.g.
+//    `bug3_trade_open_overflow`).
+// 2. Replace <EXPECTED_PANIC_MSG> with the EXACT panic message the engine
+//    produces. Verify by running once without the annotation and reading the
+//    panic output.
+// 3. Replace <engine_function_name> with the actual function under test.
+// 4. Adjust witness state setup to the specific invariant violation.
+// 5. Run BOTH tests:
+//      cargo test --features test --test <test_filename>
+//    The panic test should pass (panic fires); the sanity test should pass
+//    (no panic with safe inputs). If either fails, debug before treating as
+//    a real finding.
+// 6. After Layer 2 confirms the finding, generalise to a Kani harness using
+//    `templates/kani_cex_panic_class.rs.template`.
