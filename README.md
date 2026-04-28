@@ -1,10 +1,10 @@
 # audit-pipeline (CLI)
 
-AI-driven security audit pipeline for Solana programs. CLI orchestrator for the [Solana Audit Pipeline](https://github.com/Copenhagen0x/solana-audit-pipeline) methodology.
+Autonomous AI-driven security audit pipeline for Solana programs. Runs 24/7 on a VPS, fires a 12-agent hunt cycle on every upstream commit, writes findings to a SQLite database with severity + lifecycle, and (optionally) auto-files GitHub issues + posts Slack alerts.
 
-**5-layer flow:** multi-agent code review → empirical PoC → Kani formal verification → LiteSVM end-to-end → cross-platform reproduction.
+**5-layer technical flow:** multi-agent code review → empirical PoC → Kani formal verification → LiteSVM end-to-end → cross-platform reproduction.
 
-**Plus 5 force-multiplier commands** that turn the linear pipeline into a system with feedback loops, live monitoring, and cross-protocol intelligence.
+**Plus the autonomous hunt loop** (`hunt` + `watch --on-update`) that turns the methodology into a continuous, hands-off bug hunter with cost caps, daily spend limits, and severity-tagged findings.
 
 ```
 ─── Core 5-layer pipeline ─────────────────────────
@@ -30,9 +30,24 @@ audit-pipeline shadow tail    # view recent alerts
 ─── Live source-code tracking ────────────────────
 audit-pipeline freshness      # one-shot: how stale is your workspace vs upstream?
 audit-pipeline watch          # continuous: pull new commits + auto-rerun audit
+
+─── Autonomous hunt loop (production entrypoint) ─
+audit-pipeline hunt           # recon → debate → PoC → Kani → DB → Slack/GitHub
+                              # Designed for `watch --on-update`
+                              # Per-cycle + per-day cost caps
+
+─── Commercial layer (T1-T2-T3) ──────────────────
+audit-pipeline onboard <url>  # one-shot: clone repo + scaffold workspace + register target
+audit-pipeline dashboard      # self-contained HTML status dashboard (with auto-refresh)
+audit-pipeline report cycle   # per-cycle HTML report
+audit-pipeline report weekly  # rolling 7-day HTML summary
+audit-pipeline issue draft    # render Markdown issue body for a finding
+audit-pipeline issue file     # actually file via `gh issue create`
+audit-pipeline issue auto-file-confirmed  # batch-file from a cycle (severity floor)
+audit-pipeline health         # daemon health check (systemd-timer + Slack-on-degraded)
 ```
 
-19 commands. 66/66 tests passing. Production-grade `--auto` modes for the LLM-backed commands (require `ANTHROPIC_API_KEY`).
+25 commands. Production-grade `--auto` modes for the LLM-backed commands (require `ANTHROPIC_API_KEY`).
 
 ---
 
@@ -116,10 +131,10 @@ audit-pipeline --workspace ./<target>-audit disclose \
 ## Quick start — continuous monitoring (24/7)
 
 ```bash
-# Source-code watcher: pulls new commits + reruns audit on every push
+# Source-code watcher: pulls new commits + fires the autonomous hunt loop
 audit-pipeline --workspace ./<target>-audit watch \
-    --auto-pull --update-pin \
-    --on-update "audit-pipeline recon -h hypotheses.yaml"
+    --auto-pull --update-pin --interval 300 \
+    --on-update "source ~/.audit-env && audit-pipeline hunt"
 
 # Mainnet shadow audit: polls Solana RPC + watches account state byte-by-byte
 audit-pipeline --workspace ./<target>-audit shadow start \
@@ -128,7 +143,44 @@ audit-pipeline --workspace ./<target>-audit shadow start \
     --watch-fields fields.json
 ```
 
-Both designed to run on a VPS under `tmux` or `systemd`.
+Production-grade systemd deployment is bundled in `deploy/`:
+
+```bash
+# One command — installs sentinel-{shadow,watch,health,backup}.{service,timer},
+# kills any existing tmux sessions, enables units, restarts.
+sudo bash deploy/install_systemd.sh
+```
+
+---
+
+## Autonomous hunt loop
+
+`hunt` is the production entrypoint. One invocation runs the full chain:
+
+1. **Layer 1** — `recon --auto` dispatches N parallel Claude agents, one per hypothesis
+2. **Layer 1.5** — `debate --auto` runs adversarial second-opinion on contested verdicts
+3. **Layer 2** — for every TRUE/HIGH verdict: scaffold a state-conservation PoC and run `cargo test`
+4. **Layer 3** — for every PoC that fires: `synth-kani --auto` generates + runs a verified Kani harness
+5. **Synthesis** — every verdict is written to `findings.db` with derived severity (Critical/High/Medium/Low/Info) and an initial lifecycle status (`new` / `triaged` / `confirmed` / `rejected`)
+6. **Reporting** — Markdown + JSON cycle artifacts; HTML report on demand; Slack webhook on confirmed findings
+
+**Cost discipline:** every cycle has a `--budget-cap-usd` and there's a global `--daily-cap-usd` (or `AUDIT_DAILY_CAP_USD` env var) that aborts the cycle if spending today + this cycle's estimate would exceed it. State is persisted in `<workspace>/.daily_spend.json`.
+
+---
+
+## Commercial features (T1 → T3)
+
+Built for selling the pipeline as audit-as-a-service:
+
+- **Severity rubric** — Critical / High / Medium / Low / Info with formal definitions, derived automatically from `(hypothesis_class, verdict, debate_promoted, poc_fired)` or set explicitly per hypothesis.
+- **Finding lifecycle state machine** — `new → triaged → confirmed → disclosed → fixed → verified` with audit-trail transitions in SQLite.
+- **SQLite findings DB** — `targets`, `cycles`, `findings`, `transitions` tables. Single source of truth.
+- **Slack/Discord webhook** — fires on confirmed findings. Set `HUNT_WEBHOOK_URL`.
+- **GitHub Issue auto-filer** — `audit-pipeline issue auto-file-confirmed --cycle-id ... --repo owner/name --severity-floor High` opens issues for confirmed findings; transitions them to `disclosed`.
+- **HTML reports** — per-cycle and rolling weekly. No Jinja, no Flask — single self-contained HTML files.
+- **Customer dashboard** — `audit-pipeline dashboard` writes (and optionally serves) a status page with KPIs, severity breakdown, recent findings, target list.
+- **Multi-target onboarding** — `audit-pipeline onboard https://github.com/owner/repo` clones + pins + scaffolds + registers in one command. Templates for `perp_dex`, `lending`, `amm`, `minimal`.
+- **Operational hardening** — sliding-window rate limiters + retry-with-backoff (Anthropic / GitHub / RPC), JSON-formatted daily-rotating logs, daily SQLite `.backup` with rotation, systemd-timer health check that POSTs Slack on degraded state.
 
 ---
 
