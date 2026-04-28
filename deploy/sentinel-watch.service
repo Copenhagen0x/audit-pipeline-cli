@@ -7,6 +7,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WorkingDirectory=/root/audit_runs/percolator-live
 ExecStartPre=/bin/mkdir -p /root/audit_runs/percolator-live/watch
 ExecStart=/bin/bash -c 'source /root/.audit-env && exec /root/.local/bin/audit-pipeline --workspace /root/audit_runs/percolator-live watch --auto-pull --update-pin --interval 300 --on-update "source /root/.audit-env && audit-pipeline --workspace /root/audit_runs/percolator-live hunt 2>&1 | tee -a /root/audit_runs/percolator-live/watch/hunt-on-update.log"'

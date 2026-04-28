@@ -218,7 +218,7 @@ def hunt_cmd(
     recon_cap = min(budget_cap_usd, daily_cap.remaining_today())
 
     rc = _run([
-        "audit-pipeline", "--workspace", str(workspace),
+        _audit_pipeline_bin(), "--workspace", str(workspace),
         "recon",
         "--hypotheses", hypotheses,
         "--output", str(recon_out),
@@ -282,7 +282,7 @@ def hunt_cmd(
             if not proposer_path.exists():
                 continue
             rc = _run([
-                "audit-pipeline", "--workspace", str(workspace),
+                _audit_pipeline_bin(), "--workspace", str(workspace),
                 "debate",
                 "--hypothesis-id", hyp_id,
                 "--proposer-verdict", str(proposer_path),
@@ -324,7 +324,7 @@ def hunt_cmd(
             hyp_id = v["hypothesis_id"]
             finding_name = _slugify(hyp_id)
             rc = _run([
-                "audit-pipeline", "--workspace", str(workspace),
+                _audit_pipeline_bin(), "--workspace", str(workspace),
                 "poc",
                 "--finding", finding_name,
                 "--template", "engine_state_conservation_poc",
@@ -385,7 +385,7 @@ def hunt_cmd(
             invariant = meta.get("claim", f"invariant for {hyp_id}")[:500]
             engine_function = meta.get("engine_function", "absorb_protocol_loss")
             rc = _run([
-                "audit-pipeline", "--workspace", str(workspace),
+                _audit_pipeline_bin(), "--workspace", str(workspace),
                 "synth-kani",
                 "--invariant", invariant,
                 "--engine-function", engine_function,
@@ -566,6 +566,18 @@ def _run(cmd: list[str], cwd: Path | None = None, timeout: int = 1800) -> int:
     except FileNotFoundError as e:
         sys.stderr.write(f"command not found: {e}\n")
         return 127
+
+
+def _audit_pipeline_bin() -> str:
+    """Resolve the audit-pipeline binary path (defeats PATH issues under systemd).
+
+    Prefer sys.argv[0] (what the user actually invoked) so subprocess
+    self-recursion uses the same install. Falls back to "audit-pipeline" on PATH.
+    """
+    argv0 = sys.argv[0] if sys.argv else ""
+    if argv0 and Path(argv0).name in ("audit-pipeline", "audit-pipeline.exe") and Path(argv0).exists():
+        return str(Path(argv0).resolve())
+    return "audit-pipeline"
 
 
 def _slugify(text: str) -> str:
