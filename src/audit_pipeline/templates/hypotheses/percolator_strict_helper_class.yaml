@@ -1,0 +1,165 @@
+# Percolator surgical hypothesis library — accrual-helper asymmetry class.
+#
+# Targets the structural bug class behind public disclosures #60 (WithdrawCollateral
+# K-walker) and #62 (funding-driven K-walker). Both bugs exploit the asymmetry
+# between two wrapper-side accrual helpers:
+#
+#   ensure_market_accrued_to_now_with_policy      ← WEAK
+#   ensure_market_accrued_to_now_for_account_limited_op  ← STRICT (calls
+#       reject_account_limited_market_progress, which rejects when exposed OI
+#       exists AND price/funding moved)
+#
+# Hypothesis design philosophy: every claim names a specific function or
+# helper, asks a binary question that requires reading actual call sites, and
+# is grounded in the project's own §1.4 envelope-ceiling RiskParams.
+#
+# Run with:
+#   audit-pipeline hunt --hypotheses .../percolator_strict_helper_class.yaml \
+#                       --refinement-rounds 1 --max-concurrent 4
+
+hypotheses:
+
+  - id: SH1-strict-helper-coverage
+    class: state_transition
+    severity: Critical
+    claim: >
+      Every wrapper-side instruction handler that calls an accrue helper
+      uses `ensure_market_accrued_to_now_for_account_limited_op` (which calls
+      `reject_account_limited_market_progress`) for any path that admits
+      lazy MTM accumulation on accounts other than the signer's. Specifically:
+      `WithdrawCollateral`, `TradeNoCpi`, `TradeCpi`, `CloseAccount`,
+      `ConvertReleasedPnl`, and `KeeperCrank` either all route through the
+      strict helper, or document why they don't — with a Kani policy proof
+      binding the chosen helper to the claimed safety property.
+    target_file: src/percolator.rs (wrapper)
+    relevant_instructions: |
+      WithdrawCollateral, TradeNoCpi, TradeCpi, CloseAccount,
+      ConvertReleasedPnl, KeeperCrank, CatchupAccrue
+    relevant_constants: |
+      ensure_market_accrued_to_now_with_policy
+      ensure_market_accrued_to_now_for_account_limited_op
+      reject_account_limited_market_progress
+      reject_stuck_target_accrual
+
+  - id: SH2-withdraw-collateral-helper-choice
+    class: state_transition
+    severity: Critical
+    claim: >
+      `WithdrawCollateral` invokes `ensure_market_accrued_to_now_for_account_limited_op`
+      (the strict helper) and not `ensure_market_accrued_to_now_with_policy`,
+      because WithdrawCollateral admits lazy MTM accumulation on user accounts
+      that are not the signer's account (e.g., a decoy walk).
+    target_file: src/percolator.rs (wrapper)
+    relevant_instructions: |
+      WithdrawCollateral handler at src/percolator.rs:5756
+
+  - id: SH3-k-walk-via-oracle-rejected
+    class: state_transition
+    severity: Critical
+    claim: >
+      A sequence of two `WithdrawCollateral(decoy, amount=1)` calls at
+      10-slot increments, where each carries a Pyth observation 4.5%
+      adverse to the previous engine price, cannot accumulate K-state
+      walk without triggering `reject_account_limited_market_progress`
+      against the exposed OI carried by other accounts (A long, B short
+      from a self-matched pair).
+
+  - id: SH4-k-walk-via-funding-rejected
+    class: state_transition
+    severity: Critical
+    claim: >
+      A multi-day warp under static Pyth oracle but non-zero funding rate
+      (driven by `mark_ewma` divergence from attacker-controlled CPI matcher
+      at exec_price = oracle × 1.005) cannot accumulate K-state walk via
+      `compute_current_funding_rate_e9` × elapsed_slots without an account-
+      touching gate firing on every materialized exposed account before
+      risk decisions.
+
+  - id: SH5-keeper-crank-touching-completeness
+    class: state_transition
+    severity: Critical
+    claim: >
+      `KeeperCrank` (`src/percolator.rs:5434-5673`) commits partial-catchup
+      WITH per-candidate `touch_account_live_local` (engine
+      `src/percolator.rs:4822-4848`) on every account in its candidate set
+      before any `accrue_market_to` further advances the market clock.
+      This invariant guarantees that lazy MTM realized on the candidate
+      cannot bypass `partial_liq` enforcement.
+
+  - id: SH6-resolve-flat-negative-gate
+    class: state_transition
+    severity: Critical
+    claim: >
+      `resolve_flat_negative` (engine `src/percolator.rs:4770-4785`) is
+      reached only via `touch_account_live_local` step 7
+      (`src/percolator.rs:4822-4848`) when `eff_pos == 0 && pnl < 0`.
+      Equivalently: there is no other call site that reaches
+      `absorb_protocol_loss(|pnl|)` → `use_insurance_buffer` from a
+      permissionless wrapper instruction without first touching the
+      losing account.
+
+  - id: SH7-mark-ewma-update-rate-cap
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      The wrapper's `mark_ewma_e6` update at `src/percolator.rs:6746-6776`
+      clamps per-slot mark divergence to ≤ 49 bps/slot under §1.4
+      envelope-ceiling RiskParams. No sequence of legitimate
+      `TradeNoCpi` / `TradeCpi` calls can produce a `mark_ewma` value
+      whose divergence from `last_effective_price_e6` produces a funding
+      rate magnitude exceeding the spec'd cap when integrated over any
+      single accrue step.
+
+  - id: SH8-trade-cpi-band-check-tightness
+    class: implicit_invariant
+    severity: High
+    claim: >
+      `TradeCpi`'s band check at `src/percolator.rs:6633-6655` enforces
+      that `exec_price` is within ±100 bps of the Pyth oracle observation
+      passed in the same instruction, and the band cannot be widened by
+      attacker-controlled CPI matcher state writes between configuring
+      and executing the trade.
+
+  - id: SH9-stuck-target-accrual-rejection
+    class: state_transition
+    severity: High
+    claim: >
+      `reject_stuck_target_accrual` correctly rejects every accrue path
+      that would advance market state past a configured staleness window
+      under stuck-oracle conditions, AND this rejection cannot be bypassed
+      by the attacker setting `funding_rate_e9` to a value that would
+      make `compute_current_funding_rate_e9` skip the staleness branch.
+
+  - id: SH10-cpi-matcher-state-writes-isolated
+    class: authorization
+    severity: High
+    claim: >
+      `TradeCpi`'s matcher CPI cannot write to engine state (specifically
+      `mark_ewma_e6`, `last_effective_price_e6`, or any account's
+      `pos_q`/`capital`/`pnl` fields) except via the wrapper's well-defined
+      return-receipt path — i.e., the CPI matcher is data-only, not state-
+      mutating against the engine.
+
+  - id: SH11-self-matched-pair-cannot-walk-K
+    class: state_transition
+    severity: Critical
+    claim: >
+      A self-matched pair (attacker keypairs A long / B short opened via
+      `TradeNoCpi` at baseline price) cannot subsequently walk K-state
+      such that one side's lazy MTM exceeds its capital while the other
+      side accumulates a haircut-claimable matching positive PnL, regardless
+      of which permissionless instruction sequence the attacker uses
+      (decoy WithdrawCollateral, CatchupAccrue, KeeperCrank, TradeCpi
+      with attacker matcher).
+
+  - id: SH12-insurance-drain-via-resolve-flat-negative
+    class: invariant_property
+    severity: Critical
+    claim: >
+      The insurance buffer cannot be drained by a sequence of permissionless
+      instructions that does NOT include partial liquidation of every
+      open exposed position whose lazy MTM has crossed the maintenance
+      margin threshold. Equivalently: every `use_insurance_buffer` call
+      reachable from a permissionless wrapper handler is preceded in the
+      same call tree by a `partial_liq` evaluation against the candidate
+      account set.
