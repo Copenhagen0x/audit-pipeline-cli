@@ -54,7 +54,12 @@ Example = "https://github.com/Copenhagen0x/percolator-audit-2026-04"
 where = ["src"]
 
 [tool.setuptools.package-data]
-audit_pipeline = ["templates/*", "scripts/**/*"]
+audit_pipeline = [
+    "templates/*",
+    "templates/**/*",
+    "templates/**/**/*",
+    "scripts/**/*",
+]
 
 [tool.ruff]
 line-length = 100
