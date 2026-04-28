@@ -1,21 +1,38 @@
-"""`audit-pipeline recon` — build Layer-1 multi-agent prompts from a hypothesis list.
+"""`audit-pipeline recon` — Layer-1 multi-agent code review.
 
-Reads a hypotheses.yaml file, instantiates the appropriate agent prompt
-template for each hypothesis, and writes ready-to-send prompts to disk.
+Two modes:
 
-The CLI does NOT spawn the agents itself — that's the user's job (via
-their LLM of choice). The CLI's role is to assemble well-formed prompts
-so the user only needs to copy-paste.
+  render mode (default): writes one prompt file per hypothesis for the
+    user to feed to their LLM manually.
+
+  --auto mode: actually dispatches N parallel Claude agents, one per
+    hypothesis, saves each response to disk, parses verdicts, and emits
+    a structured summary. Requires ANTHROPIC_API_KEY.
+
+When --auto is on, this becomes the entry point of the autonomous hunt
+loop: the watch daemon's --on-update can fire `recon --auto` on every
+new commit, the synthesis script processes the verdicts, and downstream
+PoC + Kani + disclosure flows handle whatever's confirmed.
 """
 
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 import click
 import yaml
 from rich.console import Console
+from rich.table import Table
 
-from audit_pipeline.utils import render_placeholders
+from audit_pipeline.utils import (
+    LLMResponse,
+    LLMUnavailable,
+    complete,
+    is_available,
+    render_placeholders,
+)
 
 console = Console()
 
@@ -29,6 +46,12 @@ HYPOTHESIS_CLASS_TO_TEMPLATE = {
     "reachability": "07_call_chain_reachability.md",
     "invariant_property": "08_invariant_property_definition.md",
 }
+
+
+# Approximate Sonnet 4.7 pricing as of build time. If pricing changes,
+# update here. Used only for cost estimation in --auto mode.
+COST_PER_INPUT_TOKEN = 3.0e-6   # $3 per 1M input tokens
+COST_PER_OUTPUT_TOKEN = 15.0e-6  # $15 per 1M output tokens
 
 
 @click.command(name="recon")
@@ -46,9 +69,41 @@ HYPOTHESIS_CLASS_TO_TEMPLATE = {
     default=None,
     help="Output directory for prompt files (defaults to <workspace>/recon/)",
 )
+@click.option(
+    "--auto",
+    is_flag=True,
+    help=(
+        "Actually dispatch Claude agents in parallel, save responses, "
+        "parse verdicts. Requires ANTHROPIC_API_KEY in env."
+    ),
+)
+@click.option(
+    "--max-concurrent",
+    type=int,
+    default=4,
+    show_default=True,
+    help="Max parallel Claude API calls in --auto mode",
+)
+@click.option(
+    "--budget-cap-usd",
+    type=float,
+    default=5.0,
+    show_default=True,
+    help=(
+        "Hard cap on total Claude spend for this run (--auto mode). "
+        "If estimated spend would exceed, agents skip silently."
+    ),
+)
 @click.pass_context
-def recon_cmd(ctx: click.Context, hypotheses: str, output: Path | None) -> None:
-    """Build Layer-1 multi-agent recon prompts from a hypothesis list.
+def recon_cmd(
+    ctx: click.Context,
+    hypotheses: str,
+    output: Path | None,
+    auto: bool,
+    max_concurrent: int,
+    budget_cap_usd: float,
+) -> None:
+    """Layer-1 multi-agent recon. Render prompts (default) or dispatch agents (--auto).
 
     The hypotheses YAML file should have:
 
@@ -61,28 +116,38 @@ def recon_cmd(ctx: click.Context, hypotheses: str, output: Path | None) -> None:
         - id: H2
           ...
 
-    Output is one prompt file per hypothesis, ready to send to your LLM.
+    In default mode: writes <hyp-id>_prompt.md per hypothesis.
+    In --auto mode: also writes <hyp-id>_response.md with the agent's
+    output, plus a recon_summary.json aggregating all verdicts for the
+    synthesis pipeline to consume.
     """
     workspace = Path(ctx.obj["workspace"])
     config_path = workspace / "workspace.json"
 
     if not config_path.exists():
-        raise click.ClickException(f"No workspace.json at {config_path}. Run `audit-pipeline init` first.")
+        raise click.ClickException(
+            f"No workspace.json at {config_path}. Run `audit-pipeline init` first."
+        )
 
     config = json.loads(config_path.read_text())
 
-    # Default output dir
     if output is None:
         output = workspace / "recon"
     output.mkdir(parents=True, exist_ok=True)
 
-    # Load hypotheses
     with open(hypotheses) as f:
         hyp_data = yaml.safe_load(f)
 
     if "hypotheses" not in hyp_data:
         raise click.ClickException(
             f"{hypotheses} must contain a top-level 'hypotheses' key with a list."
+        )
+
+    # Pre-flight check for --auto mode
+    if auto and not is_available():
+        raise click.ClickException(
+            "--auto mode requires ANTHROPIC_API_KEY in your environment. "
+            "Either set the key or omit --auto."
         )
 
     # Locate orientation prompt + class-specific prompts
@@ -93,15 +158,19 @@ def recon_cmd(ctx: click.Context, hypotheses: str, output: Path | None) -> None:
     if not orientation_path.exists():
         raise click.ClickException(f"Orientation prompt missing at {orientation_path}")
 
-    orientation = orientation_path.read_text()
+    orientation = orientation_path.read_text(encoding="utf-8", errors="replace")
 
-    # Generate per-hypothesis prompt files
+    # Render prompts for every hypothesis (mode-independent)
+    rendered_prompts: list[tuple[str, str]] = []  # (hyp_id, full_prompt_text)
     for hyp in hyp_data["hypotheses"]:
         hyp_id = hyp["id"]
         hyp_class = hyp.get("class", "implicit_invariant")
 
         if hyp_class not in HYPOTHESIS_CLASS_TO_TEMPLATE:
-            console.print(f"[yellow]Warning:[/yellow] {hyp_id} has unknown class '{hyp_class}'; using implicit_invariant template.")
+            console.print(
+                f"[yellow]Warning:[/yellow] {hyp_id} has unknown class "
+                f"'{hyp_class}'; using implicit_invariant template."
+            )
             hyp_class = "implicit_invariant"
 
         template_filename = HYPOTHESIS_CLASS_TO_TEMPLATE[hyp_class]
@@ -109,11 +178,8 @@ def recon_cmd(ctx: click.Context, hypotheses: str, output: Path | None) -> None:
         if not template_path.exists():
             raise click.ClickException(f"Template missing: {template_path}")
 
-        template_content = template_path.read_text()
+        template_content = template_path.read_text(encoding="utf-8", errors="replace")
 
-        # Substitute {KEY} placeholders in BOTH orientation and class template.
-        # Class templates reference paths like {ENGINE_PATH} / {SPEC_PATH} that
-        # the recon command needs to fill in alongside the orientation kwargs.
         local_engine_path = str(workspace / config["engine"]["local"])
         local_wrapper_path = str(workspace / config["wrapper"]["local"])
         substitutions = {
@@ -126,18 +192,22 @@ def recon_cmd(ctx: click.Context, hypotheses: str, output: Path | None) -> None:
             "ENGINE_PATH": local_engine_path,
             "WRAPPER_PATH": local_wrapper_path,
             "SPEC_PATH": str(Path(local_engine_path) / "spec.md"),
-            "LIST_RELEVANT_CONSTANTS": hyp.get("relevant_constants", "(none specified)"),
-            "LIST_RELEVANT_INSTRUCTIONS": hyp.get("relevant_instructions", "(none specified)"),
+            "LIST_RELEVANT_CONSTANTS": hyp.get(
+                "relevant_constants", "(none specified)"
+            ),
+            "LIST_RELEVANT_INSTRUCTIONS": hyp.get(
+                "relevant_instructions", "(none specified)"
+            ),
         }
 
         rendered_orientation = render_placeholders(orientation, **substitutions)
-        rendered_class_template = render_placeholders(template_content, **substitutions)
+        rendered_class = render_placeholders(template_content, **substitutions)
 
         full_prompt = f"""{rendered_orientation}
 
 ---
 
-{rendered_class_template}
+{rendered_class}
 
 ---
 
@@ -151,14 +221,209 @@ Notes:        {hyp.get("notes", "(none)")}
 """
 
         out_path = output / f"{hyp_id}_prompt.md"
-        out_path.write_text(full_prompt)
+        out_path.write_text(full_prompt, encoding="utf-8")
+        rendered_prompts.append((hyp_id, full_prompt))
         console.print(f"  [green]wrote[/green] {out_path}")
 
     console.print()
-    console.print(f"[bold green]Built {len(hyp_data['hypotheses'])} prompts in {output}/[/bold green]")
     console.print(
-        "  Send each prompt to your LLM (Claude with subagent dispatch, or equivalent)."
+        f"[bold green]Built {len(rendered_prompts)} prompts in {output}/[/bold green]"
     )
+
+    if not auto:
+        console.print(
+            "  Send each prompt to your LLM. Save responses as "
+            "<hyp-id>_response.md in the same directory for synthesis."
+        )
+        console.print(
+            "  Tip: pass [cyan]--auto[/cyan] to dispatch agents in parallel "
+            "and skip the manual paste."
+        )
+        return
+
+    # ---------- AUTO MODE ----------
+    console.print()
     console.print(
-        "  Save responses as <hyp-id>_response.md in the same directory for synthesis."
+        f"[bold]Dispatching {len(rendered_prompts)} agents (max {max_concurrent} "
+        f"concurrent, budget cap ${budget_cap_usd:.2f})...[/bold]"
     )
+
+    results: dict[str, dict[str, Any]] = {}
+    total_in_tokens = 0
+    total_out_tokens = 0
+    total_cost = 0.0
+    started = time.time()
+    skipped_for_budget: list[str] = []
+
+    def _dispatch_one(hyp_id: str, prompt_text: str) -> tuple[str, dict[str, Any]]:
+        """Worker: dispatch one hypothesis to Claude, return (id, result-dict)."""
+        try:
+            resp = complete(prompt_text)
+            return hyp_id, {
+                "ok": True,
+                "text": resp.text,
+                "input_tokens": resp.input_tokens,
+                "output_tokens": resp.output_tokens,
+                "model": resp.model,
+                "stop_reason": resp.stop_reason,
+            }
+        except Exception as e:  # noqa: BLE001 — surface every failure as data
+            return hyp_id, {"ok": False, "error": str(e)}
+
+    with ThreadPoolExecutor(max_workers=max_concurrent) as ex:
+        future_map = {}
+        for hyp_id, prompt_text in rendered_prompts:
+            # Pre-check budget (rough estimate: assume max 30k tokens out per call)
+            est_cost = (
+                len(prompt_text) / 4 * COST_PER_INPUT_TOKEN
+                + 30_000 * COST_PER_OUTPUT_TOKEN
+            )
+            if total_cost + est_cost > budget_cap_usd:
+                skipped_for_budget.append(hyp_id)
+                continue
+            future_map[ex.submit(_dispatch_one, hyp_id, prompt_text)] = hyp_id
+
+        for future in as_completed(future_map):
+            hyp_id, result = future.result()
+            results[hyp_id] = result
+            if result.get("ok"):
+                total_in_tokens += result["input_tokens"]
+                total_out_tokens += result["output_tokens"]
+                cost = (
+                    result["input_tokens"] * COST_PER_INPUT_TOKEN
+                    + result["output_tokens"] * COST_PER_OUTPUT_TOKEN
+                )
+                total_cost += cost
+                # Write response to disk
+                resp_path = output / f"{hyp_id}_response.md"
+                resp_path.write_text(result["text"], encoding="utf-8")
+                console.print(
+                    f"  [green]✓[/green] {hyp_id}: "
+                    f"{result['input_tokens']:,}in / {result['output_tokens']:,}out "
+                    f"(${cost:.3f})"
+                )
+            else:
+                console.print(
+                    f"  [red]✗[/red] {hyp_id}: {result.get('error', 'unknown error')}"
+                )
+
+    elapsed = time.time() - started
+
+    # Parse verdicts from each response
+    verdict_summary: list[dict[str, Any]] = []
+    for hyp_id, result in sorted(results.items()):
+        record: dict[str, Any] = {"hypothesis_id": hyp_id}
+        if not result.get("ok"):
+            record["status"] = "ERROR"
+            record["error"] = result.get("error")
+        else:
+            verdict, confidence = _parse_verdict(result["text"])
+            record["status"] = "OK"
+            record["verdict"] = verdict
+            record["confidence"] = confidence
+            record["input_tokens"] = result["input_tokens"]
+            record["output_tokens"] = result["output_tokens"]
+        verdict_summary.append(record)
+
+    summary = {
+        "schema": "audit-pipeline.recon.v1",
+        "workspace": str(workspace),
+        "engine_sha": config.get("engine", {}).get("sha"),
+        "wrapper_sha": config.get("wrapper", {}).get("sha"),
+        "n_hypotheses": len(rendered_prompts),
+        "n_dispatched": len(results),
+        "n_skipped_budget": len(skipped_for_budget),
+        "skipped_for_budget": skipped_for_budget,
+        "n_errors": sum(1 for r in results.values() if not r.get("ok")),
+        "n_ok": sum(1 for r in results.values() if r.get("ok")),
+        "total_input_tokens": total_in_tokens,
+        "total_output_tokens": total_out_tokens,
+        "total_cost_usd": round(total_cost, 4),
+        "elapsed_seconds": round(elapsed, 1),
+        "verdicts": verdict_summary,
+        "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    summary_path = output / "recon_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+    # Print summary table
+    console.print()
+    table = Table(title=f"Recon dispatch complete in {elapsed:.0f}s")
+    table.add_column("Hypothesis", style="cyan")
+    table.add_column("Verdict", style="bold")
+    table.add_column("Confidence")
+    table.add_column("Tokens")
+    for r in verdict_summary:
+        if r["status"] == "OK":
+            verdict_color = {
+                "TRUE": "[red]TRUE[/red]",
+                "FALSE": "[green]FALSE[/green]",
+                "NEEDS_LAYER_2_TO_DECIDE": "[yellow]NEEDS_L2[/yellow]",
+                "UNKNOWN": "[dim]UNKNOWN[/dim]",
+            }.get(r["verdict"], r["verdict"])
+            table.add_row(
+                r["hypothesis_id"],
+                verdict_color,
+                r["confidence"],
+                f"{r['input_tokens']:,}/{r['output_tokens']:,}",
+            )
+        else:
+            table.add_row(
+                r["hypothesis_id"],
+                "[red]ERROR[/red]",
+                "-",
+                r.get("error", "")[:30],
+            )
+    console.print(table)
+
+    console.print()
+    console.print(
+        f"[bold]Spent:[/bold] ${total_cost:.3f} "
+        f"({total_in_tokens:,}in / {total_out_tokens:,}out)"
+    )
+    if skipped_for_budget:
+        console.print(
+            f"[yellow]Skipped {len(skipped_for_budget)} for budget:[/yellow] "
+            f"{', '.join(skipped_for_budget)}"
+        )
+    console.print(f"Summary: [cyan]{summary_path}[/cyan]")
+
+
+# ---------------------------------------------------------------------------
+# Verdict parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_verdict(text: str) -> tuple[str, str]:
+    """Extract (verdict, confidence) from an agent response.
+
+    Looks for a "## Verdict" section header and parses the next non-empty
+    line for TRUE/FALSE/NEEDS_LAYER_2_TO_DECIDE plus HIGH/MED/LOW.
+    Falls back to (UNKNOWN, UNKNOWN) if the structure isn't found.
+    """
+    import re
+
+    m = re.search(
+        r"^##\s*Verdict\s*\n+(.+?)(?:\n##|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not m:
+        return "UNKNOWN", "UNKNOWN"
+
+    block = m.group(1).strip().upper()
+    verdict = "UNKNOWN"
+    if "NEEDS_LAYER_2" in block:
+        verdict = "NEEDS_LAYER_2_TO_DECIDE"
+    elif " TRUE " in f" {block} " or block.startswith("TRUE"):
+        verdict = "TRUE"
+    elif " FALSE " in f" {block} " or block.startswith("FALSE"):
+        verdict = "FALSE"
+
+    confidence = "UNKNOWN"
+    for c in ("HIGH", "MED", "LOW"):
+        if c in block:
+            confidence = c
+            break
+
+    return verdict, confidence

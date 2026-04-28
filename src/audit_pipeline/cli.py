@@ -14,6 +14,7 @@ from audit_pipeline.commands import (
     debate,
     disclose,
     freshness,
+    hunt,
     init,
     kani,
     litesvm,
@@ -95,6 +96,9 @@ main.add_command(shadow.shadow_group)              # Layer 6  (group: start, tai
 # Subcommands — freshness / live-source tracking
 main.add_command(freshness.freshness_cmd)          # one-shot staleness check
 main.add_command(watch.watch_cmd)                  # continuous source-code watch
+
+# Autonomous hunt loop (the production entry point)
+main.add_command(hunt.hunt_cmd)                    # recon -> debate -> PoC -> report
 
 
 if __name__ == "__main__":

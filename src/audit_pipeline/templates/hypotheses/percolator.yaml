@@ -1,0 +1,109 @@
+# Default hypothesis library for Percolator perpetual DEX.
+#
+# Used by `audit-pipeline hunt` when no explicit --hypotheses is passed
+# AND the workspace's target_name contains "percolator".
+#
+# These are the 12 hypothesis classes that produced the F7 disclosure
+# and that converged on the bounty-2 negative result. They are
+# deliberately framed as "is this invariant true?" questions so a
+# clean negative result strengthens the disclosure.
+#
+# To extend for a different protocol, copy this file, rewrite each
+# `claim` in your protocol's terms, and pass with --hypotheses.
+
+hypotheses:
+
+  - id: H1-residual-conservation
+    class: invariant_property
+    claim: >
+      The post-haircut residual cash on a market
+      (vault - cash_locked_in_orderbook - claimable_pnl - insurance_counter)
+      is conserved by every internal accounting helper. Specifically: if any
+      helper shrinks the insurance counter, it MUST also debit the vault by
+      the same amount, otherwise the residual grows without a corresponding
+      credit obligation.
+    target_file: src/percolator.rs
+    relevant_constants: |
+      MAX_VAULT_TVL = 1e16
+      MAX_ACCOUNT_POSITIVE_PNL = 1e32
+      MAX_POSITION_ABS_Q = 1e14
+    relevant_instructions: |
+      settle_after_close, fill_match, all paths that touch insurance_fund.balance
+
+  - id: H2-haircut-direction
+    class: implicit_invariant
+    claim: >
+      The haircut (positive-PnL claim cap) only ever shrinks claimable PnL,
+      never increases the residual cash that other claimants can pull.
+
+  - id: H3-self-trade-cash-flow
+    class: state_transition
+    claim: >
+      A self-trade (same authority on both sides of a fill) is cash-flow
+      neutral up to fees + IM transitions.
+
+  - id: H4-vault-balance-conservation
+    class: invariant_property
+    claim: >
+      For every market state transition, the change in vault balance equals
+      the sum of (cash deposited into orderbook + claimable_pnl_credited
+      + insurance_counter_credited - amounts_paid_out).
+
+  - id: H5-permissionless-trigger-surface
+    class: authorization
+    claim: >
+      Every public/permissionless instruction that reaches use_insurance_buffer
+      requires either an admin signer OR cannot drain the insurance pool below
+      its initial floor.
+
+  - id: H6-funding-rate-mark-bias
+    class: state_transition
+    claim: >
+      The funding rate captured by every instruction is computed BEFORE any
+      mark_ewma_e6 / last_effective_price_e6 mutation in the same instruction,
+      preventing same-tx self-bias.
+
+  - id: H7-catchup-touch-account-pairing
+    class: state_transition
+    claim: >
+      Every public instruction that advances the engine's market clock
+      (accrue_market_to / accrue_market_to_chunked) is paired with a
+      touch_account_live_local on every materialized account before the
+      next risk-gate is evaluated.
+
+  - id: H8-keeper-crank-cursor-consumption
+    class: state_transition
+    claim: >
+      The keeper crank's price-move consumption budget is not reset until
+      every account in the swept window has actually been touched, so a
+      reset implies real volatility was absorbed.
+
+  - id: H9-resolved-mode-mature-claim
+    class: implicit_invariant
+    claim: >
+      Once a market enters Resolved mode, no further accrual of
+      claimable_pnl is possible against the residual; only existing
+      matured claims can be paid down.
+
+  - id: H10-init-state-invariants
+    class: invariant_property
+    claim: >
+      The post-init state of a market (vault, c_tot, insurance_fund.balance,
+      pnl_pos_tot, pnl_matured_pos_tot, all OI counters) satisfies every
+      invariant that assert_public_postconditions enforces on subsequent calls.
+
+  - id: H11-account-gc-state-leak
+    class: state_transition
+    claim: >
+      free_slot / reclaim_empty_account zeroes every byte of the account
+      slot, so a subsequent materialize_at on the same index cannot inherit
+      shadow state (PnL, capital, position basis) from the prior owner.
+
+  - id: H12-arithmetic-bounds-on-mature
+    class: arithmetic_overflow
+    claim: >
+      The lazy mark-to-market PnL computation
+      (pnl_delta = abs_basis * (K_now - K_snap) / (a_basis * POS_SCALE))
+      cannot overflow i128 under the engine's own constants
+      (MAX_POSITION_ABS_Q, MAX_VAULT_TVL) for any K-walk reachable through
+      a sequence of cap-respecting accrue_market_to calls.
