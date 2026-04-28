@@ -105,6 +105,22 @@ COST_PER_OUTPUT_TOKEN = 15.0e-6  # $15 per 1M output tokens
         "2=double-challenge. Each round ~doubles per-hyp API spend."
     ),
 )
+@click.option(
+    "--ground-code/--no-ground-code",
+    default=True,
+    show_default=True,
+    help=(
+        "Inject actual Rust source for the functions / patterns named in each "
+        "hypothesis's `relevant_constants` and `relevant_instructions` fields. "
+        "Defeats the agent-hallucinates-code-reads failure mode at the cost of "
+        "more input tokens per call."
+    ),
+)
+@click.option(
+    "--code-max-lines",
+    type=int, default=120, show_default=True,
+    help="Max lines per extracted function in --ground-code mode",
+)
 @click.pass_context
 def recon_cmd(
     ctx: click.Context,
@@ -114,6 +130,8 @@ def recon_cmd(
     max_concurrent: int,
     budget_cap_usd: float,
     refinement_rounds: int,
+    ground_code: bool,
+    code_max_lines: int,
 ) -> None:
     """Layer-1 multi-agent recon. Render prompts (default) or dispatch agents (--auto).
 
@@ -215,6 +233,41 @@ def recon_cmd(
         rendered_orientation = render_placeholders(orientation, **substitutions)
         rendered_class = render_placeholders(template_content, **substitutions)
 
+        # Optional code-grounding: pull actual Rust source for the named
+        # constants / instructions and inject into the prompt. Defeats the
+        # agent-hallucinates-code-reads failure mode.
+        code_section = ""
+        if ground_code:
+            from audit_pipeline.utils.code_extract import collect_grounded_code
+
+            engine_src_dir = Path(local_engine_path) / "src"
+            wrapper_src_dir = Path(local_wrapper_path) / "src"
+            rs_files: list[Path] = []
+            for d in (engine_src_dir, wrapper_src_dir):
+                if d.exists():
+                    rs_files.extend(sorted(d.glob("*.rs")))
+
+            targets: list[str] = []
+            for raw_block in (hyp.get("relevant_constants", ""), hyp.get("relevant_instructions", "")):
+                if not isinstance(raw_block, str):
+                    continue
+                for line in raw_block.splitlines():
+                    for token in line.replace(",", " ").split():
+                        token = token.strip(" `'\"():")
+                        if token and not token.startswith("("):
+                            targets.append(token)
+
+            grounded = collect_grounded_code(targets, rs_files, max_lines=code_max_lines)
+            blocks = [v for v in grounded.values() if v]
+            if blocks:
+                code_section = (
+                    "\n\n# CODE-GROUNDED CONTEXT (actual source bytes)\n\n"
+                    "These are real source-code excerpts pulled from the workspace. "
+                    "Cite specific line numbers from these excerpts in your verdict — "
+                    "DO NOT invent code that is not in this section.\n\n"
+                    + "\n\n".join(blocks)
+                )
+
         full_prompt = f"""{rendered_orientation}
 
 ---
@@ -230,6 +283,7 @@ Claim:        {hyp.get("claim", "(see hypothesis brief above)")}
 Target file:  {hyp.get("target_file", "(see hypothesis brief above)")}
 Target lines: {hyp.get("target_lines", "(see hypothesis brief above)")}
 Notes:        {hyp.get("notes", "(none)")}
+{code_section}
 """
 
         out_path = output / f"{hyp_id}_prompt.md"

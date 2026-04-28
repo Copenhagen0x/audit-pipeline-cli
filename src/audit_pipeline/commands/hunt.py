@@ -101,6 +101,10 @@ console = Console()
     help="Adversarial refinement rounds in Layer 1 (0=fast, 1=balanced, 2=deep)",
 )
 @click.option(
+    "--ground-code/--no-ground-code", default=True, show_default=True,
+    help="Inject actual Rust source for hyp-named functions into agent prompts (defeats hallucinated reads)",
+)
+@click.option(
     "--webhook-url",
     default=None, envvar="HUNT_WEBHOOK_URL",
     help="Slack/Discord webhook URL to POST findings to (or HUNT_WEBHOOK_URL env)",
@@ -124,6 +128,7 @@ def hunt_cmd(
     skip_litesvm: bool,
     skip_narrative: bool,
     refinement_rounds: int,
+    ground_code: bool,
     webhook_url: str | None,
     engine_only: bool,
 ) -> None:
@@ -241,6 +246,7 @@ def hunt_cmd(
         "--max-concurrent", str(max_concurrent),
         "--budget-cap-usd", str(recon_cap),
         "--refinement-rounds", str(refinement_rounds),
+        "--ground-code" if ground_code else "--no-ground-code",
     ])
     log("layer1_done", returncode=rc)
 
