@@ -1,0 +1,24 @@
+[Unit]
+Description=Sentinel — 24/7 Solana mainnet shadow audit (Percolator)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=audit
+WorkingDirectory=/home/audit
+Environment=PATH=/home/audit/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/audit/.local/bin/audit-pipeline \
+    --workspace /home/audit/audit_runs/percolator-live \
+    shadow start \
+    --program 6qWZvUtfyShbxTQkwjCayk3LuGqTGJwBo2QfkePK5jdJ \
+    --watch-account CJKBStEn5VXEF9VNTChKKb5YW84MV7LycqMMziVuxJSc \
+    --interval 60 \
+    --limit 25
+Restart=on-failure
+RestartSec=30
+StandardOutput=append:/home/audit/audit_runs/percolator-live/shadow/stdout.log
+StandardError=append:/home/audit/audit_runs/percolator-live/shadow/stderr.log
+
+[Install]
+WantedBy=multi-user.target

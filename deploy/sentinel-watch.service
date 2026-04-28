@@ -1,0 +1,23 @@
+[Unit]
+Description=Sentinel — Source-code watch for Percolator engine + wrapper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=audit
+WorkingDirectory=/home/audit
+Environment=PATH=/home/audit/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/audit/.local/bin/audit-pipeline \
+    --workspace /home/audit/audit_runs/percolator-live \
+    watch \
+    --auto-pull \
+    --update-pin \
+    --interval 300
+Restart=on-failure
+RestartSec=30
+StandardOutput=append:/home/audit/audit_runs/percolator-live/watch/stdout.log
+StandardError=append:/home/audit/audit_runs/percolator-live/watch/stderr.log
+
+[Install]
+WantedBy=multi-user.target
