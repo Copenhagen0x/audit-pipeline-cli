@@ -11,17 +11,22 @@ from rich.console import Console
 from audit_pipeline import __version__
 from audit_pipeline.commands import (
     cross_check,
+    dashboard,
     debate,
     disclose,
     freshness,
+    health,
     hunt,
     init,
+    issue,
     kani,
     litesvm,
+    onboard,
     poc,
     propagate,
     provision_vps,
     recon,
+    report,
     run,
     shadow,
     spec_check,
@@ -98,7 +103,18 @@ main.add_command(freshness.freshness_cmd)          # one-shot staleness check
 main.add_command(watch.watch_cmd)                  # continuous source-code watch
 
 # Autonomous hunt loop (the production entry point)
-main.add_command(hunt.hunt_cmd)                    # recon -> debate -> PoC -> report
+main.add_command(hunt.hunt_cmd)                    # recon -> debate -> PoC -> Kani -> report
+
+# Subcommands — commercial layer (T1: severity + lifecycle + reports + issues)
+main.add_command(issue.issue_cmd)                  # gh issue draft / file / auto-file
+main.add_command(report.report_cmd)                # HTML cycle + weekly reports
+
+# Subcommands — multi-customer layer (T2)
+main.add_command(onboard.onboard_cmd)              # one-shot customer onboarding
+main.add_command(dashboard.dashboard_cmd)          # HTML status dashboard
+
+# Subcommands — operational hardening (T3)
+main.add_command(health.health_cmd)                # daemon health check (systemd timer)
 
 
 if __name__ == "__main__":

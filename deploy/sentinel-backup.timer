@@ -1,0 +1,11 @@
+[Unit]
+Description=Sentinel - daily findings DB backup at 04:30 UTC
+Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

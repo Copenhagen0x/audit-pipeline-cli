@@ -1,24 +1,21 @@
 [Unit]
-Description=Sentinel — 24/7 Solana mainnet shadow audit (Percolator)
+Description=Sentinel - live mainnet shadow audit (Layer 6)
+Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=audit
-WorkingDirectory=/home/audit
-Environment=PATH=/home/audit/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/audit/.local/bin/audit-pipeline \
-    --workspace /home/audit/audit_runs/percolator-live \
-    shadow start \
-    --program 6qWZvUtfyShbxTQkwjCayk3LuGqTGJwBo2QfkePK5jdJ \
-    --watch-account CJKBStEn5VXEF9VNTChKKb5YW84MV7LycqMMziVuxJSc \
-    --interval 60 \
-    --limit 25
+User=root
+WorkingDirectory=/root/audit_runs/percolator-live
+ExecStartPre=/bin/mkdir -p /root/audit_runs/percolator-live/shadow
+ExecStart=/bin/bash -c 'source /root/.audit-env && exec /root/.local/bin/audit-pipeline --workspace /root/audit_runs/percolator-live shadow start --program 6qWZvUtfyShbxTQkwjCayk3LuGqTGJwBo2QfkePK5jdJ --watch-account CJKBStEn5VXEF9VNTChKKb5YW84MV7LycqMMziVuxJSc --interval 60 --limit 25'
 Restart=on-failure
-RestartSec=30
-StandardOutput=append:/home/audit/audit_runs/percolator-live/shadow/stdout.log
-StandardError=append:/home/audit/audit_runs/percolator-live/shadow/stderr.log
+RestartSec=15s
+StandardOutput=append:/root/audit_runs/percolator-live/shadow/daemon.log
+StandardError=append:/root/audit_runs/percolator-live/shadow/daemon.log
+KillMode=mixed
+TimeoutStopSec=30s
 
 [Install]
 WantedBy=multi-user.target

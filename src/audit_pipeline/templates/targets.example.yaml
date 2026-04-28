@@ -1,0 +1,51 @@
+# Multi-target config for `audit-pipeline`.
+#
+# Each entry under `targets:` is a Solana program being continuously
+# audited by the same VPS. The watch + shadow + hunt loop reads this
+# file and dispatches per-target.
+#
+# Copy this file to `targets.yaml` in the workspace root and edit the
+# entries to match what you're auditing.
+
+targets:
+
+  - name: percolator
+    description: >
+      Percolator perpetual DEX engine + Solana wrapper.
+    engine:
+      repo: https://github.com/aeyakovenko/percolator-prog
+      pin: 6e9b8f9d72ddf...                    # SHA or branch
+      local_subdir: engine                     # within workspace
+    wrapper:
+      repo: https://github.com/aeyakovenko/percolator-prog
+      pin: 4c22024...
+      local_subdir: wrapper
+    program_id: 6qWZvUtfyShbxTQkwjCayk3LuGqTGJwBo2QfkePK5jdJ
+    watch_accounts:
+      - account: CJKBStEn5VXEF9VNTChKKb5YW84MV7LycqMMziVuxJSc
+        name: percolator_market_state
+        # Optional: alert on a u128 field at a known offset
+        # fields:
+        #   - name: insurance_fund_balance
+        #     offset: 288
+        #     alert_on_decrease_above: 1000000
+
+    hypotheses_file: hypotheses.yaml           # in workspace root or per-target
+    severity_floor_for_github_issue: High      # auto-file only High+ on confirmed
+    github_issue_repo: aeyakovenko/percolator-prog
+
+    # Optional: Slack webhook for this target's alerts
+    # webhook_url: https://hooks.slack.com/services/...
+
+    # Optional: per-target budget overrides (default: inherit from CLI)
+    # budget_cap_usd: 10
+    # daily_cap_usd: 50
+
+    # Lifecycle: where to look for fresh commits
+    poll_interval_sec: 300
+
+  # Add more targets here. Each gets its own subdir under
+  # <workspace>/targets/<name>/ for cycle artifacts and findings.
+  #
+  # - name: my-other-protocol
+  #   ...

@@ -1,0 +1,11 @@
+[Unit]
+Description=Sentinel - daily findings DB backup
+Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/audit_runs/percolator-live
+ExecStart=/bin/bash /root/audit-pipeline-cli/deploy/backup_findings_db.sh
+StandardOutput=journal
+StandardError=journal

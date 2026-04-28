@@ -1,23 +1,21 @@
 [Unit]
-Description=Sentinel — Source-code watch for Percolator engine + wrapper
+Description=Sentinel - source-code watch + autonomous hunt loop (Layer 0.5)
+Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=audit
-WorkingDirectory=/home/audit
-Environment=PATH=/home/audit/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/audit/.local/bin/audit-pipeline \
-    --workspace /home/audit/audit_runs/percolator-live \
-    watch \
-    --auto-pull \
-    --update-pin \
-    --interval 300
+User=root
+WorkingDirectory=/root/audit_runs/percolator-live
+ExecStartPre=/bin/mkdir -p /root/audit_runs/percolator-live/watch
+ExecStart=/bin/bash -c 'source /root/.audit-env && exec /root/.local/bin/audit-pipeline --workspace /root/audit_runs/percolator-live watch --auto-pull --update-pin --interval 300 --on-update "source /root/.audit-env && audit-pipeline --workspace /root/audit_runs/percolator-live hunt 2>&1 | tee -a /root/audit_runs/percolator-live/watch/hunt-on-update.log"'
 Restart=on-failure
-RestartSec=30
-StandardOutput=append:/home/audit/audit_runs/percolator-live/watch/stdout.log
-StandardError=append:/home/audit/audit_runs/percolator-live/watch/stderr.log
+RestartSec=30s
+StandardOutput=append:/root/audit_runs/percolator-live/watch/daemon.log
+StandardError=append:/root/audit_runs/percolator-live/watch/daemon.log
+KillMode=mixed
+TimeoutStopSec=60s
 
 [Install]
 WantedBy=multi-user.target

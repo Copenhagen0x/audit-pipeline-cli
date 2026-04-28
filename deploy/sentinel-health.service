@@ -1,0 +1,11 @@
+[Unit]
+Description=Sentinel - daemon health check (one-shot)
+Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/audit_runs/percolator-live
+ExecStart=/bin/bash -c 'source /root/.audit-env && /root/.local/bin/audit-pipeline --workspace /root/audit_runs/percolator-live health --silent'
+StandardOutput=journal
+StandardError=journal
