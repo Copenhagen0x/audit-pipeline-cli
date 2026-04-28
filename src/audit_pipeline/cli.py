@@ -17,6 +17,7 @@ from audit_pipeline.commands import (
     freshness,
     health,
     hunt,
+    hunt_deep,
     init,
     issue,
     kani,
@@ -106,6 +107,7 @@ main.add_command(watch.watch_cmd)                  # continuous source-code watc
 
 # Autonomous hunt loop (the production entry point)
 main.add_command(hunt.hunt_cmd)                    # recon -> debate -> PoC -> Kani -> report
+main.add_command(hunt_deep.hunt_deep_cmd)          # tool-using deep hunt (read_file, grep, find_function)
 
 # Subcommands — commercial layer (T1: severity + lifecycle + reports + issues)
 main.add_command(issue.issue_cmd)                  # gh issue draft / file / auto-file
