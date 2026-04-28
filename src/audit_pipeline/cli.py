@@ -21,6 +21,7 @@ from audit_pipeline.commands import (
     init,
     issue,
     kani,
+    learn,
     litesvm,
     narrative,
     onboard,
@@ -108,6 +109,7 @@ main.add_command(watch.watch_cmd)                  # continuous source-code watc
 # Autonomous hunt loop (the production entry point)
 main.add_command(hunt.hunt_cmd)                    # recon -> debate -> PoC -> Kani -> report
 main.add_command(hunt_deep.hunt_deep_cmd)          # tool-using deep hunt (read_file, grep, find_function)
+main.add_command(learn.learn_cmd)                  # generate hyps from public disclosures
 
 # Subcommands — commercial layer (T1: severity + lifecycle + reports + issues)
 main.add_command(issue.issue_cmd)                  # gh issue draft / file / auto-file
