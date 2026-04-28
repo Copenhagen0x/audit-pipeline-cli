@@ -278,13 +278,51 @@ def run_tool_using_agent(
             break
         messages.append({"role": "user", "content": tool_results})
 
-    # Final text answer
+    # If we hit max_turns mid-tool-use, force a final verdict turn.
+    if stop_reason == "tool_use" and n_turns >= max_turns:
+        messages.append({
+            "role": "user",
+            "content": (
+                "Maximum exploration turns reached. STOP using tools now and "
+                "render your FINAL VERDICT based on what you've already found. "
+                "Cite specific file paths and line numbers from your prior "
+                "tool results. End with the required `## Verdict` section."
+            ),
+        })
+        try:
+            forced_resp = client.messages.create(
+                model=model,
+                max_tokens=max_tokens_per_turn,
+                system=system_prompt,
+                tools=TOOLS_SCHEMA,
+                messages=messages,
+            )
+            total_in += forced_resp.usage.input_tokens
+            total_out += forced_resp.usage.output_tokens
+            stop_reason = forced_resp.stop_reason or stop_reason
+            messages.append({"role": "assistant", "content": forced_resp.content})
+            n_turns += 1
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Pull text from the LAST assistant message that has any text content
     final_text = ""
-    last_msg = messages[-1] if messages[-1]["role"] == "assistant" else None
-    if last_msg:
-        for block in last_msg["content"]:
-            if hasattr(block, "text"):
-                final_text += block.text
+    for msg in reversed(messages):
+        if msg.get("role") != "assistant":
+            continue
+        text_parts = []
+        for block in msg["content"]:
+            if hasattr(block, "text") and block.text:
+                text_parts.append(block.text)
+        if text_parts:
+            final_text = "\n\n".join(text_parts)
+            break
+
+    if not final_text:
+        final_text = (
+            f"[NO FINAL TEXT — agent made {len(tool_calls_log)} tool calls "
+            f"across {n_turns} turns but did not produce a verdict]"
+        )
 
     return ToolUsingResult(
         text=final_text,
