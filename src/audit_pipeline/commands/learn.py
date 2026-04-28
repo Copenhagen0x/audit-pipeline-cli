@@ -170,26 +170,39 @@ def learn_cmd(
 
 
 def _fetch_issue_body(url: str) -> str:
-    """Fetch a GitHub issue body via gh CLI."""
+    """Fetch a GitHub issue body. Tries gh CLI, falls back to unauth'd public API."""
     m = re.match(r"https?://github\.com/([^/]+)/([^/]+)/issues/(\d+)", url)
     if not m:
         return ""
     owner, repo, num = m.group(1), m.group(2), m.group(3)
-    try:
-        result = subprocess.run(
-            ["gh", "api", f"repos/{owner}/{repo}/issues/{num}", "--jq", ".body"],
-            capture_output=True, text=True, timeout=30, check=True,
-        )
-        return result.stdout
-    except (subprocess.CalledProcessError, FileNotFoundError):
+
+    # Try gh CLI first (works if authenticated)
+    for cmd in (
+        ["gh", "api", f"repos/{owner}/{repo}/issues/{num}", "--jq", ".body"],
+        ["gh", "issue", "view", num, "--repo", f"{owner}/{repo}", "--json", "body", "-q", ".body"],
+    ):
         try:
-            result = subprocess.run(
-                ["gh", "issue", "view", num, "--repo", f"{owner}/{repo}", "--json", "body", "-q", ".body"],
-                capture_output=True, text=True, timeout=30, check=True,
-            )
-            return result.stdout
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+            if result.stdout.strip():
+                return result.stdout
         except (subprocess.CalledProcessError, FileNotFoundError):
-            return ""
+            continue
+
+    # Fallback: unauth'd public API via curl (60 req/hr per IP — fine for our use)
+    try:
+        import requests
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{num}"
+        r = requests.get(api_url, headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "audit-pipeline-sentinel",
+        }, timeout=30)
+        if r.status_code == 200:
+            data = r.json()
+            return data.get("body") or ""
+    except Exception:  # noqa: BLE001
+        pass
+
+    return ""
 
 
 def _extract_yaml(text: str) -> str:
