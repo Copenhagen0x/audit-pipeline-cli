@@ -21,6 +21,7 @@ from audit_pipeline.commands import (
     issue,
     kani,
     litesvm,
+    narrative,
     onboard,
     poc,
     propagate,
@@ -29,6 +30,7 @@ from audit_pipeline.commands import (
     report,
     run,
     shadow,
+    sign,
     spec_check,
     sync,
     synth_kani,
@@ -115,6 +117,10 @@ main.add_command(dashboard.dashboard_cmd)          # HTML status dashboard
 
 # Subcommands — operational hardening (T3)
 main.add_command(health.health_cmd)                # daemon health check (systemd timer)
+
+# Subcommands — finding-quality layer (audit-firm-grade outputs)
+main.add_command(narrative.narrative_cmd)          # LLM narrative writeups for findings
+main.add_command(sign.sign_cmd)                    # Ed25519-signed disclosures
 
 
 if __name__ == "__main__":

@@ -1,0 +1,821 @@
+# Deep hypothesis library for Percolator perpetual DEX (engine + wrapper).
+#
+# 100+ protocol-specific invariants, structured into 10 surface families.
+# Each entry is framed as a falsifiable claim. The autonomous hunt loop
+# treats each one as "is this invariant true?" and reports per-hypothesis
+# verdicts back into the Sentinel findings DB.
+#
+# Severity field is auto-derived if absent; explicit severity here pins
+# the invariant's importance regardless of cycle outcome.
+#
+# To regenerate: this file is hand-curated against `percolator.rs` +
+# `account_user.rs` + the wrapper instructions. Update when the engine
+# adds new state or instructions.
+
+hypotheses:
+
+  # ===================================================================
+  # FAMILY 1 — Vault accounting + residual conservation (F7 family)
+  # ===================================================================
+
+  - id: V1-vault-residual-conservation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      The post-haircut residual cash (vault - cash_locked_in_orderbook -
+      claimable_pnl - insurance_counter) is conserved across every internal
+      accounting helper. Specifically: if any helper shrinks the insurance
+      counter, it MUST also debit the vault by the same amount.
+    target_file: src/percolator.rs
+    relevant_constants: |
+      MAX_VAULT_TVL = 1e16
+      MAX_ACCOUNT_POSITIVE_PNL = 1e32
+      MAX_POSITION_ABS_Q = 1e14
+    relevant_instructions: |
+      settle_after_close, fill_match, every path touching insurance_fund.balance,
+      use_insurance_buffer, absorb_protocol_loss, record_uninsured_protocol_loss
+
+  - id: V2-vault-balance-equation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      For every market state transition, the change in vault balance equals
+      the sum of (cash deposited into orderbook + claimable_pnl_credited
+      + insurance_counter_credited - amounts_paid_out). No dark accounting.
+
+  - id: V3-vault-monotonic-on-deposit
+    class: implicit_invariant
+    severity: High
+    claim: >
+      User-initiated deposits monotonically increase vault balance by exactly
+      the deposited amount, with no off-by-one credit to claimable PnL or
+      insurance.
+
+  - id: V4-vault-cap-respect
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Vault balance is provably bounded by MAX_VAULT_TVL across every reachable
+      state. No accounting helper can push vault past this cap silently.
+
+  - id: V5-haircut-direction
+    class: implicit_invariant
+    severity: Critical
+    claim: >
+      The haircut (positive-PnL claim cap) only ever shrinks claimable PnL,
+      never increases the residual cash that other claimants can pull.
+
+  - id: V6-insurance-floor
+    class: invariant_property
+    severity: High
+    claim: >
+      Insurance fund balance is monotonically non-decreasing across user-only
+      activity (deposits, withdraws, fills) and only decreases when an
+      insurance-draw helper is invoked under explicit conditions.
+
+  - id: V7-insurance-counter-vault-coupling
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Every code path that mutates `insurance_fund.balance` is paired with
+      an equal-magnitude mutation of `vault` in the same direction
+      (credit insurance => credit vault; debit insurance => debit vault).
+
+  - id: V8-cash-locked-conservation
+    class: state_transition
+    severity: High
+    claim: >
+      `cash_locked_in_orderbook` equals the sum of all unfilled order sizes
+      times their respective limit prices, for every market state.
+
+  - id: V9-rebate-accumulation-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Maker-rebate accumulation across all accounts is bounded by the
+      configured rebate-rate × cumulative volume; never exceeds total fees
+      collected.
+
+  - id: V10-claimable-pnl-conservation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Sum of claimable_pnl across all account materializations equals
+      the engine-tracked `pnl_pos_tot - pnl_neg_tot` for the market.
+
+  # ===================================================================
+  # FAMILY 2 — PnL accounting + funding accrual
+  # ===================================================================
+
+  - id: P1-pnl-zero-sum
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Across all accounts in a market, sum(positive PnL) - sum(negative PnL)
+      equals zero up to fees and funding payments. No PnL is created from
+      nothing.
+
+  - id: P2-pnl-pos-tot-monotonic
+    class: implicit_invariant
+    severity: High
+    claim: >
+      `pnl_pos_tot` is monotonically non-decreasing during accrual phases
+      and decreases only when matured claims are paid down.
+
+  - id: P3-pnl-matured-bound
+    class: invariant_property
+    severity: High
+    claim: >
+      `pnl_matured_pos_tot ≤ pnl_pos_tot` at all times. Matured claims are
+      a subset of total claims.
+
+  - id: P4-funding-rate-mark-bias
+    class: state_transition
+    severity: High
+    claim: >
+      The funding rate captured by every instruction is computed BEFORE any
+      mark_ewma_e6 / last_effective_price_e6 mutation in the same instruction,
+      preventing same-tx self-bias.
+
+  - id: P5-funding-payment-zero-sum
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Funding payments are zero-sum across long and short positions. Total
+      paid by longs equals total received by shorts (or vice versa).
+
+  - id: P6-mark-ewma-bound
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      `mark_ewma_e6` cannot grow unbounded; bounded by configured EWMA
+      half-life × max single-trade price impact.
+
+  - id: P7-pnl-on-side-flip
+    class: state_transition
+    severity: High
+    claim: >
+      When an account flips side (long → short or vice versa), the realized
+      PnL on the closing portion is correctly debited/credited, and the
+      remaining new-side basis is set to the executed fill price.
+
+  - id: P8-self-trade-cash-flow
+    class: state_transition
+    severity: Medium
+    claim: >
+      A self-trade (same authority on both sides of a fill) is cash-flow
+      neutral up to fees + IM transitions. No fund extraction via self-trades.
+
+  - id: P9-pnl-arithmetic-bounds
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      The lazy mark-to-market computation
+      pnl_delta = abs_basis * (K_now - K_snap) / (a_basis * POS_SCALE)
+      cannot overflow i128 under MAX_POSITION_ABS_Q + MAX_VAULT_TVL bounds
+      across any K-walk reachable through cap-respecting accrue_market_to.
+
+  - id: P10-funding-index-monotonic-modulo-direction
+    class: implicit_invariant
+    severity: Medium
+    claim: >
+      Cumulative funding index changes monotonically within a continuous
+      funding-rate sign window; flips only on rate-sign change.
+
+  # ===================================================================
+  # FAMILY 3 — Position management + open interest
+  # ===================================================================
+
+  - id: O1-position-q-bound
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Every account's |position_q| is bounded by MAX_POSITION_ABS_Q across
+      every reachable state, including immediately after a fill.
+
+  - id: O2-oi-conservation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Open interest (sum of |position_q| across all longs == sum across
+      shorts) is conserved by every fill. Long OI == Short OI at all times.
+
+  - id: O3-position-authority-binding
+    class: authorization
+    severity: High
+    claim: >
+      An account's `position_q` and `claimable_pnl` can only be mutated
+      when the account's bound authority signs (or via permissionless
+      instructions that explicitly preserve net-positive equity).
+
+  - id: O4-im-respect-on-open
+    class: invariant_property
+    severity: High
+    claim: >
+      Every instruction that opens or grows a position enforces
+      initial-margin (IM) requirements: equity ≥ |position_q| × mark × IM_pct.
+
+  - id: O5-mm-trigger-correctness
+    class: state_transition
+    severity: High
+    claim: >
+      Maintenance-margin (MM) breach correctly triggers liquidation eligibility,
+      and once flagged, the account cannot grow position before the breach
+      is cured.
+
+  - id: O6-side-flip-atomicity
+    class: state_transition
+    severity: High
+    claim: >
+      A side-flip fill is atomic — no intermediate "0 position" state can
+      be observed by another instruction within the same transaction.
+
+  - id: O7-position-zero-clears-basis
+    class: implicit_invariant
+    severity: Medium
+    claim: >
+      When position_q reaches exactly 0, basis-related fields are zeroed
+      atomically; subsequent fills don't inherit stale basis.
+
+  - id: O8-cross-margin-equity
+    class: invariant_property
+    severity: High
+    claim: >
+      Cross-margin equity calculation is correct under partial liquidation,
+      partial fills, and combined PnL realizations within a single instruction.
+
+  - id: O9-position-bedge-correct
+    class: state_transition
+    severity: Medium
+    claim: >
+      The "bedge" (basis-edge) accounting on partial closes correctly
+      apportions realized PnL between the closed and remaining size.
+
+  - id: O10-orderbook-side-balance
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Total bid-side cash locked equals sum of (size × price) for all
+      open bids; analogous for asks. Cannot be drained by helper helpers.
+
+  # ===================================================================
+  # FAMILY 4 — Liquidation + keeper crank
+  # ===================================================================
+
+  - id: L1-liquidation-discount-bounded
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Liquidation bonus paid to a liquidator cannot exceed the configured
+      LIQUIDATION_INCENTIVE_PCT of seized collateral, even under stacked
+      partial liquidations within a single instruction.
+
+  - id: L2-liquidation-only-on-mm-breach
+    class: state_transition
+    severity: Critical
+    claim: >
+      A liquidation can only successfully execute when the target account's
+      MM is genuinely breached at the moment of execution (not based on
+      stale mark or pre-accrual state).
+
+  - id: L3-keeper-crank-cursor-budget
+    class: state_transition
+    severity: High
+    claim: >
+      The keeper crank's price-move consumption budget is not reset until
+      every account in the swept window has actually been touched, so a
+      reset implies real volatility was absorbed.
+
+  - id: L4-keeper-authorization-surface
+    class: authorization
+    severity: Critical
+    claim: >
+      Every public/permissionless instruction that reaches use_insurance_buffer
+      requires either an admin signer OR cannot drain the insurance pool below
+      its initial floor.
+
+  - id: L5-liquidation-no-fee-enrichment
+    class: invariant_property
+    severity: High
+    claim: >
+      Liquidation does not transfer collateral to the liquidator beyond
+      the configured incentive percentage + protocol-defined fees.
+
+  - id: L6-force-closure-conditions
+    class: state_transition
+    severity: High
+    claim: >
+      Force closure of a position can only occur under exactly the conditions
+      enumerated in spec.md (MM breach, market-pause, settlement). No
+      undocumented force-close path exists.
+
+  - id: L7-keeper-crank-progress
+    class: implicit_invariant
+    severity: Medium
+    claim: >
+      Each keeper crank invocation either advances the market clock or
+      touches at least one account. Cranks cannot be invoked as no-ops to
+      drain insurance buffers.
+
+  - id: L8-partial-liquidation-correctness
+    class: state_transition
+    severity: High
+    claim: >
+      Partial liquidation correctly reduces position_q + claims proportional
+      to seized collateral. Resulting account state still satisfies all
+      asserted post-conditions.
+
+  - id: L9-cascade-liquidation-bound
+    class: implicit_invariant
+    severity: Medium
+    claim: >
+      A single instruction cannot trigger more than the configured cascade
+      bound of liquidations (preventing griefing via long cascades).
+
+  - id: L10-liquidation-touch-pairing
+    class: state_transition
+    severity: High
+    claim: >
+      Every liquidation instruction calls accrue_market_to + touch_account_live_local
+      on the target account BEFORE the MM-breach gate is evaluated.
+
+  # ===================================================================
+  # FAMILY 5 — Authorization + permissionless surfaces
+  # ===================================================================
+
+  - id: A1-permissionless-no-drain
+    class: authorization
+    severity: Critical
+    claim: >
+      Every public/permissionless instruction either requires a privileged
+      signer OR provably cannot reduce vault below cash_locked + claimable_pnl
+      + insurance.balance.
+
+  - id: A2-admin-instructions-signer-check
+    class: authorization
+    severity: Critical
+    claim: >
+      Every admin-only instruction (pause, set-fee, set-cap, etc.) verifies
+      the admin signer via Solana's signer flag, NOT just account-pubkey
+      comparison.
+
+  - id: A3-cpi-safety
+    class: authorization
+    severity: High
+    claim: >
+      Any cross-program invocation invoked from within an instruction either
+      (a) targets a fixed pubkey hardcoded in the program, or (b) verifies
+      the target program's owner matches an explicit allowlist.
+
+  - id: A4-token-authority-validation
+    class: authorization
+    severity: High
+    claim: >
+      Token transfers always validate that the source token account's owner
+      matches the expected signer or the program-derived authority.
+
+  - id: A5-pda-derivation-canonicality
+    class: authorization
+    severity: High
+    claim: >
+      Every PDA used as a vault or authority is derived with canonical seeds
+      and the result is checked against the passed-in account pubkey before
+      any state mutation.
+
+  - id: A6-account-discriminator-check
+    class: authorization
+    severity: High
+    claim: >
+      Every parsed account verifies its discriminator (account-type tag)
+      before reading typed fields, preventing type confusion attacks.
+
+  - id: A7-wrapper-instruction-signer-routing
+    class: authorization
+    severity: High
+    claim: >
+      The BPF wrapper's instruction dispatch correctly routes signer
+      privileges from the outermost transaction to the inner engine call,
+      with no signer-impersonation possible via wrapper-side bugs.
+
+  - id: A8-multisig-threshold
+    class: authorization
+    severity: Medium
+    claim: >
+      If a multisig is used, threshold is enforced atomically and cannot
+      be partially bypassed by replaying signatures.
+
+  - id: A9-pause-gate-coverage
+    class: authorization
+    severity: Medium
+    claim: >
+      When the protocol is paused, every state-mutating instruction checks
+      the pause flag and rejects. No instruction has a pause-bypass path.
+
+  - id: A10-upgrade-authority-frozen
+    class: authorization
+    severity: High
+    claim: >
+      The program's upgrade authority is either set to a known multisig
+      or explicitly burned — never left as a single-key dev wallet.
+
+  # ===================================================================
+  # FAMILY 6 — State transitions + lifecycle
+  # ===================================================================
+
+  - id: S1-init-state-invariants
+    class: invariant_property
+    severity: High
+    claim: >
+      The post-init state of a market (vault, c_tot, insurance_fund.balance,
+      pnl_pos_tot, pnl_matured_pos_tot, all OI counters) satisfies every
+      invariant that assert_public_postconditions enforces on subsequent calls.
+
+  - id: S2-resolved-mode-mature-claim
+    class: implicit_invariant
+    severity: High
+    claim: >
+      Once a market enters Resolved mode, no further accrual of
+      claimable_pnl is possible against the residual; only existing
+      matured claims can be paid down.
+
+  - id: S3-settle-after-close
+    class: state_transition
+    severity: High
+    claim: >
+      `settle_after_close` correctly distributes final residual to each
+      account proportional to its claim, respecting the haircut.
+
+  - id: S4-touch-account-live-pairing
+    class: state_transition
+    severity: High
+    claim: >
+      Every public instruction that advances the engine's market clock
+      (accrue_market_to / accrue_market_to_chunked) is paired with a
+      touch_account_live_local on every materialized account before the
+      next risk-gate is evaluated.
+
+  - id: S5-market-mode-transitions
+    class: state_transition
+    severity: Medium
+    claim: >
+      Market mode transitions (Active → Halted → Resolved) are one-way
+      and irreversible without admin signer.
+
+  - id: S6-time-monotonic
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Market clock time is monotonically non-decreasing. No instruction
+      can rewind the clock.
+
+  - id: S7-epoch-staleness-gate
+    class: state_transition
+    severity: High
+    claim: >
+      Risk gates that depend on per-epoch state (e.g., funding-window
+      mark) reject when the captured epoch is stale relative to the
+      current clock.
+
+  - id: S8-deposit-withdraw-atomicity
+    class: state_transition
+    severity: High
+    claim: >
+      Deposit and withdraw instructions are atomic — either the full
+      vault and account-balance changes happen or neither. No partial-
+      success path leaves accounting drift.
+
+  - id: S9-cancel-correctness
+    class: state_transition
+    severity: Medium
+    claim: >
+      Cancel-order instructions correctly unlock cash_locked back into
+      vault and zero the order's slot.
+
+  - id: S10-rebate-claim-correctness
+    class: state_transition
+    severity: Medium
+    claim: >
+      Rebate claims pay exactly the accumulated rebate balance and
+      atomically zero the per-account rebate counter.
+
+  # ===================================================================
+  # FAMILY 7 — Account lifecycle (materialize, touch, free)
+  # ===================================================================
+
+  - id: AC1-account-gc-state-leak
+    class: state_transition
+    severity: Critical
+    claim: >
+      free_slot / reclaim_empty_account zeroes every byte of the account
+      slot, so a subsequent materialize_at on the same index cannot inherit
+      shadow state (PnL, capital, position basis) from the prior owner.
+
+  - id: AC2-materialize-fresh-state
+    class: invariant_property
+    severity: High
+    claim: >
+      After materialize_at on an empty slot, every typed field is set to
+      its documented initial value. No undefined-state read is possible.
+
+  - id: AC3-touch-idempotent
+    class: invariant_property
+    severity: Medium
+    claim: >
+      touch_account_live_local is idempotent within a single instruction —
+      calling it twice in sequence produces the same final state as calling
+      it once.
+
+  - id: AC4-free-only-on-zero-position
+    class: state_transition
+    severity: High
+    claim: >
+      free_slot / reclaim_empty_account refuses to free an account whose
+      position_q != 0 or whose claimable_pnl != 0, preventing fund
+      destruction.
+
+  - id: AC5-account-capital-conservation
+    class: invariant_property
+    severity: High
+    claim: >
+      Sum of all materialized accounts' (capital + claimable_pnl) plus
+      vault residual equals total deposits minus total withdraws across
+      the market's lifetime.
+
+  - id: AC6-slot-reuse-no-aliasing
+    class: state_transition
+    severity: High
+    claim: >
+      A reused slot index cannot alias to two live accounts simultaneously.
+      Materialize_at on an already-live slot is rejected.
+
+  - id: AC7-account-bound-authority
+    class: authorization
+    severity: High
+    claim: >
+      An account's bound authority is set at materialize time and cannot
+      be silently changed without explicit ownership-transfer instruction
+      flow.
+
+  - id: AC8-account-zeroing-on-close
+    class: state_transition
+    severity: Medium
+    claim: >
+      When an account is closed (via reclaim or full settlement),
+      all its persistent fields are zeroed before the slot is marked free.
+
+  # ===================================================================
+  # FAMILY 8 — Arithmetic safety
+  # ===================================================================
+
+  - id: AR1-mul-div-floor-no-overflow
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Every callsite of mul_div_floor_u128 either uses bounded inputs that
+      provably cannot overflow, or invokes the wide_mul_div_floor_u128
+      U256-helper variant.
+
+  - id: AR2-pnl-delta-i128-bound
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      pnl_delta computed via abs_basis × ΔK / (a_basis × POS_SCALE) is
+      provably bounded by 2^126 across any K-walk reachable through
+      cap-respecting accrue_market_to calls.
+
+  - id: AR3-funding-rate-bounds
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Computed funding rate is bounded by configured |max_funding_rate|
+      across all reachable mark/index states.
+
+  - id: AR4-catchup-no-overflow
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      The accrue_market_to_chunked catch-up math cannot overflow when
+      replaying a long staleness window, even with adversarial mark-EWMA
+      evolution.
+
+  - id: AR5-fee-calc-overflow
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Fee calculation (size × fee_rate / FEE_SCALE) cannot overflow under
+      MAX_POSITION_ABS_Q × MAX_PRICE bounds.
+
+  - id: AR6-square-root-bounds
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Any sqrt-based computation (e.g., for vega-style adjustments) is
+      bounded and never produces NaN-equivalents on integer arithmetic.
+
+  - id: AR7-saturating-arithmetic-correctness
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Where the codebase uses saturating arithmetic, the saturation point
+      is the documented protocol cap, not a primitive type's max.
+
+  - id: AR8-rounding-direction
+    class: implicit_invariant
+    severity: High
+    claim: >
+      Every rounding decision (floor/ceil/round-half-even) is set in the
+      direction that does NOT favor the user against the protocol — fees
+      always round up, payouts always round down, etc.
+
+  # ===================================================================
+  # FAMILY 9 — Instruction-level invariants (Solana-specific)
+  # ===================================================================
+
+  - id: IX1-ix-data-validation
+    class: implicit_invariant
+    severity: High
+    claim: >
+      Every instruction validates the length and shape of `instruction_data`
+      before reading typed fields. No out-of-bounds read possible.
+
+  - id: IX2-account-list-length-check
+    class: implicit_invariant
+    severity: High
+    claim: >
+      Every instruction enforces the expected number of accounts in the
+      `accounts` array before indexing.
+
+  - id: IX3-rent-exemption-check
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Every account allocated by the program is rent-exempt, with sysvar
+      rent verified at allocation time.
+
+  - id: IX4-clock-sysvar-required
+    class: implicit_invariant
+    severity: Medium
+    claim: >
+      Every instruction that consumes a timestamp uses the Solana clock
+      sysvar (not a user-supplied value).
+
+  - id: IX5-no-arbitrary-cpi
+    class: authorization
+    severity: High
+    claim: >
+      The program does not invoke arbitrary CPI based on user-supplied
+      program_id values; all CPIs are to fixed, hardcoded targets.
+
+  - id: IX6-account-owner-check
+    class: authorization
+    severity: Critical
+    claim: >
+      Every account read by the program verifies the account's `owner`
+      field matches the expected program_id, preventing fake-account
+      injection.
+
+  - id: IX7-readonly-vs-writable-correctness
+    class: implicit_invariant
+    severity: High
+    claim: >
+      Every account in an instruction's accounts array is marked writable
+      iff the program will mutate it, preventing transaction-validation
+      surprises.
+
+  - id: IX8-replay-protection
+    class: state_transition
+    severity: High
+    claim: >
+      No instruction can be replayed within the same market state to
+      double-credit a user (e.g., via signer-replay or stale-state windows).
+
+  - id: IX9-compute-budget-respect
+    class: implicit_invariant
+    severity: Low
+    claim: >
+      Every instruction completes within the configured compute budget;
+      no instruction is denial-of-service-able by adversarial input.
+
+  - id: IX10-error-codes-distinct
+    class: implicit_invariant
+    severity: Low
+    claim: >
+      Every distinct failure mode returns a distinct error code, so
+      off-chain monitoring can disambiguate without log parsing.
+
+  # ===================================================================
+  # FAMILY 10 — Cross-instruction invariants + composability
+  # ===================================================================
+
+  - id: CI1-deposit-then-withdraw-zero
+    class: state_transition
+    severity: Critical
+    claim: >
+      Deposit X immediately followed by withdraw X (with no intervening
+      activity) leaves vault + account-state byte-identical to the
+      pre-deposit state.
+
+  - id: CI2-double-touch-no-drift
+    class: invariant_property
+    severity: High
+    claim: >
+      Calling touch_account_live_local twice in succession (between two
+      accrue calls) never produces different state than calling it once.
+
+  - id: CI3-fill-then-cancel-impossible
+    class: state_transition
+    severity: High
+    claim: >
+      Once a maker order is filled (even partially), the filled portion
+      cannot be canceled. Cancel only affects unfilled remainder.
+
+  - id: CI4-self-trade-net-zero
+    class: state_transition
+    severity: High
+    claim: >
+      Self-trade (same authority on both sides) net-changes vault by
+      exactly zero up to fees. No fund extraction via self-trade.
+
+  - id: CI5-cross-market-isolation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      State changes in market A cannot affect accounts or vault in market B.
+      Markets are fully isolated.
+
+  - id: CI6-batch-instruction-atomicity
+    class: state_transition
+    severity: High
+    claim: >
+      A batched instruction (e.g., place-and-cancel, deposit-and-fill)
+      either succeeds atomically or rolls back fully. No partial-batch
+      state.
+
+  - id: CI7-wrapper-instruction-equivalence
+    class: state_transition
+    severity: High
+    claim: >
+      Calling an engine function via the BPF wrapper produces equivalent
+      state changes to calling the engine function directly (modulo
+      Solana account context).
+
+  - id: CI8-flash-fill-impossible
+    class: state_transition
+    severity: High
+    claim: >
+      A "flash fill" — open + close + withdraw within a single instruction
+      — cannot extract more than the user's pre-instruction equity.
+
+  - id: CI9-orderbook-depth-bound
+    class: invariant_property
+    severity: Medium
+    claim: >
+      The orderbook depth (open orders × levels) is bounded; cannot grow
+      indefinitely to exhaust account space or compute.
+
+  - id: CI10-resolution-final
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Once a market is resolved and all matured claims are paid, the market
+      account can be safely closed with no residual debt.
+
+  # ===================================================================
+  # FAMILY 11 — Reproduction safety + reorg resilience
+  # ===================================================================
+
+  - id: R1-reorg-resilience
+    class: state_transition
+    severity: Medium
+    claim: >
+      A finalized state cannot be silently rewritten by a Solana reorg.
+      Any reorg-affected state is either re-derivable or explicitly
+      flagged.
+
+  - id: R2-deterministic-fill-matching
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Fill matching is deterministic given identical inputs. No hidden
+      randomness that could cause dispute.
+
+  - id: R3-finality-gate
+    class: state_transition
+    severity: Low
+    claim: >
+      Settlement-class operations only consider state from finalized
+      slots, never from confirmed-but-unfinalized state.
+
+  - id: R4-leader-rotation-safety
+    class: state_transition
+    severity: Low
+    claim: >
+      Leader rotation between two adjacent slots cannot expose a
+      transient state where invariants fail.
+
+  - id: R5-rpc-staleness-tolerance
+    class: implicit_invariant
+    severity: Low
+    claim: >
+      Off-chain components reading state via RPC tolerate up to N slots
+      of staleness without acting on stale information.

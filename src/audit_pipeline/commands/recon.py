@@ -94,6 +94,17 @@ COST_PER_OUTPUT_TOKEN = 15.0e-6  # $15 per 1M output tokens
         "If estimated spend would exceed, agents skip silently."
     ),
 )
+@click.option(
+    "--refinement-rounds",
+    type=int,
+    default=0,
+    show_default=True,
+    help=(
+        "Adversarial refinement rounds per hypothesis. 0=single-pass, "
+        "1=challenge round (devil's-advocate self-critique then reconsider), "
+        "2=double-challenge. Each round ~doubles per-hyp API spend."
+    ),
+)
 @click.pass_context
 def recon_cmd(
     ctx: click.Context,
@@ -102,6 +113,7 @@ def recon_cmd(
     auto: bool,
     max_concurrent: int,
     budget_cap_usd: float,
+    refinement_rounds: int,
 ) -> None:
     """Layer-1 multi-agent recon. Render prompts (default) or dispatch agents (--auto).
 
@@ -256,14 +268,40 @@ Notes:        {hyp.get("notes", "(none)")}
     skipped_for_budget: list[str] = []
 
     def _dispatch_one(hyp_id: str, prompt_text: str) -> tuple[str, dict[str, Any]]:
-        """Worker: dispatch one hypothesis to Claude, return (id, result-dict)."""
+        """Worker: dispatch one hypothesis to Claude with optional refinement rounds.
+
+        Each refinement round runs a fresh API call asking the agent to
+        play devil's advocate against its own prior verdict, then produce
+        a final verdict considering both perspectives. The final verdict
+        replaces earlier ones; all rounds' tokens are summed.
+        """
         try:
             resp = complete(prompt_text)
-            return hyp_id, {
-                "ok": True,
+            rounds_data = [{
                 "text": resp.text,
                 "input_tokens": resp.input_tokens,
                 "output_tokens": resp.output_tokens,
+            }]
+
+            for r in range(refinement_rounds):
+                challenge_prompt = _build_challenge_prompt(
+                    hyp_id, prompt_text, rounds_data[-1]["text"], r + 1,
+                )
+                challenge_resp = complete(challenge_prompt)
+                rounds_data.append({
+                    "text": challenge_resp.text,
+                    "input_tokens": challenge_resp.input_tokens,
+                    "output_tokens": challenge_resp.output_tokens,
+                })
+                resp = challenge_resp  # last round becomes the final verdict
+
+            return hyp_id, {
+                "ok": True,
+                "text": rounds_data[-1]["text"],
+                "input_tokens": sum(r["input_tokens"] for r in rounds_data),
+                "output_tokens": sum(r["output_tokens"] for r in rounds_data),
+                "n_rounds": len(rounds_data),
+                "rounds": rounds_data,
                 "model": resp.model,
                 "stop_reason": resp.stop_reason,
             }
@@ -392,6 +430,38 @@ Notes:        {hyp.get("notes", "(none)")}
 # ---------------------------------------------------------------------------
 # Verdict parsing
 # ---------------------------------------------------------------------------
+
+
+def _build_challenge_prompt(
+    hyp_id: str, original_prompt: str, prior_response: str, round_num: int,
+) -> str:
+    """Construct the devil's-advocate challenge prompt for a refinement round.
+
+    The agent is asked to identify the strongest counter-argument against
+    its own prior verdict, surface missed code paths, and then produce a
+    final verdict that takes both perspectives into account.
+    """
+    return f"""You previously analyzed hypothesis `{hyp_id}` and produced this verdict + analysis:
+
+---BEGIN PRIOR ANALYSIS---
+{prior_response}
+---END PRIOR ANALYSIS---
+
+This is refinement round {round_num}. Now play devil's advocate against your own verdict.
+
+Identify, specifically:
+1. Code paths or call sites you may not have examined that could flip the conclusion.
+2. Invariants asserted elsewhere in the codebase that contradict (or weaken) your prior reasoning.
+3. Edge cases — adversarial inputs, race conditions, atomicity gaps, integer-edge values, replay sequences — that your prior analysis didn't address.
+4. Assumptions in your prior reasoning that may not hold under all reachable states.
+
+After surfacing the strongest counter-argument, reconsider the original hypothesis and produce your FINAL verdict. Be intellectually honest: if the devil's-advocate analysis flips your conclusion, change the verdict. If it strengthens your conclusion, raise the confidence.
+
+Use the SAME output format as before, including a `## Verdict` section that ends with TRUE / FALSE / NEEDS_LAYER_2_TO_DECIDE plus HIGH / MED / LOW confidence.
+
+Original hypothesis context (for reference, do not repeat in your output):
+{original_prompt[-2000:]}
+"""
 
 
 def _parse_verdict(text: str) -> tuple[str, str]:

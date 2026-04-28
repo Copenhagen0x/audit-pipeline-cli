@@ -89,6 +89,18 @@ console = Console()
     help="Skip Layer-3 Kani harness synthesis (default ON: Kani is slow)",
 )
 @click.option(
+    "--skip-litesvm", is_flag=True, default=False, show_default=True,
+    help="Skip Layer-4 LiteSVM exploit-chain authoring on PoC-fired findings",
+)
+@click.option(
+    "--skip-narrative", is_flag=True, default=False, show_default=True,
+    help="Skip narrative writeup generation for confirmed findings",
+)
+@click.option(
+    "--refinement-rounds", type=int, default=0, show_default=True,
+    help="Adversarial refinement rounds in Layer 1 (0=fast, 1=balanced, 2=deep)",
+)
+@click.option(
     "--webhook-url",
     default=None, envvar="HUNT_WEBHOOK_URL",
     help="Slack/Discord webhook URL to POST findings to (or HUNT_WEBHOOK_URL env)",
@@ -109,6 +121,9 @@ def hunt_cmd(
     skip_debate: bool,
     skip_poc: bool,
     skip_kani: bool,
+    skip_litesvm: bool,
+    skip_narrative: bool,
+    refinement_rounds: int,
     webhook_url: str | None,
     engine_only: bool,
 ) -> None:
@@ -225,6 +240,7 @@ def hunt_cmd(
         "--auto",
         "--max-concurrent", str(max_concurrent),
         "--budget-cap-usd", str(recon_cap),
+        "--refinement-rounds", str(refinement_rounds),
     ])
     log("layer1_done", returncode=rc)
 
@@ -361,6 +377,36 @@ def hunt_cmd(
                 except Exception as e:  # noqa: BLE001
                     log("poc_test_error", hypothesis_id=hyp_id, error=str(e))
 
+    # ---------- Layer 4: LiteSVM exploit-chain authoring (on PoC-fired) ----------
+    litesvm_results: dict[str, dict[str, Any]] = {}
+    fired_for_litesvm = [
+        v for v in candidates
+        if poc_results.get(v["hypothesis_id"], {}).get("fired")
+    ]
+    if not skip_litesvm and fired_for_litesvm:
+        console.print()
+        console.print(
+            f"[bold]Layer 4 - LiteSVM exploit-chain authoring on "
+            f"{len(fired_for_litesvm)} PoC-fired findings[/bold]"
+        )
+        litesvm_out = cycle_dir / "litesvm"
+        litesvm_out.mkdir(parents=True, exist_ok=True)
+        for v in fired_for_litesvm:
+            hyp_id = v["hypothesis_id"]
+            finding_name = _slugify(hyp_id)
+            rc = _run([
+                _audit_pipeline_bin(), "--workspace", str(workspace),
+                "litesvm", "author",
+                "--finding", finding_name,
+                "--template", "litesvm_bound_analysis",
+                "--output", str(litesvm_out),
+            ])
+            litesvm_results[hyp_id] = {
+                "returncode": rc,
+                "scaffold_dir": str(litesvm_out),
+            }
+            log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc)
+
     # ---------- Layer 3: Kani harness (only on PoC-fired) ----------
     kani_results: dict[str, dict[str, Any]] = {}
     fired_for_kani = [
@@ -476,12 +522,16 @@ def hunt_cmd(
         "n_poc_scaffolded": len(poc_results),
         "n_poc_fired": sum(1 for r in poc_results.values() if r.get("fired")),
         "n_kani_runs": len(kani_results),
+        "n_litesvm_runs": len(litesvm_results),
+        "n_narratives": len(narrative_results),
         "n_confirmed": len(confirmed),
         "confirmed": confirmed,
         "verdicts": verdicts,
         "debate": debate_results,
         "poc": poc_results,
         "kani": kani_results,
+        "litesvm": litesvm_results,
+        "narrative": narrative_results,
     }
     summary_path = cycle_dir / "hunt_summary.json"
     summary_path.write_text(json.dumps(cycle_summary, indent=2), encoding="utf-8")
@@ -490,6 +540,39 @@ def hunt_cmd(
     (cycle_dir / "hunt_report.md").write_text(
         "\n".join(md_lines), encoding="utf-8"
     )
+
+    # ---------- Narrative writeups for confirmed findings ----------
+    narrative_results: dict[str, str] = {}
+    if not skip_narrative and confirmed and daily_cap.remaining_today() > 0.30:
+        console.print()
+        console.print(
+            f"[bold]Generating narrative writeups for "
+            f"{len(confirmed)} confirmed finding(s)[/bold]"
+        )
+        narrative_out = cycle_dir / "narratives"
+        narrative_out.mkdir(parents=True, exist_ok=True)
+        # Look up each finding's DB id
+        for c in confirmed:
+            if daily_cap.remaining_today() < 0.30:
+                break
+            hyp_id = c["hypothesis_id"]
+            findings_for_hyp = [
+                f for f in db.list_findings(target_id=target_id, limit=200)
+                if f.get("cycle_id") == cycle_id and f.get("hypothesis_id") == hyp_id
+            ]
+            if not findings_for_hyp:
+                continue
+            finding_id = findings_for_hyp[0]["id"]
+            rc = _run([
+                _audit_pipeline_bin(), "--workspace", str(workspace),
+                "narrative", "generate",
+                "--finding-id", str(finding_id),
+                "--output", str(narrative_out / f"{hyp_id}.md"),
+            ])
+            narrative_results[hyp_id] = str(narrative_out / f"{hyp_id}.md")
+            log("narrative_generated", hypothesis_id=hyp_id, returncode=rc)
+            daily_cap.record_spend(0.10)
+            total_cost += 0.10
 
     db.finish_cycle(
         cycle_id=cycle_id,
