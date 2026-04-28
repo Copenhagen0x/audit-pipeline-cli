@@ -521,32 +521,45 @@ Original hypothesis context (for reference, do not repeat in your output):
 def _parse_verdict(text: str) -> tuple[str, str]:
     """Extract (verdict, confidence) from an agent response.
 
-    Looks for a "## Verdict" section header and parses the next non-empty
-    line for TRUE/FALSE/NEEDS_LAYER_2_TO_DECIDE plus HIGH/MED/LOW.
-    Falls back to (UNKNOWN, UNKNOWN) if the structure isn't found.
+    Strategy:
+      1. Find the LAST `## Verdict` section (agents often write multiple
+         while reasoning; only the final one is the actual verdict).
+      2. Within that section, parse only the FIRST 800 chars after the
+         header — that's where the verdict declaration lives. Looser
+         matches against the full body produced false positives (e.g.
+         "this is true for opening orders" leaking into the verdict).
+      3. Use word-boundary regexes for TRUE/FALSE/NEEDS_LAYER_2 instead of
+         loose substring contains.
     """
     import re
 
-    m = re.search(
-        r"^##\s*Verdict\s*\n+(.+?)(?:\n##|\Z)",
+    # All `## Verdict` matches, take the last
+    matches = list(re.finditer(
+        r"(?im)^\s*##+\s*(?:final\s+)?verdict\b.*$",
         text,
-        re.MULTILINE | re.DOTALL,
-    )
-    if not m:
+    ))
+    if not matches:
         return "UNKNOWN", "UNKNOWN"
+    last = matches[-1]
+    # Slice from the matched header to the next ## or end-of-text
+    section_start = last.end()
+    next_header = re.search(r"(?im)^\s*##+\s+\S", text[section_start:])
+    section_end = section_start + next_header.start() if next_header else len(text)
+    block = text[section_start:section_end][:1000].upper()
 
-    block = m.group(1).strip().upper()
+    # Verdict match — order matters: NEEDS_LAYER_2 wins over bare TRUE/FALSE
     verdict = "UNKNOWN"
-    if "NEEDS_LAYER_2" in block:
+    if re.search(r"NEEDS[_\s]LAYER[_\s]2", block):
         verdict = "NEEDS_LAYER_2_TO_DECIDE"
-    elif " TRUE " in f" {block} " or block.startswith("TRUE"):
+    elif re.search(r"\bVERDICT\s*[:=\-]\s*TRUE\b", block) or re.search(r"\bTRUE\b", block):
         verdict = "TRUE"
-    elif " FALSE " in f" {block} " or block.startswith("FALSE"):
+    elif re.search(r"\bVERDICT\s*[:=\-]\s*FALSE\b", block) or re.search(r"\bFALSE\b", block):
         verdict = "FALSE"
 
+    # Confidence — also word-boundary
     confidence = "UNKNOWN"
     for c in ("HIGH", "MED", "LOW"):
-        if c in block:
+        if re.search(rf"\b{c}\b", block):
             confidence = c
             break
 
