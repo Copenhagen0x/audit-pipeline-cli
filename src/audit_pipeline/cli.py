@@ -13,6 +13,7 @@ from audit_pipeline.commands import (
     cross_check,
     debate,
     disclose,
+    freshness,
     init,
     kani,
     litesvm,
@@ -25,6 +26,7 @@ from audit_pipeline.commands import (
     spec_check,
     sync,
     synth_kani,
+    watch,
 )
 
 console = Console()
@@ -60,6 +62,11 @@ def main(ctx: click.Context, workspace: str) -> None:
       Layer 2.5: synth-kani    (NL invariant → Kani harness)
       Layer 6:   shadow start  (live mainnet shadow audit)
 
+    \b
+    Live-source tracking (so you never audit stale code):
+      freshness  (one-shot: how stale is my workspace vs upstream?)
+      watch      (continuous: pull new commits + auto-rerun audit)
+
     Run `audit-pipeline init` to scaffold a new audit workspace.
     """
     ctx.ensure_object(dict)
@@ -81,9 +88,13 @@ main.add_command(run.run_cmd)
 # Subcommands — force multipliers (the "how the fuck" tier)
 main.add_command(spec_check.spec_check_cmd)        # Layer 0
 main.add_command(debate.debate_cmd)                # Layer 1.5
-main.add_command(propagate.propagate_cmd)          # Layer 1.6
+main.add_command(propagate.propagate_cmd)          # Layer 1.6 (group: init-corpus, search)
 main.add_command(synth_kani.synth_kani_cmd)        # Layer 2.5
-main.add_command(shadow.shadow_group)              # Layer 6 (group: start, tail)
+main.add_command(shadow.shadow_group)              # Layer 6  (group: start, tail)
+
+# Subcommands — freshness / live-source tracking
+main.add_command(freshness.freshness_cmd)          # one-shot staleness check
+main.add_command(watch.watch_cmd)                  # continuous source-code watch
 
 
 if __name__ == "__main__":
