@@ -6,11 +6,20 @@ Drop-in Rust file scaffolds for each layer of the audit pipeline. Copy a templat
 
 | Template | Layer | When to use |
 |---|---|---|
-| [`engine_native_poc.rs.template`](./engine_native_poc.rs.template) | 2 | Empirical PoC for a single finding — `#[should_panic]` test + companion sanity test |
+| [`engine_native_poc.rs.template`](./engine_native_poc.rs.template) | 2 | **Crash-class** finding — `#[should_panic]` test + companion sanity test (overflow, unwrap, divide-by-zero) |
+| [`engine_state_conservation_poc.rs.template`](./engine_state_conservation_poc.rs.template) | 2 | **Silent state-corruption** finding — call returns Ok(()) but a conservation invariant is violated. Uses BEFORE/AFTER invariant comparison instead of `#[should_panic]`. F7 (residual growth on insurance absorption) is the canonical example. |
 | [`kani_cex_panic_class.rs.template`](./kani_cex_panic_class.rs.template) | 3 | Formally generalize a panic-class finding via Kani |
 | [`kani_safe_invariant.rs.template`](./kani_safe_invariant.rs.template) | 3 | Formally prove a desired invariant holds under symbolic state |
 | [`litesvm_reachability_test.rs.template`](./litesvm_reachability_test.rs.template) | 4 | Confirm a public BPF instruction's call chain reaches the function under verification |
 | [`litesvm_bound_analysis.rs.template`](./litesvm_bound_analysis.rs.template) | 4 | Numerically derive the wall-clock cost of reaching a Kani-CEX witness via legitimate flow |
+
+### Choosing between the two Layer-2 templates
+
+| Symptom | Template |
+|---|---|
+| Engine call panics / returns `Err(...)` on adversarial input | `engine_native_poc` |
+| Engine call returns `Ok(())` but post-state violates a conservation rule | `engine_state_conservation_poc` |
+| Not sure which | Start with `engine_state_conservation_poc` — invariant violations are a strict superset of crashes once you wire up `assert_eq!` on the right state. |
 
 ## Placeholder tokens to replace
 
@@ -23,6 +32,7 @@ Each template has tokens you must replace before the file compiles:
 | `<engine_function_name>` | Actual engine function under test (e.g. `advance_profit_warmup`) |
 | `<INSTRUCTION_NAME>` | Actual BPF instruction name (e.g. `trade`, `crank`) |
 | `<EXPECTED_PANIC_MSG>` | EXACT panic message the engine produces (verify by running once without the annotation) |
+| `<INVARIANT_DESCRIPTION>` | One-line description of the conservation rule (e.g. `"residual = vault - (c_tot + insurance) is preserved across the call"`) |
 
 Use your editor's find-and-replace; each token is wrapped in `<>` for easy spotting.
 

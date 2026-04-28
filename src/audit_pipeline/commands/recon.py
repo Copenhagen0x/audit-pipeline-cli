@@ -13,8 +13,9 @@ from pathlib import Path
 
 import click
 import yaml
-from jinja2 import Template
 from rich.console import Console
+
+from audit_pipeline.utils import render_placeholders
 
 console = Console()
 
@@ -110,21 +111,33 @@ def recon_cmd(ctx: click.Context, hypotheses: str, output: Path | None) -> None:
 
         template_content = template_path.read_text()
 
-        # Combine orientation + class template + specific claim
-        full_prompt = f"""{Template(orientation).render(
-            ENGINE_REPO_URL=config["engine"]["repo"],
-            ENGINE_SHA=config["engine"]["sha"],
-            WRAPPER_REPO_URL=config["wrapper"]["repo"],
-            WRAPPER_SHA=config["wrapper"]["sha"],
-            LOCAL_ENGINE_PATH=str(workspace / config["engine"]["local"]),
-            LOCAL_WRAPPER_PATH=str(workspace / config["wrapper"]["local"]),
-            LIST_RELEVANT_CONSTANTS=hyp.get("relevant_constants", "(none specified)"),
-            LIST_RELEVANT_INSTRUCTIONS=hyp.get("relevant_instructions", "(none specified)"),
-        )}
+        # Substitute {KEY} placeholders in BOTH orientation and class template.
+        # Class templates reference paths like {ENGINE_PATH} / {SPEC_PATH} that
+        # the recon command needs to fill in alongside the orientation kwargs.
+        local_engine_path = str(workspace / config["engine"]["local"])
+        local_wrapper_path = str(workspace / config["wrapper"]["local"])
+        substitutions = {
+            "ENGINE_REPO_URL": config["engine"]["repo"],
+            "ENGINE_SHA": config["engine"]["sha"],
+            "WRAPPER_REPO_URL": config["wrapper"]["repo"],
+            "WRAPPER_SHA": config["wrapper"]["sha"],
+            "LOCAL_ENGINE_PATH": local_engine_path,
+            "LOCAL_WRAPPER_PATH": local_wrapper_path,
+            "ENGINE_PATH": local_engine_path,
+            "WRAPPER_PATH": local_wrapper_path,
+            "SPEC_PATH": str(Path(local_engine_path) / "spec.md"),
+            "LIST_RELEVANT_CONSTANTS": hyp.get("relevant_constants", "(none specified)"),
+            "LIST_RELEVANT_INSTRUCTIONS": hyp.get("relevant_instructions", "(none specified)"),
+        }
+
+        rendered_orientation = render_placeholders(orientation, **substitutions)
+        rendered_class_template = render_placeholders(template_content, **substitutions)
+
+        full_prompt = f"""{rendered_orientation}
 
 ---
 
-{template_content}
+{rendered_class_template}
 
 ---
 

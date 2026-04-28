@@ -50,6 +50,12 @@ For each non-finding (negative result):
 - Do NOT claim "VERIFICATION FAILED" without seeing the actual log
 - Do NOT speculate about line numbers; verify each one against source
 - Do NOT invent function names or constants; grep first
+- Do NOT trust documentation comments over actual code behavior. A doc
+  comment that says "MUST NOT do X" is evidence about INTENT, not behavior.
+  Verify the code does what the doc claims by tracing the call graph.
+- Do NOT collapse multiple call paths into one. If a function is reached
+  from path A AND path B, evaluate the hypothesis on EACH path separately.
+  A compensating mechanism on path A does not retroactively protect path B.
 
 ## Output format
 

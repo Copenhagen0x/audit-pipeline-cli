@@ -1,0 +1,148 @@
+//! Engine native state-conservation PoC — Layer 2.
+//!
+//! Use this template when the bug is NOT a panic/crash, but a SILENT state
+//! corruption: the call returns Ok(()) but a conservation invariant has been
+//! violated. F7 (residual grows on insurance absorption) is the canonical
+//! example — `absorb_protocol_loss` returns cleanly, but the haircut residual
+//! grows by exactly the absorbed amount.
+//!
+//! For panic-class bugs (overflow, unwrap, divide-by-zero) use
+//! `engine_native_poc.rs.template` instead.
+//!
+//! Replace the following placeholders before use:
+//!   <FINDING_NAME>           — short snake_case identifier (e.g. f7_residual_grows)
+//!   <engine_function_name>   — function under test (e.g. absorb_protocol_loss)
+//!   <INVARIANT_DESCRIPTION>  — one-line description of the conservation rule
+//!
+//! Adapt the `compute_invariant` closure to your invariant's formula.
+
+#![cfg(feature = "test")]
+
+use percolator::*;
+
+/// Construct engine params suitable for the conservation test.
+/// Tighten / loosen relative to the engine's defaults if the path
+/// requires specific bounds.
+fn params_for_<FINDING_NAME>() -> RiskParams {
+    RiskParams {
+        maintenance_margin_bps: 500,
+        initial_margin_bps: 1000,
+        trading_fee_bps: 0,
+        max_accounts: 64,
+        liquidation_fee_bps: 0,
+        liquidation_fee_cap: i128::U128::ZERO,
+        min_liquidation_abs: i128::U128::ZERO,
+        min_nonzero_mm_req: 5,
+        min_nonzero_im_req: 6,
+        h_min: 0,
+        h_max: 100,
+        resolve_price_deviation_bps: 1000,
+        max_accrual_dt_slots: 100,
+        max_abs_funding_e9_per_slot: 10_000,
+        min_funding_lifetime_slots: 10_000_000,
+        max_active_positions_per_side: MAX_ACCOUNTS as u64,
+        max_price_move_bps_per_slot: 4,
+    }
+}
+
+// ============================================================================
+// PoC: <INVARIANT_DESCRIPTION>
+// ============================================================================
+//
+// Pattern:
+//   1. Construct engine in a known state
+//   2. Compute the invariant value BEFORE the call
+//   3. Invoke <engine_function_name>
+//   4. Compute the invariant value AFTER the call
+//   5. Assert the conservation rule
+//
+// If the assertion FAILS, the invariant is violated (the bug is real).
+// If the assertion PASSES, either the bug doesn't exist OR the witness
+// state didn't trigger the path — adjust the witness state and retry.
+
+#[test]
+fn <FINDING_NAME>_conservation_violated() {
+    let mut engine = RiskEngine::new(params_for_<FINDING_NAME>());
+
+    // === WITNESS STATE SETUP — adapt to your finding ===
+
+    // Example for F7: plant insurance + claimable PnL + a flat negative-PnL account.
+    // Adapt to your specific finding.
+    engine.vault = U128::new(1_000);
+    engine.c_tot = U128::new(300);
+    engine.insurance_fund.balance = U128::new(200);
+
+    // Define the invariant as a closure so the BEFORE/AFTER computation is explicit.
+    // For F7, the residual = vault - (c_tot + insurance_fund.balance).
+    // For other findings, replace this with your conservation formula.
+    let invariant = |e: &RiskEngine| -> u128 {
+        e.vault.get()
+            .saturating_sub(e.c_tot.get())
+            .saturating_sub(e.insurance_fund.balance.get())
+    };
+
+    let invariant_before = invariant(&engine);
+
+    // === TRIGGER — call the engine function under test ===
+
+    // Replace with the actual call your finding requires.
+    // Example for F7:
+    let loss: u128 = 125;
+    let _ = engine.absorb_protocol_loss(loss);
+
+    // === ASSERTION — the invariant should be UNCHANGED ===
+
+    let invariant_after = invariant(&engine);
+
+    // If this assertion FIRES, the bug is real: the call mutated state in a
+    // way that broke the conservation rule.
+    assert_eq!(
+        invariant_before, invariant_after,
+        "<INVARIANT_DESCRIPTION>: invariant changed from {} to {} (delta {}). \
+         The call should have preserved the invariant.",
+        invariant_before, invariant_after,
+        (invariant_after as i128) - (invariant_before as i128),
+    );
+}
+
+/// Sanity test: confirms the invariant computation is correctly wired by
+/// running it against an engine with no mutations. Should always pass —
+/// if it fails, the invariant closure or the engine setup is wrong.
+#[test]
+fn <FINDING_NAME>_invariant_stable_under_no_op() {
+    let mut engine = RiskEngine::new(params_for_<FINDING_NAME>());
+    engine.vault = U128::new(1_000);
+    engine.c_tot = U128::new(300);
+    engine.insurance_fund.balance = U128::new(200);
+
+    let invariant = |e: &RiskEngine| -> u128 {
+        e.vault.get()
+            .saturating_sub(e.c_tot.get())
+            .saturating_sub(e.insurance_fund.balance.get())
+    };
+
+    let invariant_before = invariant(&engine);
+    // No-op: don't mutate engine
+    let invariant_after = invariant(&engine);
+
+    assert_eq!(invariant_before, invariant_after);
+}
+
+// =============================================================================
+// USAGE NOTES
+// =============================================================================
+//
+// 1. Replace ALL <FINDING_NAME> tokens with a short identifier.
+// 2. Replace <engine_function_name> with the actual function under test.
+// 3. Replace <INVARIANT_DESCRIPTION> with a one-line description.
+// 4. Adapt the `invariant` closure to your conservation formula.
+// 5. Adapt the witness state setup to drive the path that violates the
+//    invariant.
+// 6. Run BOTH tests:
+//      cargo test --features test --test <test_filename>
+//    The conservation test should FAIL (bug confirmed); the sanity test
+//    should pass. If the conservation test passes, your witness state
+//    isn't triggering the path — debug before treating the bug as refuted.
+// 7. After Layer 2 confirms the finding, generalize to a Kani harness
+//    using `templates/kani_safe_invariant.rs.template` (the SAFE proof
+//    becomes the maintainer-facing artifact).

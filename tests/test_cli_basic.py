@@ -50,3 +50,11 @@ def test_run_dry_run_without_workspace(runner, tmp_path):
     # Click maps ClickException to exit code 1
     assert result.exit_code != 0
     assert "workspace.json" in result.output.lower() or "init" in result.output.lower()
+
+
+def test_poc_template_choices_include_state_conservation(runner):
+    """`poc --help` should list both engine_native_poc and engine_state_conservation_poc."""
+    result = runner.invoke(main, ["poc", "--help"])
+    assert result.exit_code == 0
+    assert "engine_native_poc" in result.output
+    assert "engine_state_conservation_poc" in result.output
