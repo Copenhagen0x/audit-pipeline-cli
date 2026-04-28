@@ -1,52 +1,27 @@
 """`audit-pipeline report` — HTML report generator from findings DB.
 
 Two reports:
-  cycle  : single hunt-cycle report
-  weekly : rolling 7-day summary across all cycles for a target
+  cycle  : single hunt-cycle report with executive summary
+  weekly : rolling N-day summary across all cycles for a target
 
 Pure stdlib (no Jinja, no Flask) — emits a self-contained HTML file
-with inline CSS so it can be served from any static host or attached
-to an email.
+using the shared Sentinel design system (audit_pipeline.branding).
 """
 
 from __future__ import annotations
 
 import html
-import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import click
 from rich.console import Console
 
+from audit_pipeline.branding import CSS, footer_html, topbar_html
 from audit_pipeline.db import FindingsDB
-from audit_pipeline.severity import Severity, DEFINITIONS, color_html, emoji as sev_emoji
+from audit_pipeline.severity import DEFINITIONS, Severity
 
 console = Console()
-
-
-CSS = """
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-       max-width: 1100px; margin: 2em auto; padding: 0 1em; color: #1a1a1a;
-       background: #fafafa; }
-h1, h2, h3 { color: #0f0f0f; }
-h1 { border-bottom: 3px solid #1a1a1a; padding-bottom: .3em; }
-table { border-collapse: collapse; width: 100%; margin: 1em 0; background: white; }
-th, td { padding: .5em .75em; border-bottom: 1px solid #e5e5e5; text-align: left;
-         font-size: .92em; }
-th { background: #f0f0f0; font-weight: 600; }
-.sev { display: inline-block; padding: .15em .55em; border-radius: 4px;
-       color: white; font-weight: 600; font-size: .8em; }
-.kpi { display: inline-block; background: white; border: 1px solid #d4d4d4;
-       padding: 1em 1.5em; margin: .3em; border-radius: 6px; min-width: 120px; }
-.kpi .label { font-size: .8em; color: #666; text-transform: uppercase; letter-spacing: .05em; }
-.kpi .value { font-size: 1.8em; font-weight: 700; color: #0f0f0f; }
-.kpi.danger .value { color: #dc2626; }
-.muted { color: #6b7280; font-size: .9em; }
-code { background: #f3f4f6; padding: 0 .3em; border-radius: 3px; font-size: .9em; }
-.footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #e5e5e5;
-          color: #6b7280; font-size: .85em; }
-"""
 
 
 @click.group(name="report")
@@ -103,67 +78,139 @@ def weekly_report(ctx: click.Context, target: str, output: Path | None, days: in
     console.print(f"[green]wrote[/green] {out}")
 
 
-def _render_cycle_html(target: dict, cycle: dict | None, findings: list[dict]) -> str:
-    by_sev = {s.value: 0 for s in Severity}
+# ---------------------------------------------------------------------------
+# HTML render helpers
+# ---------------------------------------------------------------------------
+
+
+def _sev_counts(findings: list[dict]) -> dict[str, int]:
+    by = {s.value: 0 for s in Severity}
     for f in findings:
         s = f.get("severity")
-        if s in by_sev:
-            by_sev[s] += 1
-    n_confirmed = sum(1 for f in findings if f.get("status") == "confirmed")
+        if s in by:
+            by[s] += 1
+    return by
 
+
+def _sev_bar(counts: dict[str, int]) -> str:
+    total = max(1, sum(counts.values()))
+    if sum(counts.values()) == 0:
+        return ""
+    return f"""
+    <div class="sev-bar">
+      <span class="b-critical" style="width:{counts['Critical']/total*100:.1f}%"></span>
+      <span class="b-high"     style="width:{counts['High']/total*100:.1f}%"></span>
+      <span class="b-medium"   style="width:{counts['Medium']/total*100:.1f}%"></span>
+      <span class="b-low"      style="width:{counts['Low']/total*100:.1f}%"></span>
+      <span class="b-info"     style="width:{counts['Info']/total*100:.1f}%"></span>
+    </div>
+    <div class="sev-bar-legend">
+      <span><i style="background:var(--critical)"></i>Critical {counts['Critical']}</span>
+      <span><i style="background:var(--high)"></i>High {counts['High']}</span>
+      <span><i style="background:var(--medium)"></i>Medium {counts['Medium']}</span>
+      <span><i style="background:var(--low)"></i>Low {counts['Low']}</span>
+      <span><i style="background:var(--info)"></i>Info {counts['Info']}</span>
+    </div>"""
+
+
+def _findings_table(findings: list[dict]) -> str:
+    if not findings:
+        return '<div class="empty">No findings in this scope.</div>'
+    sev_order = {s.value: i for i, s in enumerate(Severity)}
+    rows = []
+    for f in sorted(findings, key=lambda x: sev_order.get(x.get("severity", "Info"), 99)):
+        try:
+            sev = Severity(f.get("severity", "Info"))
+        except ValueError:
+            sev = Severity.INFO
+        sev_cls = sev.value.lower()
+        status = (f.get("status") or "?").lower()
+        rows.append(f"""
+        <tr>
+          <td><span class="sev {sev_cls}">{sev.value}</span></td>
+          <td><code>{html.escape(f.get('hypothesis_id', '?'))}</code></td>
+          <td style="max-width:520px">{html.escape((f.get('title') or '')[:160])}</td>
+          <td>{html.escape(f.get('verdict','?'))} <span style="color:var(--text-3)">/ {html.escape(f.get('confidence','?'))}</span></td>
+          <td><span class="status-pill {status}">{html.escape(status)}</span></td>
+          <td>{'<span style="color:var(--ok)">✓ fired</span>' if f.get('poc_fired') else '<span style="color:var(--text-3)">—</span>'}</td>
+        </tr>""")
+    return f"""
+    <table>
+      <thead><tr>
+        <th>Severity</th><th>Hypothesis</th><th>Title</th>
+        <th>Verdict</th><th>Status</th><th>PoC</th>
+      </tr></thead>
+      <tbody>{''.join(rows)}</tbody>
+    </table>"""
+
+
+def _render_cycle_html(target: dict, cycle: dict | None, findings: list[dict]) -> str:
     target_name = html.escape(target.get("name", "?"))
     cycle_id = html.escape(cycle.get("cycle_id", "?") if cycle else "?")
     engine_sha = html.escape((cycle.get("engine_sha") or "?")[:10] if cycle else "?")
     wrapper_sha = html.escape((cycle.get("wrapper_sha") or "?")[:10] if cycle else "?")
     started = html.escape(cycle.get("started_at", "?") if cycle else "?")
-    cost = float(cycle.get("total_cost_usd") or 0) if cycle else 0
 
-    rows = []
-    for f in sorted(findings, key=lambda x: list(Severity).index(Severity(x["severity"])) if x.get("severity") in [s.value for s in Severity] else 99):
-        try:
-            sev = Severity(f.get("severity", "Info"))
-        except ValueError:
-            sev = Severity.INFO
-        rows.append(
-            f"<tr><td><span class='sev' style='background:{color_html(sev)}'>"
-            f"{sev_emoji(sev)} {sev.value}</span></td>"
-            f"<td><code>{html.escape(f.get('hypothesis_id', '?'))}</code></td>"
-            f"<td>{html.escape((f.get('title') or '')[:90])}</td>"
-            f"<td>{html.escape(f.get('verdict', '?'))} / {html.escape(f.get('confidence', '?'))}</td>"
-            f"<td>{html.escape(f.get('status', '?'))}</td>"
-            f"<td>{'✅' if f.get('poc_fired') else '—'}</td></tr>"
-        )
+    counts = _sev_counts(findings)
+    n_confirmed = sum(1 for f in findings if f.get("status") == "confirmed")
+
+    if counts["Critical"] > 0:
+        status_label, status_class = f"{counts['Critical']} Critical · disclosure required", "critical"
+    elif counts["High"] > 0:
+        status_label, status_class = f"{counts['High']} High · review required", "warn"
+    else:
+        status_label, status_class = "Cycle complete · no Critical/High", "ok"
 
     return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Hunt cycle {cycle_id} — {target_name}</title>
-<style>{CSS}</style></head><body>
-<h1>Hunt cycle <code>{cycle_id}</code></h1>
-<p class="muted">Target: <strong>{target_name}</strong> &middot;
-   Started: {started} &middot;
-   Engine: <code>{engine_sha}</code> &middot;
-   Wrapper: <code>{wrapper_sha}</code> &middot;
-   Cost: ${cost:.3f}</p>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SENTINEL · {target_name} · cycle {cycle_id}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>{CSS}</style>
+</head><body>
 
-<div>
-  <div class="kpi {'danger' if by_sev['Critical'] or by_sev['High'] else ''}">
-    <div class="label">Confirmed</div><div class="value">{n_confirmed}</div></div>
-  <div class="kpi"><div class="label">Critical</div><div class="value">{by_sev['Critical']}</div></div>
-  <div class="kpi"><div class="label">High</div><div class="value">{by_sev['High']}</div></div>
-  <div class="kpi"><div class="label">Medium</div><div class="value">{by_sev['Medium']}</div></div>
-  <div class="kpi"><div class="label">Low</div><div class="value">{by_sev['Low']}</div></div>
-  <div class="kpi"><div class="label">Total</div><div class="value">{len(findings)}</div></div>
-</div>
+{topbar_html(status_label, status_class)}
 
-<h2>Findings</h2>
-<table>
-  <thead><tr><th>Severity</th><th>Hypothesis</th><th>Title</th><th>Verdict</th>
-    <th>Status</th><th>PoC</th></tr></thead>
-  <tbody>{''.join(rows)}</tbody>
-</table>
+<div class="shell">
 
-<div class="footer">
-  Generated by <a href="https://github.com/Copenhagen0x/audit-pipeline-cli">audit-pipeline</a>
-  &middot; {datetime.now(timezone.utc).isoformat(timespec='seconds')}
+  <h1>{target_name} · hunt cycle</h1>
+  <p class="subhead">
+    <code>{cycle_id}</code> &middot;
+    started {started} &middot;
+    engine <code>{engine_sha}</code> &middot;
+    wrapper <code>{wrapper_sha}</code>
+  </p>
+
+  <div class="kpi-grid">
+    <div class="kpi {'danger' if counts['Critical'] else 'ok'}">
+      <div class="label">Critical</div><div class="value">{counts['Critical']}</div></div>
+    <div class="kpi {'warn' if counts['High'] else 'ok'}">
+      <div class="label">High</div><div class="value">{counts['High']}</div></div>
+    <div class="kpi"><div class="label">Medium</div><div class="value">{counts['Medium']}</div></div>
+    <div class="kpi"><div class="label">Confirmed</div><div class="value">{n_confirmed}</div></div>
+    <div class="kpi"><div class="label">Total verdicts</div><div class="value">{len(findings)}</div></div>
+  </div>
+
+  {_sev_bar(counts)}
+
+  <h2>Findings</h2>
+  {_findings_table(findings)}
+
+  <h2>Severity rubric</h2>
+  <table>
+    <thead><tr><th style="width:120px">Tier</th><th>Definition</th></tr></thead>
+    <tbody>{''.join(
+        f'<tr><td><span class="sev {s.value.lower()}">{s.value}</span></td>'
+        f'<td style="color:var(--text-2)">{html.escape(DEFINITIONS[s])}</td></tr>'
+        for s in Severity
+    )}</tbody>
+  </table>
+
+  {footer_html(extra=f"Cycle {cycle_id}")}
+
 </div>
 </body></html>"""
 
@@ -172,62 +219,80 @@ def _render_weekly_html(
     target: dict, cycles: list[dict], findings: list[dict], days: int,
 ) -> str:
     target_name = html.escape(target.get("name", "?"))
-    by_sev = {s.value: 0 for s in Severity}
-    for f in findings:
-        s = f.get("severity")
-        if s in by_sev:
-            by_sev[s] += 1
-    total_cost = sum(float(c.get("total_cost_usd") or 0) for c in cycles)
+    counts = _sev_counts(findings)
     total_confirmed = sum(int(c.get("n_confirmed") or 0) for c in cycles)
+
+    if counts["Critical"] > 0:
+        status_label, status_class = f"{counts['Critical']} Critical this period", "critical"
+    elif counts["High"] > 0:
+        status_label, status_class = f"{counts['High']} High this period", "warn"
+    else:
+        status_label, status_class = f"Active · {days}-day window", "ok"
 
     cycle_rows = []
     for c in sorted(cycles, key=lambda x: x.get("started_at") or "", reverse=True):
-        cycle_rows.append(
-            f"<tr><td><code>{html.escape(c.get('cycle_id', '?'))}</code></td>"
-            f"<td>{html.escape(c.get('started_at', '?'))}</td>"
-            f"<td>{html.escape((c.get('engine_sha') or '?')[:10])}</td>"
-            f"<td>{c.get('n_dispatched', 0)}</td>"
-            f"<td>{c.get('n_confirmed', 0)}</td>"
-            f"<td>${float(c.get('total_cost_usd') or 0):.2f}</td></tr>"
-        )
+        cycle_rows.append(f"""
+        <tr>
+          <td><code>{html.escape(c.get('cycle_id', '?'))}</code></td>
+          <td class="mono" style="color:var(--text-2)">{html.escape(c.get('started_at', '?'))}</td>
+          <td><code>{html.escape((c.get('engine_sha') or '?')[:10])}</code></td>
+          <td class="num">{c.get('n_dispatched', 0)}</td>
+          <td class="num">{c.get('n_confirmed', 0)}</td>
+        </tr>""")
 
     return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>{target_name} — {days}-day audit summary</title>
-<style>{CSS}</style></head><body>
-<h1>{target_name} — {days}-day audit summary</h1>
-<p class="muted">Generated {datetime.now(timezone.utc).isoformat(timespec='minutes')}</p>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SENTINEL · {target_name} · {days}-day report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>{CSS}</style>
+</head><body>
 
-<div>
-  <div class="kpi"><div class="label">Hunt cycles</div><div class="value">{len(cycles)}</div></div>
-  <div class="kpi {'danger' if total_confirmed else ''}">
-    <div class="label">Confirmed</div><div class="value">{total_confirmed}</div></div>
-  <div class="kpi"><div class="label">Critical+High</div>
-    <div class="value">{by_sev['Critical'] + by_sev['High']}</div></div>
-  <div class="kpi"><div class="label">Total findings</div><div class="value">{len(findings)}</div></div>
-  <div class="kpi"><div class="label">Spend</div><div class="value">${total_cost:.2f}</div></div>
-</div>
+{topbar_html(status_label, status_class)}
 
-<h2>Severity breakdown</h2>
-<table>
-  <thead><tr><th>Severity</th><th>Definition</th><th>Count</th></tr></thead>
-  <tbody>
-"""+ "".join(
-        f"<tr><td><span class='sev' style='background:{color_html(s)}'>{sev_emoji(s)} {s.value}</span></td>"
-        f"<td class='muted'>{html.escape(DEFINITIONS[s])}</td>"
-        f"<td><strong>{by_sev[s.value]}</strong></td></tr>"
+<div class="shell">
+
+  <h1>{target_name} · {days}-day audit summary</h1>
+  <p class="subhead">{datetime.now(timezone.utc).isoformat(timespec='minutes')} · rolling window</p>
+
+  <div class="kpi-grid">
+    <div class="kpi {'danger' if counts['Critical'] else 'ok'}">
+      <div class="label">Critical</div><div class="value">{counts['Critical']}</div></div>
+    <div class="kpi {'warn' if counts['High'] else 'ok'}">
+      <div class="label">High</div><div class="value">{counts['High']}</div></div>
+    <div class="kpi"><div class="label">Medium</div><div class="value">{counts['Medium']}</div></div>
+    <div class="kpi"><div class="label">Hunt cycles</div><div class="value">{len(cycles)}</div></div>
+    <div class="kpi"><div class="label">Confirmed</div><div class="value">{total_confirmed}</div></div>
+  </div>
+
+  {_sev_bar(counts)}
+
+  <h2>Severity rubric</h2>
+  <table>
+    <thead><tr><th style="width:120px">Tier</th><th>Definition</th></tr></thead>
+    <tbody>{''.join(
+        f'<tr><td><span class="sev {s.value.lower()}">{s.value}</span></td>'
+        f'<td style="color:var(--text-2)">{html.escape(DEFINITIONS[s])}</td></tr>'
         for s in Severity
-    ) + f"""
-  </tbody>
-</table>
+    )}</tbody>
+  </table>
 
-<h2>Hunt cycles ({len(cycles)})</h2>
-<table>
-  <thead><tr><th>Cycle</th><th>When</th><th>Engine SHA</th><th>Dispatched</th>
-    <th>Confirmed</th><th>Cost</th></tr></thead>
-  <tbody>{''.join(cycle_rows)}</tbody>
-</table>
+  <h2>Hunt cycles ({len(cycles)})</h2>
+  <table>
+    <thead><tr>
+      <th>Cycle</th><th>Started (UTC)</th><th>Engine SHA</th>
+      <th class="num">Dispatched</th><th class="num">Confirmed</th>
+    </tr></thead>
+    <tbody>{''.join(cycle_rows) or '<tr><td colspan="5" class="empty">No cycles in window.</td></tr>'}</tbody>
+  </table>
 
-<div class="footer">
-  Generated by <a href="https://github.com/Copenhagen0x/audit-pipeline-cli">audit-pipeline</a>
+  <h2>Findings ({len(findings)})</h2>
+  {_findings_table(findings)}
+
+  {footer_html(extra=f"{days}-day rolling")}
+
 </div>
 </body></html>"""

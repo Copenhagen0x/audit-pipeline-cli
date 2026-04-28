@@ -10,6 +10,8 @@ Reads the findings DB and emits a self-contained HTML page showing:
 Two modes:
   generate : write static HTML to a file
   serve    : write + serve via stdlib http.server on a port
+
+The page uses the shared Sentinel design system (audit_pipeline.branding).
 """
 
 from __future__ import annotations
@@ -17,51 +19,17 @@ from __future__ import annotations
 import html
 import http.server
 import socketserver
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import click
 from rich.console import Console
 
+from audit_pipeline.branding import CSS, footer_html, topbar_html
 from audit_pipeline.db import FindingsDB
-from audit_pipeline.severity import Severity, color_html, emoji as sev_emoji
+from audit_pipeline.severity import Severity
 
 console = Console()
-
-
-CSS = """
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-       max-width: 1400px; margin: 1.5em auto; padding: 0 1em; color: #1a1a1a;
-       background: #f5f5f5; }
-h1 { border-bottom: 3px solid #1a1a1a; padding-bottom: .3em; margin-top: 0; }
-h2 { margin-top: 2em; color: #2a2a2a; }
-table { border-collapse: collapse; width: 100%; margin: 1em 0; background: white;
-        box-shadow: 0 1px 2px rgba(0,0,0,.05); }
-th, td { padding: .5em .75em; border-bottom: 1px solid #e5e5e5; text-align: left;
-         font-size: .9em; }
-th { background: #1a1a1a; color: white; font-weight: 600; }
-tr:hover { background: #f9fafb; }
-.sev { display: inline-block; padding: .15em .55em; border-radius: 4px;
-       color: white; font-weight: 600; font-size: .8em; }
-.kpi-grid { display: flex; flex-wrap: wrap; gap: .8em; margin: 1em 0; }
-.kpi { background: white; border: 1px solid #d4d4d4; padding: 1em 1.5em;
-       border-radius: 6px; min-width: 130px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-.kpi .label { font-size: .75em; color: #666; text-transform: uppercase;
-              letter-spacing: .05em; }
-.kpi .value { font-size: 2em; font-weight: 700; color: #0f0f0f; line-height: 1.2; }
-.kpi.danger .value { color: #dc2626; }
-.kpi.ok .value { color: #16a34a; }
-.muted { color: #6b7280; font-size: .85em; }
-code { background: #f3f4f6; padding: 0 .3em; border-radius: 3px; font-size: .9em; }
-.badge { display: inline-block; padding: .1em .5em; border-radius: 10px;
-         background: #e5e7eb; color: #374151; font-size: .75em; font-weight: 500; }
-.target-card { background: white; padding: 1em 1.5em; margin: .5em 0;
-               border-radius: 6px; border: 1px solid #d4d4d4; }
-.target-card h3 { margin-top: 0; }
-.footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #e5e5e5;
-          color: #6b7280; font-size: .8em; text-align: center; }
-.refresh { font-size: .8em; color: #6b7280; }
-"""
 
 
 @click.command(name="dashboard")
@@ -96,115 +64,188 @@ def _render(db: FindingsDB, auto_refresh: int) -> str:
 
     n_critical = stats["by_severity"].get("Critical", 0)
     n_high = stats["by_severity"].get("High", 0)
+    n_medium = stats["by_severity"].get("Medium", 0)
+    n_low = stats["by_severity"].get("Low", 0)
+    n_info = stats["by_severity"].get("Info", 0)
+    n_confirmed = stats["by_status"].get("confirmed", 0)
+    n_open = (n_critical + n_high) - stats["by_status"].get("fixed", 0) - stats["by_status"].get("verified", 0)
 
+    # Status pill: critical if any open Critical+High, warn if Medium, ok otherwise
+    if n_critical > 0:
+        status_label, status_class = "Critical findings open", "critical"
+    elif n_high > 0:
+        status_label, status_class = "High findings open", "warn"
+    else:
+        status_label, status_class = "Active · monitoring", "ok"
+
+    # ---------- Target cards ----------
     target_cards = []
     for t in targets:
-        t_cycles = [c for c in db.list_cycles(target_id=t["id"], limit=5)]
-        t_findings = db.list_findings(target_id=t["id"], limit=200)
+        t_cycles = db.list_cycles(target_id=t["id"], limit=5)
+        t_findings = db.list_findings(target_id=t["id"], limit=500)
         t_critical = sum(1 for f in t_findings if f.get("severity") == "Critical")
         t_high = sum(1 for f in t_findings if f.get("severity") == "High")
         last_cycle = t_cycles[0] if t_cycles else None
-        last_at = last_cycle["started_at"] if last_cycle else "never"
-        target_cards.append(
-            f"""<div class="target-card">
-              <h3>{html.escape(t['name'])}
-                <span class="badge">{len(t_findings)} findings</span>
-                {('<span class="badge" style="background:#fee2e2;color:#991b1b">'
-                  + str(t_critical + t_high) + ' Critical+High</span>') if (t_critical + t_high) else ''}
-              </h3>
-              <div class="muted">
-                Repo: <code>{html.escape((t.get('engine_repo') or '?'))}</code><br>
-                Last cycle: {html.escape(last_at)} &middot;
-                Total cycles: {len(t_cycles)}
+        last_at = last_cycle["started_at"] if last_cycle else "—"
+        repo = (t.get("engine_repo") or "").replace("https://github.com/", "")
+        sev_open_html = ""
+        if t_critical:
+            sev_open_html += f'<span class="sev critical">{t_critical} Critical</span>'
+        if t_high:
+            sev_open_html += f' <span class="sev high">{t_high} High</span>'
+        target_cards.append(f"""
+        <div class="card">
+          <div class="row">
+            <div>
+              <h3>{html.escape(t['name'])}</h3>
+              <div class="meta">{html.escape(repo) or '—'}</div>
+            </div>
+            <div style="text-align:right">
+              {sev_open_html}
+              <div class="meta" style="margin-top:6px">
+                {len(t_findings)} findings · {len(t_cycles)} cycles
               </div>
-            </div>"""
-        )
+            </div>
+          </div>
+          <div class="meta" style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
+            Last cycle <code>{html.escape(last_at)}</code>
+          </div>
+        </div>""")
 
+    # ---------- Cycles table ----------
     cycle_rows = []
     for c in cycles:
-        cycle_rows.append(
-            f"<tr><td><code>{html.escape(c.get('cycle_id', '?'))}</code></td>"
-            f"<td>{html.escape(c.get('started_at', '?'))}</td>"
-            f"<td>{html.escape((c.get('engine_sha') or '?')[:10])}</td>"
-            f"<td>{c.get('n_dispatched', 0)}</td>"
-            f"<td>{c.get('n_confirmed', 0)}</td>"
-            f"<td>${float(c.get('total_cost_usd') or 0):.3f}</td></tr>"
-        )
+        cycle_rows.append(f"""
+        <tr>
+          <td><code>{html.escape(c.get('cycle_id', '?'))}</code></td>
+          <td class="mono" style="color:var(--text-2)">{html.escape(c.get('started_at', '—'))}</td>
+          <td><code>{html.escape((c.get('engine_sha') or '?')[:10])}</code></td>
+          <td class="num">{c.get('n_dispatched', 0)}</td>
+          <td class="num">{c.get('n_confirmed', 0) or '<span style="color:var(--text-3)">0</span>'}</td>
+        </tr>""")
 
+    # ---------- Findings table ----------
     finding_rows = []
     for f in findings[:30]:
         try:
             sev = Severity(f.get("severity", "Info"))
         except ValueError:
             sev = Severity.INFO
-        finding_rows.append(
-            f"<tr><td><span class='sev' style='background:{color_html(sev)}'>"
-            f"{sev_emoji(sev)} {sev.value}</span></td>"
-            f"<td><code>{html.escape(f.get('hypothesis_id', '?'))}</code></td>"
-            f"<td>{html.escape((f.get('title') or '')[:80])}</td>"
-            f"<td>{html.escape(f.get('status', '?'))}</td>"
-            f"<td>{'✅' if f.get('poc_fired') else '—'}</td>"
-            f"<td>{html.escape(f.get('updated_at', '?'))}</td></tr>"
-        )
+        sev_cls = sev.value.lower()
+        status = (f.get("status") or "?").lower()
+        finding_rows.append(f"""
+        <tr>
+          <td><span class="sev {sev_cls}">{sev.value}</span></td>
+          <td><code>{html.escape(f.get('hypothesis_id', '?'))}</code></td>
+          <td style="max-width:480px">{html.escape((f.get('title') or '')[:140])}</td>
+          <td><span class="status-pill {status}">{html.escape(status)}</span></td>
+          <td>{'<span style="color:var(--ok)">✓</span>' if f.get('poc_fired') else '<span style="color:var(--text-3)">—</span>'}</td>
+          <td class="mono" style="color:var(--text-3)">{html.escape((f.get('updated_at') or '')[:19])}</td>
+        </tr>""")
+
+    # ---------- Severity bar ----------
+    n_total_sev = max(1, n_critical + n_high + n_medium + n_low + n_info)
+    sev_bar = ""
+    if (n_critical + n_high + n_medium + n_low + n_info) > 0:
+        sev_bar = f"""
+        <div class="sev-bar">
+          <span class="b-critical" style="width:{n_critical/n_total_sev*100:.1f}%"></span>
+          <span class="b-high"     style="width:{n_high/n_total_sev*100:.1f}%"></span>
+          <span class="b-medium"   style="width:{n_medium/n_total_sev*100:.1f}%"></span>
+          <span class="b-low"      style="width:{n_low/n_total_sev*100:.1f}%"></span>
+          <span class="b-info"     style="width:{n_info/n_total_sev*100:.1f}%"></span>
+        </div>
+        <div class="sev-bar-legend">
+          <span><i style="background:var(--critical)"></i>Critical {n_critical}</span>
+          <span><i style="background:var(--high)"></i>High {n_high}</span>
+          <span><i style="background:var(--medium)"></i>Medium {n_medium}</span>
+          <span><i style="background:var(--low)"></i>Low {n_low}</span>
+          <span><i style="background:var(--info)"></i>Info {n_info}</span>
+        </div>"""
 
     return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>Sentinel — Audit Dashboard</title>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SENTINEL · Autonomous Solana audit</title>
 <meta http-equiv="refresh" content="{auto_refresh}">
-<style>{CSS}</style></head><body>
-<h1>🛡️ Sentinel</h1>
-<p class="muted">
-  Autonomous Solana audit pipeline &middot;
-  <span class="refresh">refreshes every {auto_refresh}s</span> &middot;
-  generated {datetime.now(timezone.utc).isoformat(timespec='minutes')}
-</p>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>{CSS}</style>
+</head><body>
 
-<div class="kpi-grid">
-  <div class="kpi"><div class="label">Targets</div><div class="value">{stats['n_targets']}</div></div>
-  <div class="kpi"><div class="label">Hunt cycles</div><div class="value">{stats['n_cycles']}</div></div>
-  <div class="kpi {'danger' if n_critical else 'ok'}">
-    <div class="label">Critical</div><div class="value">{n_critical}</div></div>
-  <div class="kpi {'danger' if n_high else 'ok'}">
-    <div class="label">High</div><div class="value">{n_high}</div></div>
-  <div class="kpi"><div class="label">Total findings</div>
-    <div class="value">{stats['n_findings']}</div></div>
-</div>
+{topbar_html(status_label, status_class)}
 
-<h2>Targets ({len(targets)})</h2>
-{''.join(target_cards) or '<p class="muted">No targets yet. Run <code>audit-pipeline init</code> or <code>audit-pipeline onboard</code>.</p>'}
+<div class="shell">
 
-<h2>Recent hunt cycles</h2>
-<table>
-  <thead><tr><th>Cycle ID</th><th>Started</th><th>Engine SHA</th>
-    <th>Dispatched</th><th>Confirmed</th><th>Cost</th></tr></thead>
-  <tbody>{''.join(cycle_rows) or '<tr><td colspan="6" class="muted">No cycles yet</td></tr>'}</tbody>
-</table>
+  <h1>Operations</h1>
+  <p class="subhead">Continuous on-chain &amp; source-code audit across {stats['n_targets']} target{'s' if stats['n_targets'] != 1 else ''} · {stats['n_cycles']} hunt cycles to date</p>
 
-<h2>Recent findings</h2>
-<table>
-  <thead><tr><th>Severity</th><th>Hypothesis</th><th>Title</th><th>Status</th>
-    <th>PoC</th><th>Updated</th></tr></thead>
-  <tbody>{''.join(finding_rows) or '<tr><td colspan="6" class="muted">No findings yet</td></tr>'}</tbody>
-</table>
+  <div class="kpi-grid">
+    <div class="kpi {'danger' if n_critical else 'ok'}">
+      <div class="label">Critical</div>
+      <div class="value">{n_critical}</div>
+      <div class="delta">open findings</div>
+    </div>
+    <div class="kpi {'warn' if n_high else 'ok'}">
+      <div class="label">High</div>
+      <div class="value">{n_high}</div>
+      <div class="delta">open findings</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Medium</div>
+      <div class="value">{n_medium}</div>
+      <div class="delta">open findings</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Confirmed</div>
+      <div class="value">{n_confirmed}</div>
+      <div class="delta">PoC-validated</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Hunt cycles</div>
+      <div class="value">{stats['n_cycles']}</div>
+      <div class="delta">since deployment</div>
+    </div>
+  </div>
 
-<div class="footer">
-  Powered by <a href="https://github.com/Copenhagen0x/audit-pipeline-cli">audit-pipeline</a>
+  {sev_bar}
+
+  <h2>Targets under audit</h2>
+  {''.join(target_cards) if target_cards else '<div class="empty">No targets registered. Run <code>audit-pipeline onboard &lt;github-url&gt;</code></div>'}
+
+  <h2>Recent hunt cycles</h2>
+  <table>
+    <thead><tr>
+      <th>Cycle</th><th>Started (UTC)</th><th>Engine SHA</th>
+      <th class="num">Dispatched</th><th class="num">Confirmed</th>
+    </tr></thead>
+    <tbody>{''.join(cycle_rows) or '<tr><td colspan="5" class="empty">No hunt cycles yet.</td></tr>'}</tbody>
+  </table>
+
+  <h2>Recent findings</h2>
+  <table>
+    <thead><tr>
+      <th>Severity</th><th>Hypothesis</th><th>Title</th>
+      <th>Status</th><th>PoC</th><th>Updated</th>
+    </tr></thead>
+    <tbody>{''.join(finding_rows) or '<tr><td colspan="6" class="empty">No findings recorded yet.</td></tr>'}</tbody>
+  </table>
+
+  {footer_html(extra=datetime.now(timezone.utc).isoformat(timespec='minutes'))}
+
 </div>
 </body></html>"""
 
 
 def _serve(directory: Path, default_file: str, port: int) -> None:
-    handler = type(
-        "Handler", (http.server.SimpleHTTPRequestHandler,),
-        {"directory": str(directory)},
-    )
-    # Newer SimpleHTTPRequestHandler accepts directory in __init__
     class _H(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *a, **kw):
             super().__init__(*a, directory=str(directory), **kw)
 
     with socketserver.TCPServer(("0.0.0.0", port), _H) as httpd:
         console.print(f"[bold]Serving[/bold] {directory}/{default_file} on http://0.0.0.0:{port}/")
-        console.print(f"  open: http://0.0.0.0:{port}/{default_file}")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
