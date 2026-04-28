@@ -378,7 +378,10 @@ def hunt_cmd(
                     log("poc_test_error", hypothesis_id=hyp_id, error=str(e))
 
     # ---------- Layer 4: LiteSVM exploit-chain authoring (on PoC-fired) ----------
+    # Pre-declare results dicts so synthesis works regardless of which layers ran
+    kani_results: dict[str, dict[str, Any]] = {}
     litesvm_results: dict[str, dict[str, Any]] = {}
+    narrative_results: dict[str, str] = {}
     fired_for_litesvm = [
         v for v in candidates
         if poc_results.get(v["hypothesis_id"], {}).get("fired")
@@ -408,7 +411,6 @@ def hunt_cmd(
             log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc)
 
     # ---------- Layer 3: Kani harness (only on PoC-fired) ----------
-    kani_results: dict[str, dict[str, Any]] = {}
     fired_for_kani = [
         v for v in candidates
         if poc_results.get(v["hypothesis_id"], {}).get("fired")
@@ -542,8 +544,7 @@ def hunt_cmd(
     )
 
     # ---------- Narrative writeups for confirmed findings ----------
-    narrative_results: dict[str, str] = {}
-    if not skip_narrative and confirmed and daily_cap.remaining_today() > 0.30:
+    if (not skip_narrative) and confirmed and daily_cap.remaining_today() > 0.30:
         console.print()
         console.print(
             f"[bold]Generating narrative writeups for "
