@@ -1,11 +1,18 @@
 """`audit-pipeline synth-kani` — Kani harness from a natural-language invariant.
 
-Layer 2.5 / Layer 3 author. Takes a sentence describing an invariant + the
-target function, renders a prompt that asks an agent to produce a complete
-Kani harness ready to compile and verify.
+Layer 2.5 / Layer 3 author. Two modes:
 
-Collapses the highest-skill barrier in the pipeline (writing Kani) into
-"describe what you want in English, get a proof attempt back."
+  render mode (default): writes a Kani-authoring prompt for the user to
+    feed to their LLM manually. Best for interactive use.
+
+  --auto mode: actually calls Claude, generates the harness, runs
+    `cargo check`, feeds compile errors back into the conversation,
+    iterates up to --max-iterations times until the harness compiles.
+    Optionally runs `cargo kani` and reports the verdict.
+
+Auto mode collapses the highest-skill barrier in the pipeline (writing Kani
+that actually compiles) into "describe what you want in English, get a
+verified proof attempt back."
 """
 
 import json
@@ -15,7 +22,17 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 
-from audit_pipeline.utils import render_placeholders
+from audit_pipeline.utils import (
+    LLMUnavailable,
+    complete,
+    is_available,
+    render_placeholders,
+)
+from audit_pipeline.utils.rust_compile import (
+    cargo_check_tests,
+    cargo_kani,
+    extract_rust_code_block,
+)
 
 console = Console()
 
@@ -59,6 +76,30 @@ console = Console()
     default=None,
     help="Output dir (defaults to <workspace>/recon/synth_kani/)",
 )
+@click.option(
+    "--auto",
+    is_flag=True,
+    help=(
+        "Actually call the LLM, generate harness, run `cargo check`, "
+        "feed errors back, and iterate until it compiles. Requires "
+        "ANTHROPIC_API_KEY to be set."
+    ),
+)
+@click.option(
+    "--max-iterations",
+    type=int,
+    default=4,
+    show_default=True,
+    help="Max compile-fix-retry rounds in --auto mode",
+)
+@click.option(
+    "--run-kani",
+    is_flag=True,
+    help=(
+        "After the harness compiles in --auto mode, run `cargo kani` and "
+        "report the verdict. May take 10-30 minutes per harness."
+    ),
+)
 @click.pass_context
 def synth_kani_cmd(
     ctx: click.Context,
@@ -68,6 +109,9 @@ def synth_kani_cmd(
     engine_source: str | None,
     mode: str,
     output: Path | None,
+    auto: bool,
+    max_iterations: int,
+    run_kani: bool,
 ) -> None:
     """Render a Kani-harness-from-invariant authoring prompt.
 
@@ -165,22 +209,221 @@ def synth_kani_cmd(
         except OSError:
             pass
 
+    if not auto:
+        console.print(
+            Panel.fit(
+                f"[bold]NL-to-Kani synthesis prompt rendered[/bold]\n\n"
+                f"Invariant:   {invariant!r}\n"
+                f"Function:    {engine_function}\n"
+                f"Mode:        {mode.upper()}\n"
+                f"Harness:     {harness_name}\n"
+                f"Prompt:      {out_path}\n\n"
+                f"Send to your LLM. Save the harness body (Rust code in the\n"
+                f"response) to:\n"
+                f"  [cyan]{output}/{harness_name}.rs[/cyan]\n\n"
+                f"Then run:\n"
+                f"  [cyan]cargo kani --tests --features test --harness {harness_name}[/cyan]\n\n"
+                f"Tip: pass [cyan]--auto[/cyan] to run the full compile-fix-retry loop\n"
+                f"     end-to-end (requires ANTHROPIC_API_KEY).",
+                title="Layer 2.5 / 3 - NL to Kani synthesis (render mode)",
+            )
+        )
+        return
+
+    # ---------- AUTO MODE ----------
+    if not is_available():
+        raise click.ClickException(
+            "--auto mode requires ANTHROPIC_API_KEY in your environment "
+            "AND the anthropic SDK installed. Set the key or omit --auto."
+        )
+
+    # Resolve engine dir for cargo check
+    engine_dir = _resolve_engine_dir(workspace)
+    if engine_dir is None:
+        raise click.ClickException(
+            "--auto mode needs to run `cargo check` against the engine, "
+            "but no engine source dir was found in workspace.json. Either "
+            "run `audit-pipeline init` with a clone, or pass --engine-source."
+        )
+
+    harness_path = engine_dir / "tests" / f"{harness_name}.rs"
+    transcript_path = output / f"{harness_name}_iteration_log.md"
+
     console.print(
         Panel.fit(
-            f"[bold]NL-to-Kani synthesis prompt rendered[/bold]\n\n"
+            f"[bold]NL-to-Kani synthesis (AUTO MODE)[/bold]\n\n"
             f"Invariant:   {invariant!r}\n"
             f"Function:    {engine_function}\n"
             f"Mode:        {mode.upper()}\n"
             f"Harness:     {harness_name}\n"
-            f"Prompt:      {out_path}\n\n"
-            f"Send to your LLM. Save the harness body (Rust code in the\n"
-            f"response) to:\n"
-            f"  [cyan]{output}/{harness_name}.rs[/cyan]\n\n"
-            f"Then run:\n"
-            f"  [cyan]cargo kani --tests --features test --harness {harness_name}[/cyan]",
+            f"Engine dir:  {engine_dir}\n"
+            f"Will write:  {harness_path}\n"
+            f"Max rounds:  {max_iterations}\n"
+            f"Run kani:    {run_kani}\n",
             title="Layer 2.5 / 3 - NL to Kani synthesis",
         )
     )
+
+    transcript: list[str] = [
+        f"# NL-to-Kani auto synthesis log\n",
+        f"- Invariant: `{invariant}`",
+        f"- Function: `{engine_function}`",
+        f"- Mode: `{mode}`",
+        f"- Max iterations: {max_iterations}",
+        "",
+    ]
+
+    # Round 1: initial generation
+    console.print("[bold]Round 1[/bold] — generating initial harness...")
+    try:
+        response = complete(rendered)
+    except LLMUnavailable as e:
+        raise click.ClickException(str(e))
+    transcript.append(f"## Round 1 — initial generation\n")
+    transcript.append(f"_Tokens: in={response.input_tokens:,}, out={response.output_tokens:,}_\n")
+
+    code = extract_rust_code_block(response.text)
+    if code is None:
+        transcript.append("**FAILED**: no Rust code block in response\n")
+        transcript_path.write_text("\n".join(transcript), encoding="utf-8")
+        raise click.ClickException(
+            "LLM response did not contain a Rust code block. "
+            f"See {transcript_path} for the raw response."
+        )
+    harness_path.parent.mkdir(parents=True, exist_ok=True)
+    harness_path.write_text(code, encoding="utf-8")
+    transcript.append(f"Wrote {harness_path}\n")
+
+    # Compile-fix-retry loop
+    iteration = 1
+    last_check: "object" = None
+    while iteration <= max_iterations:
+        console.print(f"  Compiling [cyan]{harness_path.name}[/cyan]...")
+        check = cargo_check_tests(engine_dir)
+        last_check = check
+        transcript.append(f"### cargo check (round {iteration})\n")
+        transcript.append(f"- ok: {check.ok}")
+        transcript.append(f"- errors: {len(check.errors)}")
+        transcript.append(f"- warnings: {check.warnings_count}\n")
+
+        if check.ok:
+            console.print(
+                f"  [green]Compiles![/green] (after {iteration} round(s))"
+            )
+            break
+
+        if iteration == max_iterations:
+            console.print(
+                f"  [red]Hit max iterations ({max_iterations}) without "
+                f"clean compile.[/red]"
+            )
+            break
+
+        iteration += 1
+        console.print(
+            f"  [yellow]{len(check.errors)} compile error(s); asking "
+            f"LLM to fix... (round {iteration})[/yellow]"
+        )
+        fix_prompt = _build_fix_prompt(rendered, code, check.errors)
+        try:
+            response = complete(fix_prompt)
+        except LLMUnavailable as e:
+            raise click.ClickException(str(e))
+        transcript.append(f"## Round {iteration} — fix attempt\n")
+        transcript.append(
+            f"_Tokens: in={response.input_tokens:,}, out={response.output_tokens:,}_\n"
+        )
+
+        new_code = extract_rust_code_block(response.text)
+        if new_code is None:
+            transcript.append("**FAILED**: no Rust code block in fix response\n")
+            console.print(
+                "  [red]LLM fix response had no code block. Stopping.[/red]"
+            )
+            break
+        code = new_code
+        harness_path.write_text(code, encoding="utf-8")
+        transcript.append(f"Rewrote {harness_path}\n")
+
+    transcript_path.write_text("\n".join(transcript), encoding="utf-8")
+
+    if not last_check or not last_check.ok:
+        raise click.ClickException(
+            f"Harness did not compile after {iteration} round(s). "
+            f"See {transcript_path} for the iteration log and "
+            f"{harness_path} for the latest harness."
+        )
+
+    if not run_kani:
+        console.print(
+            f"\n[bold green]Done.[/bold green] Harness compiles. "
+            f"Run `cargo kani --tests --features test --harness {harness_name}` "
+            f"to verify, or re-run with --run-kani to do it now."
+        )
+        return
+
+    # Optional: actually run cargo kani
+    console.print(f"\n[bold]Running cargo kani --harness {harness_name}...[/bold]")
+    console.print("[dim](this can take 10-30 minutes; output streamed below)[/dim]")
+    kani = cargo_kani(engine_dir, harness_name)
+    transcript.append(f"\n## cargo kani verdict\n")
+    transcript.append(f"- verdict: **{kani.verdict}**")
+    transcript.append(f"- ok: {kani.ok}\n")
+    transcript_path.write_text("\n".join(transcript), encoding="utf-8")
+
+    color = {
+        "PASS": "green",
+        "FAIL": "red",
+        "TIMEOUT": "yellow",
+        "UNKNOWN": "dim",
+    }.get(kani.verdict, "dim")
+    console.print(f"[bold {color}]Kani verdict: {kani.verdict}[/bold {color}]")
+    console.print(f"Iteration log: {transcript_path}")
+
+
+def _resolve_engine_dir(workspace: Path) -> Path | None:
+    """Return engine dir from workspace.json, or None if not configured."""
+    config_path = workspace / "workspace.json"
+    if not config_path.exists():
+        return None
+    config = json.loads(config_path.read_text())
+    candidate = workspace / config["engine"]["local"]
+    if not (candidate / "Cargo.toml").exists():
+        return None
+    return candidate
+
+
+def _build_fix_prompt(
+    original_prompt: str,
+    failing_code: str,
+    errors: list[str],
+) -> str:
+    """Build a follow-up prompt that asks the LLM to fix compile errors."""
+    err_section = "\n\n---\n\n".join(errors[:6])  # cap at 6 errors to fit context
+    return f"""You previously generated this Kani harness in response to the
+original synthesis request. The harness did NOT compile. Fix it.
+
+# Original synthesis request (for context)
+
+{original_prompt[:4000]}{"... [truncated]" if len(original_prompt) > 4000 else ""}
+
+# Your previous harness (FAILING)
+
+```rust
+{failing_code}
+```
+
+# Compile errors from `cargo check --tests --features test`
+
+```
+{err_section}
+```
+
+Generate a CORRECTED Kani harness. Output ONLY the Rust source in a
+```rust fenced block. No explanatory prose outside the code block.
+Preserve the harness function name and signature exactly. Address every
+error above; do not skip any.
+"""
 
 
 def _extract_function_signature(source: str, fn_name: str) -> str:

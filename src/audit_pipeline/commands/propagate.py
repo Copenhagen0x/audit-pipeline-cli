@@ -1,17 +1,24 @@
-"""`audit-pipeline propagate` — search a corpus of Solana programs for a finding's pattern.
+"""`audit-pipeline propagate` — cross-protocol pattern propagation.
 
-Layer 1.6 — cross-protocol propagation. After finding a bug on protocol A,
-this command searches a corpus of indexed Solana programs (other protocols
-on disk) for the SAME pattern. Most bug classes recur — F7's "shrink
-counter, don't debit vault" pattern probably exists in vault routers,
-lending markets, anywhere with insurance accounting.
+Layer 1.6. Two subcommands:
 
-Real implementation. No agent in the loop — uses regex / token search
-across the corpus and ranks matches by signal strength.
+  init-corpus: Clone a curated list of popular Solana programs into a
+    corpus directory. One-time setup. Default list = ~15 well-known
+    DeFi protocols (pinned commits for reproducibility).
+
+  search: Search the corpus for a finding's pattern using one or more
+    regex signatures. Ranks files by signature match count. Top hits
+    are candidate findings to escalate to Layer 1 hypothesis dispatch.
+
+Most bug classes recur. F7's "shrink counter, don't debit vault" pattern
+probably exists in any protocol with insurance accounting. CatchupAccrue's
+"advance clock without touching accounts" pattern probably exists in any
+protocol with multi-instruction settlement. The corpus is how we find them.
 """
 
 import json
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -38,7 +45,209 @@ class CorpusMatch:
     snippet: str = ""
 
 
-@click.command(name="propagate")
+# ---------------------------------------------------------------------------
+# Curated corpus — popular Solana programs worth cross-checking against.
+# Pinned commits where possible; falls back to default branch otherwise.
+# ---------------------------------------------------------------------------
+
+DEFAULT_CORPUS = [
+    # Engine being audited (always include for cross-check baselines)
+    {
+        "name": "percolator",
+        "url": "https://github.com/aeyakovenko/percolator",
+        "ref": None,  # default branch
+    },
+    {
+        "name": "percolator-prog",
+        "url": "https://github.com/aeyakovenko/percolator-prog",
+        "ref": None,
+    },
+    # Anchor framework + spl programs (canonical Solana code)
+    {
+        "name": "anchor",
+        "url": "https://github.com/coral-xyz/anchor",
+        "ref": None,
+    },
+    {
+        "name": "solana-program-library",
+        "url": "https://github.com/solana-program/program-library",
+        "ref": None,
+    },
+    # Major DeFi (perp DEXes, lending, vaults)
+    {
+        "name": "drift-protocol-v2",
+        "url": "https://github.com/drift-labs/protocol-v2",
+        "ref": None,
+    },
+    {
+        "name": "mango-v4",
+        "url": "https://github.com/blockworks-foundation/mango-v4",
+        "ref": None,
+    },
+    {
+        "name": "marginfi-v2",
+        "url": "https://github.com/mrgnlabs/marginfi-v2",
+        "ref": None,
+    },
+    {
+        "name": "kamino-lending",
+        "url": "https://github.com/Kamino-Finance/klend",
+        "ref": None,
+    },
+    {
+        "name": "phoenix-v1",
+        "url": "https://github.com/Ellipsis-Labs/phoenix-v1",
+        "ref": None,
+    },
+    {
+        "name": "openbook-v2",
+        "url": "https://github.com/openbook-dex/openbook-v2",
+        "ref": None,
+    },
+    {
+        "name": "orca-whirlpools",
+        "url": "https://github.com/orca-so/whirlpools",
+        "ref": None,
+    },
+    {
+        "name": "meteora-dlmm",
+        "url": "https://github.com/MeteoraAg/dlmm-sdk",
+        "ref": None,
+    },
+    {
+        "name": "raydium-amm",
+        "url": "https://github.com/raydium-io/raydium-amm",
+        "ref": None,
+    },
+    {
+        "name": "jupiter-swap-api-client",
+        "url": "https://github.com/jup-ag/jupiter-swap-api-client",
+        "ref": None,
+    },
+    {
+        "name": "marinade-finance-onchain-sdk",
+        "url": "https://github.com/marinade-finance/marinade-anchor",
+        "ref": None,
+    },
+]
+
+
+@click.group(name="propagate")
+def propagate_cmd() -> None:
+    """Cross-protocol pattern propagation (init-corpus + search)."""
+
+
+@propagate_cmd.command(name="init-corpus")
+@click.option(
+    "--corpus",
+    "-c",
+    required=True,
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Directory to clone repos into (created if missing)",
+)
+@click.option(
+    "--list-file",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help=(
+        "Optional JSON file overriding the default corpus list. Each entry "
+        "should be {name, url, ref?}."
+    ),
+)
+@click.option(
+    "--shallow",
+    is_flag=True,
+    default=True,
+    show_default=True,
+    help="Use --depth 1 clones to save disk space and bandwidth",
+)
+@click.option(
+    "--skip-existing",
+    is_flag=True,
+    default=True,
+    show_default=True,
+    help="Skip repos already present in the corpus dir",
+)
+def corpus_init(
+    corpus: Path,
+    list_file: str | None,
+    shallow: bool,
+    skip_existing: bool,
+) -> None:
+    """Clone the curated list of Solana programs into CORPUS.
+
+    Default list includes the major DeFi protocols (Drift, Mango, Marginfi,
+    Kamino, Phoenix, OpenBook, Orca, Meteora, Raydium) plus the SPL
+    library and Anchor framework. ~15 repos total, ~5-10 GB on disk
+    after shallow clone.
+
+    Pass --list-file <path> to override with your own curated list.
+    """
+    if list_file:
+        repos = json.loads(Path(list_file).read_text())
+    else:
+        repos = DEFAULT_CORPUS
+
+    corpus.mkdir(parents=True, exist_ok=True)
+
+    table = Table(title=f"Cloning {len(repos)} repos into {corpus}")
+    table.add_column("#", style="dim", justify="right")
+    table.add_column("Name", style="cyan")
+    table.add_column("Status", style="bold")
+
+    cloned = skipped = failed = 0
+    for i, entry in enumerate(repos, start=1):
+        name = entry["name"]
+        target = corpus / name
+        if target.exists() and skip_existing:
+            table.add_row(str(i), name, "[dim]skipped (exists)[/dim]")
+            skipped += 1
+            continue
+        if target.exists() and not skip_existing:
+            console.print(f"[yellow]{name} already exists; --skip-existing=False not implemented; skipping[/yellow]")
+            skipped += 1
+            continue
+
+        clone_cmd = ["git", "clone"]
+        if shallow:
+            clone_cmd += ["--depth", "1"]
+        clone_cmd += [entry["url"], str(target)]
+
+        console.print(f"[cyan]Cloning {name}...[/cyan]")
+        try:
+            proc = subprocess.run(
+                clone_cmd, capture_output=True, text=True, timeout=600
+            )
+            if proc.returncode != 0:
+                table.add_row(str(i), name, f"[red]FAILED: {proc.stderr.strip()[:80]}[/red]")
+                failed += 1
+                continue
+
+            if entry.get("ref"):
+                subprocess.run(
+                    ["git", "checkout", entry["ref"]],
+                    cwd=str(target), capture_output=True, text=True,
+                )
+            table.add_row(str(i), name, "[green]cloned[/green]")
+            cloned += 1
+        except subprocess.TimeoutExpired:
+            table.add_row(str(i), name, "[red]TIMEOUT[/red]")
+            failed += 1
+        except Exception as e:  # noqa: BLE001
+            table.add_row(str(i), name, f"[red]ERROR: {e}[/red]")
+            failed += 1
+
+    console.print(table)
+    console.print(
+        f"\n[bold]Done.[/bold] cloned={cloned} skipped={skipped} failed={failed}"
+    )
+    console.print(
+        f"\nNext step:\n  [cyan]audit-pipeline propagate search "
+        f"-c {corpus} -s '<regex1>' -s '<regex2>'[/cyan]"
+    )
+
+
+@propagate_cmd.command(name="search")
 @click.option(
     "--corpus",
     "-c",
@@ -78,7 +287,7 @@ class CorpusMatch:
     help="Filename stem for the report",
 )
 @click.pass_context
-def propagate_cmd(
+def propagate_search(
     ctx: click.Context,
     corpus: Path,
     signature: tuple[str, ...],

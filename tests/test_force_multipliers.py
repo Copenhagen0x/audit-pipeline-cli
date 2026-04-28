@@ -48,7 +48,7 @@ def test_all_force_multipliers_listed_in_help(runner):
         assert cmd in result.output, f"missing {cmd} in --help output"
 
 
-@pytest.mark.parametrize("cmd", ["spec-check", "debate", "propagate", "synth-kani"])
+@pytest.mark.parametrize("cmd", ["spec-check", "debate", "synth-kani"])
 def test_force_multiplier_help_exits_zero(runner, cmd):
     result = runner.invoke(main, [cmd, "--help"])
     assert result.exit_code == 0
@@ -59,6 +59,13 @@ def test_shadow_group_help_lists_subcommands(runner):
     assert result.exit_code == 0
     assert "start" in result.output
     assert "tail" in result.output
+
+
+def test_propagate_group_help_lists_subcommands(runner):
+    result = runner.invoke(main, ["propagate", "--help"])
+    assert result.exit_code == 0
+    assert "search" in result.output
+    assert "init-corpus" in result.output
 
 
 # ============================================================================
@@ -206,7 +213,7 @@ def test_propagate_finds_pattern_in_corpus(runner, workspace, tmp_path):
         main,
         [
             "--workspace", str(workspace),
-            "propagate",
+            "propagate", "search",
             "--corpus", str(corpus),
             "--signature", r"insurance.*balance",
             "--signature", r"vault\s*[-+]?=",
