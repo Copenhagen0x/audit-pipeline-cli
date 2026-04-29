@@ -1,0 +1,11 @@
+{
+  "hyp_id": "O9-position-bedge-correct",
+  "test_name": "test_confirm_o9_position_bedge_correct",
+  "test_path": "/root/audit_runs/percolator-live/confirm/test_confirm_o9_position_bedge_correct.rs",
+  "outcome": "safety_attestation",
+  "cargo_rc": 0,
+  "cargo_elapsed_s": 0.3,
+  "cargo_log": "/root/audit_runs/percolator-live/confirm/test_confirm_o9_position_bedge_correct.cargo.log",
+  "input_tokens": 438945,
+  "output_tokens": 8310
+}

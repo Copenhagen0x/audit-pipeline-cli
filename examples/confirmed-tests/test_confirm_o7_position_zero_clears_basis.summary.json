@@ -1,0 +1,11 @@
+{
+  "hyp_id": "O7-position-zero-clears-basis",
+  "test_name": "test_confirm_o7_position_zero_clears_basis",
+  "test_path": "/root/audit_runs/percolator-live/confirm/test_confirm_o7_position_zero_clears_basis.rs",
+  "outcome": "safety_attestation",
+  "cargo_rc": 0,
+  "cargo_elapsed_s": 0.3,
+  "cargo_log": "/root/audit_runs/percolator-live/confirm/test_confirm_o7_position_zero_clears_basis.cargo.log",
+  "input_tokens": 373086,
+  "output_tokens": 8151
+}
