@@ -208,12 +208,19 @@ the .rs file contents (no markdown fences). The test name should be
             "5. The `#[cfg(feature = \"test\")]` gate at the top of every test file\n\n"
             "Write a test that COMPILES against the actual codebase and either "
             "asserts the invariant from the finding (passes if invariant holds) "
-            "or demonstrates the violation (fails on the assertion). "
-            "When ready, output ONLY the complete .rs file content as your final "
-            "message (no markdown fences, no explanation). The test fn name should "
-            f"be `test_confirm_{_slug(hyp_id)}`. If the finding cannot be expressed "
-            "as a deterministic Rust test against the engine, output exactly "
-            "`// CANNOT_TEST: <reason>` as your only line."
+            "or demonstrates the violation (fails on the assertion).\n\n"
+            "OUTPUT REQUIREMENTS (strict — violating these breaks the build):\n"
+            "1. Output ONLY the complete .rs file content as your final message.\n"
+            "2. NO markdown fences (no ```).\n"
+            "3. NO prose / explanation / verdict section AFTER the code. If you "
+            "want to explain something, do it in `//` comments INSIDE the file.\n"
+            "4. The very last character of your output must be the closing `}` "
+            "of the last function. Nothing after.\n"
+            "5. NO backticks anywhere — they are not valid Rust syntax.\n"
+            "6. NO smart quotes (“”‘’) — use plain ASCII quotes only.\n\n"
+            f"The test fn name should be `test_confirm_{_slug(hyp_id)}`. If the "
+            "finding cannot be expressed as a deterministic Rust test against the "
+            "engine, output exactly `// CANNOT_TEST: <reason>` as your only line."
         )
         tool_user_msg = (
             f"# Finding to confirm\n\n"
@@ -349,9 +356,29 @@ def _slug(text: str) -> str:
 
 
 def _strip_code_fences(text: str) -> str:
-    """If the model wrapped the code in ```rust ... ```, extract the inside."""
+    """Extract clean Rust source from an LLM response.
+
+    Handles three failure modes seen in practice:
+      1. Whole response wrapped in ```rust ... ```
+      2. Trailing markdown ("## Verdict\n...") appended after the closing brace
+         of the test function — kills the Rust parser with `unknown start of token`
+      3. Both
+    """
     import re
+    # Step 1: extract from fences if present
     m = re.search(r"```(?:rust|rs)?\n(.+?)```", text, re.DOTALL)
-    if m:
-        return m.group(1)
-    return text
+    code = m.group(1) if m else text
+
+    # Step 2: truncate any trailing prose after the last top-level closing brace.
+    # Find the last '\n}\n' or trailing '}' on its own line — that's the end of
+    # the last `fn` block. Any markdown / prose after that is hallucinated trailer.
+    lines = code.splitlines()
+    last_close = -1
+    for i, ln in enumerate(lines):
+        stripped = ln.strip()
+        if stripped == "}":
+            last_close = i
+    if last_close >= 0:
+        code = "\n".join(lines[: last_close + 1]) + "\n"
+
+    return code
