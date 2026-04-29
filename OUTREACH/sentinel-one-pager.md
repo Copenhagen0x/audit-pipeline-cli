@@ -8,7 +8,7 @@
 
 - **F7 disclosure** — independent confirmed disclosure to Anatoly Yakovenko's Percolator perpetual DEX. Patch verified, 277/277 of his existing tests still pass. PR: [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39)
 - **Continuous monitoring** — Sentinel has been running 24/7 against the Percolator engine + wrapper since deployment. Every commit triggers a multi-agent hunt cycle.
-- **Audit-firm-grade output** — tool-using agents (`read_file` / `grep` / `find_function`) produce verdicts cited to specific file paths and line numbers. See [examples/](../examples/) for raw agent outputs.
+- **Tool-using agents** (`read_file` / `grep` / `find_function`) — verdicts cited to specific file paths and line numbers. See [examples/](../examples/) for raw agent outputs.
 - **Empirical confirmation layer** — for every TRUE/HIGH safety attestation, Sentinel autonomously generates a Rust integration test, installs it into the engine's `tests/` dir, and runs `cargo test`. **Live verified samples** in [examples/confirmed-tests/](../examples/confirmed-tests/): three tests that compile clean against Percolator and pass on the audited SHA, with their cargo logs as proof.
 
 ---
@@ -52,7 +52,7 @@ audit-pipeline hunt
 | **Disclosure-pattern miner** (auto-generates siblings of public bugs) | ✅ |
 | **Coverage expander** (spec.md, Kani-gap, wrapper handlers → hypotheses) | ✅ |
 | Severity rubric + finding lifecycle state machine | ✅ |
-| Per-finding narrative writeups (LLM-generated audit-firm-grade) | ✅ |
+| Per-finding narrative writeups with reproduction + recommended fix | ✅ |
 | Ed25519-signed disclosure packages | ✅ |
 | Branded HTML dashboard + per-cycle + weekly reports | ✅ |
 | GitHub auto-issue filing on confirmed findings | ✅ |
@@ -62,7 +62,7 @@ audit-pipeline hunt
 
 ---
 
-## Sample output: audit-firm-grade safety attestation
+## Sample output
 
 The following is an excerpt from `hunt-deep` agent output for hypothesis `V4-vault-cap-respect`, generated autonomously in 26 turns / 44 tool calls / one Anthropic API session:
 
@@ -87,7 +87,7 @@ The following is an excerpt from `hunt-deep` agent output for hypothesis `V4-vau
 >
 > **VERDICT: TRUE / CONFIDENCE: HIGH**
 
-This is the level of evidence Sentinel produces autonomously — line citations, structural inventory, guard analysis, and a backstop check at line 4075. See [examples/V4-vault-cap-respect_response.md](../examples/V4-vault-cap-respect_response.md) for the full text.
+Sentinel produced this autonomously — line citations, structural inventory, guard analysis, backstop check at line 4075. See [examples/V4-vault-cap-respect_response.md](../examples/V4-vault-cap-respect_response.md) for the full text.
 
 ---
 
@@ -95,7 +95,7 @@ This is the level of evidence Sentinel produces autonomously — line citations,
 
 | Tier | Cadence | Deliverable |
 |---|---|---|
-| **Open-source baseline** | Continuous, free | Public dashboard, recon-grade verdicts, monitoring layer |
+| **Open-source baseline** | Continuous, free | Public dashboard, line-cited verdicts, monitoring layer |
 | **Funded continuous audit** | Continuous + dedicated researcher review | Per-protocol hypothesis libraries, PoC-confirmed findings, signed disclosure packages, monthly review calls, first-look on every finding |
 
 ---

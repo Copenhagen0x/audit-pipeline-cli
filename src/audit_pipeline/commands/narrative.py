@@ -29,7 +29,7 @@ console = Console()
 
 @click.group(name="narrative")
 def narrative_cmd() -> None:
-    """Generate narrative finding write-ups (audit-firm-grade)."""
+    """Generate narrative finding write-ups (description + reproduction + fix)."""
 
 
 @narrative_cmd.command(name="generate")
@@ -108,7 +108,7 @@ def bulk_cmd(
 
 
 def _generate_narrative(finding: dict, db: FindingsDB, max_tokens: int) -> str:
-    """Call Claude to produce an audit-firm-grade narrative writeup."""
+    """Call Claude to produce a narrative writeup with reproduction + fix."""
     severity = finding.get("severity", "Medium")
     try:
         sev_enum = Severity(severity)
@@ -131,7 +131,7 @@ def _generate_narrative(finding: dict, db: FindingsDB, max_tokens: int) -> str:
         except OSError:
             pass
 
-    prompt = f"""You are a senior security researcher producing an enterprise-grade audit finding writeup.
+    prompt = f"""You are a senior security researcher producing an audit finding writeup.
 Your writeup will be attached to a signed disclosure package and potentially filed as a GitHub issue against the maintainer's repository.
 
 # Source data

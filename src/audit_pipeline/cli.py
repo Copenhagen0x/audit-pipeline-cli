@@ -126,7 +126,7 @@ main.add_command(dashboard.dashboard_cmd)          # HTML status dashboard
 # Subcommands — operational hardening (T3)
 main.add_command(health.health_cmd)                # daemon health check (systemd timer)
 
-# Subcommands — finding-quality layer (audit-firm-grade outputs)
+# Subcommands — finding-quality layer (narrative writeups + signed disclosures)
 main.add_command(narrative.narrative_cmd)          # LLM narrative writeups for findings
 main.add_command(sign.sign_cmd)                    # Ed25519-signed disclosures
 
