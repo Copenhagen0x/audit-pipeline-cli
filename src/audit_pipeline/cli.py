@@ -10,6 +10,7 @@ from rich.console import Console
 
 from audit_pipeline import __version__
 from audit_pipeline.commands import (
+    confirm,
     cross_check,
     dashboard,
     debate,
@@ -112,6 +113,7 @@ main.add_command(hunt.hunt_cmd)                    # recon -> debate -> PoC -> K
 main.add_command(hunt_deep.hunt_deep_cmd)          # tool-using deep hunt (read_file, grep, find_function)
 main.add_command(learn.learn_cmd)                  # generate hyps from public disclosures
 main.add_command(expand_coverage.expand_coverage_cmd)  # generate hyps from spec, kani-gaps, wrapper
+main.add_command(confirm.confirm_cmd)              # empirical PoC: write custom test, cargo test, report
 
 # Subcommands — commercial layer (T1: severity + lifecycle + reports + issues)
 main.add_command(issue.issue_cmd)                  # gh issue draft / file / auto-file
