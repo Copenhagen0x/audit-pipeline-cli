@@ -113,6 +113,10 @@ as the only line.
 @click.option("--no-run", is_flag=True, help="Generate but don't compile/run")
 @click.option("--timeout", type=int, default=180, show_default=True,
               help="Cargo test timeout in seconds")
+@click.option("--tool-using/--single-shot", default=True, show_default=True,
+              help="Use tool-using agent (read engine tests + source iteratively) vs single-shot LLM")
+@click.option("--max-turns", type=int, default=18, show_default=True,
+              help="Tool-using max turns")
 @click.pass_context
 def confirm_cmd(
     ctx: click.Context,
@@ -122,6 +126,8 @@ def confirm_cmd(
     output_dir: Path | None,
     no_run: bool,
     timeout: int,
+    tool_using: bool,
+    max_turns: int,
 ) -> None:
     """Generate + compile + run a custom PoC for a finding."""
     if not is_available():
@@ -186,13 +192,63 @@ the .rs file contents (no markdown fences). The test name should be
 `test_confirm_{_slug(hyp_id)}`.
 """
 
-    console.print(f"  Generating test...")
-    try:
-        resp = complete(prompt, max_tokens=8192)
-    except Exception as e:  # noqa: BLE001
-        raise click.ClickException(f"LLM error: {e}")
-
-    test_code = _strip_code_fences(resp.text)
+    console.print(f"  Generating test ({'tool-using' if tool_using else 'single-shot'})...")
+    if tool_using:
+        from audit_pipeline.utils.llm_tools import run_tool_using_agent
+        tool_system = (
+            "You write Rust integration tests for the Percolator perpetual DEX engine. "
+            "Use `read_file`, `grep`, `find_function` to STUDY the existing tests in "
+            f"`{engine_dir}/tests/` (especially amm_tests.rs, proofs_invariants.rs, "
+            "proofs_safety.rs) and the engine source at "
+            f"`{engine_dir}/src/percolator.rs`. Learn:\n"
+            "1. The exact `default_params()` and `add_user_test()` helper signatures used\n"
+            "2. The RiskEngine constructor (`RiskEngine::new(params)` or `new_with_market`)\n"
+            "3. The actual public methods on RiskEngine — do NOT invent method names\n"
+            "4. Import order: `use percolator::*;` and `use percolator::i128::U128;`\n"
+            "5. The `#[cfg(feature = \"test\")]` gate at the top of every test file\n\n"
+            "Write a test that COMPILES against the actual codebase and either "
+            "asserts the invariant from the finding (passes if invariant holds) "
+            "or demonstrates the violation (fails on the assertion). "
+            "When ready, output ONLY the complete .rs file content as your final "
+            "message (no markdown fences, no explanation). The test fn name should "
+            f"be `test_confirm_{_slug(hyp_id)}`. If the finding cannot be expressed "
+            "as a deterministic Rust test against the engine, output exactly "
+            "`// CANNOT_TEST: <reason>` as your only line."
+        )
+        tool_user_msg = (
+            f"# Finding to confirm\n\n"
+            f"**Hypothesis ID:** {hyp_id}\n"
+            f"**Original claim:** {claim_text}\n\n"
+            f"# Agent reasoning to validate (already produced by hunt-deep, line-cited)\n\n"
+            f"{response_text[:8000]}\n\n"
+            f"Now use the tools to study the existing tests, then write the "
+            f"complete custom Rust test as your final answer."
+        )
+        try:
+            tu_result = run_tool_using_agent(
+                workspace=workspace,
+                system_prompt=tool_system,
+                initial_user_message=tool_user_msg,
+                max_turns=max_turns,
+                max_tokens_per_turn=8192,
+            )
+            test_code = _strip_code_fences(tu_result.text)
+            console.print(
+                f"  ({tu_result.n_turns} turns, {len(tu_result.tool_calls)} tool calls, "
+                f"{tu_result.input_tokens:,}in/{tu_result.output_tokens:,}out)"
+            )
+            class _Resp:
+                input_tokens = tu_result.input_tokens
+                output_tokens = tu_result.output_tokens
+            resp = _Resp()
+        except Exception as e:  # noqa: BLE001
+            raise click.ClickException(f"tool-using agent error: {e}")
+    else:
+        try:
+            resp = complete(prompt, max_tokens=8192)
+        except Exception as e:  # noqa: BLE001
+            raise click.ClickException(f"LLM error: {e}")
+        test_code = _strip_code_fences(resp.text)
     if test_code.strip().startswith("// CANNOT_TEST"):
         console.print(f"  [yellow]CANNOT_TEST[/yellow]: {test_code.strip()[:120]}")
         (output_dir / f"{hyp_id}.cannot_test.txt").write_text(test_code)
