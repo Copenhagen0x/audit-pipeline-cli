@@ -4,6 +4,8 @@
 
 Track record: confirmed disclosure of [**F7 against Anatoly Yakovenko's Percolator perpetual DEX**](https://github.com/aeyakovenko/percolator-prog/pull/39).
 
+**Recent capability uplift (2026-04-28):** Tool-using deep-audit mode (`hunt-deep`) — agents now have `read_file`, `grep`, `find_function` tools and iteratively explore source code to render line-cited verdicts. Disclosure-pattern miner (`learn-from-disclosures`) auto-generates sibling hypotheses from public bug reports. Custom PoC writer (`confirm`) generates Rust tests targeting specific finding claims and runs them under `cargo test`. See [OUTREACH/sentinel-one-pager.md](OUTREACH/sentinel-one-pager.md) and [examples/](examples/) for sample audit-firm-grade outputs.
+
 ---
 
 ## What it does
@@ -105,6 +107,20 @@ audit-pipeline issue draft    # render Markdown issue body for a finding
 audit-pipeline issue file     # file via `gh issue create`
 audit-pipeline issue auto-file-confirmed  # batch-file confirmed (severity floor)
 audit-pipeline health         # daemon health check (systemd-timer integration)
+audit-pipeline narrative generate  # LLM-generated audit-firm-grade writeups
+audit-pipeline sign keygen / sign / verify  # Ed25519-signed disclosure packages
+
+─── Deep-audit layer (tool-using agents) ─────────
+audit-pipeline hunt-deep      # tool-using agent loop: read_file + grep + find_function
+                              # produces line-cited verdicts (audit-firm-grade)
+audit-pipeline confirm        # write custom Rust PoC test, compile, cargo test, classify
+                              # converts NEEDS_LAYER_2 leads -> confirmed/refuted
+
+─── Hypothesis generation (autonomous) ────────────
+audit-pipeline learn-from-disclosures  # extract attack patterns from public GH issues,
+                              # generate sibling hypotheses
+audit-pipeline expand-coverage         # generate hyps from spec.md, Kani-coverage gaps,
+                              # and wrapper public instruction handlers
 ```
 
 ---
