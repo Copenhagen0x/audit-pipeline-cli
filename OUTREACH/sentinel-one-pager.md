@@ -8,7 +8,8 @@
 
 - **F7 disclosure** — independent confirmed disclosure to Anatoly Yakovenko's Percolator perpetual DEX. Patch verified, 277/277 of his existing tests still pass. PR: [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39)
 - **Continuous monitoring** — Sentinel has been running 24/7 against the Percolator engine + wrapper since deployment. Every commit triggers a multi-agent hunt cycle.
-- **Audit-firm-grade output** — tool-using agents (`read_file` / `grep` / `find_function`) produce verdicts cited to specific file paths and line numbers. See [examples/](../examples/) for a complete safety-attestation sample.
+- **Audit-firm-grade output** — tool-using agents (`read_file` / `grep` / `find_function`) produce verdicts cited to specific file paths and line numbers. See [examples/](../examples/) for raw agent outputs.
+- **Empirical confirmation layer** — for every TRUE/HIGH safety attestation, Sentinel autonomously generates a Rust integration test, installs it into the engine's `tests/` dir, and runs `cargo test`. **Live verified samples** in [examples/confirmed-tests/](../examples/confirmed-tests/): three tests that compile clean against Percolator and pass on the audited SHA, with their cargo logs as proof.
 
 ---
 
