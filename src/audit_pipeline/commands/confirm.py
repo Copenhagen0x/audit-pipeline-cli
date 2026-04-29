@@ -213,17 +213,34 @@ the .rs file contents (no markdown fences). The test name should be
     except OSError as e:
         raise click.ClickException(f"failed to install test: {e}")
 
-    console.print(f"  Compiling: cargo test --features test --test {test_name}")
+    # Ensure cargo is findable — fall back to common install locations
+    import os as _os
+    cargo_bin = "cargo"
+    for candidate in ("cargo", "/root/.cargo/bin/cargo", _os.path.expanduser("~/.cargo/bin/cargo")):
+        try:
+            subprocess.run([candidate, "--version"], capture_output=True, timeout=5, check=True)
+            cargo_bin = candidate
+            break
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            continue
+
+    cargo_env = _os.environ.copy()
+    cargo_env["PATH"] = "/root/.cargo/bin:" + cargo_env.get("PATH", "")
+
+    console.print(f"  Compiling: {cargo_bin} test --features test --test {test_name}")
     started = time.time()
     try:
         result = subprocess.run(
-            ["cargo", "test", "--features", "test", "--test", test_name, "--",
+            [cargo_bin, "test", "--features", "test", "--test", test_name, "--",
              "--nocapture"],
             cwd=str(engine_dir),
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=True, text=True, timeout=timeout, env=cargo_env,
         )
     except subprocess.TimeoutExpired:
         console.print(f"  [red]✗ timeout[/red]")
+        return
+    except FileNotFoundError as e:
+        console.print(f"  [red]✗ cargo not found:[/red] {e}")
         return
     elapsed = time.time() - started
 
