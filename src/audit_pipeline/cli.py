@@ -14,6 +14,7 @@ from audit_pipeline.commands import (
     dashboard,
     debate,
     disclose,
+    expand_coverage,
     freshness,
     health,
     hunt,
@@ -110,6 +111,7 @@ main.add_command(watch.watch_cmd)                  # continuous source-code watc
 main.add_command(hunt.hunt_cmd)                    # recon -> debate -> PoC -> Kani -> report
 main.add_command(hunt_deep.hunt_deep_cmd)          # tool-using deep hunt (read_file, grep, find_function)
 main.add_command(learn.learn_cmd)                  # generate hyps from public disclosures
+main.add_command(expand_coverage.expand_coverage_cmd)  # generate hyps from spec, kani-gaps, wrapper
 
 # Subcommands — commercial layer (T1: severity + lifecycle + reports + issues)
 main.add_command(issue.issue_cmd)                  # gh issue draft / file / auto-file
