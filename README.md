@@ -1,28 +1,43 @@
 # SENTINEL
 
-**Autonomous Solana audit platform.** Continuous, AI-driven security review of on-chain programs. 24/7 source-code monitoring, multi-agent code review, adversarial debate, empirical PoC validation, formal verification (Kani), and live mainnet shadow detection — orchestrated end-to-end without human intervention.
+**Autonomous immune system for Solana DeFi.** Four interlocking pillars — counterfactual mainnet detection, cross-protocol bug-class propagation, closed-loop fix bundles, and on-chain attestation registry — that together replace static-PDF audit reports with adaptive, autonomous, ecosystem-composable security. Built on the F7-disclosure methodology. Inaugural deployment: Anatoly Yakovenko's Percolator perpetual DEX.
 
-Track record: confirmed disclosure of [**F7 against Anatoly Yakovenko's Percolator perpetual DEX**](https://github.com/aeyakovenko/percolator-prog/pull/39).
+Track record: F7 disclosure to [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39) — public record, regression coverage formally labeled "PR39/F7" in `main` of `aeyakovenko/percolator-prog` (commit [`a1afd2e`](https://github.com/aeyakovenko/percolator-prog/commit/a1afd2e)).
 
-**Recent capability uplift (2026-04-28):** Tool-using deep-audit mode (`hunt-deep`) — agents now have `read_file`, `grep`, `find_function` tools and iteratively explore source code to render line-cited verdicts. Disclosure-pattern miner (`learn-from-disclosures`) auto-generates sibling hypotheses from public bug reports. Custom PoC writer (`confirm`) generates Rust tests targeting specific finding claims and runs them under `cargo test`. See [OUTREACH/sentinel-one-pager.md](OUTREACH/sentinel-one-pager.md) and [examples/](examples/) for sample outputs.
+**Recent capability uplift (2026-04-28):** Tool-using deep-audit mode (`hunt-deep`) — agents have `read_file`, `grep`, `find_function` and iteratively explore source code to render line-cited verdicts. Disclosure-pattern miner (`learn-from-disclosures`) auto-generates sibling hypotheses from public bug reports. Custom PoC writer (`confirm`) generates Rust tests targeting specific finding claims and runs them under `cargo test`. See [OUTREACH/sentinel-one-pager.md](OUTREACH/sentinel-one-pager.md) and [examples/](examples/) for sample outputs.
 
 ---
 
-## What it does
+## Four pillars (product architecture)
 
-Sentinel runs as a persistent service against any Solana program you specify. On every upstream commit, the platform fires a comprehensive hunt cycle:
+Sentinel's product positioning is four interlocking pillars. Each pillar is a distinct product capability that composes with the others to form the autonomous immune-system loop:
+
+| Pillar | What it does | Existing primitives |
+|---|---|---|
+| **P1 — Counterfactual mainnet detection** | Per-tx parallel simulation against forked state — flags transactions where counterfactual state diverges from actual, in real time, before the attack chain completes. | `shadow` (Layer 6) |
+| **P2 — Cross-protocol bug-class propagation** | When a bug is disclosed anywhere in the ecosystem, auto-extracts the structural pattern and searches every indexed protocol for the same class within minutes. | `propagate`, `learn-from-disclosures` |
+| **P3 — Closed-loop fix bundle** | When a bug is confirmed, generates the fix, formally proves (via Kani) it preserves all other invariants, validates the test suite, bundles bug + fix + proof + tests into one PR. | `confirm`, `synth-kani`, Ed25519 signing |
+| **P4 — On-chain attestation registry** | Every audit cycle publishes a cryptographically-signed Merkle root attesting which invariants were verified at which commit SHA. Composable on-chain primitive other protocols can require as a precondition. | Ed25519 signing, signed disclosure packages |
+
+P1 detects in real time. P2 propagates defenses across protocols. P3 closes the loop from disclosure to verified fix. P4 makes every cycle cryptographically composable. Together they replace the static-PDF audit-report model with adaptive, autonomous, on-chain-composable security infrastructure.
+
+---
+
+## Implementation pipeline
+
+The 4 pillars above are implemented as a layered hunt cycle dispatched on every upstream commit. Layers compose into pillars; pillars are the product, layers are the technical architecture:
 
 | Layer | Capability |
 |---|---|
 | **0** — Spec/code drift | Continuous detection of where the protocol's spec and implementation diverge (the F7-class). |
 | **1** — Multi-agent recon | N parallel Claude agents, one per hypothesis. Per-target hypothesis libraries with severity tagging. |
 | **1.5** — Adversarial debate | Second-opinion challenger against every contested verdict. Promotes silently-bluffed FALSEs back into the candidate set. |
-| **1.6** — Cross-protocol propagation | When a finding lands, the same pattern is searched across a curated corpus of 15+ Solana protocols. |
-| **2** — Empirical PoC | Auto-scaffolded state-conservation tests run under `cargo test`. PoCs that fire confirm the finding empirically. |
-| **2.5 / 3** — Kani formal verification | NL-to-Kani harness synthesis with compile-fix-retry loop. SAFE proofs for invariants; CEX proofs for violations. |
+| **1.6** — Cross-protocol propagation | When a finding lands, the same pattern is searched across the indexed corpus. (Backs Pillar 2.) |
+| **2** — Empirical PoC | Auto-scaffolded state-conservation tests run under `cargo test`. PoCs that fire confirm the finding empirically. (Backs Pillar 3.) |
+| **2.5 / 3** — Kani formal verification | NL-to-Kani harness synthesis with compile-fix-retry loop. SAFE proofs for invariants; CEX proofs for violations. (Backs Pillar 3.) |
 | **4** — LiteSVM end-to-end | BPF-level reachability + bound analysis. Verifies that the public API can drive state to the verified witness. |
 | **5** — Cross-platform reproduction | Diff test outputs between local + mainnet-equivalent VPS to eliminate platform artifacts. |
-| **6** — Live mainnet shadow | 24/7 RPC polling + byte-level account-state-delta detection on deployed binaries. Catches drains the logs don't. |
+| **6** — Live mainnet shadow | 24/7 RPC polling + byte-level account-state-delta detection on deployed binaries. (Foundation for Pillar 1.) |
 
 Every verdict — confirmed, refuted, or escalated — is written to a SQLite findings database with derived severity (Critical / High / Medium / Low / Info), an enforced lifecycle state machine (`new → triaged → confirmed → disclosed → fixed → verified`), and a full audit trail of state transitions.
 
@@ -34,10 +49,10 @@ Every verdict — confirmed, refuted, or escalated — is written to a SQLite fi
 |---|---|
 | **Slack / Discord alerts** | Real-time webhook on confirmed findings, severity-tagged with cycle metadata. |
 | **GitHub Issue auto-filing** | Confirmed findings above a configurable severity floor are auto-drafted (or auto-filed) against the target repository. Lifecycle transitions to `disclosed`. |
-| **Customer dashboard** | Self-contained HTML dashboard with KPIs, severity breakdown, target cards, recent findings, refreshing daemon status. Can be served from the deployment host or attached to email. |
+| **HTML dashboard** | Self-contained HTML dashboard with KPIs, severity breakdown, target cards, recent findings, refreshing daemon status. Can be served from the deployment host or attached to email. |
 | **Per-cycle + weekly HTML reports** | Branded executive reports with severity rubric, finding details, audit trail. |
-| **Customer onboarding** | Single command — `audit-pipeline onboard <github-url>` — clones, pins, scaffolds, and registers a new target. Includes baseline hypothesis libraries for `perp_dex`, `lending`, `amm`. |
-| **Multi-target** | Audits N programs in parallel from a single deployment with full per-target isolation. |
+| **Target onboarding** | Single command — `audit-pipeline onboard <github-url>` — clones, pins, scaffolds, and registers a new target. Baseline hypothesis libraries available for `perp_dex` (Percolator-tailored, 125 hyps), with `lending` / `amm` corpora as Year 2+ multi-protocol scaffolding. |
+| **Multi-target capable** | Architecture supports N programs in parallel with full per-target isolation. Inaugural deployment is Percolator-only; multi-protocol scaling is the Year 2+ path. |
 
 ---
 
@@ -59,8 +74,10 @@ Every verdict — confirmed, refuted, or escalated — is written to a SQLite fi
 
 | | |
 |---|---|
-| **F7 — Percolator residual-conservation** | [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39). Disclosed April 2026. PoC test + recommended fix + LiteSVM reachability proof. Verified locally against the engine's own test harness (zero regressions across 277 tests). |
+| **F7 — Percolator residual-conservation** | [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39). Disclosed April 2026 — identified a self-dealing insurance-siphon attack class. Maintainer closed the PR without merging the proposed vault-debit fix; chose the engine's existing protections (bounded dt, bounded price movement, solvency-envelope validation, A1 regression suite) as the defense path. Disclosure formally mapped to A1 regression coverage labeled "PR39/F7" on `main` ([commit `a1afd2e`](https://github.com/aeyakovenko/percolator-prog/commit/a1afd2e)). |
 | **Continuous Percolator coverage** | Sentinel runs against the Percolator engine + wrapper repos 24/7. Every commit triggers a full hunt cycle. |
+| **Hypothesis library** | 125 hand-curated invariants on disk: 12 baseline (`percolator.yaml`), 101 deep-protocol (`percolator_deep.yaml`), 12 sibling-derived from F7 (`percolator_strict_helper_class.yaml`). |
+| **Empirical confirmation samples** | Three Rust integration tests autonomously generated by `confirm` and passing under `cargo test` against the real engine. Public in [examples/confirmed-tests/](examples/confirmed-tests/). |
 
 ---
 

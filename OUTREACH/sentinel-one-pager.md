@@ -1,12 +1,12 @@
 # SENTINEL
 
-> Autonomous Solana audit platform. Continuous, AI-driven, code-grounded.
+> Autonomous immune system for Solana DeFi. Four interlocking pillars — counterfactual mainnet detection, cross-protocol bug-class propagation, closed-loop fix bundles, on-chain attestation registry. Inaugural deployment: Percolator. Continuous, AI-driven, code-grounded.
 
 ---
 
 ## Track record
 
-- **F7 disclosure** — independent confirmed disclosure to Anatoly Yakovenko's Percolator perpetual DEX. Patch verified, 277/277 of his existing tests still pass. PR: [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39)
+- **F7 disclosure** — independent disclosure to Anatoly Yakovenko's Percolator perpetual DEX. Identified a self-dealing insurance-siphon attack class. Maintainer closed PR without merging the proposed fix; chose engine's existing protections as the defense path. Disclosure formally mapped to A1 regression coverage labeled "PR39/F7" on `main` ([commit `a1afd2e`](https://github.com/aeyakovenko/percolator-prog/commit/a1afd2e)). PR: [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39)
 - **Continuous monitoring** — Sentinel has been running 24/7 against the Percolator engine + wrapper since deployment. Every commit triggers a multi-agent hunt cycle.
 - **Tool-using agents** (`read_file` / `grep` / `find_function`) — verdicts cited to specific file paths and line numbers. See [examples/](../examples/) for raw agent outputs.
 - **Empirical confirmation layer** — for every TRUE/HIGH safety attestation, Sentinel autonomously generates a Rust integration test, installs it into the engine's `tests/` dir, and runs `cargo test`. **Live verified samples** in [examples/confirmed-tests/](../examples/confirmed-tests/): three tests that compile clean against Percolator and pass on the audited SHA, with their cargo logs as proof.
@@ -95,8 +95,8 @@ Sentinel produced this autonomously — line citations, structural inventory, gu
 
 | Tier | Cadence | Deliverable |
 |---|---|---|
-| **Open-source baseline** | Continuous, free | Public dashboard, line-cited verdicts, monitoring layer |
-| **Funded continuous audit** | Continuous + dedicated researcher review | Per-protocol hypothesis libraries, PoC-confirmed findings, signed disclosure packages, monthly review calls, first-look on every finding |
+| **Open-source baseline** | Continuous, free | Public dashboard, line-cited verdicts, monitoring layer, methodology + CLI |
+| **Funded inaugural deployment** | Continuous, all four pillars shipped on the funded protocol | Tailored hypothesis library (125+ hyps for the funded target), PoC-confirmed findings, signed disclosure packages, instant alerting on Critical/High, automated 24h + weekly + monthly PDF reports, on-chain attestation registry, first-look on every finding |
 
 ---
 
