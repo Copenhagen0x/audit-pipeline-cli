@@ -1,4 +1,4 @@
-# SENTINEL
+# JELLEO
 
 > Autonomous immune system for Solana DeFi. Four interlocking pillars — counterfactual mainnet detection, cross-protocol bug-class propagation, closed-loop fix bundles, on-chain attestation registry. Inaugural deployment: Percolator. Continuous, AI-driven, code-grounded.
 
@@ -7,9 +7,9 @@
 ## Track record
 
 - **F7 disclosure** — independent disclosure to Anatoly Yakovenko's Percolator perpetual DEX. Identified a self-dealing insurance-siphon attack class. Maintainer closed PR without merging the proposed fix; chose engine's existing protections as the defense path. Disclosure formally mapped to A1 regression coverage labeled "PR39/F7" on `main` ([commit `a1afd2e`](https://github.com/aeyakovenko/percolator-prog/commit/a1afd2e)). PR: [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39)
-- **Continuous monitoring** — Sentinel has been running 24/7 against the Percolator engine + wrapper since deployment. Every commit triggers a multi-agent hunt cycle.
+- **Continuous monitoring** — Jelleo has been running 24/7 against the Percolator engine + wrapper since deployment. Every commit triggers a multi-agent hunt cycle.
 - **Tool-using agents** (`read_file` / `grep` / `find_function`) — verdicts cited to specific file paths and line numbers. See [examples/](../examples/) for raw agent outputs.
-- **Empirical confirmation layer** — for every TRUE/HIGH safety attestation, Sentinel autonomously generates a Rust integration test, installs it into the engine's `tests/` dir, and runs `cargo test`. **Live verified samples** in [examples/confirmed-tests/](../examples/confirmed-tests/): three tests that compile clean against Percolator and pass on the audited SHA, with their cargo logs as proof.
+- **Empirical confirmation layer** — for every TRUE/HIGH safety attestation, Jelleo autonomously generates a Rust integration test, installs it into the engine's `tests/` dir, and runs `cargo test`. **Live verified samples** in [examples/confirmed-tests/](../examples/confirmed-tests/): three tests that compile clean against Percolator and pass on the audited SHA, with their cargo logs as proof.
 
 ---
 
@@ -19,7 +19,7 @@
 upstream commit
       │
       ▼
-sentinel-watch (systemd, polls every 300s)
+jelleo-watch (systemd, polls every 300s)
       │
       ▼
 audit-pipeline hunt
@@ -87,7 +87,7 @@ The following is an excerpt from `hunt-deep` agent output for hypothesis `V4-vau
 >
 > **VERDICT: TRUE / CONFIDENCE: HIGH**
 
-Sentinel produced this autonomously — line citations, structural inventory, guard analysis, backstop check at line 4075. See [examples/V4-vault-cap-respect_response.md](../examples/V4-vault-cap-respect_response.md) for the full text.
+Jelleo produced this autonomously — line citations, structural inventory, guard analysis, backstop check at line 4075. See [examples/V4-vault-cap-respect_response.md](../examples/V4-vault-cap-respect_response.md) for the full text.
 
 ---
 

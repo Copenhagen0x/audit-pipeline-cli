@@ -109,7 +109,7 @@ def health_cmd(
 
     # Print
     if not silent or failed or warns:
-        table = Table(title=f"Sentinel health — {now.isoformat(timespec='seconds')}")
+        table = Table(title=f"Jelleo health — {now.isoformat(timespec='seconds')}")
         table.add_column("Check")
         table.add_column("Status", style="bold")
         table.add_column("Detail")
@@ -131,7 +131,7 @@ def health_cmd(
 
 def _format_alert(failed: list[dict], warns: list[dict], workspace: Path, now: datetime) -> str:
     lines = [
-        f"⚠️ *Sentinel HEALTH DEGRADED* — {now.isoformat(timespec='seconds')}",
+        f"⚠️ *Jelleo HEALTH DEGRADED* — {now.isoformat(timespec='seconds')}",
         f"Workspace: `{workspace}`",
         "",
     ]

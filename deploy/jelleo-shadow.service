@@ -1,5 +1,5 @@
 [Unit]
-Description=Sentinel - live mainnet shadow audit (Layer 6)
+Description=Jelleo - live mainnet shadow audit (Layer 6)
 Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
 After=network-online.target
 Wants=network-online.target

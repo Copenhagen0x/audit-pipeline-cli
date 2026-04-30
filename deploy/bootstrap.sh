@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sentinel pipeline VPS bootstrap. Idempotent — safe to re-run.
+# Jelleo pipeline VPS bootstrap. Idempotent — safe to re-run.
 # Run AS THE `audit` USER on the VPS after the toolchain is installed.
 #
 # Usage:
@@ -25,7 +25,7 @@ SLAB_ACCOUNT="CJKBStEn5VXEF9VNTChKKb5YW84MV7LycqMMziVuxJSc"
 
 # ============================================================================
 
-echo "=== Sentinel bootstrap ==="
+echo "=== Jelleo bootstrap ==="
 echo "Workspace: $WORKSPACE"
 echo
 
@@ -112,14 +112,14 @@ echo "=== Bootstrap complete ==="
 echo
 echo "Next steps:"
 echo "  1. Copy the systemd units:"
-echo "       sudo cp $HOME/audit-pipeline-cli/deploy/sentinel-shadow.service /etc/systemd/system/"
-echo "       sudo cp $HOME/audit-pipeline-cli/deploy/sentinel-watch.service  /etc/systemd/system/"
+echo "       sudo cp $HOME/audit-pipeline-cli/deploy/jelleo-shadow.service /etc/systemd/system/"
+echo "       sudo cp $HOME/audit-pipeline-cli/deploy/jelleo-watch.service  /etc/systemd/system/"
 echo "       sudo systemctl daemon-reload"
-echo "       sudo systemctl enable --now sentinel-shadow.service"
-echo "       sudo systemctl enable --now sentinel-watch.service"
+echo "       sudo systemctl enable --now jelleo-shadow.service"
+echo "       sudo systemctl enable --now jelleo-watch.service"
 echo
 echo "  2. Verify both running:"
-echo "       systemctl status sentinel-shadow sentinel-watch"
+echo "       systemctl status jelleo-shadow jelleo-watch"
 echo
 echo "  3. Check live alerts:"
 echo "       audit-pipeline --workspace $WORKSPACE shadow tail"

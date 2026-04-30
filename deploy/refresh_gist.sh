@@ -17,7 +17,7 @@ VPS="${VPS:-root@193.24.234.91}"
 WORKSPACE="${WORKSPACE:-/root/audit_runs/percolator-live}"
 GIST_ID="${GIST_ID:-c3181bdc906e599522adc2030bfa698e}"
 
-LOCAL_TMP="$(mktemp -t sentinel-status.XXXXXX.md)"
+LOCAL_TMP="$(mktemp -t jelleo-status.XXXXXX.md)"
 trap 'rm -f "$LOCAL_TMP"' EXIT
 
 # 1. Regenerate STATUS.md on the VPS from current state

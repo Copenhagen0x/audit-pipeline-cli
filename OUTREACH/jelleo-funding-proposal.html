@@ -1,0 +1,1134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Funding Proposal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0a0a0a;
+    --ink-2: #2d2d2d;
+    --ink-3: #595959;
+    --ink-4: #8a8a8a;
+    --rule: #d4d4d4;
+    --rule-2: #e8e8e8;
+    --bg: #ffffff;
+    --bg-2: #fafafa;
+    --accent: #0a0a0a;
+    --critical: #b91c1c;
+    --high: #c2410c;
+    --med: #a16207;
+    --low: #1d4ed8;
+    --ok: #047857;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 11pt; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace; }
+  code { font-size: .9em; background: var(--bg-2); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--rule-2); }
+  a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+  a:hover { border-bottom-color: var(--ink); }
+
+  /* Page-print setup */
+  @page {
+    size: letter;
+    margin: 0.7in;
+  }
+  @media print {
+    body { font-size: 9.5pt; }
+    .no-print { display: none; }
+    /* Cover always takes its own page */
+    .cover { height: auto; min-height: 95vh; page-break-after: always; }
+    /* Each top-level section starts on a new page (clean, no orphan blank pages) */
+    .shell > section { page-break-before: always; break-before: page; }
+    /* Headers stay with following content */
+    h1, h2, h3, h4 { page-break-after: avoid; break-after: avoid; }
+    section > .section-num + h1.section-title { page-break-after: avoid; }
+    h2 + p, h2 + ul, h2 + table, h2 + .compare { page-break-before: avoid; }
+    /* Compares + stage callouts + kpi rows stay together (small blocks) */
+    .compare, .stage, .kpi-row, dl.meta-grid {
+      page-break-inside: avoid; break-inside: avoid;
+    }
+    /* Tables can split if needed (avoids large blank space at bottom) */
+    table { page-break-inside: auto; }
+    thead { display: table-header-group; }
+    tr, td, th { page-break-inside: avoid; }
+    /* Compact spacing for print */
+    .stage { margin: 0.08in 0; padding: 0.07in 0.13in; }
+    h2 { margin: 0.14in 0 0.05in; }
+    h3 { margin: 0.10in 0 0.04in; }
+    p, ul { margin-bottom: 0.07in; }
+    li { margin: 0.02in 0; }
+    th, td { padding: 5px 9px; }
+    h1.section-title { margin-bottom: 0.18in; }
+  }
+
+  .shell { max-width: 8.5in; margin: 0 auto; padding: 0.5in 0.75in; }
+
+  /* Cover */
+  .cover { padding: 1in 0.75in 0.5in; min-height: 95vh; display: flex;
+    flex-direction: column; justify-content: space-between;
+    border-bottom: 1px solid var(--rule); }
+  .cover .top { display: flex; align-items: center; gap: 14px; }
+  .cover .mark { width: 28px; height: 28px; background: var(--ink);
+    -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 1.6 3 5v6.5c0 4.7 3.4 9.1 9 11 5.6-1.9 9-6.3 9-11V5l-9-3.4Z' fill='black'/></svg>") center/contain no-repeat;
+            mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 1.6 3 5v6.5c0 4.7 3.4 9.1 9 11 5.6-1.9 9-6.3 9-11V5l-9-3.4Z' fill='black'/></svg>") center/contain no-repeat; }
+  .cover .wordmark { font-weight: 700; letter-spacing: .26em; font-size: 14px; }
+  .cover h1 { font-size: 48pt; font-weight: 800; letter-spacing: -0.025em; line-height: 1.05;
+    margin: 0.4in 0 0.15in; }
+  .cover h2 { font-size: 22pt; font-weight: 500; color: var(--ink-2);
+    letter-spacing: -0.015em; margin: 0; line-height: 1.2; }
+  .cover .lede { font-size: 13pt; color: var(--ink-2); margin-top: 0.3in;
+    max-width: 5.5in; line-height: 1.55; }
+  .cover .meta { color: var(--ink-3); font-size: 10pt; line-height: 1.9;
+    border-top: 1px solid var(--rule); padding-top: 0.25in; }
+  .cover .meta dt { font-weight: 600; color: var(--ink-2);
+    text-transform: uppercase; letter-spacing: .08em; font-size: 9pt; }
+  .cover .meta dd { margin: 0 0 0.1in 0; }
+  .cover .meta-grid { display: grid; grid-template-columns: 1.5in 1fr; gap: 0.05in 0.2in; }
+  .cover .conf { font-size: 9pt; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-3); }
+
+  /* Section */
+  .section-num { font-size: 9pt; color: var(--ink-3); letter-spacing: .12em;
+    text-transform: uppercase; font-weight: 700; margin: 0 0 0.05in;
+    font-family: 'JetBrains Mono', monospace; }
+  h1.section-title {
+    font-size: 22pt; font-weight: 700; letter-spacing: -0.018em;
+    margin: 0 0 0.25in; padding-bottom: 0.1in; border-bottom: 2px solid var(--ink); }
+  h2 { font-size: 14pt; font-weight: 600; margin: 0.3in 0 0.1in;
+    letter-spacing: -0.01em; }
+  h3 { font-size: 11.5pt; margin: 0.2in 0 0.05in; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
+  p { margin: 0 0 0.13in; color: var(--ink-2); }
+  ul, ol { margin: 0 0 0.13in; padding-left: 0.25in; color: var(--ink-2); }
+  li { margin: 0.04in 0; }
+  .lede { font-size: 11.5pt; color: var(--ink-2); margin-bottom: 0.2in; line-height: 1.5; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 0.1in 0 0.2in;
+    font-size: 10pt; }
+  th, td { padding: 7px 11px; text-align: left; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { background: var(--bg-2); font-weight: 600; color: var(--ink);
+    text-transform: uppercase; font-size: 8.5pt; letter-spacing: .07em;
+    border-bottom: 1.5px solid var(--ink); }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  td.kpi { font-weight: 600; color: var(--ink); }
+  tbody tr:last-child td { border-bottom: 1px solid var(--ink); }
+
+  /* Compare two-column for NOW vs FUNDED */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2in;
+    margin: 0.15in 0 0.25in; }
+  .compare > div { background: var(--bg-2); border: 1px solid var(--rule);
+    border-radius: 4px; padding: 0.18in 0.22in; }
+  .compare h4 { font-size: 9pt; text-transform: uppercase; letter-spacing: .12em;
+    margin: 0 0 0.1in; color: var(--ink-3); font-weight: 700; }
+  .compare h4.now { color: var(--ink-3); }
+  .compare h4.future { color: var(--ok); }
+  .compare ul { padding-left: 0.18in; font-size: 10pt; margin: 0; }
+  .compare li { margin: 0.05in 0; color: var(--ink); }
+
+  /* KPI tiles for use-of-funds */
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.1in; margin: 0.1in 0 0.2in; }
+  .kpi-tile { border: 1px solid var(--rule); border-radius: 4px; padding: 0.13in 0.15in; background: var(--bg); }
+  .kpi-tile .label { font-size: 8.5pt; color: var(--ink-3); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
+  .kpi-tile .value { font-size: 16pt; font-weight: 700; line-height: 1.1; margin-top: 0.05in; letter-spacing: -0.015em; }
+  .kpi-tile .note { font-size: 8.5pt; color: var(--ink-3); margin-top: 0.04in; }
+
+  /* Stage callout */
+  .stage { border-left: 3px solid var(--ink); padding: 0.1in 0.2in;
+    margin: 0.15in 0; background: var(--bg-2); }
+  .stage h3 { margin-top: 0; color: var(--ink); text-transform: none;
+    letter-spacing: 0; font-size: 12pt; }
+
+  /* Footer */
+  .footer { margin-top: 0.5in; padding-top: 0.15in; border-top: 1px solid var(--rule);
+    color: var(--ink-3); font-size: 9pt; display: flex; justify-content: space-between; }
+
+  /* Severity tags */
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 999px;
+    font-size: 8pt; font-weight: 600; letter-spacing: .04em;
+    text-transform: uppercase; }
+  .tag.ok { background: #ecfdf5; color: var(--ok); border: 1px solid #a7f3d0; }
+  .tag.now { background: #f5f5f5; color: var(--ink-2); border: 1px solid var(--rule); }
+  .tag.future { background: #f0f9ff; color: #075985; border: 1px solid #bae6fd; }
+
+  /* Inline metric */
+  .metric { display: inline-block; padding: 1px 6px; background: var(--bg-2);
+    border: 1px solid var(--rule); border-radius: 3px; font-family: 'JetBrains Mono', monospace;
+    font-size: 9pt; font-weight: 500; color: var(--ink); }
+
+  blockquote { margin: 0.1in 0; padding: 0.1in 0.2in; border-left: 3px solid var(--ink-4);
+    color: var(--ink-2); font-style: italic; }
+
+  /* Hero stats banner */
+  .stats-banner { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.15in;
+    margin: 0.25in 0; padding: 0.18in 0; border-top: 2px solid var(--ink);
+    border-bottom: 2px solid var(--ink); }
+  .stat { text-align: center; }
+  .stat .value { font-family: 'JetBrains Mono', monospace; font-size: 17pt;
+    font-weight: 700; letter-spacing: -0.02em; color: var(--ink); line-height: 1.1; }
+  .stat .label { font-size: 8pt; color: var(--ink-3); text-transform: uppercase;
+    letter-spacing: .1em; margin-top: 0.05in; font-weight: 600; }
+
+  /* Methodology step component */
+  .method-step { display: grid; grid-template-columns: 0.55in 1fr; gap: 0.18in;
+    margin: 0.18in 0; padding: 0.14in 0; border-top: 1px solid var(--rule-2); }
+  .method-step:first-of-type { border-top: none; padding-top: 0.05in; }
+  .method-step .step-num { font-family: 'JetBrains Mono', monospace; font-size: 22pt;
+    font-weight: 700; color: var(--ink-4); line-height: 1; letter-spacing: -0.02em; }
+  .method-step h3 { margin: 0 0 0.07in; text-transform: none; letter-spacing: 0;
+    font-size: 12pt; color: var(--ink); font-weight: 600; }
+  .method-step p { margin: 0; }
+
+  /* Terminal / code block */
+  .terminal { background: #0a0a0a; color: #e8e8e8; border-radius: 4px;
+    padding: 0.13in 0.18in; font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5pt; margin: 0.15in 0; line-height: 1.6; }
+  .terminal .prompt { color: #4ade80; margin-right: 0.08in; font-weight: 700;
+    user-select: none; }
+  .terminal .comment { color: #71717a; }
+  .terminal .accent { color: #60a5fa; }
+
+  /* Callouts */
+  .callout { border-left: 3px solid var(--ink); background: var(--bg-2);
+    padding: 0.16in 0.22in; margin: 0.2in 0; border-radius: 0 4px 4px 0; }
+  .callout.demo { border-left-color: #047857; background: #ecfdf5; }
+  .callout h3 { margin: 0 0 0.08in; text-transform: none; letter-spacing: 0;
+    color: var(--ink); font-size: 12pt; font-weight: 700; }
+  .callout p { margin: 0 0 0.08in; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout ol, .callout ul { margin: 0.05in 0 0.08in; }
+
+  /* Print buttons (hidden when printing) */
+  .print-bar { position: fixed; top: 12px; right: 12px; padding: 8px 14px;
+    background: var(--ink); color: white; border-radius: 4px;
+    font-size: 11pt; cursor: pointer; border: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  @media print { .print-bar { display: none; } }
+</style>
+</head>
+<body>
+
+<button class="print-bar no-print" onclick="window.print()">Print to PDF →</button>
+
+<!-- ============================== COVER ============================== -->
+<section class="cover page-break">
+  <div>
+    <div class="top">
+      <span class="mark"></span>
+      <span class="wordmark">JELLEO</span>
+    </div>
+    <div>
+      <div class="conf">Confidential · Funding Proposal</div>
+      <h1>Autonomous Immune<br>System for Solana DeFi</h1>
+      <h2>Four interlocking pillars. Inaugural deployment on Percolator.</h2>
+      <p class="lede">Jelleo is the active-defense infrastructure layer for Solana DeFi. Four interlocking
+      pillars — counterfactual mainnet detection, cross-protocol bug-class propagation, closed-loop fix
+      bundles, and on-chain attestation registry — together replace static-PDF audit reports with adaptive,
+      autonomous, ecosystem-composable security. Built on top of the F7-disclosure methodology, deployed
+      first against Anatoly Yakovenko's Percolator perpetual DEX, scaled in Year 2+ to ecosystem-wide
+      coverage. This document proposes a staged $1.32M SAFE to ship all four pillars in 12 months.</p>
+    </div>
+  </div>
+
+  <dl class="meta meta-grid">
+    <dt>Prepared for</dt><dd>Anatoly Yakovenko</dd>
+    <dt>Prepared by</dt><dd>Kirill Sakharuk</dd>
+    <dt>Contact</dt><dd>info@wifpros.com</dd>
+    <dt>Track record</dt><dd>F7 disclosure → aeyakovenko/percolator-prog#39</dd>
+    <dt>Platform repo</dt><dd>github.com/Copenhagen0x/audit-pipeline-cli</dd>
+    <dt>Date</dt><dd>April 28, 2026</dd>
+  </dl>
+</section>
+
+<!-- ============================== EXECUTIVE SUMMARY ============================== -->
+<div class="shell">
+
+<section>
+  <div class="section-num">01 · Executive Summary</div>
+  <h1 class="section-title">The opportunity</h1>
+
+  <div class="stats-banner">
+    <div class="stat"><div class="value">F7</div><div class="label">Disclosed · PR #39</div></div>
+    <div class="stat"><div class="value">125</div><div class="label">Hyps curated</div></div>
+    <div class="stat"><div class="value">3</div><div class="label">Auto-PoCs · cargo PASS</div></div>
+    <div class="stat"><div class="value">$200</div><div class="label">Spend · 6 cycles</div></div>
+  </div>
+
+  <p class="lede">Jelleo is the autonomous immune system for Solana DeFi — four interlocking pillars
+  (counterfactual mainnet detection, cross-protocol bug-class propagation, closed-loop fix bundles, on-chain
+  attestation registry) that together replace static-PDF audit reports with adaptive, autonomous,
+  ecosystem-composable security infrastructure. Built on top of the methodology that produced F7. Deployed
+  first against Percolator's engine and BPF wrapper as inaugural reference. Today it's a working v0.1 — F7
+  disclosure on public record (PR #39), 125-hypothesis curated library, 3 autonomously-generated Rust
+  integration tests passing under <code>cargo test</code>.</p>
+
+  <p class="lede">Top-tier audit firms — OtterSec, Asymmetric, Zellic — deliver excellent point-in-time
+  engagements at <strong>$60K–$200K over 3–6 weeks</strong>. The deliverable is a static PDF, and the next
+  commit ships unverified. Jelleo is built for what point-in-time audits structurally cannot do: continuous
+  code-level depth, real-time attack-pattern detection across the deployed surface, immediate cross-protocol
+  pattern propagation, and verified closed-loop fix delivery — all anchored by an on-chain attestation
+  registry that other protocols can compose against.</p>
+
+  <h3>Where Jelleo fits relative to STRIDE / SIRN</h3>
+  <p>The Solana Foundation launched <strong>STRIDE</strong> on April 6, 2026 with Asymmetric Research — a
+  tiered, foundation-funded ecosystem program covering 8 security pillars: operational security, access
+  controls, multisig, governance, smart-contract integrity, key management, economic design, and threat
+  monitoring. Tier 1 ($10M+ TVL) protocols receive ongoing operations security support and active threat
+  monitoring; Tier 2 ($100M+ TVL) protocols additionally receive formal verification tooling.</p>
+
+  <p>STRIDE is the right ecosystem-wide framework. Jelleo is built for the deepest layer of one specific
+  STRIDE pillar — <strong>smart-contract integrity</strong>. Where STRIDE evaluates against the framework,
+  Jelleo produces the artifacts: autonomous tool-using agents that read the actual source, render
+  line-cited verdicts, and write Rust PoC tests that compile and run against the engine. Jelleo is the
+  work-product a protocol presents to satisfy STRIDE's smart-contract integrity pillar at the highest
+  available depth.</p>
+
+  <p>The Drift exploit on April 1 ($270M) was operational, not code-level — a 6-month DPRK-attributed
+  campaign involving multisig device compromise, durable-nonce abuse, and a fake oracle with zero timelock.
+  Continuous code monitoring would not have caught it. Jelleo is sharp about which layer it owns:
+  F7-class invariant violations, not Drift-class operational attacks. Both layers matter; we don't conflate
+  them.</p>
+
+  <h3>What's running today</h3>
+  <ul>
+    <li><strong>F7 disclosure</strong> — identified a self-dealing insurance-siphon attack class against
+        Percolator's mainnet engine (<a href="https://github.com/aeyakovenko/percolator-prog/pull/39">PR #39</a>,
+        April 2026). The disclosure is on public record. The maintainer's chosen defense path uses the engine's
+        existing protections (bounded dt, bounded price movement, solvency-envelope validation, and the A1
+        regression suite) rather than the proposed vault-debit fix.</li>
+    <li><strong>Jelleo deployed</strong> on a hardened VPS, running continuously against the Percolator engine
+        and BPF wrapper. Every commit triggers a multi-agent hunt cycle.</li>
+    <li><strong>Tool-using agents</strong> with <code>read_file</code>, <code>grep</code>, <code>find_function</code>
+        access — verdicts cited to specific file paths and line numbers, not speculation.</li>
+    <li><strong>Empirical confirmation layer</strong> — three Rust integration tests autonomously generated by the
+        platform, compiled against the actual engine, and passing under <code>cargo test</code>. Public in the
+        repo's <code>examples/confirmed-tests/</code> directory.</li>
+    <li><strong>Reporting + disclosure infrastructure</strong> — HTML dashboard generation, per-cycle reports,
+        weekly summaries, GitHub auto-issue scaffolding, basic Slack webhook, Ed25519-signed disclosure
+        packages, SQLite findings DB with lifecycle state machine. (Customer-facing live dashboard with auth,
+        instant Slack/email alerting, and automated daily/weekly/monthly PDF deliverables are funded-state
+        features — see Section 07.)</li>
+  </ul>
+
+  <h3>The proposal</h3>
+  <p>Jelleo today is a working v0.1 with one foundational pillar (the discovery methodology) producing
+  line-cited safety attestations and verified Rust tests against Percolator. The funded version ships all
+  four pillars in 12 months: <strong>counterfactual mainnet detection, cross-protocol bug-class propagation,
+  closed-loop fix bundles, and on-chain attestation registry</strong> — with Percolator as inaugural
+  deployment, scaling to ecosystem-wide coverage in Year 2+. Solo operator, AI-native execution, capital
+  efficient by design.</p>
+
+  <h3>The ask</h3>
+  <p><strong>$1.32M SAFE</strong> at a <strong>$10M post-money valuation cap</strong>, structured as two
+  tranches: <strong>$660K initial close → $660K Stage 2 trigger</strong> at the 90-day milestone (Pillars 3
+  and 4 MVPs shipped — closed-loop fix bundle + on-chain attestation registry). Funds 12 months of
+  operations covering all four pillars on Percolator. You receive inaugural reference deployment status,
+  live dashboard access, and equity upside as Jelleo scales to ecosystem-wide infrastructure.</p>
+</section>
+
+
+<!-- ============================== METHODOLOGY ============================== -->
+<section>
+  <div class="section-num">02 · Methodology</div>
+  <h1 class="section-title">Jelleo is the F7 discovery methodology, codified</h1>
+
+  <p class="lede">Jelleo is not service-hours sold by the week. It is the disciplined methodology that
+  produced F7, codified into autonomous infrastructure that runs continuously. Funding scales the methodology
+  — and its inaugural deployment on Percolator — into a self-improving system.</p>
+
+  <h2>The 4-step pipeline</h2>
+
+  <div class="method-step">
+    <div class="step-num">01</div>
+    <div>
+      <h3>Invariant catalog</h3>
+      <p>Each protocol gets a tailored hypothesis library. Today: 125 hand-curated invariants across 10
+      surface families (vault accounting, residual conservation, position bookkeeping, settlement ordering,
+      risk gates, liquidation paths, etc.). Every entry is a falsifiable claim with file/line targets and
+      severity classification — not free-form prose.</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">02</div>
+    <div>
+      <h3>Tool-using verification</h3>
+      <p>Each hypothesis is dispatched to a Claude agent equipped with <code>read_file</code>, <code>grep</code>,
+      and <code>find_function</code>. The agent reads the actual source, walks the code paths, and renders a
+      line-cited verdict (TRUE / FALSE / NEEDS_LAYER_2). No speculation — every claim is anchored to specific
+      <code>file:line</code> references in the engine.</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">03</div>
+    <div>
+      <h3>Empirical confirmation</h3>
+      <p>Verdicts that need empirical proof escalate to autonomous Rust integration test generation. The agent
+      writes a custom <code>cargo test</code> against the engine's own test helpers, compiles, runs, and
+      classifies as PASS or FAIL. Three of these tests are public in the repo's
+      <code>examples/confirmed-tests/</code> directory — autonomously generated, compile cleanly, pass against
+      the real engine.</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">04</div>
+    <div>
+      <h3>Sibling derivation</h3>
+      <p>Every confirmed finding feeds back into the catalog. The platform extracts the structural attack
+      pattern and auto-derives N sibling hypotheses targeting the same class through different code paths.
+      F7 itself produced the 12-hypothesis <code>strict_helper_class</code> sibling library on disk today.
+      The catalog compounds with every disclosure.</p>
+    </div>
+  </div>
+
+  <p>This pipeline is what produced F7. Funding scales the same pipeline to ceiling-depth across the entire
+  Percolator engine + wrapper, with the depth compounding cycle-over-cycle (see Section 03).</p>
+</section>
+
+
+<!-- ============================== LEARNING LOOP ============================== -->
+<section>
+  <div class="section-num">03 · Learning loop</div>
+  <h1 class="section-title">Depth compounds with every cycle</h1>
+
+  <p class="lede">Jelleo is measurably better today than it was 6 cycles ago. The hypothesis library grows
+  with every disclosed bug — each finding auto-extends the catalog with sibling-pattern hypotheses. Coverage
+  isn't linear; it compounds.</p>
+
+  <h2>The growth equation</h2>
+  <div class="terminal"><span class="prompt">$</span> <span class="accent">library_size</span>(N) = library₀ + Σ <span class="accent">siblings_derived</span>(N) for all confirmed findings
+<span class="comment"># N₀ = curated baseline. Each disclosed bug → 3-5 new siblings. Library grows monotonically.</span></div>
+
+  <h2>Measured trajectory (today)</h2>
+  <table>
+    <thead><tr><th>Milestone</th><th>Library / activity</th><th>Source of growth</th></tr></thead>
+    <tbody>
+      <tr><td>Day 0</td><td class="num">12 hyps (library)</td><td>Hand-curated baseline (vault + position + settlement families)</td></tr>
+      <tr><td>Post F7 disclosure</td><td class="num">+12 → 24 (library)</td><td>Sibling-derived from F7's structural attack pattern (<code>strict_helper_class</code> library)</td></tr>
+      <tr><td>Post deep expansion</td><td class="num">+101 → 125 (library)</td><td>Hand-curated comprehensive engine + wrapper coverage (10 surface families)</td></tr>
+      <tr><td>After 6 cycles</td><td class="num">125 lib + ~200 invocations</td><td>Cumulative invocations across 6 cycles, including dynamic generation via <code>expand-coverage</code> + <code>learn-from-disclosures</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Projected trajectory (funded)</h2>
+  <table>
+    <thead><tr><th>Milestone</th><th>Library size</th><th>Mechanism</th></tr></thead>
+    <tbody>
+      <tr><td>Stage 1 complete (M3)</td><td class="num">500</td><td>Hand-curated comprehensive library + LLM-assisted derivation</td></tr>
+      <tr><td>Stage 2 complete (M7)</td><td class="num">1000+</td><td>Multi-round adversarial refinement + cross-instruction attack-chain enumeration</td></tr>
+      <tr><td>End of engagement (M12)</td><td class="num">1500+</td><td>Sibling derivation from every disclosed/refuted finding compounded into the catalog</td></tr>
+    </tbody>
+  </table>
+
+  <p>The platform that finds F7 today will find F7-class bugs faster tomorrow. Every disclosure — including
+  every Jelleo-disclosed finding — permanently extends the library. Methodology gets sharper with use;
+  cost-per-finding drops cycle-over-cycle.</p>
+</section>
+
+
+<!-- ============================== ARCHITECTURE / 4 PILLARS ============================== -->
+<section>
+  <div class="section-num">04 · Architecture</div>
+  <h1 class="section-title">Four pillars · the autonomous immune system</h1>
+
+  <p class="lede">Jelleo is not an audit tool. It's the active-defense infrastructure layer for Solana
+  DeFi — four interlocking pillars that together replace static-PDF audit reports with adaptive, autonomous,
+  ecosystem-composable security. Each pillar ships in the 12-month engagement, demonstrated on Percolator
+  as inaugural deployment. Each component exists in primitive form across various tools today; no platform
+  combines all four into the integrated autonomous-defense loop described below.</p>
+
+  <div class="method-step">
+    <div class="step-num">P1</div>
+    <div>
+      <h3>Counterfactual mainnet detection</h3>
+      <p>For every transaction hitting the deployed protocol, a parallel counterfactual simulation runs:
+      "what if attack pattern X applied here?" When the counterfactual state diverges meaningfully from
+      actual state, the platform flags the transaction in real time — before the attack chain completes.
+      This catches operational and state-mutation attacks that point-in-time audits structurally cannot
+      detect. <strong>Drift's $270M durable-nonce drain on April 1 would likely have produced state
+      divergence between actual and counterfactual on the first attack-chain transaction</strong> — a
+      pattern this layer is designed to flag before the rest of the chain executed.</p>
+      <p style="font-size: 9pt; color: var(--ink-3); margin-top: 0.06in;"><em>Ships via:</em> mainnet RPC subscription pipeline · LiteSVM forked-state simulator · attack-pattern instrumentation library · state-divergence detector · real-time alert router. <em>Existing primitives in repo:</em> <code>shadow</code> (Layer 6 mainnet shadow audit).</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">P2</div>
+    <div>
+      <h3>Cross-protocol bug-class propagation</h3>
+      <p>When a bug is disclosed anywhere in the ecosystem (Immunefi, public PR, audit report, security
+      advisory), Jelleo auto-extracts the structural attack pattern and instantly searches for the same
+      class across every indexed protocol. Vulnerable instances are flagged within minutes — not at the
+      next audit cycle months later. Every disclosure compounds the methodology across all monitored
+      protocols. The library gets sharper with every bug found in the entire industry.</p>
+      <p style="font-size: 9pt; color: var(--ink-3); margin-top: 0.06in;"><em>Ships via:</em> disclosure-feed ingestion (Immunefi + GitHub security advisories + public PRs) · structural pattern extractor · cross-protocol search · vector DB for hypothesis embeddings. <em>Existing primitives in repo:</em> <code>propagate</code>, <code>learn-from-disclosures</code>.</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">P3</div>
+    <div>
+      <h3>Closed-loop fix bundle</h3>
+      <p>When a bug is confirmed, Jelleo doesn't stop at the finding. The platform generates a candidate
+      fix, formally proves (via Kani harness) that the fix preserves all other invariants, validates against
+      the full test suite, and bundles bug + fix + formal proof + tests into a single PR. Maintainers
+      receive verified fix proposals — not raw findings — eliminating the cognitive load of designing the
+      fix and proving it doesn't break anything else.</p>
+      <p style="font-size: 9pt; color: var(--ink-3); margin-top: 0.06in;"><em>Ships via:</em> fix-generation prompt loop · Kani harness synthesizer · full test-suite runner · PR-bundler. <em>Existing primitives in repo:</em> <code>confirm</code>, <code>synth-kani</code>, Ed25519 signing.</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">P4</div>
+    <div>
+      <h3>On-chain attestation registry</h3>
+      <p>Every Jelleo cycle produces a cryptographically-signed Merkle root attesting which invariants
+      were verified at which commit SHA. The registry is published on-chain, queryable, and composable.
+      Other protocols (lending oracles, insurance markets, bridges, custody platforms) can require Jelleo
+      attestation as a precondition for protocol interaction — the security primitive becomes ecosystem-wide
+      composable infrastructure, not a per-customer service. This is the layer that makes "verified
+      continuous audit" something other Solana protocols can depend on cryptographically.</p>
+      <p style="font-size: 9pt; color: var(--ink-3); margin-top: 0.06in;"><em>Ships via:</em> Solana Anchor program (the registry contract) · Ed25519 signing pipeline · Merkle root indexer · public query API · composability documentation. <em>Existing primitives in repo:</em> Ed25519 signing, signed disclosure packages.</p>
+    </div>
+  </div>
+
+  <h2>How the pillars compose</h2>
+  <p><strong>P1 detects in real time. P2 propagates defenses across protocols within minutes. P3 closes
+  the loop from disclosure to verified fix without maintainer cognitive load. P4 makes every audit cycle
+  cryptographically composable, queryable, and ecosystem-wide.</strong> Together they replace the static-PDF
+  audit-report model with adaptive, autonomous, on-chain-composable security infrastructure. The 12-month
+  engagement ships MVPs of all four pillars on Percolator. Year 2+ scales the model ecosystem-wide.</p>
+</section>
+
+
+<!-- ============================== NOW vs FUNDED ============================== -->
+<section>
+  <div class="section-num">05 · Today vs Funded</div>
+  <h1 class="section-title">What's running now vs what funding builds</h1>
+
+  <p class="lede">The platform's current capabilities are a working v0.1 — proven, deployed, producing artifacts.
+  Funded depth scales every dimension. Comparison:</p>
+
+  <h2>Hypothesis coverage</h2>
+  <div class="compare">
+    <div>
+      <h4 class="now">Now</h4>
+      <ul>
+        <li>125 hand-curated hypotheses on disk: 12 baseline + 101 deep-protocol + 12 sibling-derived</li>
+        <li>~200 hypothesis invocations across 6 cycles (measured spend, including dynamic generation)</li>
+        <li>Single refinement round on most hypotheses</li>
+        <li>Sonnet 4.6 default model</li>
+        <li>Dispatched on demand or commit-triggered</li>
+      </ul>
+    </div>
+    <div>
+      <h4 class="future">Funded</h4>
+      <ul>
+        <li>500+ Percolator-specific hypotheses</li>
+        <li>Custom invariant library across engine + wrapper + spec.md (every reachable surface)</li>
+        <li>Multi-round adversarial refinement (3 rounds standard)</li>
+        <li>Opus 4.7 on confirmation; Sonnet for breadth</li>
+        <li>Continuous on every commit + scheduled deep weekly cycle</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Empirical confirmation</h2>
+  <div class="compare">
+    <div>
+      <h4 class="now">Now</h4>
+      <ul>
+        <li>Tool-using <code>confirm</code> writes custom Rust integration tests</li>
+        <li>3 autonomously-generated Rust integration tests passing under <code>cargo test</code> against the real engine</li>
+        <li>Test scaffolds use engine's own test helpers</li>
+        <li>cargo test runs locally on the VPS</li>
+      </ul>
+    </div>
+    <div>
+      <h4 class="future">Funded</h4>
+      <ul>
+        <li>Multi-iteration confirm loop with cargo-feedback (compile errors fed back to agent)</li>
+        <li>~95% PASS rate target</li>
+        <li>LiteSVM end-to-end exploit chain authoring on every confirmed finding</li>
+        <li>Differential testing across forks (mainnet/devnet/local)</li>
+        <li>Kani harness synthesis on Critical/High invariants</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Coverage depth (Percolator only)</h2>
+  <div class="compare">
+    <div>
+      <h4 class="now">Now</h4>
+      <ul>
+        <li>Percolator engine + wrapper</li>
+        <li>Single VPS, single workspace</li>
+        <li>Manual hypothesis dispatch + commit-triggered hunt cycles</li>
+      </ul>
+    </div>
+    <div>
+      <h4 class="future">Funded</h4>
+      <ul>
+        <li>Same scope: Percolator engine + wrapper, depth scaled to ceiling</li>
+        <li>Stage 1 — Production-tier: 500-hypothesis library × daily cycles + multi-iteration <code>confirm</code></li>
+        <li>Stage 2 — Ceiling-tier: 1000+ hypothesis library × multi-round refinement + cross-instruction attack-chain enumeration</li>
+        <li>Stage 3 — Comprehensive Kani-verified harness corpus + signed-disclosure registry + first-call-on-incident SLA</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Operational layer</h2>
+  <div class="compare">
+    <div>
+      <h4 class="now">Now</h4>
+      <ul>
+        <li>HTML dashboard, per-cycle reports, weekly summaries</li>
+        <li>Slack webhook + GitHub auto-issue scaffolding</li>
+        <li>Ed25519-signed disclosures</li>
+        <li>SQLite findings DB with lifecycle state machine</li>
+      </ul>
+    </div>
+    <div>
+      <h4 class="future">Funded</h4>
+      <ul>
+        <li>Live disclosure dashboard with auth (single-tenant — your engagement)</li>
+        <li>Branded PDF report generator (audit-deliverable shape, 24h + weekly + monthly)</li>
+        <li>Postgres findings DB with full-text search + audit trail</li>
+        <li>Instant alerting routing (Slack/email) on Critical/High findings</li>
+        <li>Public methodology + signed-disclosure verification page</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================== UNIT ECONOMICS ============================== -->
+<section>
+  <div class="section-num">06 · Unit Economics</div>
+  <h1 class="section-title">Cost model — measured, not estimated</h1>
+
+  <p class="lede">All numbers are derived from actual measured spend during this engagement window plus
+  Anthropic's <a href="https://platform.claude.com/docs/en/about-claude/pricing">official 2026 API pricing</a>.
+  The 6-cycle exercise running ~200 hypothesis invocations against the 125-hypothesis curated library on
+  Sonnet 4.6 (<code>claude-sonnet-4-6</code>, $3 input / $15 output per MTok) cost ~$200 — that establishes
+  the Sonnet baseline. Opus 4.7 (<code>claude-opus-4-7</code>, $5 / $25 per MTok) is ~1.67× Sonnet on the
+  rate card; effective real-world cost is ~2.25× because Opus 4.7's new tokenizer can use up to 35% more
+  tokens per fixed text. Numbers below reflect this corrected ratio.</p>
+
+  <h2>Per-hypothesis cost</h2>
+  <table>
+    <thead><tr><th>Mode</th><th>Sonnet 4.6 (measured)</th><th>Opus 4.7 (extrapolated 2.25×)</th></tr></thead>
+    <tbody>
+      <tr><td>Speculation recon (no tools)</td><td class="num">~$0.05</td><td class="num">~$0.11</td></tr>
+      <tr><td>Speculation + 1 refinement round</td><td class="num">~$0.08</td><td class="num">~$0.18</td></tr>
+      <tr><td>Tool-using deep audit (15–25 turns)</td><td class="num">~$1.50</td><td class="num">~$3.40</td></tr>
+      <tr><td>Custom PoC + cargo run</td><td class="num">~$2.00</td><td class="num">~$4.50</td></tr>
+      <tr><td>LiteSVM exploit-chain authoring</td><td class="num">~$3.00</td><td class="num">~$6.75</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Per-day cost at funded depth (Percolator only)</h2>
+  <table>
+    <thead><tr><th>Workload</th><th>Model</th><th>Daily</th></tr></thead>
+    <tbody>
+      <tr><td>Triage on every commit (200 hyps × tool-using)</td><td>Sonnet 4.6</td><td class="num">$300–$600</td></tr>
+      <tr><td>Deep recon on flagged candidates (20–30 / day)</td><td>Opus 4.7</td><td class="num">$70–$100</td></tr>
+      <tr><td><code>confirm</code> on every TRUE/HIGH (5–10 / day)</td><td>Opus 4.7</td><td class="num">$25–$45</td></tr>
+      <tr><td>LiteSVM exploit-chain authoring on confirmed (1–2 / day)</td><td>Opus 4.7</td><td class="num">$10–$15</td></tr>
+      <tr><td>Cross-instruction attack-chain enumerator (daily, 3-5 step chains)</td><td>Opus 4.7</td><td class="num">$50–$100</td></tr>
+      <tr><td>Kani harness synthesis on new Critical/High invariants</td><td>Opus 4.7</td><td class="num">$30–$60</td></tr>
+      <tr><td>Spec.md drift detection (daily)</td><td>Sonnet 4.6</td><td class="num">$20–$40</td></tr>
+      <tr><td>Buffer for re-runs, debate, iteration</td><td>—</td><td class="num">$75–$140</td></tr>
+      <tr><td><strong>Daily total at Production tier</strong></td><td></td><td class="num kpi"><strong>~$580–$1,100</strong></td></tr>
+    </tbody>
+  </table>
+
+  <p>Prompt caching (cache read = 0.1× base input, per Anthropic's pricing docs) and Batch API (50% discount)
+  reduce these further on workloads with reusable context — both apply to Jelleo's pattern of running the
+  same hypothesis library against an evolving codebase.</p>
+
+  <h2>Depth tiers — what each unlocks on Percolator</h2>
+  <table>
+    <thead><tr><th>Depth</th><th>Scope</th><th>Anthropic API/month</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Foundation</strong></td><td>200-hyp library, weekly deep cycles, Opus on confirmation only, fast-triage on every commit</td><td class="num kpi">$10K–$15K</td></tr>
+      <tr><td><strong>Production</strong> ⭐</td><td>500-hyp library, daily deep cycles, Opus on every tool-using path, full <code>confirm</code> + LiteSVM authoring on every candidate</td><td class="num kpi">$20K–$30K</td></tr>
+      <tr><td><strong>Ceiling</strong></td><td>1000+ hypothesis library covering every reachable code path, multi-round adversarial refinement on every hyp, attack-chain enumeration to 5 steps, Kani harness synthesis with run-and-verify on every Critical/High invariant</td><td class="num kpi">$40K–$60K</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Infrastructure</h2>
+  <p>Jelleo currently runs on a dedicated VPS sized for v0.1 monitoring:
+  6-core / 24GB RAM / 200GB SSD, $60/month. This box is adequate through Production-tier depth — the bottleneck for
+  Percolator-only is Anthropic API throughput, not local compute. Cargo test runs locally at sub-second per scaffold
+  and Kani harnesses parallelize cleanly across the 6 cores. Current monthly spend: <strong>$60</strong>. Items
+  marked "post-funding" deploy at Tranche 1 close.</p>
+  <table>
+    <thead><tr><th>Component</th><th>Spec</th><th>Status</th><th>Monthly</th></tr></thead>
+    <tbody>
+      <tr><td>Production VPS</td><td>6-core / 24GB / 200GB SSD dedicated</td><td>Deployed</td><td class="num">$60</td></tr>
+      <tr><td>Findings DB backups + cold storage</td><td>S3-compatible, daily snapshots, 30-day retention</td><td>Post-funding</td><td class="num">$30</td></tr>
+      <tr><td>Domain + SSL + email + Slack</td><td>jelleo.audit (target), Postmark, Slack workspace</td><td>Post-funding</td><td class="num">$100</td></tr>
+      <tr><td>Monitoring + uptime checks</td><td>Grafana Cloud free tier adequate at this scale</td><td>Post-funding</td><td class="num">$0–$50</td></tr>
+      <tr><td>Failover box (Ceiling tier)</td><td>Second VPS in a different DC for SLA-grade uptime</td><td>Post-funding</td><td class="num">$60</td></tr>
+      <tr><td><strong>Funded monthly subtotal</strong></td><td></td><td></td><td class="num kpi"><strong>$250–$300</strong></td></tr>
+    </tbody>
+  </table>
+</section>
+
+
+<!-- ============================== STAGED PLAN ============================== -->
+<section>
+  <div class="section-num">07 · Staged plan</div>
+  <h1 class="section-title">12-month roadmap + path beyond</h1>
+
+  <p class="lede">The platform already runs 24/7 against Percolator. The 12-month plan does not change cadence —
+  it scales the <em>depth</em> of every commit-triggered cycle from sample-scope to ceiling-depth.</p>
+
+  <div class="stage">
+    <h3>Stage 1 — Months 1-3 · Pillars 3 + 4 MVPs</h3>
+    <p><strong>Goal:</strong> Ship the two foundational pillars that demonstrate closed-loop autonomous
+    security (P3) and ecosystem composability (P4). Hits the 90-day Tranche 2 milestone.</p>
+    <ul>
+      <li><strong>Pillar 3 MVP — closed-loop fix bundle</strong>: replay F7 as the canonical case study. Bug + auto-generated fix + Kani harness proof that the fix preserves all other invariants + full test-suite validation, bundled into a single PR. Demo-able end-to-end.</li>
+      <li><strong>Pillar 4 MVP — on-chain attestation registry</strong>: Solana program deployed, indexer + public query API live. Every Jelleo cycle publishes a signed Merkle root attesting verified invariants at the audited commit SHA.</li>
+      <li>Hypothesis library expansion 125 → 500 hyps tailored to every reachable surface in the engine + wrapper</li>
+      <li>Multi-iteration <code>confirm</code> loop — cargo errors fed back to the agent until 95%+ compile rate</li>
+      <li>Live disclosure dashboard with auth online (single-tenant — your engagement)</li>
+    </ul>
+  </div>
+
+  <div class="stage">
+    <h3>Stage 2 — Months 4-7 · Pillars 1 + 2 MVPs</h3>
+    <p><strong>Goal:</strong> Ship the two real-time pillars that take Jelleo from passive analysis to
+    active defense. The library reaches ceiling-depth on Percolator.</p>
+    <ul>
+      <li><strong>Pillar 1 MVP — counterfactual mainnet detection</strong>: per-tx parallel simulation engine running on Percolator's mainnet shadow. Instrumented with 5-10 attack patterns. Real-time alerting on state divergence between actual and counterfactual.</li>
+      <li><strong>Pillar 2 MVP — cross-protocol bug-class propagation</strong>: disclosure feed ingestion (Immunefi + GitHub security advisories + public PRs). Structural pattern extraction. Cross-protocol search wired to live feeds.</li>
+      <li>1000+ hypothesis library covering every public + permissionless code path on Percolator</li>
+      <li>Adversarial state-walk symbolic exploration on every funding-class invariant</li>
+      <li>Kani harness synthesis with run-and-verify on every Critical/High invariant</li>
+      <li>Cross-instruction race-condition exploration (TOCTOU, concurrent crank, settlement ordering)</li>
+      <li>Differential testing across forks — mainnet/devnet/local must produce byte-identical state</li>
+    </ul>
+  </div>
+
+  <div class="stage">
+    <h3>Stage 3 — Months 8-12 · Production-grade integration + deliverable cadence</h3>
+    <p><strong>Goal:</strong> All four pillars production-hardened, integrated end-to-end, running
+    continuously on Percolator. Deliverable cadence matches top-tier audit firms.</p>
+    <ul>
+      <li>All 4 pillars production-hardened and integrated end-to-end (P1 → P2 cross-pollinates with P3 fix-generation; P4 attests every cycle)</li>
+      <li>Quarterly comprehensive deep-dive reports — full Kani re-verification of the entire harness corpus, full LiteSVM regression run, full hypothesis library re-execution</li>
+      <li>First-call-on-incident SLA — direct line for triage, custom invariant requests, post-incident analysis</li>
+      <li>Public signed-disclosure registry — every finding ever rendered, cryptographically attested by the Jelleo key, anchored on-chain via Pillar 4</li>
+      <li>Branded PDF deliverable cadence — 24-hour + weekly + monthly auto-emailed signed reports</li>
+    </ul>
+  </div>
+
+  <div class="stage">
+    <h3>Stage 4 — Year 2+ · Path beyond Percolator</h3>
+    <p><strong>Goal:</strong> Jelleo's methodology, proven on Percolator's engine, extends to other Solana
+    DeFi protocols. The 12-month Percolator engagement establishes the model and the inaugural reference
+    deployment; Year 2+ scales it. <strong>This is the SAFE upside, not part of the 12-month commitment.</strong></p>
+    <ul>
+      <li><strong>Inaugural multi-protocol cohort</strong> — first 2-3 reference customers across perp / lending / AMM verticals (subject to Anatoly's introductions or organic outbound)</li>
+      <li><strong>Cross-pollination effect</strong> — perp bugs inform AMM hypotheses, AMM bugs inform lending, lending bugs inform perp. The hypothesis library cross-pollinates across protocol classes; coverage compounds non-linearly</li>
+      <li><strong>Fixed-cost amortization</strong> — engineering investment (attack-chain enumerator, Kani synthesizer, dashboard, signing infrastructure) amortizes across N protocols. Per-protocol cost drops with each addition</li>
+      <li><strong>Methodology + platform as the asset</strong> — Jelleo becomes the default code-level integrity-pillar artifact provider for STRIDE-tier protocols at scale. The 12-month Percolator deployment is the proof; Year 2+ is the distribution</li>
+      <li><strong>Series A trigger</strong> — at $5M+ ARR run-rate or 5+ customers (whichever first), the SAFE converts at the cap. Anatoly's $1.32M at $10M cap = ~13% of the platform that became the autonomous immune system for Solana DeFi</li>
+    </ul>
+  </div>
+</section>
+
+
+<!-- ============================== USE OF FUNDS ============================== -->
+<section>
+  <div class="section-num">08 · Use of funds</div>
+  <h1 class="section-title">Where the capital goes</h1>
+
+  <p>This section breaks down a representative <strong>$1.32M raise</strong> over the 12-month plan —
+  Percolator-only inaugural deployment, all four pillars shipped as MVPs, foundation set for Year 2+
+  ecosystem scaling. Every line below maps to a real, line-itemized cost. Reserve + opportunity sized at
+  industry-typical 22.7% of total raise (15-20% is standard; the slight premium accounts for solo-founder
+  execution + 4-pillar novelty).</p>
+
+  <div class="kpi-row">
+    <div class="kpi-tile">
+      <div class="label">API spend</div>
+      <div class="value">$300K</div>
+      <div class="note">22.7% — Opus 4.7 + Sonnet 4.6 production-tier, sized to Anthropic rate card</div>
+    </div>
+    <div class="kpi-tile">
+      <div class="label">Founder runway</div>
+      <div class="value">$360K</div>
+      <div class="note">27.3% — solo operator, 12 months at $30K/mo (covers all engineering work)</div>
+    </div>
+    <div class="kpi-tile">
+      <div class="label">4-pillar build infra</div>
+      <div class="value">$300K</div>
+      <div class="note">22.7% — dev API + cloud compute + 3rd-party services for shipping all 4 pillars</div>
+    </div>
+    <div class="kpi-tile">
+      <div class="label">Reserve + opportunity</div>
+      <div class="value">$300K</div>
+      <div class="note">22.7% — $200K operational reserve (named risks), $100K opportunity capacity</div>
+    </div>
+  </div>
+  <div class="kpi-row">
+    <div class="kpi-tile">
+      <div class="label">Legal + accounting</div>
+      <div class="value">$35K</div>
+      <div class="note">2.7% — Delaware C-corp, SAFE, IP assignment, ongoing</div>
+    </div>
+    <div class="kpi-tile">
+      <div class="label">Infrastructure (production)</div>
+      <div class="value">$25K</div>
+      <div class="note">1.9% — VPS + failover + backups + monitoring + domain/email/Slack, 12 months</div>
+    </div>
+    <div class="kpi-tile">
+      <div class="label">Total raise</div>
+      <div class="value">$1.32M</div>
+      <div class="note">Two tranches: $660K initial + $660K Stage 2 trigger at 90 days</div>
+    </div>
+    <div class="kpi-tile">
+      <div class="label">Cap / SAFE %</div>
+      <div class="value">~13%</div>
+      <div class="note">$10M post-money cap, ~13.2% at conversion</div>
+    </div>
+  </div>
+
+  <h3>What the $300K 4-pillar build infrastructure budget covers</h3>
+  <p>This funds the infrastructure, services, and development-phase API costs needed to BUILD all four
+  pillars (Section 04) on Percolator as inaugural deployment. The actual engineering work is performed by
+  the founder — covered under Founder runway. The $300K below pays for the third-party services,
+  development-phase compute, and external review costs the four-pillar build requires.</p>
+  <table>
+    <thead><tr><th>Pillar / Item</th><th>What it covers</th><th>Allocation</th></tr></thead>
+    <tbody>
+      <tr><td><strong>P1 · Counterfactual mainnet engine</strong></td><td>Dev API spend for attack-pattern formalization + parallel simulation harness build. Cloud compute for per-tx counterfactual replay against forked state. Most complex pillar.</td><td class="num">$100K</td></tr>
+      <tr><td><strong>P2 · Cross-protocol bug-class propagation</strong></td><td>Dev API spend for structural pattern extraction from disclosure feeds. Disclosure feed ingestion infra (Immunefi, GitHub security advisories, public PRs). Vector DB for hypothesis embeddings + similarity search.</td><td class="num">$50K</td></tr>
+      <tr><td><strong>P3 · Closed-loop fix bundle (Kani-proven)</strong></td><td>Dev API spend for fix-generation prompt iteration + Kani harness synthesis loop. Kani CPU-hours for proof runs at scale. Most prompt-iteration-heavy pillar.</td><td class="num">$70K</td></tr>
+      <tr><td><strong>P4 · On-chain attestation registry</strong></td><td>Solana program development infra. External security audit of the registry program itself (must be airtight — it's the trust anchor). Registry hosting, query API, indexer.</td><td class="num">$45K</td></tr>
+      <tr><td><strong>Tooling + CI integration</strong></td><td>GitHub Actions integration, Slack/email routing, observability + uptime monitoring, deployment + backup automation across all four pillars.</td><td class="num">$20K</td></tr>
+      <tr><td><strong>Buffer for cross-pillar integration</strong></td><td>Integration testing, end-to-end demos, unforeseen complexity in pillar interaction.</td><td class="num">$15K</td></tr>
+      <tr><td><strong>Total</strong></td><td></td><td class="num kpi"><strong>$300K</strong></td></tr>
+    </tbody>
+  </table>
+
+  <p>Every pillar maps to a concrete deliverable in the 12-month staged plan (Section 07). The $300K above
+  is line-itemized infrastructure cost — not contractor budget, not founder time (covered separately under
+  Founder runway). Each line is independently defensible.</p>
+
+  <h3>Tranche-by-tranche breakdown</h3>
+  <p>The $1.32M total is structured as two tranches — $660K initial close and $660K released on the 90-day
+  milestone (Pillars 3 + 4 MVPs shipped: closed-loop fix bundle replay of F7 case study + on-chain
+  attestation registry MVP). Every line below maps to either measured spend, a real third-party cost, or
+  named-risk reserve / opportunity capacity:</p>
+  <table>
+    <thead><tr><th>Category</th><th>Tranche 1 (Months 1-5)</th><th>Tranche 2 (Months 6-12)</th><th>Total</th></tr></thead>
+    <tbody>
+      <tr><td>Anthropic API — Sonnet 4.6 + Opus 4.7 (production)</td><td class="num">$100K</td><td class="num">$200K</td><td class="num">$300K</td></tr>
+      <tr><td>Founder runway ($30K/mo × 12)</td><td class="num">$150K</td><td class="num">$210K</td><td class="num">$360K</td></tr>
+      <tr><td>4-pillar build infrastructure (see sub-table above)</td><td class="num">$230K</td><td class="num">$70K</td><td class="num">$300K</td></tr>
+      <tr><td>Operational reserve (named risks below)</td><td class="num">$100K</td><td class="num">$100K</td><td class="num">$200K</td></tr>
+      <tr><td>Opportunity capacity (second-protocol pilot)</td><td class="num">$50K</td><td class="num">$50K</td><td class="num">$100K</td></tr>
+      <tr><td>Legal + accounting</td><td class="num">$25K</td><td class="num">$10K</td><td class="num">$35K</td></tr>
+      <tr><td>Infrastructure (production)</td><td class="num">$5K</td><td class="num">$20K</td><td class="num">$25K</td></tr>
+      <tr><td><strong>Tranche subtotal</strong></td><td class="num kpi"><strong>$660K</strong></td><td class="num kpi"><strong>$660K</strong></td><td class="num kpi"><strong>$1,320K</strong></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Named risk lines (the $200K operational reserve)</h3>
+  <p>The reserve isn't generic buffer. It's allocated against four specific, defensible risks:</p>
+  <table>
+    <thead><tr><th>Risk</th><th>What could go wrong</th><th>Allocation</th></tr></thead>
+    <tbody>
+      <tr><td><strong>API cost overrun</strong></td><td>Opus 4.7's new tokenizer can use up to 35% more tokens than rate-card estimates suggest. Build phase has heavy LLM iteration on Pillars 1 + 3.</td><td class="num">~$80K</td></tr>
+      <tr><td><strong>Counterfactual engine compute overshoot</strong></td><td>Pillar 1 is the most novel pillar. Per-tx parallel simulation against mainnet shadow has unknown compute scaling. Reserve covers if compute ramps faster than projected.</td><td class="num">~$50K</td></tr>
+      <tr><td><strong>Solana registry program external audit</strong></td><td>Pillar 4 IS the trust anchor — must be airtight. Mandatory third-party security audit of the registry program before mainnet deployment.</td><td class="num">~$40K</td></tr>
+      <tr><td><strong>Cross-pillar integration unknowns</strong></td><td>4 unprecedented components into 1 integrated platform = inherent unknowns. Reserve covers integration testing, cross-pillar bugs, demo polish.</td><td class="num">~$30K</td></tr>
+      <tr><td><strong>Total operational reserve</strong></td><td></td><td class="num kpi"><strong>$200K</strong></td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>$100K opportunity capacity</strong> is explicit dry powder for one specific trigger: a
+  second-protocol pilot if you open that door (Anatoly introduction, organic outbound, or strategic
+  partnership). If the Percolator depth target hits ahead of schedule, this funds extended Stage 3 polish
+  instead. Half the size of conventional opportunity buckets, single named purpose, not generic reserve.</p>
+</section>
+
+
+<!-- ============================== MILESTONES ============================== -->
+<section>
+  <div class="section-num">09 · Milestones</div>
+  <h1 class="section-title">30 / 90 / 180 / 365 day commitments</h1>
+
+  <div class="callout">
+    <h3>Timeline note · floor, not ceiling</h3>
+    <p><strong>On ordering:</strong> Pillars are numbered by architectural significance (Section 04), <strong>not
+    by shipping order</strong>. Engineering risk dictates that <strong>Pillars 3 + 4 ship first</strong> —
+    they extend existing repo primitives (<code>confirm</code>, <code>synth-kani</code>, Ed25519 signing
+    pipeline). Pillars 1 + 2 are more novel (P1 needs a new per-tx mainnet shadow simulation engine; P2
+    needs production-scale disclosure-feed ingestion) and ship in Stage 2.</p>
+    <p>All milestones below are <strong>committed delivery floors</strong> — concrete dates by which
+    deliverables must ship for tranche/SLA compliance. Pillars 3 + 4 MVPs are likely to ship before the
+    90-day commitment. Pillars 1 + 2 are tracked closer to the dates listed.</p>
+    <p>The platform's execution leverage (LLM-orchestrated build cadence on existing primitives) sets
+    velocity well above traditional engineering. Timeline reflects what's committed, not what's expected.
+    Overdelivery on Pillars 3 + 4 is the realistic case, not the upside scenario.</p>
+  </div>
+
+  <h2>30 days post-funding</h2>
+  <ul>
+    <li><strong>Legal formation complete</strong> — Delaware C-corp incorporated, IP assignment executed, SAFE documented, disclosure-liability framework drafted, your investor docs delivered</li>
+    <li><strong>Pillar 3 build started</strong> — F7 replay case study scoped; closed-loop fix-generation prompts iterated against the live engine</li>
+    <li><strong>Pillar 4 build started</strong> — on-chain attestation registry Solana program scaffolded; indexer + query API design in review</li>
+    <li>Hypothesis library expansion 125 → 500 underway</li>
+    <li>Live disclosure dashboard online — you receive access credentials; findings appear in real time the moment the agent renders verdict</li>
+    <li>Instant alerting wired — confirmed Critical/High findings push to Slack/email within minutes of confirmation, not at the next digest interval</li>
+    <li>Automated 24h + weekly + monthly PDF reports auto-emailed as signed deliverables</li>
+    <li>Public methodology document published</li>
+  </ul>
+
+  <h2>90 days post-funding · Tranche 2 trigger</h2>
+  <ul>
+    <li><strong>Pillar 3 MVP shipped</strong> — F7 replay case study live: bug + auto-generated fix + Kani proof + tests bundled into a single PR. End-to-end demo-able.</li>
+    <li><strong>Pillar 4 MVP shipped</strong> — on-chain attestation registry deployed: every Jelleo cycle publishes a signed Merkle root, queryable via public API.</li>
+    <li>500-hypothesis Percolator library deployed, running on every commit</li>
+    <li>Multi-iteration <code>confirm</code> loop hits 90%+ compile rate</li>
+    <li>First Jelleo-disclosed finding (if any surface) — cryptographically signed, publicly verifiable, anchored on-chain via Pillar 4</li>
+  </ul>
+
+  <h2>180 days post-funding</h2>
+  <ul>
+    <li><strong>Pillar 1 MVP shipped</strong> — counterfactual mainnet detection engine live on Percolator's mainnet shadow, instrumented with 5-10 attack patterns, real-time alerting on state divergence</li>
+    <li><strong>Pillar 2 MVP shipped</strong> — cross-protocol bug-class propagation wired to live disclosure feeds (Immunefi + GitHub security advisories + public PRs)</li>
+    <li>1000-hypothesis library covering every public + permissionless code path</li>
+    <li>Kani harness synthesis with run-and-verify shipped — runs on every Critical/High invariant</li>
+    <li>Differential testing across forks (mainnet/devnet/local) running in CI</li>
+    <li>Quarterly comprehensive report rendered (full Kani re-verification + LiteSVM regression)</li>
+    <li>First-call-on-incident SLA in production</li>
+  </ul>
+
+  <h2>365 days post-funding</h2>
+  <ul>
+    <li><strong>All 4 pillars production-grade</strong>, integrated end-to-end, running continuously on Percolator</li>
+    <li>Jelleo reaches ceiling-depth coverage on Percolator — every reachable invariant verified, every Critical/High Kani-proven, every confirmed finding LiteSVM-regression-tested</li>
+    <li>Public Jelleo-signed-disclosure registry — every finding ever rendered, cryptographically attested via the on-chain registry (Pillar 4)</li>
+    <li>Monthly comprehensive deep-dive matching top-tier firm cadence on the smart-contract integrity layer</li>
+    <li>First-call-on-incident SLA in steady-state production</li>
+  </ul>
+</section>
+
+
+<!-- ============================== THE ASK ============================== -->
+<section>
+  <div class="section-num">10 · The ask</div>
+  <h1 class="section-title">Investment structure</h1>
+
+  <p class="lede">Jelleo proposes a staged angel commitment via SAFE. Specific terms negotiable; representative
+  structure below for context.</p>
+
+  <table>
+    <thead><tr><th>Tier</th><th>Check</th><th>Runway</th><th>Stage coverage</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Foundation</strong></td><td class="num kpi">$500K</td><td class="num">6-8 months</td><td>Stage 1 complete — Percolator production-depth + iteration room. Inaugural reference customer status.</td></tr>
+      <tr><td><strong>Production</strong> ⭐</td><td class="num kpi">$1.32M</td><td class="num">12 months</td><td>All four pillars shipped as MVPs on Percolator. Public methodology + signed disclosures + monthly comprehensive reports + on-chain attestation registry online.</td></tr>
+      <tr><td><strong>Acceleration</strong></td><td class="num kpi">$3M</td><td class="num">18-24 months runway</td><td>Ceiling-tier API spend from day 1, larger reserves and opportunity capacity, second-protocol pilot if you open that door. Bridge to Series A optional.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Recommended structure — two-tranche $1.32M SAFE</h3>
+  <p><strong>$1.32M SAFE</strong> at a <strong>$10M post-money valuation cap</strong>, structured as two
+  tranches: <strong>$660K initial close → $660K Stage 2 trigger</strong> at the 90-day milestone
+  (Pillars 3 + 4 MVPs shipped: closed-loop fix bundle replay of F7 case study + on-chain attestation
+  registry online).</p>
+
+  <p>This structure gives you milestone-tied confidence: you commit the first $660K, watch Pillars 3 + 4
+  ship, and the second $660K releases on hitting concrete progress markers — not on a calendar date. If
+  the platform underdelivers, the second tranche doesn't fire.</p>
+
+  <p>The $10M cap reflects market context: median seed AI valuations in 2024 were 42% higher than non-AI
+  peers, with defensible-tech AI/security plays closing at $20M-$30M caps. The F7 disclosure is a real anchor.
+  $10M sits at the conservative-end of AI-premium pricing, leaving room for negotiation.</p>
+
+  <table>
+    <thead><tr><th>Tranche</th><th>Trigger</th><th>Amount</th><th>What it funds</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Tranche 1</strong></td><td>Initial close</td><td class="num kpi">$660K</td><td>Months 1-5 operations, legal formation, Pillars 3 + 4 MVP build (closed-loop fix bundle with Kani-proof generation; on-chain attestation registry — Solana program + indexer + signed Merkle root publishing). Hypothesis library expansion 125 → 500. $50K opportunity capacity.</td></tr>
+      <tr><td><strong>Tranche 2</strong></td><td>90-day milestone hit</td><td class="num kpi">$660K</td><td>Months 6-12 operations, Production-tier API spend, Pillars 1 + 2 MVP build (counterfactual mainnet detection engine; cross-protocol bug-class propagation wired to live disclosure feeds). Production-grade integration of all 4 pillars. Hypothesis library 500 → 1000+. $50K opportunity capacity.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Equity ownership at conversion</h3>
+  <p>At a $10M post-money cap, the $1.32M SAFE converts to approximately <strong>13.2% of the company</strong>
+  on a fully-diluted basis at the priced round (Series A or equivalent trigger event). Specific dilution
+  depends on subsequent rounds; a Series A at a higher valuation reduces the SAFE percentage proportionally,
+  but the cap protects the floor.</p>
+
+  <table>
+    <thead><tr><th>Cap level</th><th>Cap</th><th>SAFE % at conversion</th></tr></thead>
+    <tbody>
+      <tr><td>Investor-favorable</td><td class="num">$5M post-money</td><td class="num kpi">~26.4%</td></tr>
+      <tr><td>Conservative</td><td class="num">$7M post-money</td><td class="num kpi">~18.9%</td></tr>
+      <tr><td>Recommended ⭐</td><td class="num">$10M post-money</td><td class="num kpi">~13.2%</td></tr>
+      <tr><td>Founder-favorable</td><td class="num">$15M post-money</td><td class="num kpi">~8.8%</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Plus what you receive operationally</h3>
+  <ul>
+    <li><strong>Inaugural reference customer status</strong> on Percolator — exclusive deepest-coverage tier for
+        the duration of the engagement</li>
+    <li><strong>Live disclosure dashboard access</strong> — real-time view of every finding the platform produces
+        on Percolator the moment it's rendered, queryable by severity / status / date</li>
+    <li><strong>Instant alerting on Critical/High findings</strong> — Slack/email push within minutes of
+        confirmation. Exploits get addressed immediately, not on a weekly digest cadence</li>
+    <li><strong>Automated 24h + weekly + monthly PDF reports</strong> — auto-emailed signed deliverables for
+        executive cadence (every morning + rolling 7-day + comprehensive monthly)</li>
+    <li><strong>First-look on every finding</strong> before public disclosure</li>
+    <li><strong>Direct line</strong> — dedicated channel for triage, custom invariant requests, incident response</li>
+    <li><strong>Quarterly comprehensive reports</strong> rendered as branded audit deliverables</li>
+  </ul>
+
+  <div class="callout demo">
+    <h3>Live demo on the call</h3>
+    <p>To eliminate any "tell vs show" gap, the call includes a ~3-minute live demo end-to-end against
+    Percolator's current production SHA:</p>
+    <ol>
+      <li>Run <code>./status.sh</code> — show platform deployed, services running, target SHAs pinned, 125-hypothesis library on disk</li>
+      <li>Dispatch Jelleo against the <strong>V2-vault-balance-equation</strong> invariant ("every vault change must trace to a real token deposit/withdrawal — no dark accounting")</li>
+      <li>Watch tool-using Claude agent read your engine source live, walk every vault-mutation site, render line-cited verdict — <strong>TRUE / HIGH</strong> with conservation enforced at line 4256</li>
+      <li>Watch the auto-generated 16KB Rust integration test compile against your real engine and pass under <code>cargo test</code></li>
+    </ol>
+    <p>End-to-end methodology demonstrated. No slides. No claims. Just the platform reasoning about your
+    code in real time. ~$4 in API spend. 21 agent turns, 40 tool calls.</p>
+  </div>
+</section>
+
+<!-- ============================== STRATEGIC FIT ============================== -->
+<section>
+  <div class="section-num">11 · Strategic fit</div>
+  <h1 class="section-title">Why this engagement is structured this way</h1>
+
+  <ol>
+    <li><strong>Percolator-first, ecosystem-second.</strong> The platform was built on top of Percolator's source.
+    Every safety attestation in the public repo references Percolator engine line numbers. The funded 12-month
+    scope is exclusively Percolator inaugural deployment of all four pillars. Multi-protocol expansion is the
+    Year 2+ upside described in Stage 4 (Section 07) — not part of the 12-month commitment, but the equity
+    story for a Series A trigger.</li>
+    <li><strong>Continuous coverage between audits.</strong> Top-tier audit firms produce one-shot engagements
+    that go stale the moment the next commit lands. Jelleo runs 24/7 against the upstream repo, so coverage is
+    continuous, not point-in-time.</li>
+    <li><strong>Capital-efficient by design.</strong> Solo operator, AI-native execution. No team to scale, no
+    burn rate to renegotiate. A $1.32M check buys 12 months of continuous coverage on Percolator <em>plus</em>
+    all four pillars of the immune-system platform shipped as MVPs. The equivalent surface area via
+    traditional audits — 24 bi-weekly engagements at standard Solana DeFi pricing ($60K–$130K each) — would
+    cost $1.5M–$3M and deliver only periodic point-in-time PDFs, no real-time defense, no cross-protocol
+    propagation, no closed-loop fixes, no on-chain attestation. Jelleo delivers less spend AND structurally
+    different deliverables.</li>
+    <li><strong>Inaugural reference.</strong> Percolator is the engagement that proves the model. The methodology
+    that produced F7 — and every Jelleo finding rendered against your engine going forward — traces back to
+    this work. Your protocol becomes the inaugural deployment of continuous code-level Solana audit, attached
+    to the F7 disclosure as the public anchor.</li>
+  </ol>
+</section>
+
+<!-- ============================== APPENDIX A ============================== -->
+<section>
+  <div class="section-num">A</div>
+  <h1 class="section-title">Appendix A · Public artifacts</h1>
+
+  <p>Every internal claim in this document is backed by public artifacts in the open-source repository.</p>
+
+  <table>
+    <thead><tr><th>Artifact</th><th>What it shows</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a></td><td>Platform source — Apache-2.0 licensed</td></tr>
+      <tr><td><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/OUTREACH/jelleo-one-pager.md">OUTREACH/jelleo-one-pager.md</a></td><td>Architecture + capability matrix</td></tr>
+      <tr><td><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/examples">examples/</a></td><td>Raw agent reasoning samples (line-cited)</td></tr>
+      <tr><td><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/examples/confirmed-tests">examples/confirmed-tests/</a></td><td>Three Rust integration tests autonomously generated by the platform that compile and pass against the Percolator engine</td></tr>
+      <tr><td><a href="https://github.com/Copenhagen0x/solana-audit-pipeline">github.com/Copenhagen0x/solana-audit-pipeline</a></td><td>Methodology repository</td></tr>
+      <tr><td><a href="https://github.com/Copenhagen0x/percolator-audit-2026-04">github.com/Copenhagen0x/percolator-audit-2026-04</a></td><td>Full audit case study including F7 disclosure</td></tr>
+      <tr><td><a href="https://github.com/aeyakovenko/percolator-prog/pull/39">aeyakovenko/percolator-prog#39</a></td><td>F7 disclosure — public PR with full attack-sequence documentation, end-to-end balance trace, and proposed fix options</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================== APPENDIX B ============================== -->
+<section>
+  <div class="section-num">B</div>
+  <h1 class="section-title">Appendix B · External sources &amp; citations</h1>
+
+  <p>Every external claim — pricing, market data, ecosystem context — is sourced. Every line below is verifiable.</p>
+
+  <h2>Anthropic API pricing</h2>
+  <table>
+    <thead><tr><th>Claim</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>Claude Opus 4.7: $5 input / $25 output per MTok</td><td><a href="https://platform.claude.com/docs/en/about-claude/pricing">platform.claude.com/docs/en/about-claude/pricing</a> (official)</td></tr>
+      <tr><td>Claude Sonnet 4.6: $3 input / $15 output per MTok</td><td><a href="https://platform.claude.com/docs/en/about-claude/pricing">Anthropic API Pricing docs</a></td></tr>
+      <tr><td>Opus 4.7 new tokenizer (~35% more tokens for same fixed text)</td><td><a href="https://platform.claude.com/docs/en/about-claude/pricing">Anthropic API Pricing docs</a></td></tr>
+      <tr><td>Prompt caching: cache read = 0.1× base input price</td><td><a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">Anthropic Prompt Caching docs</a></td></tr>
+      <tr><td>Batch API: 50% discount on input + output</td><td><a href="https://platform.claude.com/docs/en/about-claude/pricing">Anthropic API Pricing docs</a></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Solana ecosystem security context</h2>
+  <table>
+    <thead><tr><th>Claim</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>STRIDE program launched April 6, 2026 (Solana Foundation + Asymmetric Research)</td><td><a href="https://blog.asymmetric.re/introducing-stride-a-security-program-for-the-solana-ecosystem/">Asymmetric Research — Introducing STRIDE</a></td></tr>
+      <tr><td>STRIDE Tier 1 ($10M+ TVL) → ongoing ops security + threat monitoring</td><td><a href="https://solana.com/news/solana-ecosystem-security">Solana Foundation — Ecosystem Security announcement</a></td></tr>
+      <tr><td>STRIDE Tier 2 ($100M+ TVL) → formal verification tooling</td><td><a href="https://www.theblock.co/post/396493/solana-foundation-stride">The Block — Solana Foundation STRIDE</a></td></tr>
+      <tr><td>STRIDE 8 pillars: ops sec, access controls, multisig, governance, smart-contract integrity, key mgmt, economic design, monitoring</td><td><a href="https://blog.asymmetric.re/introducing-stride-a-security-program-for-the-solana-ecosystem/">Asymmetric Research — STRIDE</a></td></tr>
+      <tr><td>SIRN (Solana Incident Response Network) — founders: Asymmetric, OtterSec, Neodyme, Squads, ZeroShadow</td><td><a href="https://www.coindesk.com/tech/2026/04/07/solana-foundation-unveils-security-overhaul-days-after-usd270-million-drift-exploit">CoinDesk — Solana security overhaul</a></td></tr>
+      <tr><td>Drift exploit April 1, 2026 ($270M) — DPRK-attributed, 6-month operation, durable-nonce abuse + multisig compromise + fake oracle + zero timelock</td><td><a href="https://www.chainalysis.com/blog/lessons-from-the-drift-hack/">Chainalysis — Lessons from the Drift Hack</a>, <a href="https://www.trmlabs.com/resources/blog/north-korean-hackers-attack-drift-protocol-in-285-million-heist">TRM Labs — DPRK attribution</a></td></tr>
+      <tr><td>Solana DeFi TVL ~$6B + ~$15B stablecoin capital (April 2026)</td><td><a href="https://defillama.com/chain/solana">DefiLlama — Solana</a></td></tr>
+      <tr><td>Solana exploit losses $530M+ since 2020 ($431M+ application-layer)</td><td><a href="https://www.helius.dev/blog/solana-hacks">Helius — Solana Hacks: A Complete History</a></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Audit firm market data</h2>
+  <table>
+    <thead><tr><th>Claim</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>Solana DeFi audit pricing $60K–$130K standard, $180K+ complex programs</td><td><a href="https://accretion.xyz/blog/solana-audit-cost">Accretion — Solana Audit Cost 2026</a> (primary, Solana-dedicated audit firm)</td></tr>
+      <tr><td>Top-tier (OtterSec, Halborn) premium band $80K–$200K</td><td><a href="https://www.zealynx.io/blogs/audit-pricing-2026">Zealynx — Audit Pricing 2026</a>, <a href="https://bugblow.com/blog/smart-contract-audit-cost-2026-pricing-guide">Bugblow — Smart Contract Audit Cost 2026</a> (synthesized from multiple industry guides)</td></tr>
+      <tr><td>Standard audit duration 3–6 weeks (3 weeks accelerated even for Jito complexity)</td><td><a href="https://m3dython.com/blog/ottersec-review-2026">m3dython — OtterSec Review 2026</a></td></tr>
+      <tr><td>Re-audit cost $5K–$20K per remediation pass</td><td><a href="https://www.zealynx.io/blogs/audit-pricing-2026">Zealynx — Audit Pricing 2026</a></td></tr>
+      <tr><td>OtterSec has secured $36.8B TVL via audits + formal verification</td><td><a href="https://osec.io/">osec.io</a></td></tr>
+      <tr><td>OtterSec, Asymmetric, Zellic = real Solana audit firms</td><td>Self-evident — public firm sites</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Funding / SAFE valuation context</h2>
+  <table>
+    <thead><tr><th>Claim</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>SAFEs = 90% of pre-seed deals Q1 2025</td><td><a href="https://www.calcalistech.com/ctechnews/article/sjxtowmsbe">Calcalistech — Pre-seed valuations surge</a></td></tr>
+      <tr><td>Median seed AI valuations 2024 = 42% higher than non-AI peers</td><td><a href="https://www.calcalistech.com/ctechnews/article/sjxtowmsbe">Calcalistech</a></td></tr>
+      <tr><td>AI/biotech with defensible tech + strong founder credentials = $20M-$30M caps</td><td><a href="https://www.calcalistech.com/ctechnews/article/sjxtowmsbe">Calcalistech</a></td></tr>
+      <tr><td>Typical SaaS/fintech pre-seed = $8M-$15M post-money cap</td><td><a href="https://promise.legal/startup-legal-guide/funding/valuation-caps">Promise Legal — Valuation Caps Guide</a></td></tr>
+      <tr><td>Solo-founder funding context: 75% of funds made zero solo-founder investments in 2025</td><td><a href="https://www.calcalistech.com/ctechnews/article/sjxtowmsbe">Calcalistech</a></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<div class="footer">
+  <span>Jelleo · Confidential · Funding Proposal · April 2026</span>
+  <span>Kirill Sakharuk · info@wifpros.com</span>
+</div>
+
+</div>
+</body>
+</html>

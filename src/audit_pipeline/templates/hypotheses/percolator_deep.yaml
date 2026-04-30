@@ -3,7 +3,7 @@
 # 100+ protocol-specific invariants, structured into 10 surface families.
 # Each entry is framed as a falsifiable claim. The autonomous hunt loop
 # treats each one as "is this invariant true?" and reports per-hypothesis
-# verdicts back into the Sentinel findings DB.
+# verdicts back into the Jelleo findings DB.
 #
 # Severity field is auto-derived if absent; explicit severity here pins
 # the invariant's importance regardless of cycle outcome.

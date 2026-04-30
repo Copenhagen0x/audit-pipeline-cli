@@ -1,4 +1,4 @@
-# Sentinel deployment artifacts
+# Jelleo deployment artifacts
 
 VPS deployment scripts for the audit-pipeline running 24/7 against Percolator.
 
@@ -7,8 +7,8 @@ VPS deployment scripts for the audit-pipeline running 24/7 against Percolator.
 | File | Purpose |
 |---|---|
 | `bootstrap.sh` | Idempotent VPS setup — clones repos, installs CLI, inits workspace, pulls target repos, smoke-tests both daemons |
-| `sentinel-shadow.service` | systemd unit for the 24/7 mainnet shadow audit |
-| `sentinel-watch.service` | systemd unit for the source-code watcher |
+| `jelleo-shadow.service` | systemd unit for the 24/7 mainnet shadow audit |
+| `jelleo-watch.service` | systemd unit for the source-code watcher |
 | `sync_to_gist.sh` | Hourly cron — pushes alert log + state to a public Gist |
 
 ## One-shot deploy
@@ -26,14 +26,14 @@ ssh -i ~/.ssh/percolator_vps <user>@<host>
 bash bootstrap.sh
 
 # 4. Install + start the daemons
-sudo cp ~/sentinel-shadow.service /etc/systemd/system/
-sudo cp ~/sentinel-watch.service  /etc/systemd/system/
+sudo cp ~/jelleo-shadow.service /etc/systemd/system/
+sudo cp ~/jelleo-watch.service  /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now sentinel-shadow.service
-sudo systemctl enable --now sentinel-watch.service
+sudo systemctl enable --now jelleo-shadow.service
+sudo systemctl enable --now jelleo-watch.service
 
 # 5. Verify
-systemctl status sentinel-shadow sentinel-watch
+systemctl status jelleo-shadow jelleo-watch
 
 # 6. Set up the Gist sync
 gh auth login   # if not already

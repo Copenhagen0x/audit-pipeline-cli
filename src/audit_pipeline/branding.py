@@ -1,4 +1,4 @@
-"""Sentinel design system — shared CSS and chrome for HTML reports + dashboard.
+"""Jelleo design system — shared CSS and chrome for HTML reports + dashboard.
 
 Single source of truth for the product's visual identity. Both
 `commands/dashboard.py` and `commands/report.py` import from here.
@@ -10,7 +10,7 @@ dashboards.
 
 from __future__ import annotations
 
-PRODUCT_NAME = "SENTINEL"
+PRODUCT_NAME = "JELLEO"
 TAGLINE = "Autonomous Solana audit"
 
 
@@ -302,7 +302,7 @@ def topbar_html(status_label: str = "Active", status_class: str = "ok") -> str:
 def footer_html(extra: str = "") -> str:
     return f"""
     <div class="footer">
-      <span>SENTINEL &middot; Autonomous Solana audit platform</span>
+      <span>JELLEO &middot; Autonomous Solana audit platform</span>
       <span class="muted">{extra}</span>
     </div>
     """

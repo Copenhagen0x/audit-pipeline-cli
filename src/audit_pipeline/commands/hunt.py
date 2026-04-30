@@ -208,7 +208,7 @@ def hunt_cmd(
             f"Skip PoC:     {skip_poc}\n"
             f"Skip Kani:    {skip_kani}\n"
             f"Webhook:      {'configured' if webhook_url else '(none)'}\n",
-            title="Sentinel - autonomous hunt",
+            title="Jelleo - autonomous hunt",
         )
     )
 
@@ -686,7 +686,7 @@ def _post_webhook(
     cycle_id = summary.get("cycle_id")
     target = summary.get("target", "unknown")
     msg_lines = [
-        f"🚨 *Sentinel hunt cycle {cycle_id}* (`{target}`) — "
+        f"🚨 *Jelleo hunt cycle {cycle_id}* (`{target}`) — "
         f"{len(confirmed)} confirmed finding(s)",
         f"Engine SHA: `{summary.get('engine_sha', '?')[:10]}`",
         f"Wrapper SHA: `{summary.get('wrapper_sha', '?')[:10]}`",

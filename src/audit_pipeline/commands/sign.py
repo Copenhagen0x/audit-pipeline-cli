@@ -1,7 +1,7 @@
 """`audit-pipeline sign` — Ed25519 signing for disclosure packages.
 
 Cryptographically attests that a given disclosure file (Markdown, PDF, etc.)
-was produced by the Sentinel platform key. Verifies sigs from outside the
+was produced by the Jelleo platform key. Verifies sigs from outside the
 platform too.
 
 Subcommands:
@@ -46,8 +46,8 @@ def keygen_cmd(ctx: click.Context, key_dir: Path | None, force: bool) -> None:
     key_dir = key_dir or (workspace / "keys")
     key_dir.mkdir(parents=True, exist_ok=True)
 
-    priv_path = key_dir / "sentinel.ed25519"
-    pub_path = key_dir / "sentinel.ed25519.pub"
+    priv_path = key_dir / "jelleo.ed25519"
+    pub_path = key_dir / "jelleo.ed25519.pub"
 
     if priv_path.exists() and not force:
         raise click.ClickException(
@@ -78,28 +78,28 @@ def keygen_cmd(ctx: click.Context, key_dir: Path | None, force: bool) -> None:
     console.print(pub_pem.decode())
     console.print(
         "[dim]Add this public key to your published methodology repo so "
-        "anyone can verify Sentinel-signed disclosures.[/dim]"
+        "anyone can verify Jelleo-signed disclosures.[/dim]"
     )
 
 
 @sign_cmd.command(name="sign")
 @click.argument("file_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--key", type=click.Path(exists=True, dir_okay=False, path_type=Path),
-              default=None, help="Private key path (default: <workspace>/keys/sentinel.ed25519)")
+              default=None, help="Private key path (default: <workspace>/keys/jelleo.ed25519)")
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None,
               help="Signature output path (default: <file_path>.sig)")
 @click.pass_context
 def sign_file_cmd(
     ctx: click.Context, file_path: Path, key: Path | None, output: Path | None,
 ) -> None:
-    """Sign a file with the Sentinel Ed25519 key."""
+    """Sign a file with the Jelleo Ed25519 key."""
     try:
         from cryptography.hazmat.primitives import serialization
     except ImportError:
         raise click.ClickException("`cryptography` package required.")
 
     workspace = Path(ctx.obj["workspace"])
-    priv_path = key or (workspace / "keys" / "sentinel.ed25519")
+    priv_path = key or (workspace / "keys" / "jelleo.ed25519")
     if not priv_path.exists():
         raise click.ClickException(
             f"No private key at {priv_path}. Run `audit-pipeline sign keygen` first."
@@ -113,14 +113,14 @@ def sign_file_cmd(
     out_path = output or file_path.with_suffix(file_path.suffix + ".sig")
 
     metadata = (
-        f"-----BEGIN SENTINEL SIGNATURE-----\n"
+        f"-----BEGIN JELLEO SIGNATURE-----\n"
         f"Algorithm: Ed25519\n"
         f"Signed-At: {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
         f"Signed-File: {file_path.name}\n"
         f"Signed-Bytes: {len(payload)}\n"
         f"\n"
         f"{sig_b64}\n"
-        f"-----END SENTINEL SIGNATURE-----\n"
+        f"-----END JELLEO SIGNATURE-----\n"
     )
     out_path.write_text(metadata, encoding="utf-8")
     console.print(f"[green]Signed[/green] {file_path}")
@@ -131,12 +131,12 @@ def sign_file_cmd(
 @click.argument("file_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.argument("sig_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--pubkey", type=click.Path(exists=True, dir_okay=False, path_type=Path),
-              default=None, help="Public key path (default: <workspace>/keys/sentinel.ed25519.pub)")
+              default=None, help="Public key path (default: <workspace>/keys/jelleo.ed25519.pub)")
 @click.pass_context
 def verify_cmd(
     ctx: click.Context, file_path: Path, sig_path: Path, pubkey: Path | None,
 ) -> None:
-    """Verify a Sentinel signature against a file."""
+    """Verify a Jelleo signature against a file."""
     try:
         from cryptography.hazmat.primitives import serialization
         from cryptography.exceptions import InvalidSignature
@@ -144,7 +144,7 @@ def verify_cmd(
         raise click.ClickException("`cryptography` package required.")
 
     workspace = Path(ctx.obj["workspace"])
-    pub_path = pubkey or (workspace / "keys" / "sentinel.ed25519.pub")
+    pub_path = pubkey or (workspace / "keys" / "jelleo.ed25519.pub")
     if not pub_path.exists():
         raise click.ClickException(f"No public key at {pub_path}")
 
@@ -154,10 +154,10 @@ def verify_cmd(
     sig_b64 = ""
     in_block = False
     for line in sig_text.splitlines():
-        if line.startswith("-----BEGIN SENTINEL"):
+        if line.startswith("-----BEGIN JELLEO"):
             in_block = True
             continue
-        if line.startswith("-----END SENTINEL"):
+        if line.startswith("-----END JELLEO"):
             break
         if in_block and line and ":" not in line:
             sig_b64 += line.strip()

@@ -8,7 +8,7 @@ disclosed bugs.
 This is the "find next bug in the same family" loop:
   qedbot's #60 was a sibling of #33.
   Dark Cobra's #62 was a sibling of #60.
-  Sentinel's job is to find the next sibling autonomously.
+  Jelleo's job is to find the next sibling autonomously.
 
 Usage:
   audit-pipeline learn-from-disclosures \\
@@ -194,7 +194,7 @@ def _fetch_issue_body(url: str) -> str:
         api_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{num}"
         r = requests.get(api_url, headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "audit-pipeline-sentinel",
+            "User-Agent": "audit-pipeline-jelleo",
         }, timeout=30)
         if r.status_code == 200:
             data = r.json()

@@ -1,5 +1,5 @@
 [Unit]
-Description=Sentinel - daily findings DB backup
+Description=Jelleo - daily findings DB backup
 Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
 
 [Service]

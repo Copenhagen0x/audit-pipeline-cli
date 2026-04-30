@@ -1,5 +1,5 @@
 [Unit]
-Description=Sentinel - source-code watch + autonomous hunt loop (Layer 0.5)
+Description=Jelleo - source-code watch + autonomous hunt loop (Layer 0.5)
 Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
 After=network-online.target
 Wants=network-online.target

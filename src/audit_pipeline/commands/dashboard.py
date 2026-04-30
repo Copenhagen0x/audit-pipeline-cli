@@ -11,7 +11,7 @@ Two modes:
   generate : write static HTML to a file
   serve    : write + serve via stdlib http.server on a port
 
-The page uses the shared Sentinel design system (audit_pipeline.branding).
+The page uses the shared Jelleo design system (audit_pipeline.branding).
 """
 
 from __future__ import annotations
@@ -167,7 +167,7 @@ def _render(db: FindingsDB, auto_refresh: int) -> str:
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SENTINEL · Autonomous Solana audit</title>
+<title>JELLEO · Autonomous Solana audit</title>
 <meta http-equiv="refresh" content="{auto_refresh}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

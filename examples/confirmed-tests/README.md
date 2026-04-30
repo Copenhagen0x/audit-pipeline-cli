@@ -1,12 +1,12 @@
 # Empirically-verified safety attestations
 
 Each `test_confirm_*.rs` file in this directory was **autonomously generated** by
-Sentinel's `confirm` command and **compiles + passes against the actual
+Jelleo's `confirm` command and **compiles + passes against the actual
 Percolator engine** at the audited SHA.
 
 The flow:
 
-1. Sentinel's tool-using `hunt-deep` agent investigated a hypothesis and
+1. Jelleo's tool-using `hunt-deep` agent investigated a hypothesis and
    produced a line-cited verdict (see `../V4-vault-cap-respect_response.md`).
 2. The `confirm` command then dispatched a *second* tool-using agent with
    `read_file`, `grep`, and `find_function` access. That agent studied the

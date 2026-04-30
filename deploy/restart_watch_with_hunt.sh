@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restart the sentinel-watch tmux session with --on-update wired to
+# Restart the jelleo-watch tmux session with --on-update wired to
 # trigger `audit-pipeline hunt` on every new commit detected.
 #
 # Run on the VPS as root after dropping ANTHROPIC_API_KEY into
@@ -31,8 +31,8 @@ if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
     exit 1
 fi
 
-# Kill the existing sentinel-watch session (preserve sentinel-shadow)
-tmux kill-session -t sentinel-watch 2>/dev/null || true
+# Kill the existing jelleo-watch session (preserve jelleo-shadow)
+tmux kill-session -t jelleo-watch 2>/dev/null || true
 
 # The on-update command runs from $WORKSPACE on every detected commit.
 # It sources the env file inside its own shell so the API key is
@@ -40,7 +40,7 @@ tmux kill-session -t sentinel-watch 2>/dev/null || true
 ON_UPDATE_CMD='source /root/.audit-env && audit-pipeline --workspace '"$WORKSPACE"' hunt --skip-poc 2>&1 | tee -a '"$WORKSPACE"'/watch/hunt-on-update.log'
 
 # Restart watch with the hunt trigger wired in.
-tmux new-session -d -s sentinel-watch \
+tmux new-session -d -s jelleo-watch \
     "source $ENV_FILE && /root/.local/bin/audit-pipeline --workspace $WORKSPACE watch \
         --auto-pull \
         --update-pin \

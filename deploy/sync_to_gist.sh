@@ -22,7 +22,7 @@ STATE_PATH="$WORKSPACE/shadow/state.json"
 # Build the public summary
 SUMMARY_FILE=$(mktemp)
 cat <<EOF >"$SUMMARY_FILE"
-# Sentinel — Live operational status
+# Jelleo — Live operational status
 **Last updated:** $TS
 **Target:** Percolator perpetual DEX (mainnet program \`6qWZvUtfyShbxTQkwjCayk3LuGqTGJwBo2QfkePK5jdJ\`)
 
@@ -77,7 +77,7 @@ fi
 cat <<EOF >>"$SUMMARY_FILE"
 
 ---
-*Generated automatically by Sentinel pipeline. Updates every hour.*
+*Generated automatically by Jelleo pipeline. Updates every hour.*
 *Methodology: https://github.com/Copenhagen0x/solana-audit-pipeline*
 *CLI: https://github.com/Copenhagen0x/audit-pipeline-cli*
 EOF

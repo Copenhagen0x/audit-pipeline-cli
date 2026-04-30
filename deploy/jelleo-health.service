@@ -1,5 +1,5 @@
 [Unit]
-Description=Sentinel - daemon health check (one-shot)
+Description=Jelleo - daemon health check (one-shot)
 Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
 
 [Service]

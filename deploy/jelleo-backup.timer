@@ -1,11 +1,10 @@
 [Unit]
-Description=Sentinel - run health check every 5 minutes
+Description=Jelleo - daily findings DB backup at 04:30 UTC
 Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
-AccuracySec=30s
+OnCalendar=*-*-* 04:30:00
+RandomizedDelaySec=300
 Persistent=true
 
 [Install]
