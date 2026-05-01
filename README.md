@@ -1,6 +1,6 @@
 # JELLEO
 
-**Autonomous immune system for Solana DeFi.** Four interlocking pillars — counterfactual mainnet detection, cross-protocol bug-class propagation, closed-loop fix bundles, and on-chain attestation registry — that together replace static-PDF audit reports with adaptive, autonomous, ecosystem-composable security. Built on the F7-disclosure methodology. Inaugural deployment: Anatoly Yakovenko's Percolator perpetual DEX.
+**The underwriting layer for Solana DeFi.** Four interlocking pillars — counterfactual mainnet detection, cross-protocol bug-class propagation, closed-loop fix bundles, and on-chain attestation registry — produce continuous, on-chain, cryptographically-signed attestations of code-level invariant integrity that **insurance protocols, partner DeFi protocols, and STRIDE evaluators all consume as a live signal**. The autonomous immune system replaces static-PDF audit reports with adaptive, ecosystem-composable security. Built on the F7-disclosure methodology. Inaugural deployment: Anatoly Yakovenko's Percolator perpetual DEX.
 
 Track record: F7 disclosure to [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39) — public record, regression coverage formally labeled "PR39/F7" in `main` of `aeyakovenko/percolator-prog` (commit [`a1afd2e`](https://github.com/aeyakovenko/percolator-prog/commit/a1afd2e)).
 
