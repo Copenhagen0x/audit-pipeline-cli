@@ -13,7 +13,7 @@ human intervention:
        via `synth-kani --auto`
     6. Write every verdict into the findings DB with severity + lifecycle
        status; emit a cycle summary + Markdown report
-    7. POST a webhook on confirmed findings (Slack / Discord)
+    7. POST a webhook on confirmed findings (Slack)
 
 Designed to be triggered by `watch --on-update`, so every new commit
 on the target repo gets a full audit pass without you doing anything.
@@ -107,7 +107,7 @@ console = Console()
 @click.option(
     "--webhook-url",
     default=None, envvar="HUNT_WEBHOOK_URL",
-    help="Slack/Discord webhook URL to POST findings to (or HUNT_WEBHOOK_URL env)",
+    help="Slack webhook URL to POST findings to (or HUNT_WEBHOOK_URL env)",
 )
 @click.option(
     "--engine-only/--engine-and-wrapper",

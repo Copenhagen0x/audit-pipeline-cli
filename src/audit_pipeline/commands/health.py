@@ -38,7 +38,7 @@ console = Console()
 @click.option("--shadow-stale-min", type=int, default=10, show_default=True)
 @click.option("--watch-stale-min", type=int, default=15, show_default=True)
 @click.option("--webhook-url", default=None, envvar="HUNT_WEBHOOK_URL",
-              help="Slack/Discord webhook URL for degraded alerts")
+              help="Slack webhook URL for degraded alerts")
 @click.option("--silent", is_flag=True,
               help="Only print on degraded state (good for cron)")
 @click.pass_context

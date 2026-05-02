@@ -47,7 +47,7 @@ Every verdict — confirmed, refuted, or escalated — is written to a SQLite fi
 
 | Capability | Detail |
 |---|---|
-| **Slack / Discord alerts** | Real-time webhook on confirmed findings, severity-tagged with cycle metadata. |
+| **Slack alerts** | Real-time webhook on confirmed findings, severity-tagged with cycle metadata. |
 | **GitHub Issue auto-filing** | Confirmed findings above a configurable severity floor are auto-drafted (or auto-filed) against the target repository. Lifecycle transitions to `disclosed`. |
 | **HTML dashboard** | Self-contained HTML dashboard with KPIs, severity breakdown, target cards, recent findings, refreshing daemon status. Can be served from the deployment host or attached to email. |
 | **Per-cycle + weekly HTML reports** | Branded executive reports with severity rubric, finding details, audit trail. |

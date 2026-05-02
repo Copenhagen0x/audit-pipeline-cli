@@ -36,7 +36,7 @@ audit-pipeline hunt
             SQLite findings DB (severity + lifecycle state machine)
                               │
                               ▼
-       Slack/Discord webhook · GitHub auto-issue · Ed25519-signed disclosure · HTML dashboard
+       Slack webhook · GitHub auto-issue · Ed25519-signed disclosure · HTML dashboard
 ```
 
 ---
@@ -56,7 +56,7 @@ audit-pipeline hunt
 | Ed25519-signed disclosure packages | ✅ |
 | Branded HTML dashboard + per-cycle + weekly reports | ✅ |
 | GitHub auto-issue filing on confirmed findings | ✅ |
-| Slack/Discord webhook on confirmed findings | ✅ |
+| Slack webhook on confirmed findings | ✅ |
 | Multi-target onboarding (one-command per protocol) | ✅ |
 | systemd health checks + daily DB backup + structured logging | ✅ |
 
