@@ -1,0 +1,11 @@
+{
+  "hyp_id": "S5-market-mode-transitions",
+  "test_name": "test_confirm_s5_market_mode_transitions",
+  "test_path": "/root/audit_runs/percolator-live/confirm/test_confirm_s5_market_mode_transitions.rs",
+  "outcome": "safety_attestation",
+  "cargo_rc": 0,
+  "cargo_elapsed_s": 0.3,
+  "cargo_log": "/root/audit_runs/percolator-live/confirm/test_confirm_s5_market_mode_transitions.cargo.log",
+  "input_tokens": 387702,
+  "output_tokens": 6848
+}

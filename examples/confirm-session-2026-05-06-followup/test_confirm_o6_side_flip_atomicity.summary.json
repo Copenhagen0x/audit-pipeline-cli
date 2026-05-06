@@ -1,0 +1,11 @@
+{
+  "hyp_id": "O6-side-flip-atomicity",
+  "test_name": "test_confirm_o6_side_flip_atomicity",
+  "test_path": "/root/audit_runs/percolator-live/confirm/test_confirm_o6_side_flip_atomicity.rs",
+  "outcome": "safety_attestation",
+  "cargo_rc": 0,
+  "cargo_elapsed_s": 0.4,
+  "cargo_log": "/root/audit_runs/percolator-live/confirm/test_confirm_o6_side_flip_atomicity.cargo.log",
+  "input_tokens": 412413,
+  "output_tokens": 7647
+}
