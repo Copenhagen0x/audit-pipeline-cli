@@ -175,14 +175,102 @@ $COMMIT_BODY"
 
 # Push with rebase-on-conflict retry — the autonomous loop can race with
 # manual pushes when the operator is also pushing. 3 attempts then bail.
+PUSH_OK=0
 for attempt in 1 2 3; do
     if git push origin main; then
         echo "publish_cycle: pushed cycle $LATEST"
-        exit 0
+        PUSH_OK=1
+        break
     fi
     echo "publish_cycle: push attempt $attempt failed; pulling --rebase before retry"
     git pull --rebase origin main || true
 done
+
+# Telegram alert (best-effort — doesn't change exit code).
+# Sends only if both env vars are set. Different message tone for routine
+# cycles vs. cycles with TRUE verdicts vs. cycles with confirmed PoC fires.
+if [ -n "${HUNT_TELEGRAM_TOKEN:-}" ] && [ -n "${HUNT_TELEGRAM_CHAT_ID:-}" ]; then
+    TG_MESSAGE=$(python3 - "$SUMMARY_PATH" "$PUBLISHED_DIR" "$PUSH_OK" <<'PYEOF'
+import json, sys
+
+summary_path, published_dir, push_ok = sys.argv[1:4]
+with open(summary_path) as f:
+    s = json.load(f)
+
+verdicts = s.get('verdicts') or []
+n_true     = sum(1 for v in verdicts if v.get('verdict') == 'TRUE')
+n_layer2   = sum(1 for v in verdicts if v.get('verdict') == 'NEEDS_LAYER_2_TO_DECIDE')
+n_unknown  = len(verdicts) - n_true - n_layer2
+n_confirmed = int(s.get('n_confirmed', 0) or 0)
+
+cycle_id = s.get('cycle_id', 'unknown')
+target   = s.get('source_repo', '?')
+sha      = s.get('engine_sha', '?')
+elapsed  = s.get('elapsed_seconds', 0) or 0
+cost     = s.get('total_cost_usd', 0) or 0
+n_hyps   = s.get('n_hypotheses', len(verdicts)) or len(verdicts)
+started  = (s.get('started_at') or '').replace('+00:00', '').replace('T', ' ')[:16] + ' UTC'
+
+artifact_url = f"https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/examples/recent-hunts/{published_dir}"
+
+# Severity selection
+if n_confirmed > 0:
+    headline = "🚨 <b>Jelleo · CONFIRMED FINDING</b>"
+    finding  = f"<b>⚠ {n_confirmed} PoC fired — empirically confirmed bug</b>"
+elif n_true > 0:
+    headline = "🔍 <b>Jelleo · cycle flagged</b>"
+    finding  = f"<b>{n_true} TRUE verdict · {n_layer2} layer-2 candidate(s)</b>"
+else:
+    headline = "✅ <b>Jelleo · cycle complete</b>"
+    finding  = f"All {n_hyps} hypotheses returned a clean verdict"
+
+# List TRUE verdicts inline (max 5 to keep the message readable)
+true_lines = []
+for v in verdicts:
+    if v.get('verdict') == 'TRUE':
+        hyp_id = v.get('hypothesis_id', '?')
+        conf   = v.get('confidence', 'UNKNOWN')
+        true_lines.append(f"• <code>{hyp_id}</code> · {conf}")
+true_lines = true_lines[:5]
+true_block = ('\n' + '\n'.join(true_lines)) if true_lines else ''
+
+# Push status note (only shown if push failed)
+push_note = '' if push_ok == '1' else '\n<i>⚠ git push failed — artifact only on VPS, not yet public</i>'
+
+message = f"""{headline}
+
+<i>{started}</i>
+🎯 <code>{target}@{sha[:7]}</code>
+🆔 <code>{cycle_id}</code>
+⏱ {elapsed:.0f}s · 💰 ${cost:.2f}
+
+{finding}{true_block}
+
+<b>Verdict counts</b>
+• TRUE       {n_true}
+• LAYER_2    {n_layer2}
+• UNKNOWN    {n_unknown}
+• PoC fired  {n_confirmed}{push_note}
+
+<a href="{artifact_url}">View full artifact →</a>"""
+
+print(message, end='')
+PYEOF
+)
+    if curl -s -X POST "https://api.telegram.org/bot${HUNT_TELEGRAM_TOKEN}/sendMessage" \
+        --data-urlencode "chat_id=${HUNT_TELEGRAM_CHAT_ID}" \
+        --data-urlencode "text=${TG_MESSAGE}" \
+        -d "parse_mode=HTML" \
+        -d "disable_web_page_preview=true" >/dev/null 2>&1; then
+        echo "publish_cycle: telegram alert sent"
+    else
+        echo "publish_cycle: telegram alert failed (non-fatal)"
+    fi
+fi
+
+if [ "$PUSH_OK" = "1" ]; then
+    exit 0
+fi
 
 echo "publish_cycle: push failed after 3 attempts — manual intervention required"
 exit 1
