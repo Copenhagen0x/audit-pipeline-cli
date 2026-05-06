@@ -1,0 +1,128 @@
+{
+  "schema": "audit-pipeline.hunt.v1",
+  "cycle_id": "20260506-194649-5059332",
+  "target": "percolator-live",
+  "workspace": "/root/audit_runs/percolator-live",
+  "source_mode": "snapshot",
+  "source_repo": "aeyakovenko/percolator",
+  "engine_sha": "5059332",
+  "wrapper_sha": "04b854e5718112f42ebba9c208335a22132075ad",
+  "started_at": "2026-05-06T19:46:49+00:00",
+  "elapsed_seconds": 179.1,
+  "total_cost_usd": 0.7736,
+  "daily_spent_usd": 0.7736,
+  "daily_cap_usd": 50.0,
+  "n_hypotheses": 12,
+  "n_candidates": 7,
+  "n_debate_runs": 0,
+  "n_poc_scaffolded": 0,
+  "n_poc_fired": 0,
+  "n_kani_runs": 0,
+  "n_litesvm_runs": 0,
+  "n_narratives": 0,
+  "n_confirmed": 0,
+  "confirmed": [],
+  "verdicts": [
+    {
+      "hypothesis_id": "SH1-strict-helper-coverage",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 3064,
+      "output_tokens": 1839
+    },
+    {
+      "hypothesis_id": "SH10-cpi-matcher-state-writes-isolated",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2304,
+      "output_tokens": 1660
+    },
+    {
+      "hypothesis_id": "SH11-self-matched-pair-cannot-walk-K",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2135,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "SH12-insurance-drain-via-resolve-flat-negative",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 2325,
+      "output_tokens": 2822
+    },
+    {
+      "hypothesis_id": "SH2-withdraw-collateral-helper-choice",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "LOW",
+      "input_tokens": 2962,
+      "output_tokens": 1246
+    },
+    {
+      "hypothesis_id": "SH3-k-walk-via-oracle-rejected",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2117,
+      "output_tokens": 6273
+    },
+    {
+      "hypothesis_id": "SH4-k-walk-via-funding-rejected",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2116,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "SH5-keeper-crank-touching-completeness",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2129,
+      "output_tokens": 1506
+    },
+    {
+      "hypothesis_id": "SH6-resolve-flat-negative-gate",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2147,
+      "output_tokens": 1896
+    },
+    {
+      "hypothesis_id": "SH7-mark-ewma-update-rate-cap",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 2404,
+      "output_tokens": 1632
+    },
+    {
+      "hypothesis_id": "SH8-trade-cpi-band-check-tightness",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2119,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "SH9-stuck-target-accrual-rejection",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2105,
+      "output_tokens": 2539
+    }
+  ],
+  "debate": {},
+  "poc": {},
+  "kani": {},
+  "litesvm": {},
+  "narrative": {}
+}
