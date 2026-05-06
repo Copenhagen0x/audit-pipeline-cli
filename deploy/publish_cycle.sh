@@ -24,17 +24,24 @@ if [ ! -d "$WORKSPACE/hunts" ]; then
     exit 0
 fi
 
-LATEST=$(ls -1t "$WORKSPACE/hunts/" 2>/dev/null | head -1)
+# Pick the most-recent COMPLETED cycle (has hunt_summary.json).
+# Sort cycle dir names DESCENDING — they're prefixed with timestamps
+# (YYYYMMDD-HHMMSS-...) so lexical sort = chronological sort. This is
+# robust to mtime weirdness from prior runs of this script.
+LATEST=""
+for d in $(ls -1 "$WORKSPACE/hunts/" 2>/dev/null | sort -r); do
+    if [ -f "$WORKSPACE/hunts/$d/hunt_summary.json" ]; then
+        LATEST="$d"
+        break
+    fi
+done
+
 if [ -z "$LATEST" ]; then
-    echo "publish_cycle: no hunt cycles found; nothing to publish"
+    echo "publish_cycle: no completed cycles found; nothing to publish"
     exit 0
 fi
 
 SUMMARY_PATH="$WORKSPACE/hunts/$LATEST/hunt_summary.json"
-if [ ! -f "$SUMMARY_PATH" ]; then
-    echo "publish_cycle: cycle $LATEST has no hunt_summary.json (incomplete) — skipping"
-    exit 0
-fi
 
 # Extract metadata via Python (jq isn't guaranteed installed)
 META=$(python3 - "$SUMMARY_PATH" <<'PYEOF'
@@ -60,8 +67,10 @@ if [ -z "$ENGINE_SHA" ] || [ -z "$STARTED" ]; then
     exit 1
 fi
 
-DATE_PART=$(echo "$STARTED" | cut -c1-10)
-PUBLISHED_DIR="${DATE_PART}-cycle-${ENGINE_SHA}"
+# Use the cycle_id directly as the published dir name. Cycle ids are
+# unique (timestamp-suffixed-with-sha7), so this never collides — even
+# for two cycles against the same upstream SHA on the same day.
+PUBLISHED_DIR="$LATEST"
 DEST="$REPO/examples/recent-hunts/$PUBLISHED_DIR"
 
 # 1. Copy artifact (idempotent — skip if already there with same content)
