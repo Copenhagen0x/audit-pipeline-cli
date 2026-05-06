@@ -1,0 +1,263 @@
+{
+  "schema": "audit-pipeline.hunt.v1",
+  "cycle_id": "20260506-221750-5059332",
+  "target": "percolator-live",
+  "workspace": "/root/audit_runs/percolator-live",
+  "source_mode": "snapshot",
+  "source_repo": "aeyakovenko/percolator",
+  "engine_sha": "5059332",
+  "wrapper_sha": "04b854e5718112f42ebba9c208335a22132075ad",
+  "started_at": "2026-05-06T22:17:50+00:00",
+  "elapsed_seconds": 186.2,
+  "total_cost_usd": 0.4922,
+  "daily_spent_usd": 7.4768,
+  "daily_cap_usd": 50.0,
+  "n_hypotheses": 12,
+  "n_candidates": 6,
+  "n_debate_runs": 0,
+  "n_poc_scaffolded": 6,
+  "n_poc_fired": 6,
+  "n_kani_runs": 0,
+  "n_litesvm_runs": 6,
+  "n_narratives": 0,
+  "n_confirmed": 6,
+  "confirmed": [
+    {
+      "hypothesis_id": "SH11-self-matched-pair-cannot-walk-K",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh11_self_matched_pair_cannot_walk_k.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 101,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH2-withdraw-collateral-helper-choice",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh2_withdraw_collateral_helper_choice.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 101,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH3-k-walk-via-oracle-rejected",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh3_k_walk_via_oracle_rejected.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 101,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH4-k-walk-via-funding-rejected",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh4_k_walk_via_funding_rejected.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 101,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH5-keeper-crank-touching-completeness",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh5_keeper_crank_touching_completeness.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 101,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH8-trade-cpi-band-check-tightness",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh8_trade_cpi_band_check_tightness.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 101,
+        "fired": true
+      },
+      "kani": null
+    }
+  ],
+  "verdicts": [
+    {
+      "hypothesis_id": "SH1-strict-helper-coverage",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 3064,
+      "output_tokens": 2044
+    },
+    {
+      "hypothesis_id": "SH10-cpi-matcher-state-writes-isolated",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2304,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "SH11-self-matched-pair-cannot-walk-K",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2135,
+      "output_tokens": 1621
+    },
+    {
+      "hypothesis_id": "SH12-insurance-drain-via-resolve-flat-negative",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2325,
+      "output_tokens": 1559
+    },
+    {
+      "hypothesis_id": "SH2-withdraw-collateral-helper-choice",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2962,
+      "output_tokens": 1169
+    },
+    {
+      "hypothesis_id": "SH3-k-walk-via-oracle-rejected",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 2117,
+      "output_tokens": 2544
+    },
+    {
+      "hypothesis_id": "SH4-k-walk-via-funding-rejected",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2116,
+      "output_tokens": 1527
+    },
+    {
+      "hypothesis_id": "SH5-keeper-crank-touching-completeness",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2129,
+      "output_tokens": 1779
+    },
+    {
+      "hypothesis_id": "SH6-resolve-flat-negative-gate",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2147,
+      "output_tokens": 1469
+    },
+    {
+      "hypothesis_id": "SH7-mark-ewma-update-rate-cap",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2404,
+      "output_tokens": 1933
+    },
+    {
+      "hypothesis_id": "SH8-trade-cpi-band-check-tightness",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2119,
+      "output_tokens": 2234
+    },
+    {
+      "hypothesis_id": "SH9-stuck-target-accrual-rejection",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2105,
+      "output_tokens": 1158
+    }
+  ],
+  "debate": {},
+  "poc": {
+    "SH11-self-matched-pair-cannot-walk-K": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh11_self_matched_pair_cannot_walk_k.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 101,
+      "fired": true
+    },
+    "SH2-withdraw-collateral-helper-choice": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh2_withdraw_collateral_helper_choice.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 101,
+      "fired": true
+    },
+    "SH3-k-walk-via-oracle-rejected": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh3_k_walk_via_oracle_rejected.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 101,
+      "fired": true
+    },
+    "SH4-k-walk-via-funding-rejected": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh4_k_walk_via_funding_rejected.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 101,
+      "fired": true
+    },
+    "SH5-keeper-crank-touching-completeness": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh5_keeper_crank_touching_completeness.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 101,
+      "fired": true
+    },
+    "SH8-trade-cpi-band-check-tightness": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/poc/test_sh8_trade_cpi_band_check_tightness.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 101,
+      "fired": true
+    }
+  },
+  "kani": {},
+  "litesvm": {
+    "SH11-self-matched-pair-cannot-walk-K": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/litesvm"
+    },
+    "SH2-withdraw-collateral-helper-choice": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/litesvm"
+    },
+    "SH3-k-walk-via-oracle-rejected": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/litesvm"
+    },
+    "SH4-k-walk-via-funding-rejected": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/litesvm"
+    },
+    "SH5-keeper-crank-touching-completeness": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/litesvm"
+    },
+    "SH8-trade-cpi-band-check-tightness": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-221750-5059332/litesvm"
+    }
+  },
+  "narrative": {}
+}
