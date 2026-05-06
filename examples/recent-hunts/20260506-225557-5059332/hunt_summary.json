@@ -1,0 +1,840 @@
+{
+  "schema": "audit-pipeline.hunt.v1",
+  "cycle_id": "20260506-225557-5059332",
+  "target": "percolator-live",
+  "workspace": "/root/audit_runs/percolator-live",
+  "source_mode": "snapshot",
+  "source_repo": "aeyakovenko/percolator",
+  "engine_sha": "5059332",
+  "wrapper_sha": "04b854e5718112f42ebba9c208335a22132075ad",
+  "started_at": "2026-05-06T22:55:57+00:00",
+  "elapsed_seconds": 778.2,
+  "total_cost_usd": 3.3089,
+  "daily_spent_usd": 10.7857,
+  "daily_cap_usd": 50.0,
+  "n_hypotheses": 101,
+  "n_candidates": 52,
+  "n_debate_runs": 0,
+  "n_poc_scaffolded": 0,
+  "n_poc_fired": 0,
+  "n_kani_runs": 0,
+  "n_litesvm_runs": 0,
+  "n_narratives": 0,
+  "n_confirmed": 0,
+  "confirmed": [],
+  "verdicts": [
+    {
+      "hypothesis_id": "A1-permissionless-no-drain",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2244,
+      "output_tokens": 1464
+    },
+    {
+      "hypothesis_id": "A10-upgrade-authority-frozen",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2233,
+      "output_tokens": 1319
+    },
+    {
+      "hypothesis_id": "A2-admin-instructions-signer-check",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2249,
+      "output_tokens": 1364
+    },
+    {
+      "hypothesis_id": "A3-cpi-safety",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2249,
+      "output_tokens": 1311
+    },
+    {
+      "hypothesis_id": "A4-token-authority-validation",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2228,
+      "output_tokens": 1182
+    },
+    {
+      "hypothesis_id": "A5-pda-derivation-canonicality",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2241,
+      "output_tokens": 1318
+    },
+    {
+      "hypothesis_id": "A6-account-discriminator-check",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2230,
+      "output_tokens": 1167
+    },
+    {
+      "hypothesis_id": "A7-wrapper-instruction-signer-routing",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2248,
+      "output_tokens": 1417
+    },
+    {
+      "hypothesis_id": "A8-multisig-threshold",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2230,
+      "output_tokens": 1190
+    },
+    {
+      "hypothesis_id": "A9-pause-gate-coverage",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2235,
+      "output_tokens": 1388
+    },
+    {
+      "hypothesis_id": "AC1-account-gc-state-leak",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2072,
+      "output_tokens": 4469
+    },
+    {
+      "hypothesis_id": "AC2-materialize-fresh-state",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2265,
+      "output_tokens": 1822
+    },
+    {
+      "hypothesis_id": "AC3-touch-idempotent",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2268,
+      "output_tokens": 1247
+    },
+    {
+      "hypothesis_id": "AC4-free-only-on-zero-position",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2065,
+      "output_tokens": 1394
+    },
+    {
+      "hypothesis_id": "AC5-account-capital-conservation",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2270,
+      "output_tokens": 1505
+    },
+    {
+      "hypothesis_id": "AC6-slot-reuse-no-aliasing",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2052,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "AC7-account-bound-authority",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2230,
+      "output_tokens": 1321
+    },
+    {
+      "hypothesis_id": "AC8-account-zeroing-on-close",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2051,
+      "output_tokens": 1442
+    },
+    {
+      "hypothesis_id": "AR1-mul-div-floor-no-overflow",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2321,
+      "output_tokens": 1485
+    },
+    {
+      "hypothesis_id": "AR2-pnl-delta-i128-bound",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2336,
+      "output_tokens": 1303
+    },
+    {
+      "hypothesis_id": "AR3-funding-rate-bounds",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 2298,
+      "output_tokens": 1222
+    },
+    {
+      "hypothesis_id": "AR4-catchup-no-overflow",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "MED",
+      "input_tokens": 2311,
+      "output_tokens": 2126
+    },
+    {
+      "hypothesis_id": "AR5-fee-calc-overflow",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2308,
+      "output_tokens": 1090
+    },
+    {
+      "hypothesis_id": "AR6-square-root-bounds",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2305,
+      "output_tokens": 1473
+    },
+    {
+      "hypothesis_id": "AR7-saturating-arithmetic-correctness",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2302,
+      "output_tokens": 1282
+    },
+    {
+      "hypothesis_id": "AR8-rounding-direction",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2073,
+      "output_tokens": 1602
+    },
+    {
+      "hypothesis_id": "CI1-deposit-then-withdraw-zero",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "MED",
+      "input_tokens": 2054,
+      "output_tokens": 1340
+    },
+    {
+      "hypothesis_id": "CI10-resolution-final",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2259,
+      "output_tokens": 1218
+    },
+    {
+      "hypothesis_id": "CI2-double-touch-no-drift",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2265,
+      "output_tokens": 1389
+    },
+    {
+      "hypothesis_id": "CI3-fill-then-cancel-impossible",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2047,
+      "output_tokens": 1172
+    },
+    {
+      "hypothesis_id": "CI4-self-trade-net-zero",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2052,
+      "output_tokens": 1380
+    },
+    {
+      "hypothesis_id": "CI5-cross-market-isolation",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2254,
+      "output_tokens": 1443
+    },
+    {
+      "hypothesis_id": "CI6-batch-instruction-atomicity",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2059,
+      "output_tokens": 1317
+    },
+    {
+      "hypothesis_id": "CI7-wrapper-instruction-equivalence",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2052,
+      "output_tokens": 1751
+    },
+    {
+      "hypothesis_id": "CI8-flash-fill-impossible",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2049,
+      "output_tokens": 1396
+    },
+    {
+      "hypothesis_id": "CI9-orderbook-depth-bound",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2261,
+      "output_tokens": 1241
+    },
+    {
+      "hypothesis_id": "IX1-ix-data-validation",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2058,
+      "output_tokens": 1535
+    },
+    {
+      "hypothesis_id": "IX10-error-codes-distinct",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2054,
+      "output_tokens": 1441
+    },
+    {
+      "hypothesis_id": "IX2-account-list-length-check",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2052,
+      "output_tokens": 1287
+    },
+    {
+      "hypothesis_id": "IX3-rent-exemption-check",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2257,
+      "output_tokens": 1260
+    },
+    {
+      "hypothesis_id": "IX4-clock-sysvar-required",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2057,
+      "output_tokens": 1321
+    },
+    {
+      "hypothesis_id": "IX5-no-arbitrary-cpi",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2236,
+      "output_tokens": 1599
+    },
+    {
+      "hypothesis_id": "IX6-account-owner-check",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2233,
+      "output_tokens": 1243
+    },
+    {
+      "hypothesis_id": "IX7-readonly-vs-writable-correctness",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2063,
+      "output_tokens": 1900
+    },
+    {
+      "hypothesis_id": "IX8-replay-protection",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2053,
+      "output_tokens": 1537
+    },
+    {
+      "hypothesis_id": "IX9-compute-budget-respect",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2057,
+      "output_tokens": 1559
+    },
+    {
+      "hypothesis_id": "L1-liquidation-discount-bounded",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2313,
+      "output_tokens": 1091
+    },
+    {
+      "hypothesis_id": "L10-liquidation-touch-pairing",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 2056,
+      "output_tokens": 1327
+    },
+    {
+      "hypothesis_id": "L2-liquidation-only-on-mm-breach",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2064,
+      "output_tokens": 1548
+    },
+    {
+      "hypothesis_id": "L3-keeper-crank-cursor-budget",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2059,
+      "output_tokens": 1417
+    },
+    {
+      "hypothesis_id": "L4-keeper-authorization-surface",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2236,
+      "output_tokens": 8191
+    },
+    {
+      "hypothesis_id": "L5-liquidation-no-fee-enrichment",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2263,
+      "output_tokens": 1232
+    },
+    {
+      "hypothesis_id": "L6-force-closure-conditions",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2060,
+      "output_tokens": 1554
+    },
+    {
+      "hypothesis_id": "L7-keeper-crank-progress",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2067,
+      "output_tokens": 1498
+    },
+    {
+      "hypothesis_id": "L8-partial-liquidation-correctness",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2055,
+      "output_tokens": 3400
+    },
+    {
+      "hypothesis_id": "L9-cascade-liquidation-bound",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2056,
+      "output_tokens": 1265
+    },
+    {
+      "hypothesis_id": "O1-position-q-bound",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 2306,
+      "output_tokens": 1198
+    },
+    {
+      "hypothesis_id": "O10-orderbook-side-balance",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2269,
+      "output_tokens": 1575
+    },
+    {
+      "hypothesis_id": "O2-oi-conservation",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "HIGH",
+      "input_tokens": 2271,
+      "output_tokens": 1214
+    },
+    {
+      "hypothesis_id": "O3-position-authority-binding",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2250,
+      "output_tokens": 1623
+    },
+    {
+      "hypothesis_id": "O4-im-respect-on-open",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "MED",
+      "input_tokens": 2275,
+      "output_tokens": 1829
+    },
+    {
+      "hypothesis_id": "O5-mm-trigger-correctness",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2054,
+      "output_tokens": 1461
+    },
+    {
+      "hypothesis_id": "O6-side-flip-atomicity",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2049,
+      "output_tokens": 1369
+    },
+    {
+      "hypothesis_id": "O7-position-zero-clears-basis",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2062,
+      "output_tokens": 1450
+    },
+    {
+      "hypothesis_id": "O8-cross-margin-equity",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2262,
+      "output_tokens": 1414
+    },
+    {
+      "hypothesis_id": "O9-position-bedge-correct",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2051,
+      "output_tokens": 1492
+    },
+    {
+      "hypothesis_id": "P1-pnl-zero-sum",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2278,
+      "output_tokens": 1353
+    },
+    {
+      "hypothesis_id": "P10-funding-index-monotonic-modulo-direction",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2064,
+      "output_tokens": 1465
+    },
+    {
+      "hypothesis_id": "P2-pnl-pos-tot-monotonic",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2070,
+      "output_tokens": 1650
+    },
+    {
+      "hypothesis_id": "P3-pnl-matured-bound",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2276,
+      "output_tokens": 1387
+    },
+    {
+      "hypothesis_id": "P4-funding-rate-mark-bias",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2067,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "P5-funding-payment-zero-sum",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2266,
+      "output_tokens": 1200
+    },
+    {
+      "hypothesis_id": "P6-mark-ewma-bound",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2305,
+      "output_tokens": 1422
+    },
+    {
+      "hypothesis_id": "P7-pnl-on-side-flip",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2071,
+      "output_tokens": 1486
+    },
+    {
+      "hypothesis_id": "P8-self-trade-cash-flow",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2058,
+      "output_tokens": 1634
+    },
+    {
+      "hypothesis_id": "P9-pnl-arithmetic-bounds",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "MED",
+      "input_tokens": 2358,
+      "output_tokens": 1966
+    },
+    {
+      "hypothesis_id": "R1-reorg-resilience",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2056,
+      "output_tokens": 1510
+    },
+    {
+      "hypothesis_id": "R2-deterministic-fill-matching",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2254,
+      "output_tokens": 1119
+    },
+    {
+      "hypothesis_id": "R3-finality-gate",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2043,
+      "output_tokens": 1345
+    },
+    {
+      "hypothesis_id": "R4-leader-rotation-safety",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 2038,
+      "output_tokens": 1333
+    },
+    {
+      "hypothesis_id": "R5-rpc-staleness-tolerance",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2058,
+      "output_tokens": 1244
+    },
+    {
+      "hypothesis_id": "S1-init-state-invariants",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "MED",
+      "input_tokens": 2301,
+      "output_tokens": 1550
+    },
+    {
+      "hypothesis_id": "S10-rebate-claim-correctness",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2046,
+      "output_tokens": 1261
+    },
+    {
+      "hypothesis_id": "S2-resolved-mode-mature-claim",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2071,
+      "output_tokens": 1339
+    },
+    {
+      "hypothesis_id": "S3-settle-after-close",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2049,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "S4-touch-account-live-pairing",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "MED",
+      "input_tokens": 2077,
+      "output_tokens": 1491
+    },
+    {
+      "hypothesis_id": "S5-market-mode-transitions",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2047,
+      "output_tokens": 1434
+    },
+    {
+      "hypothesis_id": "S6-time-monotonic",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2254,
+      "output_tokens": 1232
+    },
+    {
+      "hypothesis_id": "S7-epoch-staleness-gate",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2055,
+      "output_tokens": 1321
+    },
+    {
+      "hypothesis_id": "S8-deposit-withdraw-atomicity",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2052,
+      "output_tokens": 1132
+    },
+    {
+      "hypothesis_id": "S9-cancel-correctness",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2039,
+      "output_tokens": 1552
+    },
+    {
+      "hypothesis_id": "V1-vault-residual-conservation",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 8178,
+      "output_tokens": 1465
+    },
+    {
+      "hypothesis_id": "V10-claimable-pnl-conservation",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2279,
+      "output_tokens": 1320
+    },
+    {
+      "hypothesis_id": "V2-vault-balance-equation",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2284,
+      "output_tokens": 1453
+    },
+    {
+      "hypothesis_id": "V3-vault-monotonic-on-deposit",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2069,
+      "output_tokens": 1387
+    },
+    {
+      "hypothesis_id": "V4-vault-cap-respect",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2307,
+      "output_tokens": 1426
+    },
+    {
+      "hypothesis_id": "V5-haircut-direction",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2067,
+      "output_tokens": 2313
+    },
+    {
+      "hypothesis_id": "V6-insurance-floor",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2274,
+      "output_tokens": 1234
+    },
+    {
+      "hypothesis_id": "V7-insurance-counter-vault-coupling",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "MED",
+      "input_tokens": 2281,
+      "output_tokens": 1690
+    },
+    {
+      "hypothesis_id": "V8-cash-locked-conservation",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2051,
+      "output_tokens": 1678
+    },
+    {
+      "hypothesis_id": "V9-rebate-accumulation-bounded",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2306,
+      "output_tokens": 1283
+    }
+  ],
+  "debate": {},
+  "poc": {},
+  "kani": {},
+  "litesvm": {},
+  "narrative": {}
+}
