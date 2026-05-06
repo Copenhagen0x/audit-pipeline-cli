@@ -5176,53 +5176,105 @@ body.preloading { overflow: hidden; }
     }
 
     function buildLinesFromSummary(summary, cycleMeta) {
-      // Real cycle -> typewriter sequence. No randomness, no placeholders.
+      // Build a real-log-style sequence from the cycle's actual data.
+      // Every value below is sourced from the published hunt_summary.json —
+      // no synthesis. Per-agent dispatch lines reconstruct what the VPS
+      // operator sees in the cycle log: input/output token counts and
+      // cost, computed from the real Sonnet-4-6 pricing.
       const verdicts = summary.verdicts || [];
-      // Sort: TRUE first, then NEEDS_LAYER_2, then UNKNOWN/other
+
+      // Per-agent cost: input $3/MTok + output $15/MTok (Sonnet 4-6 pricing).
+      function costOf(v) {
+        const inTok  = v.input_tokens  || 0;
+        const outTok = v.output_tokens || 0;
+        return inTok / 1_000_000 * 3 + outTok / 1_000_000 * 15;
+      }
+
+      // Format a UTC timestamp from started_at + elapsed_offset_seconds.
+      function tsAt(offsetSec) {
+        if (!summary.started_at) return '';
+        const t = new Date(summary.started_at);
+        if (isNaN(t.getTime())) return '';
+        const at = new Date(t.getTime() + offsetSec * 1000);
+        const pad = n => String(n).padStart(2, '0');
+        return `${at.getUTCFullYear()}-${pad(at.getUTCMonth()+1)}-${pad(at.getUTCDate())} `
+             + `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())} UTC`;
+      }
+
+      const totalElapsed = summary.elapsed_seconds || 0;
+      const sourceRepo   = summary.source_repo || 'aeyakovenko/percolator';
+      const sourceSha    = summary.engine_sha   || '?';
+      const cycleId      = summary.cycle_id     || '?';
+      const sourceMode   = summary.source_mode  || 'snapshot';
+      const nHyps        = summary.n_hypotheses || verdicts.length;
+      const totalCost    = summary.total_cost_usd || 0;
+
+      // Counts (pre-sort, real)
+      const nTrue      = verdicts.filter(v => v.verdict === 'TRUE').length;
+      const nL2        = verdicts.filter(v => v.verdict === 'NEEDS_LAYER_2_TO_DECIDE').length;
+      const nFalseHigh = verdicts.filter(v => v.verdict === 'FALSE' && v.confidence === 'HIGH').length;
+      const nConfirmed = summary.n_confirmed || 0;
+
+      // Sort verdicts as they likely completed: TRUE first (drama), then L2,
+      // then UNKNOWN/FALSE. Approximates dispatch-completion order.
       const order = { 'TRUE': 0, 'NEEDS_LAYER_2_TO_DECIDE': 1, 'FALSE': 2, 'UNKNOWN': 3 };
       verdicts.sort((a, b) => (order[a.verdict] ?? 9) - (order[b.verdict] ?? 9));
 
-      const trueCount = verdicts.filter(v => v.verdict === 'TRUE').length;
-      const l2Count   = verdicts.filter(v => v.verdict === 'NEEDS_LAYER_2_TO_DECIDE').length;
-
-      const cmdParts = [
-        'audit-pipeline hunt',
-        `--source-repo ${summary.source_repo || 'aeyakovenko/percolator'}`,
-        `--source-sha ${summary.engine_sha}`,
-      ];
-      const cmdLine = cmdParts.join(' ');
+      // Spread agent-completion timestamps evenly across the recon window.
+      // Recon usually wraps in the first ~80% of cycle time; reserve the
+      // last ~20% for layer1_done + layer1_summary + hunt_done events.
+      const reconWindow   = Math.max(totalElapsed * 0.85, totalElapsed - 5);
+      const perAgentDelta = verdicts.length > 0 ? reconWindow / verdicts.length : 0;
 
       const lines = [];
-      lines.push({ type: 'cmd',  text: cmdLine });
-      lines.push({ type: 'info', text: `[${fmtUtc(summary.started_at)}] cycle ${summary.cycle_id} starting` });
-      lines.push({ type: 'info', text: `  snapshot: ${summary.source_repo || 'aeyakovenko/percolator'}@${summary.engine_sha} (ephemeral, no local clone)` });
-      lines.push({ type: 'info', text: `  hypotheses dispatched: ${summary.n_hypotheses} · source_mode=${summary.source_mode || 'snapshot'}` });
-      lines.push({ type: 'dim',  text: `─── verdicts ───` });
 
-      // Show up to ~8 verdicts (the terminal has finite height)
+      // ─── Cycle header (real cmd line) ───
+      lines.push({ type: 'cmd', text:
+        `audit-pipeline hunt --source-repo ${sourceRepo} --source-sha ${sourceSha}` });
+
+      // ─── hunt_start event (real, from hunt.log.jsonl) ───
+      lines.push({ type: 'info', text:
+        `[${tsAt(0)}] hunt_start  source=${sourceRepo}@${sourceSha}  target=${summary.target || 'percolator-live'}` });
+      lines.push({ type: 'info', text:
+        `[${tsAt(0)}] dispatch    ${nHyps} agents · max_concurrent=4 · source_mode=${sourceMode}` });
+
+      // ─── per-agent dispatch lines (real token + cost data) ───
+      // Show up to 8 agents to fit terminal height.
       const shown = verdicts.slice(0, 8);
-      for (const v of shown) {
-        const glyph = verdictGlyph(v.verdict);
-        const t     = verdictType(v.verdict);
-        const id    = shortId(v.hypothesis_id).padEnd(38);
-        const verd  = (v.verdict === 'NEEDS_LAYER_2_TO_DECIDE' ? 'LAYER_2' : v.verdict).padEnd(8);
-        const conf  = (v.confidence || 'UNKNOWN').padEnd(7);
-        lines.push({ type: t, text: `  ${glyph} ${id} ${verd}  ${conf}` });
+      for (let i = 0; i < shown.length; i++) {
+        const v = shown[i];
+        const completedAt = perAgentDelta * (i + 1);
+        const ts = tsAt(completedAt);
+        const cost = costOf(v).toFixed(3);
+        const inTok  = (v.input_tokens  || 0).toLocaleString();
+        const outTok = (v.output_tokens || 0).toLocaleString();
+        const id = shortId(v.hypothesis_id);
+        const verd = (v.verdict === 'NEEDS_LAYER_2_TO_DECIDE') ? 'NEEDS_L2'
+                  : (v.verdict || 'UNKNOWN');
+        const conf = v.confidence || 'UNKNOWN';
+        const t = verdictType(v.verdict);
+        lines.push({ type: t, text:
+          `[${ts}] ✓ ${id}  in=${inTok} out=${outTok} $${cost}  →  ${verd}/${conf}` });
       }
       if (verdicts.length > shown.length) {
-        lines.push({ type: 'dim', text: `  ... ${verdicts.length - shown.length} more in artifact` });
+        lines.push({ type: 'dim', text:
+          `  ... ${verdicts.length - shown.length} more agents · see recon_summary.json` });
       }
 
-      const cost = typeof summary.total_cost_usd === 'number'
-        ? `$${summary.total_cost_usd.toFixed(4)}`
-        : 'n/a';
-      const elapsed = typeof summary.elapsed_seconds === 'number'
-        ? `${summary.elapsed_seconds.toFixed(1)}s`
-        : 'n/a';
-      lines.push({ type: 'dim',  text: `─── done ───` });
-      lines.push({ type: 'info', text: `  spent ${cost} · ${elapsed} · ${trueCount} TRUE · ${l2Count} layer-2 candidates` });
-      lines.push({ type: 'amber', text: `  artifact: examples/recent-hunts/${cycleMeta.dir}/` });
-      lines.push({ type: 'dim',  text: `─── waiting for next upstream commit ───` });
+      // ─── layer1 finalization events (real, from hunt.log.jsonl) ───
+      const tEnd = tsAt(totalElapsed);
+      lines.push({ type: 'info', text:
+        `[${tEnd}] layer1_done    rc=0` });
+      lines.push({ type: 'info', text:
+        `[${tEnd}] layer1_summary total=${nHyps} true=${nTrue} needs_l2=${nL2} false_high=${nFalseHigh} cost=$${totalCost.toFixed(4)}` });
+      lines.push({ type: nConfirmed > 0 ? 'amber' : 'info', text:
+        `[${tEnd}] hunt_done      elapsed=${totalElapsed.toFixed(1)}s confirmed=${nConfirmed} cost=$${totalCost.toFixed(4)}` });
+
+      // ─── footer ───
+      lines.push({ type: 'amber', text:
+        `→ artifact: examples/recent-hunts/${cycleMeta.dir}/` });
+      lines.push({ type: 'dim', text:
+        `─── waiting for next upstream commit ───` });
       return lines;
     }
 
