@@ -1,0 +1,115 @@
+{
+  "schema": "audit-pipeline.recon.v1",
+  "workspace": "/root/audit_runs/percolator-live",
+  "engine_sha": "5059332",
+  "wrapper_sha": "04b854e5718112f42ebba9c208335a22132075ad",
+  "n_hypotheses": 12,
+  "n_dispatched": 12,
+  "n_skipped_budget": 0,
+  "skipped_for_budget": [],
+  "n_errors": 0,
+  "n_ok": 12,
+  "total_input_tokens": 27864,
+  "total_output_tokens": 27731,
+  "total_cost_usd": 0.4996,
+  "elapsed_seconds": 120.1,
+  "verdicts": [
+    {
+      "hypothesis_id": "SH1-strict-helper-coverage",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 3059,
+      "output_tokens": 3177
+    },
+    {
+      "hypothesis_id": "SH10-cpi-matcher-state-writes-isolated",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2297,
+      "output_tokens": 1404
+    },
+    {
+      "hypothesis_id": "SH11-self-matched-pair-cannot-walk-K",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2130,
+      "output_tokens": 2300
+    },
+    {
+      "hypothesis_id": "SH12-insurance-drain-via-resolve-flat-negative",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2320,
+      "output_tokens": 2324
+    },
+    {
+      "hypothesis_id": "SH2-withdraw-collateral-helper-choice",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 2957,
+      "output_tokens": 1215
+    },
+    {
+      "hypothesis_id": "SH3-k-walk-via-oracle-rejected",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2112,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "SH4-k-walk-via-funding-rejected",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2111,
+      "output_tokens": 1550
+    },
+    {
+      "hypothesis_id": "SH5-keeper-crank-touching-completeness",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2124,
+      "output_tokens": 1322
+    },
+    {
+      "hypothesis_id": "SH6-resolve-flat-negative-gate",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2142,
+      "output_tokens": 1420
+    },
+    {
+      "hypothesis_id": "SH7-mark-ewma-update-rate-cap",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2399,
+      "output_tokens": 1800
+    },
+    {
+      "hypothesis_id": "SH8-trade-cpi-band-check-tightness",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2113,
+      "output_tokens": 1597
+    },
+    {
+      "hypothesis_id": "SH9-stuck-target-accrual-rejection",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2100,
+      "output_tokens": 1430
+    }
+  ],
+  "completed_at": "2026-05-06T22:10:47Z"
+}

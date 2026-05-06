@@ -1,0 +1,285 @@
+{
+  "schema": "audit-pipeline.hunt.v1",
+  "cycle_id": "20260506-220844-5059332",
+  "target": "percolator-live",
+  "workspace": "/root/audit_runs/percolator-live",
+  "source_mode": "snapshot",
+  "source_repo": "aeyakovenko/percolator",
+  "engine_sha": "5059332",
+  "wrapper_sha": "04b854e5718112f42ebba9c208335a22132075ad",
+  "started_at": "2026-05-06T22:08:44+00:00",
+  "elapsed_seconds": 131.1,
+  "total_cost_usd": 0.4996,
+  "daily_spent_usd": 6.9846,
+  "daily_cap_usd": 50.0,
+  "n_hypotheses": 12,
+  "n_candidates": 7,
+  "n_debate_runs": 0,
+  "n_poc_scaffolded": 7,
+  "n_poc_fired": 7,
+  "n_kani_runs": 0,
+  "n_litesvm_runs": 7,
+  "n_narratives": 0,
+  "n_confirmed": 7,
+  "confirmed": [
+    {
+      "hypothesis_id": "SH1-strict-helper-coverage",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh1_strict_helper_coverage.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 127,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH10-cpi-matcher-state-writes-isolated",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh10_cpi_matcher_state_writes_isolated.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 127,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH12-insurance-drain-via-resolve-flat-negative",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh12_insurance_drain_via_resolve_flat_negative.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 127,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH2-withdraw-collateral-helper-choice",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh2_withdraw_collateral_helper_choice.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 127,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH4-k-walk-via-funding-rejected",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh4_k_walk_via_funding_rejected.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 127,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH5-keeper-crank-touching-completeness",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh5_keeper_crank_touching_completeness.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 127,
+        "fired": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "SH6-resolve-flat-negative-gate",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh6_resolve_flat_negative_gate.rs",
+        "scaffold_rc": 0,
+        "compile_test_rc": 127,
+        "fired": true
+      },
+      "kani": null
+    }
+  ],
+  "verdicts": [
+    {
+      "hypothesis_id": "SH1-strict-helper-coverage",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 3059,
+      "output_tokens": 3177
+    },
+    {
+      "hypothesis_id": "SH10-cpi-matcher-state-writes-isolated",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2297,
+      "output_tokens": 1404
+    },
+    {
+      "hypothesis_id": "SH11-self-matched-pair-cannot-walk-K",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2130,
+      "output_tokens": 2300
+    },
+    {
+      "hypothesis_id": "SH12-insurance-drain-via-resolve-flat-negative",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2320,
+      "output_tokens": 2324
+    },
+    {
+      "hypothesis_id": "SH2-withdraw-collateral-helper-choice",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "LOW",
+      "input_tokens": 2957,
+      "output_tokens": 1215
+    },
+    {
+      "hypothesis_id": "SH3-k-walk-via-oracle-rejected",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2112,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "SH4-k-walk-via-funding-rejected",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2111,
+      "output_tokens": 1550
+    },
+    {
+      "hypothesis_id": "SH5-keeper-crank-touching-completeness",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "MED",
+      "input_tokens": 2124,
+      "output_tokens": 1322
+    },
+    {
+      "hypothesis_id": "SH6-resolve-flat-negative-gate",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 2142,
+      "output_tokens": 1420
+    },
+    {
+      "hypothesis_id": "SH7-mark-ewma-update-rate-cap",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2399,
+      "output_tokens": 1800
+    },
+    {
+      "hypothesis_id": "SH8-trade-cpi-band-check-tightness",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2113,
+      "output_tokens": 1597
+    },
+    {
+      "hypothesis_id": "SH9-stuck-target-accrual-rejection",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2100,
+      "output_tokens": 1430
+    }
+  ],
+  "debate": {},
+  "poc": {
+    "SH1-strict-helper-coverage": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh1_strict_helper_coverage.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 127,
+      "fired": true
+    },
+    "SH10-cpi-matcher-state-writes-isolated": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh10_cpi_matcher_state_writes_isolated.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 127,
+      "fired": true
+    },
+    "SH12-insurance-drain-via-resolve-flat-negative": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh12_insurance_drain_via_resolve_flat_negative.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 127,
+      "fired": true
+    },
+    "SH2-withdraw-collateral-helper-choice": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh2_withdraw_collateral_helper_choice.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 127,
+      "fired": true
+    },
+    "SH4-k-walk-via-funding-rejected": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh4_k_walk_via_funding_rejected.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 127,
+      "fired": true
+    },
+    "SH5-keeper-crank-touching-completeness": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh5_keeper_crank_touching_completeness.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 127,
+      "fired": true
+    },
+    "SH6-resolve-flat-negative-gate": {
+      "scaffold_path": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/poc/test_sh6_resolve_flat_negative_gate.rs",
+      "scaffold_rc": 0,
+      "compile_test_rc": 127,
+      "fired": true
+    }
+  },
+  "kani": {},
+  "litesvm": {
+    "SH1-strict-helper-coverage": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/litesvm"
+    },
+    "SH10-cpi-matcher-state-writes-isolated": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/litesvm"
+    },
+    "SH12-insurance-drain-via-resolve-flat-negative": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/litesvm"
+    },
+    "SH2-withdraw-collateral-helper-choice": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/litesvm"
+    },
+    "SH4-k-walk-via-funding-rejected": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/litesvm"
+    },
+    "SH5-keeper-crank-touching-completeness": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/litesvm"
+    },
+    "SH6-resolve-flat-negative-gate": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/percolator-live/hunts/20260506-220844-5059332/litesvm"
+    }
+  },
+  "narrative": {}
+}

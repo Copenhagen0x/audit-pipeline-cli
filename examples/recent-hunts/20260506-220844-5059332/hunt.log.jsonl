@@ -1,0 +1,25 @@
+{"ts": "2026-05-06T22:08:44+00:00", "event": "hunt_start", "engine_sha": "5059332", "wrapper_sha": "04b854e5718112f42ebba9c208335a22132075ad", "target": "percolator-live", "source_mode": "snapshot", "source_repo": "aeyakovenko/percolator", "daily_remaining_usd": 43.515}
+{"ts": "2026-05-06T22:10:48+00:00", "event": "layer1_done", "returncode": 0}
+{"ts": "2026-05-06T22:10:48+00:00", "event": "layer1_summary", "n_total": 12, "n_true": 2, "n_needs_l2": 5, "n_false_high": 0, "cost_layer1": 0.4996}
+{"ts": "2026-05-06T22:10:48+00:00", "event": "poc_scaffold", "hypothesis_id": "SH1-strict-helper-coverage", "finding": "sh1_strict_helper_coverage", "returncode": 0}
+{"ts": "2026-05-06T22:10:48+00:00", "event": "poc_test_run", "hypothesis_id": "SH1-strict-helper-coverage", "cargo_rc": 127, "fired": true}
+{"ts": "2026-05-06T22:10:49+00:00", "event": "poc_scaffold", "hypothesis_id": "SH10-cpi-matcher-state-writes-isolated", "finding": "sh10_cpi_matcher_state_writes_isolated", "returncode": 0}
+{"ts": "2026-05-06T22:10:49+00:00", "event": "poc_test_run", "hypothesis_id": "SH10-cpi-matcher-state-writes-isolated", "cargo_rc": 127, "fired": true}
+{"ts": "2026-05-06T22:10:49+00:00", "event": "poc_scaffold", "hypothesis_id": "SH12-insurance-drain-via-resolve-flat-negative", "finding": "sh12_insurance_drain_via_resolve_flat_negative", "returncode": 0}
+{"ts": "2026-05-06T22:10:49+00:00", "event": "poc_test_run", "hypothesis_id": "SH12-insurance-drain-via-resolve-flat-negative", "cargo_rc": 127, "fired": true}
+{"ts": "2026-05-06T22:10:50+00:00", "event": "poc_scaffold", "hypothesis_id": "SH2-withdraw-collateral-helper-choice", "finding": "sh2_withdraw_collateral_helper_choice", "returncode": 0}
+{"ts": "2026-05-06T22:10:50+00:00", "event": "poc_test_run", "hypothesis_id": "SH2-withdraw-collateral-helper-choice", "cargo_rc": 127, "fired": true}
+{"ts": "2026-05-06T22:10:51+00:00", "event": "poc_scaffold", "hypothesis_id": "SH4-k-walk-via-funding-rejected", "finding": "sh4_k_walk_via_funding_rejected", "returncode": 0}
+{"ts": "2026-05-06T22:10:51+00:00", "event": "poc_test_run", "hypothesis_id": "SH4-k-walk-via-funding-rejected", "cargo_rc": 127, "fired": true}
+{"ts": "2026-05-06T22:10:51+00:00", "event": "poc_scaffold", "hypothesis_id": "SH5-keeper-crank-touching-completeness", "finding": "sh5_keeper_crank_touching_completeness", "returncode": 0}
+{"ts": "2026-05-06T22:10:51+00:00", "event": "poc_test_run", "hypothesis_id": "SH5-keeper-crank-touching-completeness", "cargo_rc": 127, "fired": true}
+{"ts": "2026-05-06T22:10:52+00:00", "event": "poc_scaffold", "hypothesis_id": "SH6-resolve-flat-negative-gate", "finding": "sh6_resolve_flat_negative_gate", "returncode": 0}
+{"ts": "2026-05-06T22:10:52+00:00", "event": "poc_test_run", "hypothesis_id": "SH6-resolve-flat-negative-gate", "cargo_rc": 127, "fired": true}
+{"ts": "2026-05-06T22:10:52+00:00", "event": "litesvm_authored", "hypothesis_id": "SH1-strict-helper-coverage", "returncode": 0}
+{"ts": "2026-05-06T22:10:53+00:00", "event": "litesvm_authored", "hypothesis_id": "SH10-cpi-matcher-state-writes-isolated", "returncode": 0}
+{"ts": "2026-05-06T22:10:53+00:00", "event": "litesvm_authored", "hypothesis_id": "SH12-insurance-drain-via-resolve-flat-negative", "returncode": 0}
+{"ts": "2026-05-06T22:10:54+00:00", "event": "litesvm_authored", "hypothesis_id": "SH2-withdraw-collateral-helper-choice", "returncode": 0}
+{"ts": "2026-05-06T22:10:54+00:00", "event": "litesvm_authored", "hypothesis_id": "SH4-k-walk-via-funding-rejected", "returncode": 0}
+{"ts": "2026-05-06T22:10:55+00:00", "event": "litesvm_authored", "hypothesis_id": "SH5-keeper-crank-touching-completeness", "returncode": 0}
+{"ts": "2026-05-06T22:10:55+00:00", "event": "litesvm_authored", "hypothesis_id": "SH6-resolve-flat-negative-gate", "returncode": 0}
+{"ts": "2026-05-06T22:10:56+00:00", "event": "hunt_done", "elapsed": 131.10594367980957, "n_confirmed": 7, "cost": 0.4996}
