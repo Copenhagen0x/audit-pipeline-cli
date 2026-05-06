@@ -29,6 +29,7 @@ from audit_pipeline.utils import (
     is_available,
     render_placeholders,
 )
+from audit_pipeline.utils.github_snapshot import GitHubSnapshot, SnapshotDownloadError
 
 console = Console()
 
@@ -81,6 +82,25 @@ console = Console()
         "with the proposer's. Requires ANTHROPIC_API_KEY."
     ),
 )
+@click.option(
+    "--source-repo",
+    default=None,
+    help=(
+        "GitHub repo (owner/repo) to read source from via an ephemeral "
+        "snapshot. Not strictly required for debate (which only reads the "
+        "proposer verdict + a template), but accepted for parity with the "
+        "rest of the pipeline so callers can invoke debate with the same "
+        "snapshot-mode flags."
+    ),
+)
+@click.option(
+    "--source-sha",
+    default=None,
+    help=(
+        "Specific commit SHA to pin the snapshot to (requires --source-repo). "
+        "If omitted, uses the default branch HEAD at download time."
+    ),
+)
 @click.pass_context
 def debate_cmd(
     ctx: click.Context,
@@ -91,6 +111,8 @@ def debate_cmd(
     target_file: str | None,
     output: Path | None,
     auto: bool,
+    source_repo: str | None,
+    source_sha: str | None,
 ) -> None:
     """Render an adversarial CHALLENGER prompt for a hypothesis verdict.
 
@@ -109,6 +131,65 @@ def debate_cmd(
     """
     workspace = Path(ctx.obj["workspace"])
 
+    # Validate snapshot args
+    if source_sha and not source_repo:
+        raise click.ClickException(
+            "--source-sha requires --source-repo to be set."
+        )
+
+    # ---------- Source-mode resolution ----------
+    # Debate doesn't read engine source directly (it only consumes the
+    # proposer verdict markdown + a template), but if the caller passed
+    # --source-repo we still open the snapshot for the duration of the
+    # command so that any future template / grounding hooks see the same
+    # ephemeral source tree the rest of the cycle is using.
+    if source_repo:
+        try:
+            snap_cm = GitHubSnapshot(source_repo, source_sha)
+        except SnapshotDownloadError as e:
+            raise click.ClickException(f"snapshot init failed: {e}")
+        snap = snap_cm.__enter__()
+        console.print(
+            f"  [cyan]Reading from snapshot {snap.repo_slug}@"
+            f"{snap.resolved_sha[:7]}[/cyan] ({snap.workspace})"
+        )
+    else:
+        snap_cm = None
+        snap = None
+        console.print(
+            f"  [cyan]Reading from local workspace {workspace}[/cyan]"
+        )
+
+    try:
+        return _debate_body(
+            ctx=ctx,
+            workspace=workspace,
+            hypothesis_id=hypothesis_id,
+            proposer_verdict=proposer_verdict,
+            hypothesis_claim=hypothesis_claim,
+            hypotheses_file=hypotheses_file,
+            target_file=target_file,
+            output=output,
+            auto=auto,
+        )
+    finally:
+        if snap_cm is not None:
+            snap_cm.__exit__(None, None, None)
+
+
+def _debate_body(
+    *,
+    ctx: click.Context,
+    workspace: Path,
+    hypothesis_id: str,
+    proposer_verdict: str,
+    hypothesis_claim: str | None,
+    hypotheses_file: str | None,
+    target_file: str | None,
+    output: Path | None,
+    auto: bool,
+) -> None:
+    """Body of debate, factored out so the snapshot lifecycle wraps it cleanly."""
     if output is None:
         output = workspace / "recon" / "debate"
     output.mkdir(parents=True, exist_ok=True)

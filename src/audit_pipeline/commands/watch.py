@@ -31,6 +31,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from audit_pipeline.utils.github import get_latest_commit, parse_github_repo
+from audit_pipeline.utils.github_snapshot import GitHubSnapshot, SnapshotDownloadError
 
 console = Console()
 
@@ -92,6 +93,18 @@ console = Console()
     default=None,
     help="Output dir for watch log (defaults to <workspace>/watch/)",
 )
+@click.option(
+    "--source-mode",
+    is_flag=True,
+    help=(
+        "Snapshot mode: when a new commit is detected, do NOT git-pull a "
+        "local clone. Instead, append --source-repo <repo> --source-sha "
+        "<new_sha> to the --on-update command so the downstream hunt cycle "
+        "reads source from an ephemeral GitHub snapshot. This eliminates "
+        "the local-clone read path entirely (no git fetch / no checkout). "
+        "Implies --auto-pull is OFF (mutually exclusive)."
+    ),
+)
 @click.pass_context
 def watch_cmd(
     ctx: click.Context,
@@ -103,6 +116,7 @@ def watch_cmd(
     on_update: str | None,
     once: bool,
     output: Path | None,
+    source_mode: bool,
 ) -> None:
     """Continuously watch the workspace's repos for new commits.
 
@@ -115,6 +129,17 @@ def watch_cmd(
         raise click.ClickException(
             f"No workspace.json at {config_path}. Run `audit-pipeline init` first."
         )
+    # Source-mode is mutually exclusive with auto-pull / update-pin: in
+    # snapshot mode the local clone is irrelevant and we must not maintain
+    # state in workspace.json or .git in the watch loop.
+    if source_mode and (auto_pull or update_pin):
+        raise click.ClickException(
+            "--source-mode is mutually exclusive with --auto-pull and "
+            "--update-pin: snapshot mode reads source ephemerally from "
+            "GitHub, so there is no local clone to pull and no SHA pin "
+            "to rewrite. Drop --auto-pull / --update-pin and re-run."
+        )
+
     if update_pin and not auto_pull:
         # Force --auto-pull on; rewriting the pin without pulling is incoherent
         auto_pull = True
@@ -143,16 +168,35 @@ def watch_cmd(
     if not plan:
         raise click.ClickException("Nothing to watch — no parseable github repos in workspace.json")
 
+    # In source-mode, smoke-test snapshot reachability for the engine
+    # repo at startup so the daemon fails fast on misconfiguration rather
+    # than silently swallowing every on-update fire later.
+    if source_mode:
+        try:
+            engine_owner, engine_repo = parse_github_repo(config["engine"]["repo"])
+            with GitHubSnapshot(f"{engine_owner}/{engine_repo}") as _smoke:
+                _log(
+                    log_path,
+                    f"source-mode smoke test OK: "
+                    f"{engine_owner}/{engine_repo}@{_smoke.resolved_sha[:10]}",
+                )
+        except (SnapshotDownloadError, ValueError) as e:
+            raise click.ClickException(
+                f"--source-mode startup snapshot probe failed: {e}. "
+                f"Check GITHUB_TOKEN env var and repo URL in workspace.json."
+            )
+
     console.print(
         Panel.fit(
             f"[bold]Watch starting[/bold]\n\n"
-            f"Workspace:  {workspace}\n"
-            f"Polling:    {len(plan)} repo(s) every {interval}s "
+            f"Workspace:    {workspace}\n"
+            f"Polling:      {len(plan)} repo(s) every {interval}s "
             f"({'one-shot' if once else 'continuous'})\n"
-            f"Auto-pull:  {auto_pull}\n"
-            f"Update-pin: {update_pin}\n"
-            f"On-update:  {on_update or '(none)'}\n"
-            f"Log:        {log_path}\n",
+            f"Source mode:  {'snapshot (no local clone)' if source_mode else 'local clone'}\n"
+            f"Auto-pull:    {auto_pull}\n"
+            f"Update-pin:   {update_pin}\n"
+            f"On-update:    {on_update or '(none)'}\n"
+            f"Log:          {log_path}\n",
             title="Layer 0.5 - Source code watch",
         )
     )
@@ -228,10 +272,23 @@ def watch_cmd(
 
             if on_update:
                 cmd = on_update.format(sha=latest_sha, component=component)
-                console.print(f"  [bold]running on-update:[/bold] {cmd}")
+                argv = shlex.split(cmd)
+                # In source-mode, append the snapshot flags so the
+                # downstream hunt cycle reads source from a fresh GitHub
+                # snapshot pinned to this exact commit. No local clone
+                # touched.
+                if source_mode:
+                    argv += [
+                        "--source-repo", f"{owner}/{repo}",
+                        "--source-sha", latest_sha,
+                    ]
+                console.print(
+                    f"  [bold]running on-update:[/bold] "
+                    f"{shlex.join(argv) if hasattr(shlex, 'join') else ' '.join(argv)}"
+                )
                 try:
                     subprocess.run(
-                        shlex.split(cmd),
+                        argv,
                         cwd=str(workspace), check=False, timeout=3600,
                     )
                 except Exception as e:  # noqa: BLE001

@@ -45,6 +45,7 @@ from audit_pipeline.lifecycle import Status, from_hunt_outcome
 from audit_pipeline.severity import Severity, derive_severity, emoji as sev_emoji
 from audit_pipeline.utils import is_available
 from audit_pipeline.utils.daily_cap import DailyCap
+from audit_pipeline.utils.github_snapshot import GitHubSnapshot, SnapshotDownloadError
 
 console = Console()
 
@@ -114,6 +115,28 @@ console = Console()
     default=True, show_default=True,
     help="Whether the hypotheses target only the engine (faster) or both",
 )
+@click.option(
+    "--source-repo",
+    default=None,
+    help=(
+        "GitHub repo (owner/repo) to snapshot for this cycle. When set, the "
+        "engine source is downloaded fresh from upstream (no local clone) "
+        "and child subcommands (recon, debate) are dispatched with the "
+        "resolved SHA so every agent sees identical bytes. When omitted, "
+        "hunt falls back to the legacy local-clone path "
+        "(workspace/<engine.local>) — preserves backward compat."
+    ),
+)
+@click.option(
+    "--source-sha",
+    default=None,
+    help=(
+        "Specific commit SHA to pin the snapshot to (requires --source-repo). "
+        "If omitted, the snapshot resolves to the default branch HEAD at "
+        "download time. Pinning is preferred for reproducibility within a "
+        "cycle and across parallel agents."
+    ),
+)
 @click.pass_context
 def hunt_cmd(
     ctx: click.Context,
@@ -131,6 +154,8 @@ def hunt_cmd(
     ground_code: bool,
     webhook_url: str | None,
     engine_only: bool,
+    source_repo: str | None,
+    source_sha: str | None,
 ) -> None:
     """Autonomous full hunt cycle: recon -> debate -> PoC -> Kani -> report.
 
@@ -144,6 +169,12 @@ def hunt_cmd(
             f"No workspace.json at {config_path}. Run `audit-pipeline init`."
         )
     config = json.loads(config_path.read_text())
+
+    # Validate snapshot args
+    if source_sha and not source_repo:
+        raise click.ClickException(
+            "--source-sha requires --source-repo to be set."
+        )
 
     if hypotheses is None:
         candidate = workspace / "hypotheses.yaml"
@@ -160,6 +191,86 @@ def hunt_cmd(
         )
 
     target = target_name or config.get("name") or "default"
+
+    # ---------- Source-mode resolution ----------
+    # If --source-repo is given, hunt opens an ephemeral GitHub snapshot
+    # ONCE for the whole cycle. The resolved SHA is forwarded to every
+    # subprocess child (recon, debate) so they all see identical bytes.
+    # When omitted, fall back to legacy local-clone path resolved via
+    # workspace.json.
+    if source_repo:
+        try:
+            snap_cm = GitHubSnapshot(source_repo, source_sha)
+            snap = snap_cm.__enter__()
+        except SnapshotDownloadError as e:
+            raise click.ClickException(f"snapshot init failed: {e}")
+        resolved_sha = snap.resolved_sha
+        engine_dir_for_cargo = snap.workspace
+        console.print(
+            f"  [cyan]Reading from snapshot {snap.repo_slug}@"
+            f"{resolved_sha[:7]}[/cyan] ({snap.workspace})"
+        )
+    else:
+        snap_cm = None
+        snap = None
+        resolved_sha = config["engine"]["sha"]
+        engine_dir_for_cargo = workspace / config["engine"]["local"]
+        console.print(
+            f"  [cyan]Reading from local workspace {engine_dir_for_cargo}[/cyan]"
+        )
+
+    try:
+        _hunt_run(
+            ctx=ctx,
+            workspace=workspace,
+            config=config,
+            target=target,
+            hypotheses=hypotheses,
+            budget_cap_usd=budget_cap_usd,
+            daily_cap_usd=daily_cap_usd,
+            max_concurrent=max_concurrent,
+            skip_debate=skip_debate,
+            skip_poc=skip_poc,
+            skip_kani=skip_kani,
+            skip_litesvm=skip_litesvm,
+            skip_narrative=skip_narrative,
+            refinement_rounds=refinement_rounds,
+            ground_code=ground_code,
+            webhook_url=webhook_url,
+            engine_only=engine_only,
+            source_repo=source_repo,
+            resolved_sha=resolved_sha,
+            engine_dir_for_cargo=engine_dir_for_cargo,
+        )
+    finally:
+        if snap_cm is not None:
+            snap_cm.__exit__(None, None, None)
+
+
+def _hunt_run(
+    *,
+    ctx: click.Context,
+    workspace: Path,
+    config: dict,
+    target: str,
+    hypotheses: str,
+    budget_cap_usd: float,
+    daily_cap_usd: float,
+    max_concurrent: int,
+    skip_debate: bool,
+    skip_poc: bool,
+    skip_kani: bool,
+    skip_litesvm: bool,
+    skip_narrative: bool,
+    refinement_rounds: int,
+    ground_code: bool,
+    webhook_url: str | None,
+    engine_only: bool,
+    source_repo: str | None,
+    resolved_sha: str,
+    engine_dir_for_cargo: Path,
+) -> None:
+    """Hunt cycle body, factored out so the snapshot lifecycle wraps it cleanly."""
 
     # ---------- Daily cap check ----------
     daily_cap = DailyCap(workspace / ".daily_spend.json", daily_cap_usd)
@@ -182,23 +293,35 @@ def hunt_cmd(
 
     hunts_dir = workspace / "hunts"
     hunts_dir.mkdir(parents=True, exist_ok=True)
-    cycle_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    base_cycle_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    # When in snapshot mode, suffix with SHA short-form for pinning / traceability
+    if source_repo and resolved_sha:
+        cycle_id = f"{base_cycle_id}-{resolved_sha[:7]}"
+    else:
+        cycle_id = base_cycle_id
     cycle_dir = hunts_dir / cycle_id
     cycle_dir.mkdir(parents=True, exist_ok=True)
 
     db.insert_cycle(
         target_id=target_id,
         cycle_id=cycle_id,
-        engine_sha=config.get("engine", {}).get("sha"),
+        engine_sha=resolved_sha,
         wrapper_sha=config.get("wrapper", {}).get("sha"),
         summary_json_path=str(cycle_dir / "hunt_summary.json"),
+    )
+
+    source_mode_line = (
+        f"Source mode:  snapshot ({source_repo}@{resolved_sha[:10]})"
+        if source_repo
+        else f"Source mode:  local clone ({engine_dir_for_cargo})"
     )
 
     console.print(
         Panel.fit(
             f"[bold]Hunt cycle [cyan]{cycle_id}[/cyan][/bold]  ({target})\n\n"
             f"Workspace:    {workspace}\n"
-            f"Engine SHA:   {config['engine']['sha'][:10]}\n"
+            f"{source_mode_line}\n"
+            f"Engine SHA:   {resolved_sha[:10]}\n"
             f"Wrapper SHA:  {config['wrapper']['sha'][:10]}\n"
             f"Hypotheses:   {hypotheses}\n"
             f"Budget cap:   ${budget_cap_usd:.2f} (cycle) / "
@@ -223,9 +346,11 @@ def hunt_cmd(
             f.write(json.dumps(rec) + "\n")
 
     log("hunt_start",
-        engine_sha=config["engine"]["sha"],
+        engine_sha=resolved_sha,
         wrapper_sha=config["wrapper"]["sha"],
         target=target,
+        source_mode=("snapshot" if source_repo else "local"),
+        source_repo=source_repo,
         daily_remaining_usd=daily_cap.remaining_today())
 
     # ---------- Layer 1: recon --auto ----------
@@ -237,7 +362,7 @@ def hunt_cmd(
     # Cap recon spend at min(budget_cap, daily_remaining)
     recon_cap = min(budget_cap_usd, daily_cap.remaining_today())
 
-    rc = _run([
+    recon_argv = [
         _audit_pipeline_bin(), "--workspace", str(workspace),
         "recon",
         "--hypotheses", hypotheses,
@@ -247,7 +372,10 @@ def hunt_cmd(
         "--budget-cap-usd", str(recon_cap),
         "--refinement-rounds", str(refinement_rounds),
         "--ground-code" if ground_code else "--no-ground-code",
-    ])
+    ]
+    if source_repo:
+        recon_argv += ["--source-repo", source_repo, "--source-sha", resolved_sha]
+    rc = _run(recon_argv)
     log("layer1_done", returncode=rc)
 
     summary_path = recon_out / "recon_summary.json"
@@ -303,7 +431,7 @@ def hunt_cmd(
             proposer_path = recon_out / f"{hyp_id}_response.md"
             if not proposer_path.exists():
                 continue
-            rc = _run([
+            debate_argv = [
                 _audit_pipeline_bin(), "--workspace", str(workspace),
                 "debate",
                 "--hypothesis-id", hyp_id,
@@ -311,7 +439,10 @@ def hunt_cmd(
                 "--hypotheses-file", hypotheses,
                 "--output", str(debate_out),
                 "--auto",
-            ])
+            ]
+            if source_repo:
+                debate_argv += ["--source-repo", source_repo, "--source-sha", resolved_sha]
+            rc = _run(debate_argv)
             challenger_resp = debate_out / f"{hyp_id}_challenger_response.md"
             verdict_changed = False
             if challenger_resp.exists():
@@ -340,7 +471,10 @@ def hunt_cmd(
         )
         poc_out = cycle_dir / "poc"
         poc_out.mkdir(parents=True, exist_ok=True)
-        engine_dir = workspace / config["engine"]["local"]
+        # In snapshot mode, the engine source lives in the snapshot's temp
+        # workspace; in legacy mode, it's the local clone resolved via
+        # workspace.json. _hunt_run is given the right path either way.
+        engine_dir = engine_dir_for_cargo
 
         for v in candidates:
             hyp_id = v["hypothesis_id"]
@@ -502,7 +636,7 @@ def hunt_cmd(
             poc_path=poc_results.get(hyp_id, {}).get("scaffold_path"),
             poc_fired=poc_fired,
             debate_promoted=debate_promoted,
-            engine_sha=config.get("engine", {}).get("sha"),
+            engine_sha=resolved_sha,
             wrapper_sha=config.get("wrapper", {}).get("sha"),
             details={
                 "debate": debate_results.get(hyp_id),
@@ -517,7 +651,9 @@ def hunt_cmd(
         "cycle_id": cycle_id,
         "target": target,
         "workspace": str(workspace),
-        "engine_sha": config["engine"]["sha"],
+        "source_mode": "snapshot" if source_repo else "local",
+        "source_repo": source_repo,
+        "engine_sha": resolved_sha,
         "wrapper_sha": config["wrapper"]["sha"],
         "started_at": _now_from(started_at),
         "elapsed_seconds": round(elapsed, 1),

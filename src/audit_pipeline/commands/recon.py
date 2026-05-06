@@ -33,6 +33,7 @@ from audit_pipeline.utils import (
     is_available,
     render_placeholders,
 )
+from audit_pipeline.utils.github_snapshot import GitHubSnapshot, SnapshotDownloadError
 
 console = Console()
 
@@ -121,6 +122,25 @@ COST_PER_OUTPUT_TOKEN = 15.0e-6  # $15 per 1M output tokens
     type=int, default=120, show_default=True,
     help="Max lines per extracted function in --ground-code mode",
 )
+@click.option(
+    "--source-repo",
+    default=None,
+    help=(
+        "GitHub repo (owner/repo) to read source from via an ephemeral "
+        "snapshot. If set, source code is downloaded fresh per run instead "
+        "of reading from a local clone. Mutually exclusive with the "
+        "default local-clone path resolved via workspace.json."
+    ),
+)
+@click.option(
+    "--source-sha",
+    default=None,
+    help=(
+        "Specific commit SHA to pin the snapshot to (requires --source-repo). "
+        "If omitted, uses the default branch HEAD at download time. Pinning "
+        "is preferred for reproducibility."
+    ),
+)
 @click.pass_context
 def recon_cmd(
     ctx: click.Context,
@@ -132,6 +152,8 @@ def recon_cmd(
     refinement_rounds: int,
     ground_code: bool,
     code_max_lines: int,
+    source_repo: str | None,
+    source_sha: str | None,
 ) -> None:
     """Layer-1 multi-agent recon. Render prompts (default) or dispatch agents (--auto).
 
@@ -161,6 +183,12 @@ def recon_cmd(
 
     config = json.loads(config_path.read_text())
 
+    # Validate source-mode args
+    if source_sha and not source_repo:
+        raise click.ClickException(
+            "--source-sha requires --source-repo to be set."
+        )
+
     if output is None:
         output = workspace / "recon"
     output.mkdir(parents=True, exist_ok=True)
@@ -179,6 +207,81 @@ def recon_cmd(
             "--auto mode requires ANTHROPIC_API_KEY in your environment. "
             "Either set the key or omit --auto."
         )
+
+    # ---------- Source-mode resolution ----------
+    # If --source-repo is given, download an ephemeral snapshot for the
+    # lifetime of this command and read source code from it. Otherwise
+    # fall back to the local-clone path resolved via workspace.json
+    # (legacy mode, preserves backward compat).
+    if source_repo:
+        try:
+            snap_cm = GitHubSnapshot(source_repo, source_sha)
+        except SnapshotDownloadError as e:
+            raise click.ClickException(f"snapshot init failed: {e}")
+    else:
+        snap_cm = None
+
+    with (snap_cm if snap_cm is not None else _NoSnapshot()) as snap:
+        if snap_cm is not None:
+            engine_root = snap.workspace
+            wrapper_root = snap.workspace  # snapshot is a single repo; wrapper unused
+            console.print(
+                f"  [cyan]Reading from snapshot {snap.repo_slug}@"
+                f"{snap.resolved_sha[:7]}[/cyan] ({engine_root})"
+            )
+        else:
+            engine_root = workspace / config["engine"]["local"]
+            wrapper_root = workspace / config["wrapper"]["local"]
+            console.print(
+                f"  [cyan]Reading from local workspace {engine_root}[/cyan]"
+            )
+
+        return _recon_body(
+            ctx=ctx,
+            workspace=workspace,
+            config=config,
+            engine_root=engine_root,
+            wrapper_root=wrapper_root,
+            hypotheses=hypotheses,
+            hyp_data=hyp_data,
+            output=output,
+            auto=auto,
+            max_concurrent=max_concurrent,
+            budget_cap_usd=budget_cap_usd,
+            refinement_rounds=refinement_rounds,
+            ground_code=ground_code,
+            code_max_lines=code_max_lines,
+            snap_sha=snap.resolved_sha if snap_cm is not None else None,
+        )
+
+
+class _NoSnapshot:
+    """No-op context manager so the snapshot/non-snapshot branches share a body."""
+    def __enter__(self):
+        return None
+    def __exit__(self, *a):
+        return False
+
+
+def _recon_body(
+    *,
+    ctx: click.Context,
+    workspace: Path,
+    config: dict,
+    engine_root: Path,
+    wrapper_root: Path,
+    hypotheses: str,
+    hyp_data: dict,
+    output: Path,
+    auto: bool,
+    max_concurrent: int,
+    budget_cap_usd: float,
+    refinement_rounds: int,
+    ground_code: bool,
+    code_max_lines: int,
+    snap_sha: str | None,
+) -> None:
+    """Body of recon, factored out so snapshot vs local-clone modes share it."""
 
     # Locate orientation prompt + class-specific prompts
     from audit_pipeline import __file__ as pkg_init
@@ -210,11 +313,11 @@ def recon_cmd(
 
         template_content = template_path.read_text(encoding="utf-8", errors="replace")
 
-        local_engine_path = str(workspace / config["engine"]["local"])
-        local_wrapper_path = str(workspace / config["wrapper"]["local"])
+        local_engine_path = str(engine_root)
+        local_wrapper_path = str(wrapper_root)
         substitutions = {
             "ENGINE_REPO_URL": config["engine"]["repo"],
-            "ENGINE_SHA": config["engine"]["sha"],
+            "ENGINE_SHA": snap_sha or config["engine"]["sha"],
             "WRAPPER_REPO_URL": config["wrapper"]["repo"],
             "WRAPPER_SHA": config["wrapper"]["sha"],
             "LOCAL_ENGINE_PATH": local_engine_path,
@@ -420,7 +523,7 @@ Notes:        {hyp.get("notes", "(none)")}
     summary = {
         "schema": "audit-pipeline.recon.v1",
         "workspace": str(workspace),
-        "engine_sha": config.get("engine", {}).get("sha"),
+        "engine_sha": snap_sha or config.get("engine", {}).get("sha"),
         "wrapper_sha": config.get("wrapper", {}).get("sha"),
         "n_hypotheses": len(rendered_prompts),
         "n_dispatched": len(results),
