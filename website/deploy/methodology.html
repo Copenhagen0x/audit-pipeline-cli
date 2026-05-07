@@ -230,7 +230,8 @@ small, .small { font-size: 12px; color: var(--ink-3); }
       <span class="live-dot"></span>
       Methodology · v1 · public
     </span>
-    <a href="/#contact" class="nav-cta">Request integration</a>
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta">Request integration</a>
     <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
       <span></span><span></span><span></span>
     </button>
@@ -242,9 +243,9 @@ small, .small { font-size: 12px; color: var(--ink-3); }
   <a href="/#live-ops" role="menuitem">Live ops</a>
   <a href="/methodology.html" role="menuitem">Methodology</a>
   <a href="/security.html" role="menuitem">Security</a>
-  <a href="/dashboard.html" role="menuitem">Dashboard</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
   <a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener" role="menuitem">Source</a>
-  <a href="/#contact" role="menuitem" style="color: var(--amber);">Request integration →</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
 </div>
 
 <!-- ============== HERO ============== -->
@@ -748,8 +749,8 @@ Signed-Bytes: 142853
       <h3>Trigger semantics for the immediate channel</h3>
       <p>The immediate email fires when a finding's status moves from <code>new</code> or <code>triaged</code> to <code>confirmed</code>, AND severity is Critical or High. There is no batching, no daily digest. The customer's primary on-call gets the email; their team alias gets a CC. The same event fires the dashboard alert pulse and (if configured) the Slack webhook.</p>
 
-      <h3>Dashboard</h3>
-      <p>The customer dashboard at <a href="/dashboard.html">jelleo.com/dashboard.html</a> shows the live state of every active cycle. It pulls from the findings DB via a small static-JSON snapshot and refreshes on a configurable interval (default 60s). Status pills, severity bars, recent cycles, recent findings, daemon health.</p>
+      <h3>Customer dashboard</h3>
+      <p>Each customer accesses their dashboard via a token-gated portal at <a href="/customer/">jelleo.com/customer/</a>. The token resolves to a per-customer view that pulls live state from the findings DB via a static-JSON snapshot and refreshes on a configurable interval (default 60s). Status pills, severity bars, recent cycles, recent findings, daemon health. The universal demo token is <code>demo</code>.</p>
 
       <h3>What's signed, what's not</h3>
       <p>Every PDF rollup (24h / weekly / monthly) ships with a Jelleo Ed25519 signature alongside (§07). The dashboard view itself is not signed — it is a live mirror of state. Customers who need a signed point-in-time snapshot request a rollup at any moment via <code>audit-pipeline report cycle --cycle-id &lt;id&gt;</code> followed by <code>sign sign &lt;file&gt;</code>; the funded build automates this as a one-click "issue receipt" action.</p>
@@ -861,7 +862,7 @@ Signed-Bytes: 142853
           <li><a href="/#product">The four pillars</a></li>
           <li><a href="/methodology.html">Methodology</a></li>
           <li><a href="/security.html">Security &amp; disclosure</a></li>
-          <li><a href="/dashboard.html">Dashboard</a></li>
+          <li><a href="/customer/">Customer portal</a></li>
           <li><a href="/#case-study">F7 case study</a></li>
         </ul>
       </div>

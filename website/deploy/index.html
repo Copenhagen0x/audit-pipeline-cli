@@ -408,6 +408,23 @@ canvas#particles {
   100% { box-shadow: 0 0 0 12px rgba(74,222,128,0); }
 }
 
+.nav-portal {
+  font-size: 13px; font-weight: 500;
+  padding: 9px 18px;
+  color: var(--ink-2);
+  background: rgba(245,243,237,0.04);
+  border: 1px solid var(--rule-2);
+  border-radius: 999px;
+  white-space: nowrap;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+.nav-portal:hover {
+  color: var(--amber);
+  border-color: rgba(245,184,0,0.5);
+  background: rgba(245,184,0,0.06);
+  transform: translateY(-1px);
+}
+
 .nav-cta {
   font-size: 13px;
   font-weight: 600;
@@ -417,6 +434,7 @@ canvas#particles {
   border-radius: 999px;
   transition: all 0.25s var(--ease-out);
   box-shadow: 0 0 0 0 var(--amber-glow);
+  white-space: nowrap;
 }
 .nav-cta:hover {
   background: var(--amber-2);
@@ -437,6 +455,7 @@ canvas#particles {
   .nav-status { font-size: 10px; gap: 7px; letter-spacing: 0.14em; }
   .cluster-gauge svg { width: 28px; height: 28px; }
   .cg-rate { font-size: 10px; }
+  .nav-portal { font-size: 12px; padding: 8px 14px; }
   .nav-cta { font-size: 12px; padding: 9px 18px; }
   .nav-right { gap: 12px; }
 }
@@ -447,6 +466,7 @@ canvas#particles {
   .nav-status { display: none; }
   .cluster-gauge { display: none; }
   .live-slot { display: none; }
+  .nav-portal { display: none; }
   .nav-cta { display: none; }
   .nav-toggle {
     display: flex; flex-direction: column; gap: 4px;
@@ -764,7 +784,7 @@ section {
   font-size: clamp(36px, 5.6vw, 84px);
   font-weight: 700;
   letter-spacing: -0.04em;
-  line-height: 1.0;
+  line-height: 1.2;
   color: var(--ink);
   margin-bottom: 32px;
   max-width: 22ch;
@@ -2400,7 +2420,7 @@ section {
   font-size: clamp(48px, 8vw, 132px);
   font-weight: 700;
   letter-spacing: -0.045em;
-  line-height: 0.95;
+  line-height: 1.2;
   margin: 0 auto 36px;
   max-width: 18ch;
 }
@@ -2506,6 +2526,16 @@ section {
 }
 @keyframes title-char-in {
   to { opacity: 1; transform: translateY(0); }
+}
+/* See shared.css for the same rule — keep in sync. The typewriter wraps
+   each character in an inline-block .title-char span, which breaks the
+   .accent gradient's background-clip: text propagation. Re-apply the
+   gradient on each .title-char inside an .accent. */
+.section-title .accent .title-char,
+.hero-title .accent .title-char {
+  background: linear-gradient(135deg, var(--amber), var(--amber-2));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* ========== 3D NETWORK GRAPH (right-corner of hero) ========== */
@@ -3653,28 +3683,8 @@ body.preloading { overflow: hidden; }
     <a href="/security.html">Security</a>
   </div>
   <div class="nav-right">
-    <span class="nav-status" title="Year-1 funded-state target — see preview banner">
-      <span class="live-dot"></span>
-      Y1 target · 27 protocols · 24/7
-      <span class="nav-heart" aria-hidden="true">
-        <svg viewBox="0 0 60 14" preserveAspectRatio="none">
-          <path class="heart-path" d="M0 7 L14 7 L18 2 L22 12 L26 4 L30 10 L34 7 L60 7"/>
-        </svg>
-      </span>
-    </span>
-    <span class="cluster-gauge" id="cluster-gauge" aria-label="Live API spend rate">
-      <svg viewBox="0 0 32 32">
-        <path class="cg-bg" d="M 4 22 A 12 12 0 0 1 28 22"/>
-        <path class="cg-arc" d="M 4 22 A 12 12 0 0 1 28 22" stroke-dasharray="38" stroke-dashoffset="20" id="cg-arc"/>
-        <line class="cg-needle" x1="16" y1="22" x2="16" y2="11" id="cg-needle"/>
-      </svg>
-      <span class="cg-rate" id="cg-rate">$950/h</span>
-    </span>
-    <span class="live-slot" id="live-slot">
-      <span class="ls-label">slot</span>
-      <span class="ls-num" id="ls-num">———</span>
-    </span>
-    <a href="#contact" class="nav-cta">Request integration</a>
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta">Request integration</a>
     <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
       <span></span><span></span><span></span>
     </button>
@@ -3688,7 +3698,8 @@ body.preloading { overflow: hidden; }
   <a href="#disclosures" role="menuitem">Ledger</a>
   <a href="/methodology.html" role="menuitem">Methodology</a>
   <a href="/security.html" role="menuitem">Security</a>
-  <a href="#contact" role="menuitem" style="color: #f5b800;">Request integration →</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="/integrate/" role="menuitem" style="color: #f5b800;">Request integration →</a>
 </div>
 
 <!-- ============== HERO ============== -->
@@ -3732,7 +3743,7 @@ body.preloading { overflow: hidden; }
         <span>Live operations</span>
         <span class="arrow">→</span>
       </a>
-      <a href="#contact" class="btn btn-ghost">
+      <a href="/integrate/" class="btn btn-ghost">
         <span>Request integration</span>
         <span class="arrow">↗</span>
       </a>
@@ -4052,7 +4063,7 @@ body.preloading { overflow: hidden; }
       </div>
     </div>
 
-    <div style="font-size: 11px; color: #f5b800; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 12px; font-family: var(--mono);">▸ Y1 funded-state operating shape · preview</div>
+    <div style="font-size: 11px; color: #f5b800; letter-spacing: 0.18em; text-transform: uppercase; margin-top: 64px; margin-bottom: 16px; font-family: var(--mono);">▸ Y1 funded-state operating shape · preview</div>
     <div class="live-strip" data-reveal>
       <div class="live-strip-cell">
         <span class="lsc-label">Cluster · Y1</span>
@@ -4180,9 +4191,9 @@ body.preloading { overflow: hidden; }
       </div>
 
       <div class="dash-preview-foot">
-        <span>Above is a slice. Full view shows: filterable findings feed · click-to-expand verdicts · 6-cycle attestation registry with tx links · alert routing config · auto-emailed signed PDF report library.</span>
-        <a href="dashboard.html" target="_blank" rel="noopener" class="dpc-cta">
-          View full Percolator dashboard
+        <span>Above is a slice. Full view shows: filterable findings feed · click-to-expand verdicts · 6-cycle attestation registry with tx links · alert routing config · auto-emailed signed PDF report library. <strong>Token-gated</strong> — try with token <code style="background: rgba(245,184,0,0.1); border: 1px solid rgba(245,184,0,0.3); padding: 1px 6px; border-radius: 3px; color: var(--amber);">demo</code>.</span>
+        <a href="/customer/" class="dpc-cta">
+          Open the customer portal
           <span class="dpc-cta-arrow">→</span>
         </a>
       </div>
@@ -4478,7 +4489,7 @@ body.preloading { overflow: hidden; }
       Continuous shadow audit. Per-commit attestation. Maintainer-receivable fix bundles, Kani-verified before the PR opens. If your protocol moves fast enough that point-in-time audits go stale the day they're delivered — this is the layer underneath.
     </p>
     <div class="cta-row" data-reveal data-delay="2">
-      <a href="mailto:kirill@jelleo.com?subject=Jelleo%20%E2%80%94%20integration%20interest" class="btn btn-primary">
+      <a href="/integrate/" class="btn btn-primary">
         <span>Request integration</span>
         <span class="arrow">→</span>
       </a>
