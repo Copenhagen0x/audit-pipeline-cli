@@ -1,0 +1,27 @@
+# Append these lines to /root/.audit-env on the VPS to enable Sprint 3
+# features (signing, notifier, scheduler).
+#
+# The existing /root/.audit-env already has ANTHROPIC_API_KEY from the
+# original bootstrap. These are additions, not replacements. After
+# editing, the next scheduler-tick + notifier call will pick them up
+# (no daemon restart required — systemd reads the env file per-invocation).
+#
+# Edit with:
+#   sudo -e /root/.audit-env
+
+# ============== SMTP transport (notifier.py) ==============
+# Required for `audit-pipeline notify {test,critical,cadence}` to actually send.
+# Without these, every notify call must pass --dry-run.
+JELLEO_SMTP_HOST=smtp.your-provider.example
+JELLEO_SMTP_PORT=587
+JELLEO_SMTP_USER=jelleo@your-domain.example
+JELLEO_SMTP_PASSWORD=replace-me-with-app-password
+JELLEO_SMTP_FROM=Jelleo Audit <jelleo@your-domain.example>
+JELLEO_SMTP_TLS=starttls
+# Alternatives for JELLEO_SMTP_TLS: ssl (port 465), none (plain SMTP, dev only).
+
+# ============== Snapshot output path (optional override) ==============
+# Where the dashboard snapshot JSON is written. Default if unset:
+# /var/www/jelleo.com/snapshot.json. Override here if jelleo.com is served
+# from a different docroot.
+# JELLEO_SNAPSHOT_PATH=/srv/www/jelleo/snapshot.json

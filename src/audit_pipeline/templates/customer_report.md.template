@@ -1,0 +1,186 @@
+# Jelleo Audit Report · {{TARGET_NAME}}
+
+**Cycle ID:** `{{CYCLE_ID}}`
+**Target:** {{TARGET_NAME}} · `{{ENGINE_REPO}}`
+**Engine SHA:** `{{ENGINE_SHA}}`
+**Wrapper SHA:** `{{WRAPPER_SHA}}`
+**Tier:** {{TIER}} · {{HYPS_PER_DAY}} hypotheses/day
+**Generated:** {{GENERATED_AT}}
+**Signed receipt:** `{{REPORT_FILENAME}}.sig` · key fingerprint `{{KEY_FINGERPRINT}}`
+
+---
+
+## Executive summary
+
+{{EXECUTIVE_SUMMARY}}
+
+| Severity     | Count | Open  | Confirmed | Disclosed | Fixed |
+|--------------|------:|------:|----------:|----------:|------:|
+| Critical     | {{N_CRITICAL}} | {{N_CRITICAL_OPEN}} | {{N_CRITICAL_CONFIRMED}} | {{N_CRITICAL_DISCLOSED}} | {{N_CRITICAL_FIXED}} |
+| High         | {{N_HIGH}}     | {{N_HIGH_OPEN}}     | {{N_HIGH_CONFIRMED}}     | {{N_HIGH_DISCLOSED}}     | {{N_HIGH_FIXED}}     |
+| Medium       | {{N_MEDIUM}}   | {{N_MEDIUM_OPEN}}   | {{N_MEDIUM_CONFIRMED}}   | {{N_MEDIUM_DISCLOSED}}   | {{N_MEDIUM_FIXED}}   |
+| Low          | {{N_LOW}}      | {{N_LOW_OPEN}}      | {{N_LOW_CONFIRMED}}      | {{N_LOW_DISCLOSED}}      | {{N_LOW_FIXED}}      |
+| Info         | {{N_INFO}}     | {{N_INFO_OPEN}}     | {{N_INFO_CONFIRMED}}     | {{N_INFO_DISCLOSED}}     | {{N_INFO_FIXED}}     |
+
+**This cycle:** {{N_DISPATCHED}} hypotheses dispatched · {{N_CONFIRMED}} confirmed · {{TOTAL_COST_USD}} spend · {{CYCLE_DURATION}} runtime.
+
+---
+
+## Severity rubric
+
+| Tier | Definition |
+|------|------------|
+| **Critical** | Direct loss of user funds or full protocol takeover with no meaningful preconditions. Reachable from a permissionless instruction by any signer. Patch immediately. |
+| **High** | Significant loss of user funds or protocol invariant violation under realistic preconditions. Patch should ship in next release. |
+| **Medium** | Hardening issue, partial loss possible, or invariant violation requiring privileged signer or improbable state. Worth fixing in normal cadence. |
+| **Low** | Minor issue with no plausible path to fund loss. Code-quality or defense-in-depth concern. |
+| **Info** | Informational. No security impact. Documentation or style suggestion. |
+
+Severity is auto-derived from `(hypothesis_class, verdict, poc_fired, debate_promoted)` per the rubric in [methodology §05](https://jelleo.com/methodology.html#severity).
+
+---
+
+## Findings — this cycle
+
+{{FINDINGS_BLOCK}}
+
+<!-- The FINDINGS_BLOCK is rendered per-finding using the section template below. -->
+
+<!--
+============================================================
+PER-FINDING SECTION TEMPLATE  (rendered once per finding)
+============================================================
+
+### {{FINDING_ID}} · {{TITLE}}
+
+| Field            | Value |
+|------------------|-------|
+| Hypothesis ID    | `{{HYPOTHESIS_ID}}` |
+| Class            | `{{HYPOTHESIS_CLASS}}` |
+| Bug class        | `{{BUG_CLASS}}` |
+| Severity         | **{{SEVERITY}}** |
+| Status           | **{{STATUS}}** |
+| Verdict          | {{VERDICT}} ({{CONFIDENCE}}) |
+| PoC fired        | {{POC_FIRED}} |
+| Debate promoted  | {{DEBATE_PROMOTED}} |
+| Engine SHA       | `{{FINDING_ENGINE_SHA}}` |
+| First observed   | {{CREATED_AT}} |
+| Last updated     | {{UPDATED_AT}} |
+
+**Claim**
+
+> {{CLAIM}}
+
+**Reproduction**
+
+{{REPRO_BLOCK}}
+
+**Impact**
+
+{{IMPACT_BLOCK}}
+
+**Suggested fix**
+
+{{SUGGESTED_FIX_BLOCK}}
+
+**Evidence**
+
+- PoC test: `{{POC_PATH}}`
+- Recon transcript: `{{RECON_PATH}}`
+- Debate verdict: `{{DEBATE_PATH}}`
+- Kani harness: `{{KANI_PATH}}` ({{KANI_VERDICT}})
+
+**Lifecycle history**
+
+{{LIFECYCLE_TABLE}}
+
+============================================================
+-->
+
+---
+
+## Hypothesis library coverage — this cycle
+
+| Class                      | Hypotheses dispatched | TRUE | FALSE | NEEDS_LAYER_2 | Skipped (scoping) |
+|----------------------------|----------------------:|-----:|------:|--------------:|------------------:|
+| invariant_property         | {{N_INV_DISP}} | {{N_INV_TRUE}} | {{N_INV_FALSE}} | {{N_INV_L2}} | {{N_INV_SKIP}} |
+| state_transition           | {{N_ST_DISP}}  | {{N_ST_TRUE}}  | {{N_ST_FALSE}}  | {{N_ST_L2}}  | {{N_ST_SKIP}}  |
+| authorization              | {{N_AUTH_DISP}}| {{N_AUTH_TRUE}}| {{N_AUTH_FALSE}}| {{N_AUTH_L2}}| {{N_AUTH_SKIP}}|
+| arithmetic_overflow        | {{N_ARITH_DISP}}| {{N_ARITH_TRUE}}| {{N_ARITH_FALSE}}| {{N_ARITH_L2}}| {{N_ARITH_SKIP}}|
+| implicit_invariant         | {{N_IMPL_DISP}}| {{N_IMPL_TRUE}}| {{N_IMPL_FALSE}}| {{N_IMPL_L2}}| {{N_IMPL_SKIP}}|
+
+**Scoping filter:** {{N_SCOPED_OUT}} hypotheses skipped because `applies_to` did not include this target, or because `scope_conditions` were not met.
+
+---
+
+## Cross-protocol propagation — this cycle
+
+{{PROPAGATION_BLOCK}}
+
+<!--
+The PROPAGATION_BLOCK lists any bug classes that confirmed on a different
+protocol in this cycle's window and were re-tested against this customer's
+protocol. Format:
+
+### Re-tested against {{TARGET_NAME}} from {{ORIGIN_PROTOCOL}}
+
+- Bug class: `{{BUG_CLASS}}`
+- Origin: {{ORIGIN_PROTOCOL}} · cycle `{{ORIGIN_CYCLE_ID}}` · {{ORIGIN_DATE}}
+- Hypotheses re-run: {{N_RERUN}}
+- Result: {{RESULT_SUMMARY}}     # PASS · n green / REVIEW · n flagged
+
+If no propagation events fired, this block reads:
+"No cross-protocol propagation events fired in this window."
+-->
+
+---
+
+## Lifecycle transitions — this cycle
+
+{{TRANSITIONS_BLOCK}}
+
+<!--
+TRANSITIONS_BLOCK is a chronological table:
+| Timestamp           | Finding ID | From → To             | Reason                 |
+|---------------------|------------|-----------------------|------------------------|
+| 2026-05-07T16:23:11 | F-1042     | new → confirmed       | PoC fired              |
+| 2026-05-07T16:24:55 | F-1042     | confirmed → disclosed | issue filed: gh#1234   |
+-->
+
+---
+
+## Verification
+
+This report is signed with the Jelleo Ed25519 platform key. To verify:
+
+```
+audit-pipeline sign verify {{REPORT_FILENAME}} {{REPORT_FILENAME}}.sig \
+    --pubkey jelleo.ed25519.pub
+```
+
+The published Jelleo public key is mirrored in:
+
+- The platform repo: `https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/keys/jelleo.ed25519.pub`
+- The methodology page: [jelleo.com/methodology.html#attestation](https://jelleo.com/methodology.html#attestation)
+
+A valid signature confirms (a) the report bytes have not been altered since signing, and (b) the cycle ran in a Jelleo workspace whose private key matches the published public key.
+
+---
+
+## Methodology
+
+The audit methodology, hypothesis library schema, severity rubric, lifecycle state machine, and propagation engine are documented at:
+
+**[jelleo.com/methodology.html](https://jelleo.com/methodology.html)**
+
+For a deeper walkthrough of the four-pillar architecture and how findings move from `new` → `verified`, see methodology §06 (lifecycle) and §07 (attestation).
+
+---
+
+## Disclosure policy
+
+Findings of severity Critical or High are disclosed to the maintainer before public release. Standard responsible-disclosure window: **30 days from `confirmed` → public**, extensible by mutual agreement when a fix is in flight. See [jelleo.com/security.html](https://jelleo.com/security.html) for the full policy.
+
+---
+
+*Report generated by `audit-pipeline report cycle --cycle-id {{CYCLE_ID}}`. Signed with `audit-pipeline sign sign`. Source: <https://github.com/Copenhagen0x/audit-pipeline-cli>. License: Apache-2.0.*

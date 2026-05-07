@@ -358,27 +358,58 @@ def _slug(text: str) -> str:
 def _strip_code_fences(text: str) -> str:
     """Extract clean Rust source from an LLM response.
 
-    Handles three failure modes seen in practice:
+    Handles four failure modes seen in practice:
       1. Whole response wrapped in ```rust ... ```
       2. Trailing markdown ("## Verdict\n...") appended after the closing brace
          of the test function — kills the Rust parser with `unknown start of token`
-      3. Both
+      3. Leading prose preface ("Looking at what I've found...", "From my tool reads
+         I have confirmed...") emitted by the tool-using agent before the actual
+         `#![cfg(feature = "test")]` line — also kills the Rust parser with
+         `error: prefix \`I\` is unknown` / `error: prefix \`finding\` is unknown`
+      4. CANNOT_TEST text with leading prose ("The finding's premise...") — the
+         downstream classifier requires the file to start with `// CANNOT_TEST`
     """
     import re
     # Step 1: extract from fences if present
     m = re.search(r"```(?:rust|rs)?\n(.+?)```", text, re.DOTALL)
     code = m.group(1) if m else text
 
-    # Step 2: truncate any trailing prose after the last top-level closing brace.
+    # Step 2: strip leading prose preface. Find the first line that looks like
+    # Rust (or like a CANNOT_TEST marker) and discard everything before it.
+    # Markers that anchor real Rust: #![, #[, use, extern crate, mod, pub, fn,
+    # const, static, type, struct, enum, trait, impl. CANNOT_TEST anchors:
+    # // CANNOT_TEST.
+    rust_anchors = (
+        "#![", "#[", "use ", "extern crate", "mod ", "pub ", "fn ", "const ",
+        "static ", "type ", "struct ", "enum ", "trait ", "impl ",
+    )
+    lines = code.splitlines()
+    first_rust = -1
+    for i, ln in enumerate(lines):
+        stripped = ln.lstrip()
+        if stripped.startswith("// CANNOT_TEST"):
+            first_rust = i
+            break
+        if any(stripped.startswith(a) for a in rust_anchors):
+            first_rust = i
+            break
+    if first_rust > 0:
+        # Drop the leading prose; keep everything from the first Rust line on.
+        lines = lines[first_rust:]
+        code = "\n".join(lines)
+
+    # Step 3: truncate any trailing prose after the last top-level closing brace.
     # Find the last '\n}\n' or trailing '}' on its own line — that's the end of
     # the last `fn` block. Any markdown / prose after that is hallucinated trailer.
-    lines = code.splitlines()
-    last_close = -1
-    for i, ln in enumerate(lines):
-        stripped = ln.strip()
-        if stripped == "}":
-            last_close = i
-    if last_close >= 0:
-        code = "\n".join(lines[: last_close + 1]) + "\n"
+    # (Skipped for CANNOT_TEST text which has no closing brace.)
+    if not code.lstrip().startswith("// CANNOT_TEST"):
+        lines = code.splitlines()
+        last_close = -1
+        for i, ln in enumerate(lines):
+            stripped = ln.strip()
+            if stripped == "}":
+                last_close = i
+        if last_close >= 0:
+            code = "\n".join(lines[: last_close + 1]) + "\n"
 
     return code

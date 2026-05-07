@@ -168,6 +168,9 @@ def _stub_hypotheses(target_name: str, template: str) -> str:
 
 _MINIMAL_HYPOTHESES = """\
 # Hypothesis library for {{TARGET}}.
+# v1 schema (see docs/HYPOTHESIS_SCHEMA.md). Each hypothesis declares which
+# protocols it applies_to, which scope_conditions it requires, and which
+# bug_class it generalizes to for cross-protocol propagation.
 # Edit these in your protocol's terms before running `hunt`.
 
 hypotheses:
@@ -178,6 +181,9 @@ hypotheses:
     claim: >
       Total token supply held by the program equals the sum of all
       user balances + protocol-owned reserves at all times.
+    applies_to: [{{TARGET}}]
+    scope_conditions: []
+    bug_class: token-balance-conservation-violation
 
   - id: H2-authorization-on-privileged-instructions
     class: authorization
@@ -185,6 +191,9 @@ hypotheses:
     claim: >
       Every instruction that mutates global state requires the admin signer
       OR cannot affect funds belonging to other users.
+    applies_to: [{{TARGET}}]
+    scope_conditions: []
+    bug_class: authorization-bypass
 
   - id: H3-arithmetic-bounds
     class: arithmetic_overflow
@@ -192,10 +201,16 @@ hypotheses:
     claim: >
       Every multiplication and division in the math paths is provably
       bounded by the protocol's own constants.
+    applies_to: [{{TARGET}}]
+    scope_conditions: []
+    bug_class: arithmetic-overflow
 """
 
 _PERP_DEX_HYPOTHESES = """\
 # Perpetual DEX hypothesis library for {{TARGET}}.
+# v1 schema (see docs/HYPOTHESIS_SCHEMA.md). applies_to defaults to the
+# perp-DEX cluster (drift, mango, marginfi) so confirmed findings here
+# automatically propagate across the cluster.
 
 hypotheses:
 
@@ -205,6 +220,9 @@ hypotheses:
     claim: >
       Vault balance == sum(user collateral) + sum(unrealized PnL) +
       insurance fund balance, at every state transition.
+    applies_to: [{{TARGET}}, drift, mango, marginfi]
+    scope_conditions: [has_insurance_pool, perpetual_funding]
+    bug_class: vault-balance-divergence
 
   - id: H2-funding-rate-no-self-bias
     class: state_transition
@@ -212,6 +230,9 @@ hypotheses:
     claim: >
       The funding rate captured in any instruction is computed BEFORE any
       mark-price mutation in the same instruction.
+    applies_to: [{{TARGET}}, drift, mango]
+    scope_conditions: [perpetual_funding]
+    bug_class: funding-rate-self-bias
 
   - id: H3-liquidation-cash-flow
     class: state_transition
@@ -219,6 +240,9 @@ hypotheses:
     claim: >
       Liquidation does not transfer collateral to the liquidator beyond
       the configured incentive percentage.
+    applies_to: [{{TARGET}}, drift, mango, marginfi]
+    scope_conditions: [liquidation_engine]
+    bug_class: liquidation-incentive-overpayment
 
   - id: H4-self-trade-cash-neutral
     class: state_transition
@@ -226,10 +250,15 @@ hypotheses:
     claim: >
       A self-trade (same authority on both sides of a fill) is cash-flow
       neutral up to fees + IM transitions.
+    applies_to: [{{TARGET}}, drift, mango]
+    scope_conditions: [clob_orderbook, perpetual_funding]
+    bug_class: self-trade-cash-flow-violation
 """
 
 _LENDING_HYPOTHESES = """\
 # Lending protocol hypothesis library for {{TARGET}}.
+# v1 schema (see docs/HYPOTHESIS_SCHEMA.md). applies_to defaults to the
+# lending cluster (marginfi, kamino) for cross-protocol propagation.
 
 hypotheses:
 
@@ -239,6 +268,9 @@ hypotheses:
     claim: >
       For every borrower account, total collateral value (in USD) >=
       total borrowed value (in USD) * minimum collateral ratio.
+    applies_to: [{{TARGET}}, marginfi, kamino]
+    scope_conditions: [liquidation_engine, multi_collateral]
+    bug_class: undercollateralized-position
 
   - id: H2-interest-accrual-monotonic
     class: implicit_invariant
@@ -246,6 +278,9 @@ hypotheses:
     claim: >
       Borrow indices are monotonically non-decreasing across all
       state transitions; supply indices are monotonically non-decreasing.
+    applies_to: [{{TARGET}}, marginfi, kamino]
+    scope_conditions: []
+    bug_class: interest-index-non-monotonic
 
   - id: H3-liquidation-discount-bounded
     class: arithmetic_overflow
@@ -253,10 +288,15 @@ hypotheses:
     claim: >
       The liquidation bonus paid to a liquidator cannot exceed
       LIQUIDATION_INCENTIVE_PCT of the seized collateral.
+    applies_to: [{{TARGET}}, marginfi, kamino]
+    scope_conditions: [liquidation_engine]
+    bug_class: liquidation-incentive-overpayment
 """
 
 _AMM_HYPOTHESES = """\
 # AMM hypothesis library for {{TARGET}}.
+# v1 schema (see docs/HYPOTHESIS_SCHEMA.md). applies_to defaults to the
+# AMM cluster (orca, raydium, meteora) for cross-protocol propagation.
 
 hypotheses:
 
@@ -265,6 +305,9 @@ hypotheses:
     severity: Critical
     claim: >
       x * y >= k after every swap, where k is the pool's stored invariant.
+    applies_to: [{{TARGET}}, orca, raydium, meteora]
+    scope_conditions: [amm_constant_product]
+    bug_class: constant-product-invariant-violation
 
   - id: H2-fee-accounting
     class: state_transition
@@ -273,6 +316,9 @@ hypotheses:
       Fees credited to LPs equal the difference between input amount and
       input amount net of fee, with no rounding in the LP's favor beyond
       sub-lamport amounts.
+    applies_to: [{{TARGET}}, orca, raydium, meteora]
+    scope_conditions: [amm_constant_product]
+    bug_class: fee-accounting-rounding-asymmetry
 
   - id: H3-flash-loan-repayment
     class: state_transition
@@ -280,4 +326,7 @@ hypotheses:
     claim: >
       Flash-loan instructions must end with the pool's reserve >= the
       pre-loan reserve + the configured flash-loan fee.
+    applies_to: [{{TARGET}}, orca, raydium]
+    scope_conditions: [flash_loan]
+    bug_class: flash-loan-repayment-bypass
 """

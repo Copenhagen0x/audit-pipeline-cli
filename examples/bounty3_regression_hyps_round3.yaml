@@ -1,0 +1,108 @@
+# Bounty 3 round-3 hyps — direct probe of the win condition.
+# Win condition: decrease engine.insurance_fund.balance via any sequence
+# of public calls.
+#
+# F7 helper-level violation (use_insurance_buffer debits insurance without
+# touching vault) was empirically re-confirmed today via
+# test_confirm_v1_vault_residual_conservation (FIRED, panic at percolator.rs
+# lines 4811-4821, 4844-4852).
+#
+# These hypotheses ask: at engine SHA 5059332, can the F7 helper-level
+# violation be reached through any public instruction path? Or are all
+# public callers gated such that the helper-level bug is not exploitable?
+
+hypotheses:
+
+  - id: W1-public-api-reaches-absorb-protocol-loss
+    class: invariant_property
+    severity: Critical
+    claim: >
+      The helper absorb_protocol_loss at percolator.rs:4845 debits insurance
+      without correspondingly debiting vault (V1 confirm test fired today
+      at this SHA with delta=+10000). This is the F7 helper-level conservation
+      violation. Verify whether any public-instruction call path (KeeperCrank,
+      Trade*, Deposit/Withdraw, ResolveMarket reconciliation) can reach
+      absorb_protocol_loss with a non-zero loss argument WITHOUT a corresponding
+      legitimate protocol bankruptcy event. Specifically, check whether the
+      bankruptcy_hmax_lock_active gate or similar precondition prevents the
+      public path from triggering insurance absorption when no real position
+      loss has occurred. If any path exists where (a) insurance.balance
+      decreases, (b) vault is unchanged, (c) no equivalent decrease in c_tot
+      or position basis was applied, that is a win condition.
+    target_file: src/percolator.rs
+
+  - id: W2-resolve-flat-negative-via-touch-public
+    class: invariant_property
+    severity: Critical
+    claim: >
+      resolve_flat_negative_with_context at percolator.rs:7123 calls
+      absorb_protocol_loss(loss) when an account has position_basis_q==0 and
+      pnl<0. This is reachable from touch_account_live_local (line 7191) which
+      is in turn reachable from keeper_crank_not_atomic (the engine helper
+      called by KeeperCrank wrapper instruction). Verify whether an attacker
+      can construct (account_idx, pnl, position_basis) state where this path
+      fires WITHOUT a bankruptcy that legitimately required insurance
+      absorption. Specifically: does any sequence of public calls let an
+      attacker leave an account with position_basis_q=0 AND pnl<0 in such a
+      way that resolve_flat_negative drains insurance disproportionately to
+      the actual protocol loss?
+    target_file: src/percolator.rs
+
+  - id: W3-resolved-mode-reconciliation-insurance-drain
+    class: invariant_property
+    severity: Critical
+    claim: >
+      In Resolved-mode reconciliation, force_close_resolved_with_fee_not_atomic
+      and reconcile_resolved_not_atomic eventually call settle_losses +
+      resolve_flat_negative which calls absorb_protocol_loss. After
+      ResolveMarket flips market_mode to Resolved, anyone can call these
+      reconciliation paths permissionlessly. Verify whether any sequence of
+      pre-resolve account state, ResolveMarket call, and post-resolve
+      reconciliation call can drain insurance beyond the legitimate
+      pre-resolve bankruptcy footprint. Specifically: if pre_residual was
+      positive and resolved-mode drains it, the insurance should be debited
+      by exactly the residual; any excess drain is a bug.
+    target_file: src/percolator.rs
+
+  - id: W4-permissionless-progress-bypass-bankruptcy-lock
+    class: invariant_property
+    severity: Critical
+    claim: >
+      permissionless_progress_not_atomic at percolator.rs:8754 dispatches
+      to keeper_crank_with_request_not_atomic, which can trigger
+      touch_account_live_local on candidates. Verify the bankruptcy_hmax_lock
+      mechanism actually prevents subsequent insurance-decreasing operations
+      when set, or whether an attacker can race progress into the same crank
+      that triggered the lock and drain insurance further before the lock
+      takes effect on subsequent calls.
+    target_file: src/percolator.rs
+
+  - id: W5-set-pnl-with-reserve-after-absorb
+    class: invariant_property
+    severity: High
+    claim: >
+      resolve_flat_negative_with_context at line 7148 calls
+      set_pnl_with_reserve(idx, 0, NoPositiveIncreaseAllowed, None) AFTER
+      absorb_protocol_loss. This zeros the negative PnL. Verify the order:
+      absorb (debits insurance) → set PnL to 0 (resets account). If the
+      sequence allows the SAME account to be re-touched and re-absorb in a
+      subsequent call (e.g., if pnl somehow becomes negative again without
+      a real loss event), insurance is drained again. Check that account
+      state after resolve_flat_negative cannot re-enter the bankruptcy path
+      without a new real loss.
+    target_file: src/percolator.rs
+
+  - id: W6-conservation-postcondition-coverage
+    class: invariant_property
+    severity: Critical
+    claim: >
+      assert_public_postconditions is called at the end of every public
+      mutating function. Verify whether this postcondition includes a
+      vault >= c_tot + insurance_fund.balance check (residual conservation),
+      AND whether that check is strict enough to catch the F7 helper-level
+      violation. If absorb_protocol_loss runs and insurance shrinks without
+      an equivalent vault or c_tot change, the postcondition should fail
+      and roll back the entire instruction. If the postcondition allows
+      insurance to shrink while vault stays constant, the helper-level
+      violation is reachable from the public surface.
+    target_file: src/percolator.rs

@@ -1,0 +1,11 @@
+{
+  "hyp_id": "V1-vault-residual-conservation",
+  "test_name": "test_confirm_v1_vault_residual_conservation",
+  "test_path": "/root/audit_runs/percolator-live/confirm/test_confirm_v1_vault_residual_conservation.rs",
+  "outcome": "fired",
+  "cargo_rc": 101,
+  "cargo_elapsed_s": 0.4,
+  "cargo_log": "/root/audit_runs/percolator-live/confirm/test_confirm_v1_vault_residual_conservation.cargo.log",
+  "input_tokens": 303091,
+  "output_tokens": 6067
+}

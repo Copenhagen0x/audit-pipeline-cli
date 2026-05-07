@@ -8,6 +8,11 @@ Subcommands:
   keygen   : generate a new Ed25519 keypair (only run once per workspace)
   sign     : sign a file → produce <file>.sig (and <file>.pubkey for verification)
   verify   : verify a signature against a file + pubkey
+
+Programmatic API:
+  sign_file(file_path, key_path=None, output=None) — non-CLI helper used by
+                                                     report.py to auto-sign
+                                                     every generated report.
 """
 
 from __future__ import annotations
@@ -20,6 +25,68 @@ import click
 from rich.console import Console
 
 console = Console()
+
+
+# ---------------------------------------------------------------------------
+# Programmatic API (non-CLI) — called by report.py and the lifecycle hooks
+# ---------------------------------------------------------------------------
+
+
+class SignError(Exception):
+    """Raised when signing fails for a recoverable reason (key missing etc.)."""
+
+
+def sign_file(
+    file_path: Path,
+    key_path: Path | None = None,
+    output: Path | None = None,
+) -> Path:
+    """Sign a file with the Jelleo Ed25519 key. Returns the signature path.
+
+    Raises SignError if the key file is missing or the cryptography package
+    is not installed. Does not raise on a successful sign.
+
+    This is the non-CLI helper used by `audit_pipeline.commands.report` to
+    auto-sign every cycle/weekly/monthly report, and by `audit_pipeline.commands.disclose`
+    when a finding moves to status=disclosed.
+    """
+    try:
+        from cryptography.hazmat.primitives import serialization
+    except ImportError as e:
+        raise SignError(
+            "`cryptography` package required. Run: pip install cryptography"
+        ) from e
+
+    if key_path is None:
+        raise SignError("key_path required (no default — pass explicit path)")
+
+    if not key_path.exists():
+        raise SignError(f"No private key at {key_path}. Run `audit-pipeline sign keygen` first.")
+
+    priv = serialization.load_pem_private_key(key_path.read_bytes(), password=None)
+    payload = file_path.read_bytes()
+    sig = priv.sign(payload)
+
+    sig_b64 = base64.b64encode(sig).decode()
+    out_path = output or file_path.with_suffix(file_path.suffix + ".sig")
+
+    metadata = (
+        f"-----BEGIN JELLEO SIGNATURE-----\n"
+        f"Algorithm: Ed25519\n"
+        f"Signed-At: {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+        f"Signed-File: {file_path.name}\n"
+        f"Signed-Bytes: {len(payload)}\n"
+        f"\n"
+        f"{sig_b64}\n"
+        f"-----END JELLEO SIGNATURE-----\n"
+    )
+    out_path.write_text(metadata, encoding="utf-8")
+    return out_path
+
+
+def default_key_path(workspace: Path) -> Path:
+    """The conventional location for the workspace's signing key."""
+    return workspace / "keys" / "jelleo.ed25519"
 
 
 @click.group(name="sign")
@@ -93,36 +160,12 @@ def sign_file_cmd(
     ctx: click.Context, file_path: Path, key: Path | None, output: Path | None,
 ) -> None:
     """Sign a file with the Jelleo Ed25519 key."""
-    try:
-        from cryptography.hazmat.primitives import serialization
-    except ImportError:
-        raise click.ClickException("`cryptography` package required.")
-
     workspace = Path(ctx.obj["workspace"])
-    priv_path = key or (workspace / "keys" / "jelleo.ed25519")
-    if not priv_path.exists():
-        raise click.ClickException(
-            f"No private key at {priv_path}. Run `audit-pipeline sign keygen` first."
-        )
-
-    priv = serialization.load_pem_private_key(priv_path.read_bytes(), password=None)
-    payload = file_path.read_bytes()
-    sig = priv.sign(payload)
-
-    sig_b64 = base64.b64encode(sig).decode()
-    out_path = output or file_path.with_suffix(file_path.suffix + ".sig")
-
-    metadata = (
-        f"-----BEGIN JELLEO SIGNATURE-----\n"
-        f"Algorithm: Ed25519\n"
-        f"Signed-At: {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
-        f"Signed-File: {file_path.name}\n"
-        f"Signed-Bytes: {len(payload)}\n"
-        f"\n"
-        f"{sig_b64}\n"
-        f"-----END JELLEO SIGNATURE-----\n"
-    )
-    out_path.write_text(metadata, encoding="utf-8")
+    priv_path = key or default_key_path(workspace)
+    try:
+        out_path = sign_file(file_path, priv_path, output)
+    except SignError as e:
+        raise click.ClickException(str(e))
     console.print(f"[green]Signed[/green] {file_path}")
     console.print(f"[green]Signature[/green] {out_path}")
 

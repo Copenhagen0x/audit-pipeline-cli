@@ -1,0 +1,146 @@
+# Bounty 3 regression hypotheses — derived from CLOSED issues at
+# https://github.com/aeyakovenko/percolator-prog/issues
+#
+# Goal: at engine SHA 5059332 (current bounty 3 pin), verify that the
+# patches Anatoly applied for each closed issue actually plug the
+# described attack. If any hypothesis fires, it means the fix is
+# incomplete or there's a regression — that's a real new finding
+# against the live mainnet bounty.
+#
+# Bounty win condition (from percolator-stress-test/max_risk.md §8):
+#   "cause engine.insurance_fund.balance to decrease below its current
+#    value via any sequence of public calls"
+#
+# These hypotheses target patterns from issues 55, 57, 61, 63, 64, 65,
+# 75, 76. Each one references the original disclosure thread and asks:
+# is the attack still exploitable?
+
+hypotheses:
+
+  - id: B57-sweep-gap-k-drift-insurance-drain
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Sweep-Gap K-Drift attack (per disclosed issue #57). KeeperCrank
+      Phase 2 takes 64 cranks to cycle through 4096 slots. Untouched
+      accounts accumulate K-coefficient drift across many accrual steps
+      without PnL reconciliation. If SOL price moves more than the
+      maintenance margin (500 bps) during this window, accumulated
+      loss exceeds account capital, creating a liquidation deficit that
+      use_insurance_buffer absorbs from the insurance fund. Verify that
+      at engine SHA 5059332 either (a) the per-slot price-move cap
+      coupled with max_accrual_dt_slots prevents the exposure, or
+      (b) the Phase 2 sweep window has been widened so the gap closes
+      before MM breach, or (c) the insurance absorption helper now
+      correctly debits the vault by the same amount. If none of these
+      is enforced, the attack still works.
+    target_file: src/percolator.rs
+
+  - id: B61-tradenocpi-cascade-bypass
+    class: invariant_property
+    severity: Critical
+    claim: >
+      TradeNoCpi cascade bypass (per disclosed issue #61). Two
+      permissionless TradeNoCpi(C, D, +/-1) calls where C/D are
+      attacker-controlled advance the engine's market clock + apply
+      fresh mark-to-market K updates without running partial-liquidation
+      on user accounts other than the two trade counterparties. After
+      this, a third party with an under-margined position has been
+      silently advanced past their MM threshold without being touched.
+      Verify that at SHA 5059332, every TradeNoCpi call either runs the
+      partial-liquidation cascade on all eligible candidates or rejects
+      market-progress that would expose untouched accounts.
+    target_file: src/percolator.rs
+
+  - id: B63-keeper-crank-reward-redirect-attacker
+    class: invariant_property
+    severity: High
+    claim: >
+      KeeperCrank reward redirect (per disclosed issue #63). A keeper
+      caller whose account materialized in the same slot as the crank
+      pays no own-fee debt during the bitmap sweep but still receives
+      CRANK_REWARD_BPS (5000 = 50%) of any candidate-sync'd third-party
+      maintenance fees collected in the same call. The wrapper captures
+      ins_before BEFORE candidate sync, so the delta misattributes
+      third-party fees as crank reward. Verify the fix at SHA 5059332
+      either (a) excludes accounts that materialized in the same slot
+      from the reward pool, or (b) captures ins_before AFTER candidate
+      sync, or (c) gates own-fee debt independently of the materialize
+      slot.
+    target_file: src/percolator.rs
+
+  - id: B64-no-oracle-wrapper-paths-stale-admission
+    class: invariant_property
+    severity: High
+    claim: >
+      No-oracle wrapper paths admission gap (per disclosed issue #64).
+      TopUpInsurance, ReclaimEmptyAccount, and DepositFeeCredits ran on
+      the no-oracle accrue branch and clamped now_slot = max(min(clock.slot,
+      last_market_slot), current_slot) before calling their engine ops.
+      This silently admitted the call even when clock.slot -
+      last_market_slot exceeded max_accrual_dt_slots. Verify the fix at
+      SHA 5059332 either rejects stale-clock instructions on these
+      paths or routes them through the same envelope check the trade /
+      crank paths use.
+    target_file: src/percolator.rs
+
+  - id: B65-keeper-crank-else-branch-cascade-bypass
+    class: invariant_property
+    severity: Critical
+    claim: >
+      KeeperCrank else-branch cascade bypass (per disclosed issue #65).
+      The in-budget else-branch at src/percolator.rs:5998 (deployed pin)
+      advances the engine market clock and applies fresh mark-to-market
+      K updates via ensure_market_accrued_to_now_with_policy — the
+      helper variant WITHOUT reject_account_limited_market_progress.
+      The wrapper-level safety check is bypassed in this branch.
+      Verify at SHA 5059332 that the else-branch either uses the
+      reject_account_limited variant or the wrapper enforces the
+      progress rejection externally.
+    target_file: src/percolator.rs
+
+  - id: B75-catchup-accrue-zero-funding-skip-envelope
+    class: invariant_property
+    severity: High
+    claim: >
+      catchup_accrue zero-funding envelope skip (per disclosed issue
+      #75). At deployed pin 06f86fb, catchup_accrue at percolator.rs:3401
+      early-returns when funding_rate_e9 == 0 (or either OI side is
+      zero, or fund_px_last == 0). When that early-return fires, the
+      wrapper performs no chunked accrual and no per-slot price-move
+      budget check. Verify at SHA 5059332 that the early-return either
+      still enforces price-move bounds or is gated by an additional
+      slot-gap check.
+    target_file: src/percolator.rs
+
+  - id: B76-catchup-accrue-partial-rollback-monotonicity
+    class: invariant_property
+    severity: High
+    claim: >
+      CatchupAccrue partial-mode rollback monotonicity (per disclosed
+      issue #76). In the partial-catchup branch of Instruction::CatchupAccrue,
+      the config rollback restores config_pre but only preserves
+      last_good_oracle_slot. It does NOT preserve last_oracle_publish_time,
+      so a partial catchup followed by an oracle push at the same
+      timestamp can advance state with stale oracle metadata.
+      Verify at SHA 5059332 that the rollback preserves all timestamp
+      fields including last_oracle_publish_time, OR that the partial
+      catchup is gated to reject if the oracle would not be fresher
+      after the rollback.
+    target_file: src/percolator.rs
+
+  - id: B55-cursor-wrap-consumption-budget-atomic-reset
+    class: invariant_property
+    severity: High
+    claim: >
+      Cursor-wrap consumption-budget atomic reset (per disclosed issue
+      #55, follow-up to #54). At keeper_crank_not_atomic line 6155 of
+      the deployed pin, the consumption-budget reset commits atomically
+      with the cursor wrap. Caller can repeatedly trigger
+      keeper_crank_not_atomic with carefully placed cursor positions
+      to reset the price-move budget without performing real work,
+      giving subsequent operations more permissive admission than the
+      envelope intends. Verify at SHA 5059332 that the consumption reset
+      is gated on actual progress (touched accounts, sweep_generation
+      advance) rather than purely on cursor wrap.
+    target_file: src/percolator.rs

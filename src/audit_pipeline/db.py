@@ -75,6 +75,7 @@ SCHEMA = [
         created_at      TEXT NOT NULL,
         updated_at      TEXT NOT NULL,
         details_json    TEXT,
+        bug_class       TEXT,
         UNIQUE(target_id, cycle_id, hypothesis_id),
         FOREIGN KEY(target_id) REFERENCES targets(id)
     )
@@ -91,10 +92,19 @@ SCHEMA = [
         FOREIGN KEY(finding_id) REFERENCES findings(id)
     )
     """,
-    "CREATE INDEX IF NOT EXISTS idx_findings_target  ON findings(target_id)",
-    "CREATE INDEX IF NOT EXISTS idx_findings_status  ON findings(status)",
-    "CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity)",
-    "CREATE INDEX IF NOT EXISTS idx_cycles_target    ON cycles(target_id)",
+    "CREATE INDEX IF NOT EXISTS idx_findings_target    ON findings(target_id)",
+    "CREATE INDEX IF NOT EXISTS idx_findings_status    ON findings(status)",
+    "CREATE INDEX IF NOT EXISTS idx_findings_severity  ON findings(severity)",
+    "CREATE INDEX IF NOT EXISTS idx_findings_bug_class ON findings(bug_class)",
+    "CREATE INDEX IF NOT EXISTS idx_cycles_target      ON cycles(target_id)",
+]
+
+
+# Idempotent column migrations for existing DBs that pre-date schema changes.
+# Each entry is (table, column, definition). _init_schema applies any that
+# are missing. Adding a column means appending here, not editing CREATE TABLE.
+_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("findings", "bug_class", "TEXT"),
 ]
 
 
@@ -120,8 +130,20 @@ class FindingsDB:
 
     def _init_schema(self) -> None:
         with self._conn() as c:
+            # Phase 1: CREATE TABLEs (idempotent — won't replace existing).
             for stmt in SCHEMA:
-                c.execute(stmt)
+                if "CREATE TABLE" in stmt:
+                    c.execute(stmt)
+            # Phase 2: column migrations on existing DBs (must happen before
+            # any CREATE INDEX that references newly-added columns).
+            for table, column, definition in _MIGRATIONS:
+                cols = {row["name"] for row in c.execute(f"PRAGMA table_info({table})")}
+                if column not in cols:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            # Phase 3: CREATE INDEXes (now safe — all referenced columns exist).
+            for stmt in SCHEMA:
+                if "CREATE INDEX" in stmt:
+                    c.execute(stmt)
 
     # ---------- targets ----------
 
@@ -251,6 +273,7 @@ class FindingsDB:
         engine_sha: str | None = None,
         wrapper_sha: str | None = None,
         details: dict | None = None,
+        bug_class: str | None = None,
     ) -> int:
         now = _now()
         details_json = json.dumps(details) if details else None
@@ -273,13 +296,14 @@ class FindingsDB:
                            engine_sha = COALESCE(?, engine_sha),
                            wrapper_sha = COALESCE(?, wrapper_sha),
                            details_json = COALESCE(?, details_json),
+                           bug_class = COALESCE(?, bug_class),
                            updated_at = ?
                      WHERE id = ?
                     """,
                     (
                         verdict, confidence, severity.value,
                         title, poc_path, int(poc_fired), int(debate_promoted),
-                        engine_sha, wrapper_sha, details_json, now, row["id"],
+                        engine_sha, wrapper_sha, details_json, bug_class, now, row["id"],
                     ),
                 )
                 return int(row["id"])
@@ -290,14 +314,16 @@ class FindingsDB:
                   (target_id, cycle_id, hypothesis_id, title,
                    verdict, confidence, severity, status,
                    poc_path, poc_fired, debate_promoted,
-                   engine_sha, wrapper_sha, created_at, updated_at, details_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   engine_sha, wrapper_sha, created_at, updated_at, details_json,
+                   bug_class)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     target_id, cycle_id, hypothesis_id, title,
                     verdict, confidence, severity.value, status.value,
                     poc_path, int(poc_fired), int(debate_promoted),
                     engine_sha, wrapper_sha, now, now, details_json,
+                    bug_class,
                 ),
             )
             finding_id = int(cur.lastrowid)
@@ -350,6 +376,7 @@ class FindingsDB:
         target_id: int | None = None,
         status: Status | None = None,
         severity: Severity | None = None,
+        bug_class: str | None = None,
         limit: int = 200,
     ) -> list[dict]:
         clauses = []
@@ -363,11 +390,40 @@ class FindingsDB:
         if severity is not None:
             clauses.append("severity = ?")
             params.append(severity.value)
+        if bug_class is not None:
+            clauses.append("bug_class = ?")
+            params.append(bug_class)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         params.append(limit)
         with self._conn() as c:
             rows = c.execute(
                 f"SELECT * FROM findings{where} ORDER BY updated_at DESC LIMIT ?",
+                tuple(params),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def list_confirmed_findings_by_bug_class(
+        self,
+        bug_class: str,
+        exclude_target_id: int | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """List confirmed findings sharing a bug_class — used by the propagation engine.
+
+        Excludes a single target_id if provided (the protocol where the
+        finding originally confirmed) so propagation only fans out to OTHER
+        protocols. Limited to non-rejected lifecycle states.
+        """
+        terminal_excluded = (Status.REJECTED.value,)
+        params: list[Any] = [bug_class, *terminal_excluded]
+        clause = "bug_class = ? AND status NOT IN (?)"
+        if exclude_target_id is not None:
+            clause += " AND target_id != ?"
+            params.append(exclude_target_id)
+        params.append(limit)
+        with self._conn() as c:
+            rows = c.execute(
+                f"SELECT * FROM findings WHERE {clause} ORDER BY updated_at DESC LIMIT ?",
                 tuple(params),
             ).fetchall()
             return [dict(r) for r in rows]

@@ -1,0 +1,10 @@
+{
+  "hyp_id": "P8-self-trade-cash-flow",
+  "test_name": "test_confirm_p8_self_trade_cash_flow",
+  "test_path": "/root/audit_runs/percolator-live/confirm/test_confirm_p8_self_trade_cash_flow.rs",
+  "outcome": "safety_attestation",
+  "cargo_rc": 0,
+  "cargo_elapsed_s": 0.0,
+  "cargo_log": "/root/audit_runs/percolator-live/confirm/test_confirm_p8_self_trade_cash_flow.cargo.log",
+  "note": "Re-run after manual prose-preface strip; original confirm-pipeline run hit packaging bug (test extractor failed to strip agent's prose preamble), agent's underlying analysis was correct."
+}

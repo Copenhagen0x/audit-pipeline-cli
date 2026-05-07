@@ -1,0 +1,30 @@
+{
+  "_comment": "Copy this file to <workspace>/notifier.json (NOT into the repo). Add real recipient addresses per channel. Do NOT commit notifier.json — it's in .gitignore.",
+
+  "recipients": {
+    "critical_oncall": [
+      "oncall@your-protocol.example"
+    ],
+    "critical_team": [
+      "security@your-protocol.example"
+    ],
+    "cadence_24h": [
+      "daily-digest@your-protocol.example"
+    ],
+    "cadence_weekly": [
+      "weekly-digest@your-protocol.example",
+      "founders@your-protocol.example"
+    ],
+    "cadence_monthly": [
+      "exec-summary@your-protocol.example"
+    ]
+  },
+
+  "_channel_meanings": {
+    "critical_oncall":  "Primary on-call. Gets immediate emails on confirmed Critical/High findings. No batching.",
+    "critical_team":    "CC list for the same immediate alerts.",
+    "cadence_24h":      "24-hour rollup recipients.",
+    "cadence_weekly":   "7-day rollup recipients (Monday 09:00 UTC default).",
+    "cadence_monthly":  "Monthly executive rollup recipients (1st of month 09:00 UTC default)."
+  }
+}

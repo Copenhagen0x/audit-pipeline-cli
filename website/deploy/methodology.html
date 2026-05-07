@@ -1,0 +1,895 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Methodology</title>
+<meta name="description" content="Jelleo methodology — four-pillar autonomous Solana audit architecture: counterfactual mainnet detection, cross-protocol bug-class propagation, closed-loop fix bundle, on-chain attestation registry. Hypothesis scoping schema, severity rubric, lifecycle state machine, Ed25519 attestation, report cadence.">
+<meta name="theme-color" content="#050504">
+<link rel="canonical" href="https://jelleo.com/methodology.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Jelleo">
+<meta property="og:url" content="https://jelleo.com/methodology.html">
+<meta property="og:title" content="Jelleo · Methodology">
+<meta property="og:description" content="Four-pillar autonomous Solana audit architecture. Hypothesis scoping schema, severity rubric, cross-protocol propagation, signed attestations, report cadence — the full technical reference.">
+<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:title" content="Jelleo · Methodology">
+<meta name="twitter:description" content="Four-pillar autonomous Solana audit architecture — public technical reference.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+/* ====== Page-specific styles for methodology ====== */
+
+/* Doc-flavored section padding (lighter than index marketing sections) */
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+
+section.doc h3 {
+  font-size: clamp(20px, 2vw, 26px);
+  line-height: 1.25; font-weight: 600;
+  margin: 48px 0 18px; color: var(--ink);
+  letter-spacing: -0.01em;
+}
+section.doc h4 { font-size: 16px; font-weight: 600; margin: 22px 0 8px; color: var(--ink); }
+section.doc p { color: var(--ink-2); margin-bottom: 16px; max-width: 76ch; line-height: 1.65; }
+section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; max-width: 70ch; }
+section.doc ul, section.doc ol { color: var(--ink-2); margin: 0 0 16px 24px; max-width: 76ch; line-height: 1.7; }
+section.doc li { margin-bottom: 6px; }
+section.doc strong { color: var(--ink); }
+section.doc a {
+  color: var(--amber);
+  border-bottom: 1px solid rgba(245,184,0,0.3);
+  transition: border-color .15s ease;
+}
+section.doc a:hover { border-bottom-color: var(--amber); }
+
+/* Table of contents in hero */
+.toc {
+  margin-top: 48px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 28px 32px;
+  max-width: 880px;
+}
+.toc-head {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 18px;
+}
+.toc ol { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 40px; }
+@media (max-width: 720px) { .toc ol { columns: 1; } }
+.toc li { margin-bottom: 10px; font-size: 14px; break-inside: avoid; }
+.toc a {
+  color: var(--ink-2);
+  border-bottom: 1px dashed transparent;
+  transition: color .15s ease, border-color .15s ease;
+}
+.toc a:hover { color: var(--amber); border-bottom-color: var(--amber); }
+.toc .toc-num {
+  font-family: var(--mono);
+  color: var(--amber);
+  margin-right: 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Pillar cards */
+.pillar-grid {
+  display: grid; grid-template-columns: 1fr; gap: 18px;
+  margin: 32px 0;
+}
+@media (min-width: 760px) { .pillar-grid { grid-template-columns: 1fr 1fr; } }
+.pillar {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 28px 30px;
+  position: relative;
+  transition: border-color .25s ease, transform .25s var(--ease-out), background .25s ease;
+}
+.pillar:hover {
+  border-color: var(--rule-2);
+  background: var(--surface-2);
+  transform: translateY(-2px);
+}
+.pillar-num {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--amber);
+  letter-spacing: 0.22em; text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.pillar h4 { font-size: 18px; font-weight: 600; margin-bottom: 10px; color: var(--ink); }
+.pillar p { font-size: 14px; color: var(--ink-2); margin: 0 0 10px; line-height: 1.6; }
+.pillar .v01 {
+  font-size: 12px; color: var(--ink-3);
+  font-family: var(--mono); margin-top: 14px;
+  padding-top: 14px; border-top: 1px solid var(--rule);
+}
+.pillar .v01 strong { color: var(--ink); }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: 24px 0 32px; }
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: 14px; line-height: 1.55;
+}
+th, td {
+  text-align: left; padding: 14px 16px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+th {
+  font-weight: 600; font-size: 11px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1.5px solid var(--rule-2);
+  font-family: var(--mono);
+}
+td { color: var(--ink-2); }
+td strong { color: var(--ink); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+tbody tr:hover td { background: rgba(245,243,237,0.015); }
+
+/* Severity pills */
+.sev {
+  display: inline-block; padding: 3px 10px; border-radius: 3px;
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.sev-critical { background: rgba(239,68,68,0.14); color: var(--critical); }
+.sev-high     { background: rgba(249,115,22,0.14); color: var(--high); }
+.sev-medium   { background: rgba(234,179,8,0.14); color: var(--medium); }
+.sev-low      { background: rgba(96,165,250,0.14); color: var(--low); }
+.sev-info     { background: rgba(107,114,128,0.18); color: var(--info-c); }
+
+.status-pill {
+  display: inline-block; padding: 3px 10px; border-radius: 3px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+  background: var(--surface); color: var(--ink-2);
+  border: 1px solid var(--rule);
+}
+
+/* Schema definition list */
+dl.schema { margin: 24px 0; }
+dl.schema dt {
+  font-family: var(--mono); color: var(--amber);
+  font-size: 13px; margin-top: 18px; font-weight: 600;
+}
+dl.schema dt small { color: var(--ink-3); font-weight: 400; margin-left: 8px; }
+dl.schema dd {
+  margin: 6px 0 0 0; color: var(--ink-2);
+  font-size: 14px; max-width: 78ch; line-height: 1.65;
+}
+dl.schema dd code { font-size: 12px; }
+
+/* Callout */
+.callout {
+  background: rgba(245,184,0,0.05);
+  border-left: 3px solid var(--amber);
+  padding: 18px 22px; margin: 28px 0;
+  font-size: 14px; color: var(--ink-2);
+  border-radius: 0 6px 6px 0;
+  max-width: 80ch;
+  line-height: 1.65;
+}
+.callout strong { color: var(--ink); }
+
+/* Inline keyword highlight */
+.kw { color: var(--amber); }
+small, .small { font-size: 12px; color: var(--ink-3); }
+
+/* Section number eyebrow inside docs (matches index.html section-label pattern) */
+.doc .container > [data-reveal] { max-width: 100%; }
+</style>
+</head>
+<body>
+
+<!-- ============== BACKGROUND LAYERS ============== -->
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<!-- ============== CURSOR ============== -->
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+
+<!-- ============== SCROLL PROGRESS ============== -->
+<div class="scroll-progress" id="progress"></div>
+
+<!-- ============== NAV ============== -->
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/#coverage">Coverage</a>
+    <a href="/#product">Product</a>
+    <a href="/#live-ops">Live ops</a>
+    <a href="/#dashboard-preview">Dashboard</a>
+    <a href="/methodology.html" class="active">Methodology</a>
+    <a href="/security.html">Security</a>
+  </div>
+  <div class="nav-right">
+    <span class="nav-status">
+      <span class="live-dot"></span>
+      Methodology · v1 · public
+    </span>
+    <a href="/#contact" class="nav-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/#product" role="menuitem">Product</a>
+  <a href="/#live-ops" role="menuitem">Live ops</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/dashboard.html" role="menuitem">Dashboard</a>
+  <a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener" role="menuitem">Source</a>
+  <a href="/#contact" role="menuitem" style="color: var(--amber);">Request integration →</a>
+</div>
+
+<!-- ============== HERO ============== -->
+<section class="hero">
+  <span class="hero-bracket tl"></span>
+  <span class="hero-bracket br"></span>
+  <div class="container">
+    <div data-reveal>
+      <div class="hero-eyebrow">Methodology · technical reference</div>
+      <h1 class="hero-title">How Jelleo finds bugs <span class="accent">before they become exploits.</span></h1>
+      <p class="hero-lede">A four-pillar autonomous audit platform for Solana programs. This page is the public technical reference: architecture, hypothesis scoping, propagation, severity, attestation, reporting, and lifecycle. The same loop that produced F7 against Percolator (April 2026) — written down so reviewers, auditors, and customers can read exactly how it works.</p>
+      <div class="hero-meta">
+        <span><strong>v0.1</strong> deployed</span>
+        <span><strong>F7</strong> disclosed · PR #39</span>
+        <span><strong>125</strong> hypotheses</span>
+        <span><strong>Apache-2.0</strong> licensed</span>
+      </div>
+    </div>
+
+    <div class="toc" data-reveal data-delay="1">
+      <div class="toc-head">Contents</div>
+      <ol>
+        <li><span class="toc-num">01</span><a href="#pillars">The four pillars</a></li>
+        <li><span class="toc-num">02</span><a href="#stride">STRIDE alignment</a></li>
+        <li><span class="toc-num">03</span><a href="#scoping">Hypothesis library scoping</a></li>
+        <li><span class="toc-num">04</span><a href="#propagation">Cross-protocol propagation</a></li>
+        <li><span class="toc-num">05</span><a href="#severity">Severity rubric</a></li>
+        <li><span class="toc-num">06</span><a href="#lifecycle">Lifecycle state machine</a></li>
+        <li><span class="toc-num">07</span><a href="#attestation">Cryptographic attestation</a></li>
+        <li><span class="toc-num">08</span><a href="#reporting">Reporting &amp; notifications</a></li>
+        <li><span class="toc-num">09</span><a href="#f7">F7 — worked example</a></li>
+        <li><span class="toc-num">10</span><a href="#tiers">Engagement tiers</a></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 01 · PILLARS ============== -->
+<section class="doc" id="pillars">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">01 · Architecture</div>
+      <h2 class="section-title">The four pillars · the autonomous immune system</h2>
+      <p class="section-lede">Jelleo composes four interlocking pillars. Each ships in v0.1 as a CLI command and scales in the funded build. No platform today combines all four.</p>
+    </div>
+
+    <div class="pillar-grid" data-reveal data-delay="1">
+      <div class="pillar">
+        <div class="pillar-num">P1 · detection</div>
+        <h4>Counterfactual mainnet detection</h4>
+        <p>Per-tx parallel simulation. State divergence between simulated and observed mainnet flags the tx within seconds of slot finality.</p>
+        <div class="v01"><strong>v0.1:</strong> <code>shadow</code> (commit-triggered). <strong>Funded:</strong> live mainnet ingestion + sub-slot replay + on-call routing.</div>
+      </div>
+      <div class="pillar">
+        <div class="pillar-num">P2 · propagation</div>
+        <h4>Cross-protocol bug-class propagation</h4>
+        <p>When a bug confirms anywhere, Jelleo extracts the structural pattern and searches every indexed protocol — vulnerable instances flagged in minutes.</p>
+        <div class="v01"><strong>v0.1:</strong> <code>propagate</code> (15-protocol corpus). <strong>Funded:</strong> multi-protocol indexing + disclosure-feed integrations.</div>
+      </div>
+      <div class="pillar">
+        <div class="pillar-num">P3 · fix bundle</div>
+        <h4>Closed-loop fix bundle</h4>
+        <p>Confirmed bug → agent-generated fix → Kani proves preservation in the bug's neighborhood → tests → opened as a single PR.</p>
+        <div class="v01"><strong>v0.1:</strong> <code>confirm</code> + <code>synth-kani</code> scaffold. <strong>Funded:</strong> end-to-end MVP at the 90-day Tranche 2 trigger.</div>
+      </div>
+      <div class="pillar">
+        <div class="pillar-num">P4 · attestation</div>
+        <h4>On-chain attestation registry</h4>
+        <p>Every cycle publishes a signed Merkle root: which invariants were verified at which commit SHA — on-chain, queryable, composable.</p>
+        <div class="v01"><strong>v0.1:</strong> Ed25519 signing off-chain. <strong>Funded:</strong> Anchor program on devnet day 90, mainnet day 180 post-audit.</div>
+      </div>
+    </div>
+
+    <div data-reveal data-delay="2">
+      <h3>How the pillars compose during a hunt cycle</h3>
+      <p>Every cycle walks the same sequence. Pillar P1 watches mainnet for divergence; on a confirmed bug from any pillar, P2 propagates the pattern across the corpus; P3 closes the loop with a verified fix bundle; P4 records the cycle's verified invariants on-chain. The pillars are not phases — they run continuously, in parallel, and feed one another.</p>
+    </div>
+
+    <div class="method" data-reveal data-delay="3">
+      <div class="method-rail">
+        <div class="method-step">
+          <div class="method-node"></div>
+          <div class="method-num">/ Step 01 · P1</div>
+          <h4 class="method-title">Detect</h4>
+          <p class="method-desc">Per-tx parallel simulation flags state divergence on mainnet within seconds of slot finality. Source: <code>shadow</code> command.</p>
+        </div>
+        <div class="method-step">
+          <div class="method-node"></div>
+          <div class="method-num">/ Step 02 · P2</div>
+          <h4 class="method-title">Propagate</h4>
+          <p class="method-desc">Confirmed bug-class signature is dispatched against every protocol in the indexed corpus. Vulnerable instances flagged in minutes.</p>
+        </div>
+        <div class="method-step">
+          <div class="method-node"></div>
+          <div class="method-num">/ Step 03 · P3</div>
+          <h4 class="method-title">Fix bundle</h4>
+          <p class="method-desc">Agent-authored fix → Kani proves preservation → cargo tests pass → opened as a single PR. Maintainer-ready, signed, traceable.</p>
+        </div>
+        <div class="method-step">
+          <div class="method-node"></div>
+          <div class="method-num">/ Step 04 · P4</div>
+          <h4 class="method-title">Attest</h4>
+          <p class="method-desc">Per-cycle Ed25519-signed Merkle root: which invariants verified, at which commit SHA. Off-chain today, on-chain in the funded build.</p>
+        </div>
+      </div>
+
+      <p style="margin-top: 32px; max-width: 76ch; font-size: 14px; color: var(--ink-3);">
+        <strong style="color: var(--ink-2);">Feedback loop:</strong> every confirmed finding feeds back into the hypothesis library — sibling claims auto-derive, the library compounds, the next cycle's coverage is broader. The pillars run continuously and in parallel, not as phases.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 02 · STRIDE ============== -->
+<section class="doc" id="stride">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">02 · Ecosystem alignment</div>
+      <h2 class="section-title">How Jelleo fits inside <span class="accent">STRIDE.</span></h2>
+      <p class="section-lede">Solana Foundation launched <a href="https://blog.asymmetric.re/introducing-stride-a-security-program-for-the-solana-ecosystem/" target="_blank" rel="noopener">STRIDE</a> on April 6, 2026 with Asymmetric Research — a tiered, foundation-funded program covering eight security pillars across the ecosystem. <strong>STRIDE is the framework. Jelleo is one of multiple artifact-producing vendors that STRIDE-aligned protocols use to satisfy the smart-contract integrity pillar at depth.</strong></p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <p>STRIDE's eight pillars span both opsec/threat-monitoring (Tier 1 surface) and smart-contract integrity (Tier 1 + Tier 2 deep verification). Jelleo's four pillars produce the artifacts that map onto the smart-contract integrity surface:</p>
+
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>STRIDE pillar (SF program)</th><th>Jelleo's contribution</th><th>Artifact</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Smart-contract integrity</strong> — the depth pillar STRIDE evaluators assess</td>
+            <td>Continuous hypothesis-driven verification with Kani proofs and signed attestations</td>
+            <td>Per-cycle signed Merkle root + per-finding signed disclosure package (P4)</td>
+          </tr>
+          <tr>
+            <td>Adversarial detection</td>
+            <td>Counterfactual mainnet sim flags state-divergent txs (P1)</td>
+            <td>Shadow-audit alerts</td>
+          </tr>
+          <tr>
+            <td>Coordinated disclosure</td>
+            <td>Closed-loop fix bundle delivers maintainer-ready PRs (P3)</td>
+            <td>GitHub PR with Kani proof + cargo test</td>
+          </tr>
+          <tr>
+            <td>Cross-protocol monitoring</td>
+            <td>Bug-class propagation across the indexed corpus (P2)</td>
+            <td>Cross-protocol propagation report</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+
+      <p>Jelleo does not compete with STRIDE — it is complementary. STRIDE evaluates programs holistically; Jelleo produces the depth artifacts that protocols need to demonstrate the smart-contract integrity pillar at higher tiers. Asymmetric Research is the program operator for STRIDE; Jelleo is one of the artifact-producing vendors operating inside it.</p>
+
+      <p><strong>Year-1 OKR:</strong> open an artifact-recognition channel with STRIDE assessors so Jelleo's signed attestations are accepted directly as evidence for the smart-contract integrity pillar. (Goal, not commitment — depends on STRIDE program governance.)</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 03 · SCOPING ============== -->
+<section class="doc" id="scoping">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">03 · Library design</div>
+      <h2 class="section-title">Hypothesis library scoping</h2>
+      <p class="section-lede">The hypothesis library is the platform's source of truth for "what to test." It compounds with every confirmed finding — meaning at scale (27 protocols, 1,500+ hypotheses) precision matters. Each hypothesis must declare exactly which protocols it applies to, under what conditions, and which generalized bug class it represents. Below is the schema.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <h3>Schema · per-hypothesis frontmatter</h3>
+      <p>Every hypothesis is a YAML entry under <code>hypotheses:</code> in a <code>hypotheses.yaml</code> file (per workspace, per target). The required and optional fields:</p>
+
+      <dl class="schema">
+        <dt>id</dt>
+        <dd>Unique short identifier (e.g. <code>H1-residual-conservation</code>). Stable across cycles. Used as the cross-DB key.</dd>
+
+        <dt>class</dt>
+        <dd>One of: <code>invariant_property</code>, <code>state_transition</code>, <code>authorization</code>, <code>arithmetic_overflow</code>, <code>implicit_invariant</code>. Determines which Layer-2 / Layer-3 dispatch path the hunt loop selects.</dd>
+
+        <dt>claim</dt>
+        <dd>The falsifiable claim in plain English. Phrased so a clean negative result strengthens the disclosure.</dd>
+
+        <dt>severity</dt>
+        <dd>One of: <code>Critical</code>, <code>High</code>, <code>Medium</code>, <code>Low</code>, <code>Info</code>. Sets the floor on auto-derived severity (see §05).</dd>
+
+        <dt><span class="kw">applies_to</span> <small>(scoping field)</small></dt>
+        <dd>List of protocol names this hypothesis applies to. Used by the loader to filter which hypotheses run against which target. Wildcard <code>['*']</code> matches all protocols. Example: <code>[percolator, drift, mango]</code>.</dd>
+
+        <dt><span class="kw">scope_conditions</span> <small>(optional)</small></dt>
+        <dd>Predicate(s) that must be true for the hypothesis to be relevant. E.g. <code>has_insurance_pool</code>, <code>uses_pyth_oracle</code>, <code>perpetual_funding</code>.</dd>
+
+        <dt><span class="kw">bug_class</span> <small>(propagation field)</small></dt>
+        <dd>Generalized class identifier for cross-protocol propagation (§04). When this hypothesis confirms TRUE on protocol A, Jelleo dispatches the same generalized class against every other protocol where <code>applies_to</code> matches.</dd>
+
+        <dt>target_file, relevant_constants, relevant_instructions</dt>
+        <dd>Anchor fields used by the recon agent to focus its initial reading window. Loader does not filter on them.</dd>
+      </dl>
+
+      <h3>Example · F7 hypothesis with full scoping</h3>
+      <div class="terminal-block">
+        <div class="terminal-chrome">
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-title">hypotheses.yaml · F7</span>
+        </div>
+<pre><code>- <span class="kw">id</span>: H1-residual-conservation
+  <span class="kw">class</span>: invariant_property
+  <span class="kw">claim</span>: &gt;
+    The post-haircut residual cash on a market
+    (vault - cash_locked_in_orderbook - claimable_pnl - insurance_counter)
+    is conserved by every internal accounting helper. If any helper shrinks
+    the insurance counter, it MUST also debit the vault by the same amount.
+  <span class="kw">severity</span>: Critical
+  <span class="kw">applies_to</span>: [percolator, drift, mango, marginfi]
+  <span class="kw">scope_conditions</span>: [has_insurance_pool, has_haircut_accounting]
+<span class="hl">  <span class="kw">bug_class</span>: insurance-counter-vault-divergence    <span class="cmt"># the propagation key</span></span>
+  <span class="kw">target_file</span>: src/percolator.rs</code></pre>
+      </div>
+
+      <h3>Loader semantics</h3>
+      <p>When <code>audit-pipeline hunt</code> runs against target <code>T</code> with conditions <code>C</code> (derived from <code>workspace.json</code>), the loader applies a 3-step filter to every hypothesis in <code>hypotheses.yaml</code>:</p>
+      <ol>
+        <li><strong>applies_to filter:</strong> hypothesis loads only if <code>T &isin; applies_to</code> or <code>'*' &isin; applies_to</code>.</li>
+        <li><strong>scope_conditions filter:</strong> hypothesis loads only if every predicate evaluates true under target conditions.</li>
+        <li><strong>severity floor:</strong> if invoked with <code>--min-severity High</code>, hypotheses below that floor are skipped.</li>
+      </ol>
+      <p>The result: at scale, a target only ever sees the hypotheses that actually apply to it. The library can grow to thousands of entries without any single cycle being polluted by irrelevant claims.</p>
+
+      <div class="callout">
+        <strong>Why this matters operationally.</strong> Loader-level filtering is what makes the library safe to expand. Without scoping, a perp-DEX-specific claim ("funding rate captured before mark mutation") would be dispatched against an AMM, where the recon agent burns budget proving the claim trivially holds because there is no funding rate at all. Scoping catches this at filter time — no agent, no token spend, no false-negative noise in the report.
+      </div>
+
+      <p style="margin-top: 26px; font-size: 14px; color: var(--ink-3);">
+        <strong style="color: var(--ink-2);">Engineering reference:</strong> the canonical schema spec — including the full predicate vocabulary, validation rules, and migration plan — lives at
+        <a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/HYPOTHESIS_SCHEMA.md" target="_blank" rel="noopener"><code>docs/HYPOTHESIS_SCHEMA.md</code></a>
+        in the platform repo. The JSON Schema at <code>src/audit_pipeline/schemas/hypothesis.schema.json</code> is consumed by the loader and by editor tooling.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 04 · PROPAGATION ============== -->
+<section class="doc" id="propagation">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">04 · Cross-protocol propagation</div>
+      <h2 class="section-title">Auto-learning <span class="accent">across the cluster.</span></h2>
+      <p class="section-lede">Bug classes recur. F7's "shrink insurance counter without debiting the vault" pattern probably exists in any protocol with insurance accounting; CatchupAccrue's "advance the clock without touching the accounts" pattern probably exists in any protocol with multi-instruction settlement. Jelleo's propagation engine is how we find them — every customer benefits from every other customer's findings.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <h3>Trigger</h3>
+      <p>Whenever a hypothesis <code>H</code> on protocol <code>A</code> moves to status <code>confirmed</code> (PoC fired or debate-promoted), the propagation engine fires. The engine takes <code>H</code>'s <code>bug_class</code>, looks up every protocol in the corpus whose <code>applies_to</code> includes <code>H</code>'s class generalization, and dispatches the same hypothesis class — in parallel — against every matching protocol.</p>
+
+      <h3>Pipeline</h3>
+      <div class="terminal-block">
+        <div class="terminal-chrome">
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-title">propagation flow</span>
+        </div>
+<pre><code><span class="cmt">// the moment a finding moves to status=confirmed, this loop fires</span>
+<span class="kw">1.</span> Confirmed finding on protocol A · cycle K
+<span class="kw">2.</span> Extract bug_class signature (regex set + structural pattern)
+<span class="kw">3.</span> Walk the corpus (15+ protocols, indexed)
+<span class="kw">4.</span> For each candidate file in each protocol:
+     - signature match score = count(distinct signatures hit)
+     - if score &gt;= MIN_SCORE: emit candidate
+<span class="hl"><span class="kw">5.</span> Top candidates dispatched to Layer 1 (recon agent)</span>
+<span class="kw">6.</span> Layer 1 verdicts feed back into the per-protocol findings DB
+<span class="kw">7.</span> Customer of every affected protocol gets:
+     - <span class="ok">email notification</span> (immediate, on confirmed propagation)
+     - <span class="ok">dashboard update</span>
+     - <span class="ok">24h report row</span>
+<span class="kw">8.</span> Cluster-level metric: bug-class hit rate, time-to-detect, false-positive rate</code></pre>
+      </div>
+
+      <h3>Customer notification on cross-protocol re-test</h3>
+      <p>If your protocol gets re-tested because a bug class confirmed on someone else's protocol, you receive an immediate email of the form:</p>
+      <div class="terminal-block">
+        <div class="terminal-chrome">
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-title">email · cross-protocol re-test</span>
+        </div>
+<pre><code><span class="hl"><span class="kw">Subject:</span> [Jelleo] Cross-protocol re-test · &lt;your-protocol&gt; · bug_class=X</span>
+
+We confirmed bug class &lt;X&gt; on &lt;other-protocol&gt; on &lt;date&gt;.
+We re-tested &lt;your-protocol&gt; against the same class.
+
+<span class="kw">Result:</span> <span class="ok">PASS</span> · &lt;n&gt; hypotheses dispatched, all green
+        OR
+        <span class="alert">REVIEW</span> · &lt;n&gt; candidates flagged for Layer-2 escalation
+
+<span class="kw">Full report:</span> <span class="info">https://jelleo.com/reports/&lt;your-protocol&gt;/&lt;cycle-id&gt;</span></code></pre>
+      </div>
+
+      <p>This is the "auto-learning" property: the cluster's collective coverage compounds. Every confirmed bug class adds permanent re-test coverage across every applicable protocol, forever.</p>
+
+      <h3>Implementation</h3>
+      <p>The corpus is initialized once with <code>audit-pipeline propagate init-corpus</code> (15 popular Solana programs by default — Drift, Mango, Marginfi, Kamino, Phoenix, OpenBook, Orca, Meteora, Raydium, Marinade, Anchor, SPL, plus the engine under audit). Each protocol is shallow-cloned for fast indexing. The search itself is <code>audit-pipeline propagate search -c &lt;corpus&gt; -s '&lt;sig1&gt;' -s '&lt;sig2&gt;'</code>, with intentionally simple regex matching to keep the indexer fast and language-agnostic. Top hits escalate to a Layer-1 agent for deep verification.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 05 · SEVERITY ============== -->
+<section class="doc" id="severity">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">05 · Severity rubric</div>
+      <h2 class="section-title">Five tiers · formal definitions</h2>
+      <p class="section-lede">Severity is what the customer sees first. The rubric is stable, auditable, and consistent across cycles. Every finding gets a tier; tiers are derived, not negotiated.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Tier</th><th>Definition</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="sev sev-critical">Critical</span></td>
+            <td>Direct loss of user funds or full protocol takeover with no meaningful preconditions. Reachable from a permissionless instruction by any signer. Must be patched immediately.</td>
+            <td>Bypass of the authorization gate on a fund-moving instruction; price-oracle manipulation drains the pool</td>
+          </tr>
+          <tr>
+            <td><span class="sev sev-high">High</span></td>
+            <td>Significant loss of user funds or protocol invariant violation under realistic preconditions (specific market state, signer with limited but obtainable role). Patch should ship in next release.</td>
+            <td>F7 — insurance siphon under a self-trade construction; liquidation incentive overpayment</td>
+          </tr>
+          <tr>
+            <td><span class="sev sev-medium">Medium</span></td>
+            <td>Hardening issue, partial loss possible, or invariant violation requiring privileged signer or improbable state. Worth fixing in normal cadence.</td>
+            <td>Admin-only DoS via fee-rate misconfiguration; a rounding asymmetry in fee accounting</td>
+          </tr>
+          <tr>
+            <td><span class="sev sev-low">Low</span></td>
+            <td>Minor issue with no plausible path to fund loss. Code-quality or defense-in-depth concern.</td>
+            <td>Missing compile-time tripwire on a magic constant; an event field not emitted</td>
+          </tr>
+          <tr>
+            <td><span class="sev sev-info">Info</span></td>
+            <td>Informational. No security impact. Documentation or style suggestion.</td>
+            <td>Inconsistent comment between two helpers that compute the same thing</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3>Auto-derivation</h3>
+      <p>If the hypothesis YAML declares an explicit <code>severity:</code>, that becomes the floor. Otherwise the severity is derived from <code>(class, verdict, poc_fired, debate_promoted)</code> per:</p>
+      <ol>
+        <li>PoC fired AND class is <code>invariant_property</code> or <code>authorization</code> &nbsp;→&nbsp; Critical</li>
+        <li>PoC fired (any other class) &nbsp;→&nbsp; High</li>
+        <li>Verdict TRUE + debate-promoted (no PoC yet) &nbsp;→&nbsp; High</li>
+        <li>Verdict TRUE (no debate, no PoC) &nbsp;→&nbsp; Medium</li>
+        <li>Verdict <code>NEEDS_LAYER_2_TO_DECIDE</code> &nbsp;→&nbsp; Low</li>
+        <li>Otherwise &nbsp;→&nbsp; Info</li>
+      </ol>
+      <p>Source: <code>severity.derive_severity()</code> in the platform package. The same function is used by the report generator and the dashboard so the customer's view never disagrees with the on-disk record.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 06 · LIFECYCLE ============== -->
+<section class="doc" id="lifecycle">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">06 · Finding lifecycle</div>
+      <h2 class="section-title">State machine · seven states, restricted transitions</h2>
+      <p class="section-lede">Every finding is a row in the SQLite findings DB with a <code>status</code> column. Transitions are restricted so the audit trail is honest — you cannot jump from a brand-new finding to "fixed" without walking the chain. Every transition is logged in an append-only <code>transitions</code> table.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>State</th><th>Meaning</th><th>Valid next states</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="status-pill">new</span></td><td>Fresh from a hunt cycle, not yet reviewed</td><td>triaged, confirmed, rejected</td></tr>
+          <tr><td><span class="status-pill">triaged</span></td><td>Human or automation confirmed it's a real candidate</td><td>confirmed, rejected</td></tr>
+          <tr><td><span class="status-pill">confirmed</span></td><td>Empirical proof exists (PoC fired)</td><td>disclosed, rejected</td></tr>
+          <tr><td><span class="status-pill">disclosed</span></td><td>Reported to the maintainer (issue filed / email sent)</td><td>fixed, rejected</td></tr>
+          <tr><td><span class="status-pill">fixed</span></td><td>Maintainer shipped a patch</td><td>verified, rejected</td></tr>
+          <tr><td><span class="status-pill">verified</span></td><td>Patch confirmed effective via re-run cycle</td><td>(terminal)</td></tr>
+          <tr><td><span class="status-pill">rejected</span></td><td>Refuted (debate flipped it, or PoC didn't fire)</td><td>(terminal)</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <p>Source: <code>lifecycle.py</code> · <code>VALID_TRANSITIONS</code>. Invalid transitions raise <code>InvalidTransition</code> at the DB layer, before the row is touched. The full per-finding history is retrievable via <code>db.transitions_for(finding_id)</code>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 07 · ATTESTATION ============== -->
+<section class="doc" id="attestation">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">07 · Cryptographic attestation</div>
+      <h2 class="section-title">Signed receipts · <span class="accent">Ed25519.</span></h2>
+      <p class="section-lede">Every audit cycle produces a signed receipt. Customers can verify the receipt against the published Jelleo public key without trusting the platform. The mechanism today is off-chain Ed25519; the funded-state delta is the on-chain Anchor registry.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <h3>What gets signed</h3>
+      <ul>
+        <li>The Markdown report for a hunt cycle (<code>cycle &lt;id&gt;.report.md</code>)</li>
+        <li>The findings JSON dump for the cycle</li>
+        <li>The per-finding disclosure package (when a finding moves to <code>disclosed</code>)</li>
+        <li>The weekly / monthly rollup PDF</li>
+      </ul>
+
+      <h3>Receipt format</h3>
+      <div class="terminal-block">
+        <div class="terminal-chrome">
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-title">cycle-2026-05-07.report.md.sig</span>
+        </div>
+<pre><code><span class="kw">-----BEGIN JELLEO SIGNATURE-----</span>
+<span class="hl">Algorithm: <span class="ok">Ed25519</span></span>
+Signed-At: 2026-05-07T16:23:11+00:00
+Signed-File: cycle-2026-05-07.report.md
+Signed-Bytes: 142853
+
+<span class="cmt">&lt;base64 signature&gt;</span>
+<span class="kw">-----END JELLEO SIGNATURE-----</span></code></pre>
+      </div>
+
+      <h3>Verification</h3>
+      <p>The Jelleo Ed25519 public key is published in the open-source repo and on this site. To verify a signature:</p>
+      <div class="terminal-block">
+        <div class="terminal-chrome">
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-title">$ verify a signed cycle</span>
+        </div>
+<pre><code><span class="cmt">$</span> <span class="kw">audit-pipeline sign verify</span> &lt;file&gt; &lt;file&gt;.sig --pubkey jelleo.ed25519.pub
+<span class="ok">✓ VALID</span> signature on cycle-2026-05-07.report.md</code></pre>
+      </div>
+      <p>A valid signature confirms (a) the file's bytes have not been altered since signing, and (b) the file was signed by the platform key — meaning the cycle ran in a Jelleo workspace with a private key matching the published public key. This is the basis for the on-chain attestation registry shipping in the funded build.</p>
+
+      <h3>On-chain registry (funded delta)</h3>
+      <p>P4's funded version publishes a per-cycle Merkle root on-chain via a small (~500 LOC) Anchor program. The Merkle leaves are the per-hypothesis verdict hashes. Devnet day 90, mainnet day 180 post-external-audit.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 08 · REPORTING ============== -->
+<section class="doc" id="reporting">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">08 · Reporting &amp; notifications</div>
+      <h2 class="section-title">Three cadences · one urgency channel</h2>
+      <p class="section-lede">Customers do not wait for a report cycle to find out about a critical bug. The cadence reports are summaries; urgent findings push immediately.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <h3>Cadence</h3>
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Cadence</th><th>Contents</th><th>Channel</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Immediate</strong></td>
+            <td>Single confirmed Critical or High finding · severity · summary · repro link · suggested fix</td>
+            <td>Email (transactional) · dashboard alert · optional Slack webhook</td>
+          </tr>
+          <tr>
+            <td><strong>24-hour rollup</strong></td>
+            <td>Every finding moved to <code>confirmed</code> or <code>rejected</code> in the last 24h. New cycles run, total spend, throughput.</td>
+            <td>Email · signed PDF attached</td>
+          </tr>
+          <tr>
+            <td><strong>Weekly</strong></td>
+            <td>7-day rollup. Severity breakdown, lifecycle transitions, propagation hits, hypothesis library deltas, methodology changes.</td>
+            <td>Email · signed PDF · branded HTML dashboard link</td>
+          </tr>
+          <tr>
+            <td><strong>Monthly</strong></td>
+            <td>Executive summary. Trend analysis, MTTR (mean-time-to-resolve), library coverage, Kani proof coverage, billing summary.</td>
+            <td>Email · signed PDF · invoice</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3>Trigger semantics for the immediate channel</h3>
+      <p>The immediate email fires when a finding's status moves from <code>new</code> or <code>triaged</code> to <code>confirmed</code>, AND severity is Critical or High. There is no batching, no daily digest. The customer's primary on-call gets the email; their team alias gets a CC. The same event fires the dashboard alert pulse and (if configured) the Slack webhook.</p>
+
+      <h3>Dashboard</h3>
+      <p>The customer dashboard at <a href="/dashboard.html">jelleo.com/dashboard.html</a> shows the live state of every active cycle. It pulls from the findings DB via a small static-JSON snapshot and refreshes on a configurable interval (default 60s). Status pills, severity bars, recent cycles, recent findings, daemon health.</p>
+
+      <h3>What's signed, what's not</h3>
+      <p>Every PDF rollup (24h / weekly / monthly) ships with a Jelleo Ed25519 signature alongside (§07). The dashboard view itself is not signed — it is a live mirror of state. Customers who need a signed point-in-time snapshot request a rollup at any moment via <code>audit-pipeline report cycle --cycle-id &lt;id&gt;</code> followed by <code>sign sign &lt;file&gt;</code>; the funded build automates this as a one-click "issue receipt" action.</p>
+
+      <h3>Disclosure embargo</h3>
+      <p>Reports include findings in the <code>disclosed</code> state in summary form (severity, bug-class, embargo countdown) but withhold reproduction details until the embargo lifts. Defaults: 30 days for High, extensible to 90 days; Critical findings get maximum embargo flexibility while a fix is in flight. Full policy and timeline at <a href="/security.html#disclosure">jelleo.com/security.html</a>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 09 · F7 ============== -->
+<section class="doc" id="f7">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">09 · Worked example</div>
+      <h2 class="section-title">F7 · the inaugural finding</h2>
+      <p class="section-lede">F7 is the proof that the methodology works on real code. It was the first hypothesis to confirm against Anatoly's Percolator engine, in April 2026 — disclosed in <a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">PR #39</a>, closed without merge, with the regression suite landing on main at <code>a1afd2e</code> approximately one month later.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <h3>Bug class</h3>
+      <p><code>insurance-counter-vault-divergence</code> — the helper <code>use_insurance_buffer</code> shrinks the insurance counter without correspondingly debiting the vault. The post-haircut residual cash on the market grows by the absorbed amount, and the K/F-winning side claims it. A self-trade nets <code>(ΔK − IM) · N</code> and captures the insurance fund.</p>
+
+      <h3>Each pillar's contribution to F7</h3>
+      <ol>
+        <li><strong>Hypothesis library:</strong> <code>H1-residual-conservation</code> (class <code>invariant_property</code>) declared the conservation property that <code>use_insurance_buffer</code> violated.</li>
+        <li><strong>Layer-1 recon (P2-adjacent):</strong> Multi-agent code review converged on the helper as the failing point.</li>
+        <li><strong>Layer-1.5 debate:</strong> An adversarial second-opinion agent flipped an early "epoch-staleness" lead that was REFUTED, and re-anchored the hunt on the residual-formula bug — which proved correct.</li>
+        <li><strong>Layer-2 PoC (P3 scaffold):</strong> Auto-generated cargo test fired against the engine helper, demonstrating the residual delta. <code>cargo test</code> PASS.</li>
+        <li><strong>Layer-4 LiteSVM (P3 escalation):</strong> BPF-level reproduction in LiteSVM at <a href="https://github.com/aeyakovenko/percolator-prog/pull/39/commits/43cdcd8" target="_blank" rel="noopener">commit 43cdcd8</a> — the PoC test exists in PR #39's test suite.</li>
+        <li><strong>P4 attestation:</strong> The cycle was signed (Ed25519); the verification key is published.</li>
+      </ol>
+
+      <h3>What was disclosed</h3>
+      <p>PR #39 contained: (a) the LiteSVM reachability test demonstrating the drain, (b) the suggested fix (debit the vault concurrently with the counter shrink), (c) the Markdown writeup explaining the bug-class. The PR was closed without merge — the maintainer landed an A1 regression suite on main at <code>a1afd2e</code> independently. The fix verified locally across 277 unit tests with zero regressions.</p>
+
+      <h3>Cross-protocol propagation status</h3>
+      <p>F7's <code>bug_class</code> (<code>insurance-counter-vault-divergence</code>) is a candidate for cross-protocol propagation against any indexed protocol with insurance accounting. The funded-state P2 build will run this propagation continuously. v0.1 ran the propagation manually against the corpus and found no immediate hits — the signature is structurally specific to Percolator's helper geometry. The pattern matcher remains armed.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 10 · TIERS ============== -->
+<section class="doc" id="tiers">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">10 · Engagement tiers</div>
+      <h2 class="section-title">Foundation · Production · <span class="accent">Ceiling.</span></h2>
+      <p class="section-lede">Three depth tiers, three customer profiles. Pricing is <strong>2.4× our raw API cost</strong> (58% gross margin). Customers move between tiers month over month; engagement length is open-ended.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Tier</th>
+            <th class="num">Hyps / day</th>
+            <th>Mix</th>
+            <th class="num">Engagement / mo</th>
+            <th class="num">Engagement / yr</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Foundation</strong></td>
+            <td class="num">300</td>
+            <td>Sonnet-only · daily runs · monitoring depth</td>
+            <td class="num">$30K</td>
+            <td class="num">$360K</td>
+          </tr>
+          <tr>
+            <td><strong>Production ⭐</strong></td>
+            <td class="num">500</td>
+            <td>Sonnet + tool-using Opus + weekly Kani · default for $1B+ TVL DeFi</td>
+            <td class="num">$60K</td>
+            <td class="num">$720K</td>
+          </tr>
+          <tr>
+            <td><strong>Ceiling</strong></td>
+            <td class="num">1,500+</td>
+            <td>Multi-round refinement · attack-chain enumeration · Kani synthesis on every Critical/High</td>
+            <td class="num">$120K</td>
+            <td class="num">$1.44M</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+
+      <p>All tiers receive: signed cycle receipts (§07), 24h / weekly / monthly reports (§08), live dashboard, immediate notification on Critical/High (§08), GitHub-issue auto-file on confirmed findings, and access to the cross-protocol propagation channel (§04). Higher tiers add: Kani proof on every Critical/High, P3 fix-bundle PRs, attack-chain enumeration depth, and on-call SLA on disclosure response.</p>
+
+      <h3>STRIDE Tier-2 reimbursement path</h3>
+      <p>STRIDE Tier-2 ($100M+ TVL) protocols qualifying for Solana Foundation formal-verification mandate funding may direct that funding toward Jelleo as the artifact-producing layer. No formal partnership today; this is a Year-1 OKR (§02).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== FOOTER ============== -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">jelleo</a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="/#product">The four pillars</a></li>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/security.html">Security &amp; disclosure</a></li>
+          <li><a href="/dashboard.html">Dashboard</a></li>
+          <li><a href="/#case-study">F7 case study</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Open source</h5>
+        <ul>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">Platform</a></li>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/HYPOTHESIS_SCHEMA.md" target="_blank" rel="noopener">Schema spec</a></li>
+          <li><a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">F7 disclosure</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Contact</h5>
+        <ul>
+          <li><a href="mailto:info@wifpros.com">info@wifpros.com</a></li>
+          <li><a href="mailto:security@jelleo.com">security@jelleo.com</a></li>
+          <li><a href="https://jelleo.com">jelleo.com</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span>v0.1 · Methodology v1 · 2026-05-07</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/shared.js"></script>
+
+</body>
+</html>

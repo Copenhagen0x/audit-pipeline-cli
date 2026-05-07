@@ -1,0 +1,10 @@
+{
+  "test_name": "test_litesvm_attack_attempt_2026_05_06",
+  "test_path": "C:\\Users\\btrco\\OneDrive\\Desktop\\percolator-prog-litesvm\\tests\\test_litesvm_attack_attempt_2026_05_06.rs",
+  "cargo_rc": 0,
+  "outcome": "safety_attestation",
+  "input_tokens": 2313995,
+  "output_tokens": 8756,
+  "n_turns": 31,
+  "n_tool_calls": 44
+}

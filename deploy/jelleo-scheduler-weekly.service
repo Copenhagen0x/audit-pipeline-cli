@@ -1,0 +1,18 @@
+[Unit]
+Description=Jelleo - weekly cadence report dispatch
+Documentation=https://jelleo.com/methodology.html#reporting
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=/root/audit_runs/percolator-live
+ExecStart=/bin/bash -c 'source /root/.audit-env && exec /root/.local/bin/audit-pipeline --workspace /root/audit_runs/percolator-live scheduler tick --cadence weekly'
+StandardOutput=append:/root/audit_runs/percolator-live/scheduler/weekly.log
+StandardError=append:/root/audit_runs/percolator-live/scheduler/weekly.log
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target

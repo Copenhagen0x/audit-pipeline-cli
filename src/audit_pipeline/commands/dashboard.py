@@ -35,15 +35,30 @@ console = Console()
 @click.command(name="dashboard")
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None,
               help="HTML file to write (default: <workspace>/dashboard.html)")
+@click.option("--snapshot-json", type=click.Path(path_type=Path), default=None,
+              help="ALSO write a JSON snapshot of the dashboard data (for jelleo.com fetch)")
 @click.option("--serve", is_flag=True, help="Serve via http.server after writing")
 @click.option("--port", type=int, default=8765, show_default=True)
 @click.option("--auto-refresh", type=int, default=60, show_default=True,
               help="Browser auto-refresh interval (seconds)")
 @click.pass_context
 def dashboard_cmd(
-    ctx: click.Context, output: Path | None, serve: bool, port: int, auto_refresh: int,
+    ctx: click.Context,
+    output: Path | None,
+    snapshot_json: Path | None,
+    serve: bool,
+    port: int,
+    auto_refresh: int,
 ) -> None:
-    """Generate (and optionally serve) the customer-facing dashboard."""
+    """Generate (and optionally serve) the customer-facing dashboard.
+
+    Pass --snapshot-json <path> to also emit a JSON dump of the same data
+    the HTML view shows. Customers upload that JSON to a known location
+    (e.g. jelleo.com/snapshot.json) so the deployed dashboard.html can
+    fetch live data instead of showing the static funded-state mockup.
+    """
+    import json
+
     workspace = Path(ctx.obj["workspace"])
     db = FindingsDB(workspace / "findings.db")
 
@@ -52,8 +67,94 @@ def dashboard_cmd(
     out.write_text(_render(db, auto_refresh), encoding="utf-8")
     console.print(f"[green]wrote[/green] {out}")
 
+    if snapshot_json:
+        snapshot_path = Path(snapshot_json)
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_path.write_text(
+            json.dumps(_build_snapshot(db), indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        console.print(f"[green]wrote[/green] {snapshot_path}")
+
     if serve:
         _serve(out.parent, out.name, port)
+
+
+def _build_snapshot(db: FindingsDB) -> dict:
+    """Serialize the DB state into a stable, public-safe JSON shape.
+
+    What goes IN: aggregated counts, target names, recent cycles, recent
+    findings (severity + status + bug_class only — never repro details).
+    What stays OUT: claim text, recon transcripts, agent prompts, customer
+    PII. The snapshot is meant to be safe to publish at jelleo.com without
+    leaking embargoed details.
+    """
+    from datetime import datetime, timezone
+
+    stats = db.stats()
+    targets = db.list_targets()
+    cycles = db.list_cycles(limit=20)
+    findings = db.list_findings(limit=50)
+
+    by_target = []
+    for t in targets:
+        t_findings = db.list_findings(target_id=t["id"], limit=500)
+        t_cycles = db.list_cycles(target_id=t["id"], limit=5)
+        sev_counts = {
+            "Critical": sum(1 for f in t_findings if f.get("severity") == "Critical"),
+            "High":     sum(1 for f in t_findings if f.get("severity") == "High"),
+            "Medium":   sum(1 for f in t_findings if f.get("severity") == "Medium"),
+            "Low":      sum(1 for f in t_findings if f.get("severity") == "Low"),
+            "Info":     sum(1 for f in t_findings if f.get("severity") == "Info"),
+        }
+        last_cycle = t_cycles[0] if t_cycles else None
+        by_target.append({
+            "name": t["name"],
+            "engine_repo": (t.get("engine_repo") or "").replace("https://github.com/", ""),
+            "n_findings": len(t_findings),
+            "severity_counts": sev_counts,
+            "last_cycle_at": (last_cycle or {}).get("started_at"),
+            "last_cycle_id": (last_cycle or {}).get("cycle_id"),
+        })
+
+    recent_findings = [
+        {
+            "id": f["id"],
+            "target_id": f["target_id"],
+            "hypothesis_id": f.get("hypothesis_id"),
+            "title": f.get("title"),
+            "severity": f.get("severity"),
+            "status": f.get("status"),
+            "bug_class": f.get("bug_class"),
+            "verdict": f.get("verdict"),
+            "poc_fired": bool(f.get("poc_fired")),
+            "updated_at": f.get("updated_at"),
+        }
+        for f in findings
+    ]
+
+    recent_cycles = [
+        {
+            "cycle_id": c.get("cycle_id"),
+            "target_id": c.get("target_id"),
+            "engine_sha": (c.get("engine_sha") or "")[:10],
+            "started_at": c.get("started_at"),
+            "finished_at": c.get("finished_at"),
+            "n_dispatched": c.get("n_dispatched"),
+            "n_confirmed": c.get("n_confirmed"),
+        }
+        for c in cycles
+    ]
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "platform": "jelleo",
+        "version": "v0.1",
+        "stats": stats,
+        "targets": by_target,
+        "recent_cycles": recent_cycles,
+        "recent_findings": recent_findings,
+    }
 
 
 def _render(db: FindingsDB, auto_refresh: int) -> str:

@@ -1,0 +1,11 @@
+{
+  "hyp_id": "V4-vault-cap-respect",
+  "test_name": "test_confirm_v4_vault_cap_respect",
+  "test_path": "/root/audit_runs/percolator-live/confirm/test_confirm_v4_vault_cap_respect.rs",
+  "outcome": "safety_attestation",
+  "cargo_rc": 0,
+  "cargo_elapsed_s": 2.5,
+  "cargo_log": "/root/audit_runs/percolator-live/confirm/test_confirm_v4_vault_cap_respect.cargo.log",
+  "input_tokens": 300741,
+  "output_tokens": 6650
+}

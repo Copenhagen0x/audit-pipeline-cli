@@ -1,0 +1,105 @@
+=== Starting 5 confirms at 2026-05-06T23:22:13Z ===
+
+=== 23:22:13Z Confirm O6-side-flip-atomicity ===
+Confirming O6-side-flip-atomicity
+  Response: 
+/root/audit_runs/percolator-live/hunts/20260506-225557-5059332/recon/O6-side-fli
+p-atomicity_response.md
+  Engine:   /root/audit_runs/percolator-live/target/engine
+  Generating test (tool-using)...
+  (19 turns, 24 tool calls, 412,413in/7,647out)
+  wrote 
+/root/audit_runs/percolator-live/confirm/test_confirm_o6_side_flip_atomicity.rs 
+(17122 bytes)
+  Compiling: cargo test --features test --test 
+test_confirm_o6_side_flip_atomicity
+  ✅ PASS in 0.4s — invariant HOLDS (safety attestation)
+  Summary: 
+/root/audit_runs/percolator-live/confirm/test_confirm_o6_side_flip_atomicity.sum
+mary.json
+=== O6-side-flip-atomicity finished rc=0 ===
+
+=== 23:24:17Z Confirm S5-market-mode-transitions ===
+Confirming S5-market-mode-transitions
+  Response: 
+/root/audit_runs/percolator-live/hunts/20260506-225557-5059332/recon/S5-market-m
+ode-transitions_response.md
+  Engine:   /root/audit_runs/percolator-live/target/engine
+  Generating test (tool-using)...
+  (19 turns, 33 tool calls, 387,702in/6,848out)
+  wrote 
+/root/audit_runs/percolator-live/confirm/test_confirm_s5_market_mode_transitions
+.rs (11152 bytes)
+  Compiling: cargo test --features test --test 
+test_confirm_s5_market_mode_transitions
+  ✅ PASS in 0.3s — invariant HOLDS (safety attestation)
+  Summary: 
+/root/audit_runs/percolator-live/confirm/test_confirm_s5_market_mode_transitions
+.summary.json
+=== S5-market-mode-transitions finished rc=0 ===
+
+=== 23:26:10Z Confirm V5-haircut-direction ===
+Confirming V5-haircut-direction
+  Response: 
+/root/audit_runs/percolator-live/hunts/20260506-225557-5059332/recon/V5-haircut-
+direction_response.md
+  Engine:   /root/audit_runs/percolator-live/target/engine
+  Generating test (tool-using)...
+  (19 turns, 30 tool calls, 311,487in/7,372out)
+  wrote 
+/root/audit_runs/percolator-live/confirm/test_confirm_v5_haircut_direction.rs 
+(12926 bytes)
+  Compiling: cargo test --features test --test test_confirm_v5_haircut_direction
+  ? unknown outcome (rc=101)
+  Summary: 
+/root/audit_runs/percolator-live/confirm/test_confirm_v5_haircut_direction.summa
+ry.json
+=== V5-haircut-direction finished rc=0 ===
+
+=== 23:27:56Z Confirm P8-self-trade-cash-flow ===
+Confirming P8-self-trade-cash-flow
+  Response: 
+/root/audit_runs/percolator-live/hunts/20260506-225557-5059332/recon/P8-self-tra
+de-cash-flow_response.md
+  Engine:   /root/audit_runs/percolator-live/target/engine
+  Generating test (tool-using)...
+  (19 turns, 27 tool calls, 448,274in/8,316out)
+  wrote 
+/root/audit_runs/percolator-live/confirm/test_confirm_p8_self_trade_cash_flow.rs
+(17424 bytes)
+  Compiling: cargo test --features test --test 
+test_confirm_p8_self_trade_cash_flow
+  ? unknown outcome (rc=101)
+  Summary: 
+/root/audit_runs/percolator-live/confirm/test_confirm_p8_self_trade_cash_flow.su
+mmary.json
+=== P8-self-trade-cash-flow finished rc=0 ===
+
+=== 23:30:31Z Confirm A9-pause-gate-coverage ===
+Confirming A9-pause-gate-coverage
+  Response: 
+/root/audit_runs/percolator-live/hunts/20260506-225557-5059332/recon/A9-pause-ga
+te-coverage_response.md
+  Engine:   /root/audit_runs/percolator-live/target/engine
+  Generating test (tool-using)...
+  (18 turns, 29 tool calls, 294,663in/3,095out)
+  wrote 
+/root/audit_runs/percolator-live/confirm/test_confirm_a9_pause_gate_coverage.rs 
+(885 bytes)
+  Compiling: cargo test --features test --test 
+test_confirm_a9_pause_gate_coverage
+  ? unknown outcome (rc=101)
+  Summary: 
+/root/audit_runs/percolator-live/confirm/test_confirm_a9_pause_gate_coverage.sum
+mary.json
+=== A9-pause-gate-coverage finished rc=0 ===
+
+=== ALL 5 CONFIRMS DONE at 2026-05-06T23:31:30Z ===
+=== Log: /root/confirm_run_20260506-232213.log ===
+
+=== OUTCOMES ===
+O6-side-flip-atomicity -> "outcome": "safety_attestation"
+S5-market-mode-transitions -> "outcome": "safety_attestation"
+V5-haircut-direction -> "outcome": "unknown"
+P8-self-trade-cash-flow -> "outcome": "unknown"
+A9-pause-gate-coverage -> "outcome": "unknown"

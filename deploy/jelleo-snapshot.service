@@ -1,0 +1,23 @@
+[Unit]
+Description=Jelleo - dashboard snapshot writer (DB -> jelleo.com/snapshot.json)
+Documentation=https://jelleo.com/methodology.html#reporting
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=/root/audit_runs/percolator-live
+# Writes a public-safe JSON snapshot of the findings DB to the path served
+# by the website. The dashboard.html page on jelleo.com fetches this every
+# 60s and patches in live numbers (with mockup fallback when missing).
+#
+# Adjust SNAPSHOT_PATH if jelleo.com is served from a different docroot.
+ExecStart=/bin/bash -c 'source /root/.audit-env && SNAPSHOT_PATH="${JELLEO_SNAPSHOT_PATH:-/var/www/jelleo.com/snapshot.json}" && exec /root/.local/bin/audit-pipeline --workspace /root/audit_runs/percolator-live dashboard --output /root/audit_runs/percolator-live/dashboard.html --snapshot-json "$SNAPSHOT_PATH"'
+StandardOutput=append:/root/audit_runs/percolator-live/scheduler/snapshot.log
+StandardError=append:/root/audit_runs/percolator-live/scheduler/snapshot.log
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

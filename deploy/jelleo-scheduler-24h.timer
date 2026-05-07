@@ -1,0 +1,13 @@
+[Unit]
+Description=Jelleo - 24-hour cadence trigger
+Documentation=https://jelleo.com/methodology.html#reporting
+
+[Timer]
+# Daily at 09:00 UTC. scheduler.state.json prevents double-fire in same UTC day.
+OnCalendar=*-*-* 09:00:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+Unit=jelleo-scheduler-24h.service
+
+[Install]
+WantedBy=timers.target

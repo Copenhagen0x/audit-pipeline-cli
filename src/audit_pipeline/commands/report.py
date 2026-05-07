@@ -18,10 +18,35 @@ import click
 from rich.console import Console
 
 from audit_pipeline.branding import CSS, footer_html, topbar_html
+from audit_pipeline.commands.sign import SignError, default_key_path, sign_file
 from audit_pipeline.db import FindingsDB
 from audit_pipeline.severity import DEFINITIONS, Severity
 
 console = Console()
+
+
+def _auto_sign(workspace: Path, report_path: Path, sign_enabled: bool) -> None:
+    """Sign a generated report if signing is enabled and a key exists.
+
+    Failures are warnings, not errors — a missing key should not block
+    report generation. Customers without keys still get the HTML; the
+    .sig file appears next to the report only when a key is configured.
+    """
+    if not sign_enabled:
+        return
+    key_path = default_key_path(workspace)
+    if not key_path.exists():
+        console.print(
+            f"[yellow]auto-sign skipped:[/yellow] no key at {key_path}. "
+            f"Run [cyan]audit-pipeline sign keygen[/cyan] to enable signed receipts."
+        )
+        return
+    try:
+        sig_path = sign_file(report_path, key_path)
+    except SignError as e:
+        console.print(f"[yellow]auto-sign failed:[/yellow] {e}")
+        return
+    console.print(f"[green]signed[/green]    {sig_path}")
 
 
 @click.group(name="report")
@@ -32,8 +57,12 @@ def report_cmd() -> None:
 @report_cmd.command(name="cycle")
 @click.option("--cycle-id", required=True)
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None)
+@click.option("--sign/--no-sign", default=True, show_default=True,
+              help="Auto-sign the generated report with the workspace's Ed25519 key.")
 @click.pass_context
-def cycle_report(ctx: click.Context, cycle_id: str, output: Path | None) -> None:
+def cycle_report(
+    ctx: click.Context, cycle_id: str, output: Path | None, sign: bool,
+) -> None:
     """Generate an HTML report for a single hunt cycle."""
     workspace = Path(ctx.obj["workspace"])
     db = FindingsDB(workspace / "findings.db")
@@ -51,14 +80,19 @@ def cycle_report(ctx: click.Context, cycle_id: str, output: Path | None) -> None
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(_render_cycle_html(target, cycle, findings), encoding="utf-8")
     console.print(f"[green]wrote[/green] {out}")
+    _auto_sign(workspace, out, sign)
 
 
 @report_cmd.command(name="weekly")
 @click.option("--target", required=True)
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None)
 @click.option("--days", type=int, default=7, show_default=True)
+@click.option("--sign/--no-sign", default=True, show_default=True,
+              help="Auto-sign the generated report with the workspace's Ed25519 key.")
 @click.pass_context
-def weekly_report(ctx: click.Context, target: str, output: Path | None, days: int) -> None:
+def weekly_report(
+    ctx: click.Context, target: str, output: Path | None, days: int, sign: bool,
+) -> None:
     """Rolling N-day summary across all cycles for one target."""
     workspace = Path(ctx.obj["workspace"])
     db = FindingsDB(workspace / "findings.db")
@@ -76,6 +110,7 @@ def weekly_report(ctx: click.Context, target: str, output: Path | None, days: in
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(_render_weekly_html(t, cycles, findings, days), encoding="utf-8")
     console.print(f"[green]wrote[/green] {out}")
+    _auto_sign(workspace, out, sign)
 
 
 # ---------------------------------------------------------------------------
