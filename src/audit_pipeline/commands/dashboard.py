@@ -133,24 +133,45 @@ def _build_snapshot(db: FindingsDB) -> dict:
             "last_cycle_id": (last_cycle or {}).get("cycle_id"),
         })
 
-    # Public findings list: only disclosed/fixed/verified/rejected. Title
-    # and hypothesis_id stripped — public consumers see severity + status
-    # + bug_class only. Anyone who wants details fetches via authenticated
-    # customer dashboard (future) or reads the public disclosure on GitHub.
-    public_findings = [
-        {
+    # Public findings list: only disclosed/fixed/verified/rejected.
+    #
+    # For findings in PUBLIC_STATUSES, the title + hypothesis_id are already
+    # public (e.g. F7 is openly described in PR #39), so it's safe to expose
+    # them. This lets the customer portal at /customer/<token>/ render proper
+    # finding cards without an extra round-trip. In-progress findings (new,
+    # triaged, confirmed) still get filtered out at the boundary above.
+    public_findings = []
+    for f in findings:
+        if (f.get("status") or "") not in PUBLIC_STATUSES:
+            continue
+        # Attempt to surface disclosure metadata from details_json (the
+        # pipeline stores per-finding extras — disclosure URL, sibling list,
+        # etc. — there). Failing silently is fine on malformed JSON.
+        details = {}
+        try:
+            import json as _json
+            raw = f.get("details_json")
+            if raw:
+                parsed = _json.loads(raw)
+                if isinstance(parsed, dict):
+                    details = parsed
+        except Exception:
+            details = {}
+        public_findings.append({
             "id": f["id"],
             "target_id": f["target_id"],
+            "cycle_id": f.get("cycle_id"),
+            "hypothesis_id": f.get("hypothesis_id"),
+            "title": f.get("title"),
             "severity": f.get("severity"),
             "status": f.get("status"),
-            "bug_class": f.get("bug_class"),  # generalized class, public-safe
+            "bug_class": f.get("bug_class"),
             "verdict": f.get("verdict"),
             "poc_fired": bool(f.get("poc_fired")),
             "updated_at": f.get("updated_at"),
-        }
-        for f in findings
-        if (f.get("status") or "") in PUBLIC_STATUSES
-    ]
+            "disclosure_url": details.get("disclosure_url") or details.get("pr_url") or None,
+            "n_siblings":     details.get("n_siblings") or 0,
+        })
 
     recent_cycles = [
         {
@@ -161,6 +182,7 @@ def _build_snapshot(db: FindingsDB) -> dict:
             "finished_at": c.get("finished_at"),
             "n_dispatched": c.get("n_dispatched"),
             "n_confirmed": c.get("n_confirmed"),
+            "receipt_fingerprint": _read_receipt_fingerprint(c.get("cycle_id")),
         }
         for c in cycles
     ]
@@ -181,15 +203,159 @@ def _build_snapshot(db: FindingsDB) -> dict:
         },
     }
 
+    now = datetime.now(timezone.utc)
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated_at": now.isoformat(timespec="seconds"),
+        "generated_at_ms": int(now.timestamp() * 1000),
         "platform": "jelleo",
         "version": "v0.1",
         "stats": public_stats,
         "targets": by_target,
         "recent_cycles": recent_cycles,
         "public_findings": public_findings,
+        "services": _probe_services(),
+        "cycles_total":    stats.get("n_cycles", 0),
+        "receipts_signed": _count_signed_receipts(),
+        "loop_uptime_human": _loop_uptime_human(),
     }
+
+
+def _probe_services() -> list[dict]:
+    """Probe systemd state for the known Jelleo services.
+
+    Each entry: {key, unit, state, last_tick_ms}
+      state: "up" | "degraded" | "down" | "unknown"
+
+    Runs `systemctl is-active` + `systemctl show <unit> --property=ActiveEnterTimestamp`
+    per known unit. Returns "unknown" entries on non-Linux / non-systemd hosts
+    so the snapshot is still well-formed when generated locally.
+    """
+    import shutil
+    import subprocess
+    from datetime import datetime, timezone as _tz
+
+    KNOWN = [
+        ("shadow",            "jelleo-shadow.service"),
+        ("watch",             "jelleo-watch.service"),
+        ("scheduler-24h",     "jelleo-scheduler-24h.timer"),
+        ("scheduler-weekly",  "jelleo-scheduler-weekly.timer"),
+        ("scheduler-monthly", "jelleo-scheduler-monthly.timer"),
+        ("snapshot",          "jelleo-snapshot.timer"),
+        ("backup",            "jelleo-backup.timer"),
+        ("health",            "jelleo-health.timer"),
+    ]
+
+    if not shutil.which("systemctl"):
+        return [{"key": k, "unit": u, "state": "unknown", "last_tick_ms": None} for k, u in KNOWN]
+
+    out = []
+    for key, unit in KNOWN:
+        try:
+            r = subprocess.run(
+                ["systemctl", "is-active", unit],
+                capture_output=True, text=True, timeout=5,
+            )
+            active = (r.stdout or "").strip()
+            if active == "active":
+                state = "up"
+            elif active in ("activating", "reloading"):
+                state = "degraded"
+            elif active in ("failed", "inactive"):
+                state = "down"
+            else:
+                state = "unknown"
+        except Exception:
+            state = "unknown"
+
+        last_tick_ms = None
+        try:
+            r = subprocess.run(
+                ["systemctl", "show", unit, "--property=ActiveEnterTimestamp", "--value"],
+                capture_output=True, text=True, timeout=5,
+            )
+            ts = (r.stdout or "").strip()
+            if ts and ts != "0":
+                last_tick_ms = int(datetime.strptime(ts, "%a %Y-%m-%d %H:%M:%S %Z").replace(tzinfo=_tz.utc).timestamp() * 1000)
+        except Exception:
+            pass
+
+        out.append({"key": key, "unit": unit, "state": state, "last_tick_ms": last_tick_ms})
+    return out
+
+
+def _count_signed_receipts() -> int:
+    """Count signed cycle receipts under /var/www/jelleo.com/cycles/.
+
+    Returns 0 on hosts without that directory.
+    """
+    from pathlib import Path as _P
+    root = _P("/var/www/jelleo.com/cycles")
+    if not root.is_dir():
+        return 0
+    return sum(1 for p in root.iterdir() if p.is_dir() and (p / "cycle.html.sig").exists())
+
+
+def _read_receipt_fingerprint(cycle_id: str | None) -> str | None:
+    """Read a short fingerprint of the Ed25519 cycle receipt for display.
+
+    The signing pipeline writes <cycle>/cycle.html.sig — a base64 signature
+    blob. We turn the first 8 bytes into a colon-separated hex string so the
+    customer portal can show "3a:c1:8e:42:7f:11:b9:dd…" the way SSH host
+    fingerprints are presented. Returns None on missing files / non-VPS hosts.
+    """
+    if not cycle_id:
+        return None
+    from pathlib import Path as _P
+    sig_path = _P("/var/www/jelleo.com/cycles") / cycle_id / "cycle.html.sig"
+    if not sig_path.is_file():
+        return None
+    try:
+        import base64
+        raw = sig_path.read_text(encoding="utf-8").strip()
+        # Files we ship are typically a base64 line; tolerate raw bytes too.
+        try:
+            sig_bytes = base64.b64decode(raw, validate=False)
+        except Exception:
+            sig_bytes = raw.encode("utf-8", "ignore")
+        if len(sig_bytes) < 4:
+            return None
+        head = sig_bytes[:8]
+        return ":".join(f"{b:02x}" for b in head) + "…"
+    except Exception:
+        return None
+
+
+def _loop_uptime_human() -> str:
+    """Best-effort uptime string for jelleo-shadow.service.
+
+    Returns "—" on non-systemd hosts.
+    """
+    import shutil
+    import subprocess
+    from datetime import datetime, timezone as _tz
+
+    if not shutil.which("systemctl"):
+        return "—"
+    try:
+        r = subprocess.run(
+            ["systemctl", "show", "jelleo-shadow.service", "--property=ActiveEnterTimestamp", "--value"],
+            capture_output=True, text=True, timeout=5,
+        )
+        ts = (r.stdout or "").strip()
+        if not ts or ts == "0":
+            return "—"
+        started = datetime.strptime(ts, "%a %Y-%m-%d %H:%M:%S %Z").replace(tzinfo=_tz.utc)
+        delta = datetime.now(_tz.utc) - started
+        days = delta.days
+        hours = (delta.seconds // 3600)
+        if days > 0:
+            return f"{days}d {hours}h"
+        mins = (delta.seconds // 60) % 60
+        if hours > 0:
+            return f"{hours}h {mins}m"
+        return f"{mins}m"
+    except Exception:
+        return "—"
 
 
 def _render(db: FindingsDB, auto_refresh: int) -> str:

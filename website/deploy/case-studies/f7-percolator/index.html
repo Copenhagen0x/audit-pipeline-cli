@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · F7 — Insurance-residual drain on Percolator</title>
+<meta name="description" content="F7 case study — how the Jelleo loop found the insurance-residual drain on Anatoly Yakovenko's Percolator perpetual DEX. End-to-end walkthrough: hypothesis dispatch, root cause, balance proof, disclosure (PR #39), and the fix.">
+<meta name="theme-color" content="#050504">
+<link rel="canonical" href="https://jelleo.com/case-studies/f7-percolator/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Jelleo">
+<meta property="og:url" content="https://jelleo.com/case-studies/f7-percolator/">
+<meta property="og:title" content="F7 — Insurance-residual drain on Percolator">
+<meta property="og:description" content="How the Jelleo loop produced its first Critical disclosure: a structural drain primitive on Anatoly Yakovenko's perpetual DEX. End-to-end walkthrough.">
+<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:title" content="F7 — Insurance-residual drain on Percolator">
+<meta name="twitter:description" content="How the Jelleo loop produced its first Critical disclosure. Worked example.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+
+section.doc h3 {
+  font-size: clamp(20px, 2vw, 26px);
+  line-height: 1.25; font-weight: 600;
+  margin: 48px 0 18px; color: var(--ink);
+  letter-spacing: -0.01em;
+}
+section.doc h4 {
+  font-size: 16px; font-weight: 600;
+  margin: 28px 0 10px; color: var(--ink);
+}
+section.doc p { color: var(--ink-2); margin-bottom: 16px; max-width: 78ch; line-height: 1.7; }
+section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; max-width: 70ch; }
+section.doc ul, section.doc ol { color: var(--ink-2); margin: 16px 0 16px 24px; max-width: 76ch; line-height: 1.75; }
+section.doc li { margin-bottom: 8px; }
+section.doc strong { color: var(--ink); }
+section.doc em { color: var(--ink); font-style: italic; }
+section.doc a {
+  color: var(--amber);
+  border-bottom: 1px solid rgba(245,184,0,0.3);
+  transition: border-color .15s ease;
+}
+section.doc a:hover { border-bottom-color: var(--amber); }
+section.doc code {
+  background: var(--surface); padding: 1px 7px;
+  border-radius: 4px; border: 1px solid var(--rule);
+  color: var(--ink); font-size: .9em;
+}
+
+/* Header receipt strip */
+.receipt-strip {
+  margin: 32px 0 16px;
+  padding: 22px 28px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  border-radius: 0 8px 8px 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px 40px;
+}
+@media (max-width: 720px) { .receipt-strip { grid-template-columns: 1fr 1fr; } }
+.receipt-strip .field .lbl {
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-3); margin-bottom: 5px;
+}
+.receipt-strip .field .val {
+  font-size: 14px; color: var(--ink); font-family: var(--mono);
+  word-break: break-all;
+}
+.receipt-strip .field .val.amber { color: var(--amber); }
+
+/* Comparison table */
+.proto-table {
+  width: 100%;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+  margin: 20px 0;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.proto-table th, .proto-table td {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 13px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+.proto-table th {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-3); font-weight: 500;
+  background: var(--bg-2);
+}
+.proto-table tr:last-child td { border-bottom: none; }
+.proto-table .ok-mark { color: var(--ok); font-weight: 600; }
+.proto-table .fail-mark { color: var(--alert); font-weight: 600; }
+
+/* Timeline */
+.timeline {
+  position: relative;
+  margin: 32px 0;
+  padding-left: 28px;
+}
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 8px; top: 6px; bottom: 6px;
+  width: 1px;
+  background: var(--rule-2);
+}
+.timeline .event {
+  position: relative;
+  margin-bottom: 24px;
+  padding-bottom: 4px;
+}
+.timeline .event::before {
+  content: '';
+  position: absolute;
+  left: -23px; top: 7px;
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber-glow);
+  border: 2px solid var(--bg);
+}
+.timeline .event .when {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.16em;
+  color: var(--ink-3);
+  margin-bottom: 6px;
+}
+.timeline .event .what {
+  font-size: 14px; color: var(--ink);
+  line-height: 1.6;
+}
+
+/* Code block stays from shared.css */
+pre {
+  background: var(--bg-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 22px 24px; overflow-x: auto;
+  line-height: 1.55; color: var(--ink-2);
+  margin: 22px 0; font-size: 13px;
+  font-family: var(--mono);
+}
+pre code { background: none; border: none; padding: 0; color: inherit; font-size: 13px; }
+pre .accent { color: var(--amber); }
+pre .ok     { color: var(--ok); }
+pre .fail   { color: var(--alert); }
+
+.toc {
+  margin: 40px 0;
+  padding: 24px 28px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+}
+.toc-head {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 14px;
+}
+.toc ol { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 32px; }
+@media (max-width: 720px) { .toc ol { columns: 1; } }
+.toc li { margin-bottom: 8px; font-size: 14px; break-inside: avoid; }
+.toc a {
+  color: var(--ink-2);
+  border-bottom: 1px dashed transparent;
+}
+.toc a:hover { color: var(--amber); border-bottom-color: var(--amber); }
+.toc .num { font-family: var(--mono); color: var(--amber); margin-right: 10px; font-size: 12px; }
+
+.callout {
+  margin: 28px 0;
+  padding: 22px 28px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  border-radius: 0 8px 8px 0;
+}
+.callout p:last-child { margin-bottom: 0; }
+.callout .label {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.22em;
+  color: var(--amber); margin-bottom: 10px;
+}
+</style>
+</head>
+<body>
+
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+<div class="scroll-progress" id="progress"></div>
+
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/protocols/">Protocols</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html">Security</a>
+    <a href="/case-studies/f7-percolator/" class="active">Case study</a>
+  </div>
+  <div class="nav-right">
+    <span class="nav-status">
+      <span class="live-dot"></span>
+      F7 · disclosed PR #39
+    </span>
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/protocols/" role="menuitem">Protocols</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
+</div>
+
+<section class="hero">
+  <span class="hero-bracket tl"></span>
+  <span class="hero-bracket br"></span>
+  <div class="container">
+    <div data-reveal>
+      <div class="hero-eyebrow">Case study · F7 · Critical · disclosed</div>
+      <h1 class="hero-title">Insurance-residual drain on <span class="accent">Percolator.</span></h1>
+      <p class="hero-lede">The first Critical disclosure produced by the Jelleo loop. A structural property of the haircut-residual formula combined with <code>use_insurance_buffer</code>'s vault-preserving design lets a single attacker drain the insurance fund via a self-trade. Disclosed to Anatoly Yakovenko in <a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">PR #39</a>.</p>
+      <div class="hero-meta">
+        <span><strong>Severity</strong> Critical</span>
+        <span><strong>Status</strong> Disclosed</span>
+        <span><strong>Cracked</strong> 2026-04-22</span>
+        <span><strong>PR</strong> #39</span>
+      </div>
+    </div>
+
+    <div class="receipt-strip" data-reveal data-delay="1">
+      <div class="field">
+        <div class="lbl">Hypothesis ID</div>
+        <div class="val amber">F7</div>
+      </div>
+      <div class="field">
+        <div class="lbl">Target</div>
+        <div class="val">Percolator</div>
+      </div>
+      <div class="field">
+        <div class="lbl">Bug class</div>
+        <div class="val">Insurance-residual coupling</div>
+      </div>
+      <div class="field">
+        <div class="lbl">Disclosure</div>
+        <div class="val"><a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">PR #39 ↗</a></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="doc">
+  <div class="container">
+    <div data-reveal>
+      <div class="toc">
+        <div class="toc-head">Contents</div>
+        <ol>
+          <li><span class="num">01</span><a href="#summary">Summary</a></li>
+          <li><span class="num">02</span><a href="#dispatch">How Jelleo found it</a></li>
+          <li><span class="num">03</span><a href="#root-cause">Root cause</a></li>
+          <li><span class="num">04</span><a href="#protections">Why Toly's listed protections didn't catch it</a></li>
+          <li><span class="num">05</span><a href="#proof">End-to-end balance proof</a></li>
+          <li><span class="num">06</span><a href="#sizing">Exploit sizing</a></li>
+          <li><span class="num">07</span><a href="#fix">Recommended fixes</a></li>
+          <li><span class="num">08</span><a href="#timeline">Disclosure timeline</a></li>
+          <li><span class="num">09</span><a href="#takeaway">What this proves about the methodology</a></li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- ============== 01 SUMMARY ============== -->
+    <div data-reveal id="summary">
+      <div class="section-label">01 · Summary</div>
+      <h2 class="section-title">A drain disguised as a <span class="accent">documented design.</span></h2>
+      <p class="lede">Percolator is Anatoly Yakovenko's perpetual-futures protocol on Solana. F7 is a structural drain of the insurance fund triggered by a single attacker controlling both sides of a trade. The vector is not a bug in any individual function — every individual protection holds in isolation — it's an interaction between three intentional design choices that together form a primitive for funneling insurance balance into a winning self-trade.</p>
+
+      <div class="callout">
+        <div class="label">One-line root cause</div>
+        <p><code>use_insurance_buffer</code> mutates the insurance counter only, never the underlying vault. The haircut residual <code>vault − c_tot − insurance</code> therefore <em>grows</em> by the absorbed amount, and the K/F-winning side of a self-trade claims that residual as matured PnL.</p>
+      </div>
+
+      <p>The bug is structural — every individual protection in Percolator's documented invariant set is correct in isolation. The exploit emerges from the interaction of three intentional design decisions: (1) bilateral-signer self-trade is permitted with <code>matcher_program = [0;32]</code>, (2) <code>use_insurance_buffer</code> is designed to preserve the vault counter (insurance is "outside" the vault by accounting), and (3) the haircut residual is computed from <em>current</em> vault and insurance balances rather than tracking insurance consumed during the epoch.</p>
+    </div>
+
+    <!-- ============== 02 DISPATCH ============== -->
+    <div data-reveal id="dispatch">
+      <div class="section-label">02 · How Jelleo found it</div>
+      <h2 class="section-title">Hypothesis F7, dispatched on cycle <span class="accent">2026-04-22.</span></h2>
+      <p class="lede">F7 was hypothesis number seven in the Percolator library — generated by the Layer-2 LLM pass after Layer-1 static analysis surfaced the insurance/vault accumulator pair as a candidate for asymmetric mutation.</p>
+
+      <p>The dispatch path:</p>
+      <ol>
+        <li><strong>Layer-1 (static):</strong> the analyzer flagged <code>use_insurance_buffer</code> for unilateral counter mutation — it decrements <code>insurance_fund.balance</code> without a paired vault adjustment.</li>
+        <li><strong>Layer-2 (LLM hypothesis generation):</strong> against the bug-class library "insurance-residual coupling," the LLM generated F7's hypothesis: <em>if vault stays constant when insurance shrinks, any formula computing a residual from <code>vault − …−insurance</code> grows by the absorbed amount</em>.</li>
+        <li><strong>Layer-3 (Anchor-aware analysis):</strong> traced the residual into <code>finalize_touched_accounts_post_live</code> at <code>percolator/src/percolator.rs:3567-3576</code>, confirmed the formula structure.</li>
+        <li><strong>Layer-4 (LiteSVM PoC):</strong> built a self-trade fork harness exercising <code>InitUser</code> + <code>InitLP</code> + <code>TradeNoCpi</code> + <code>LiquidateAtOracle</code>, observed the predicted A.matured = ΔK·N. PoC committed at <code>43cdcd8</code>.</li>
+        <li><strong>Layer-5 (commit watch) → manual triage:</strong> the verdict was forwarded to disclosure, posted as PR #39 to <code>aeyakovenko/percolator-prog</code>.</li>
+      </ol>
+
+      <p>Total automated wall-clock from hypothesis generation to LiteSVM-confirmed PoC: approximately 18 minutes. Total Anthropic API spend on the F7-producing cycle: $7.43.</p>
+    </div>
+
+    <!-- ============== 03 ROOT CAUSE ============== -->
+    <div data-reveal id="root-cause">
+      <div class="section-label">03 · Root cause</div>
+      <h2 class="section-title">Three lines, three files.</h2>
+
+      <h4>1. The asymmetric mutation — <code>percolator.rs:2291-2301</code></h4>
+      <pre>fn use_insurance_buffer(&amp;mut self, pay: i128) -&gt; i128 {
+    let take = pay.min(self.insurance_fund.balance);
+    self.insurance_fund.balance -= take;   <span class="accent">// only this counter moves</span>
+    // vault is intentionally NOT decremented:
+    // insurance is accounted as held "outside" the vault.
+    take
+}</pre>
+
+      <h4>2. The dev-documented intent — <code>percolator.rs:2303-2321</code></h4>
+      <p>An adjacent comment block documents the residual-grows-on-absorption behavior as <em>intentional</em>. From the dev's perspective: when insurance covers a deficit, the vault stays consistent because the K/F-winning counterparty is independent and will eventually claim the matching surplus. This is true when bankrupt and winning sides are independent; F7's contribution is showing the comment is vacuous when the attacker is both sides.</p>
+
+      <h4>3. The residual formula — <code>percolator.rs:3567-3576</code></h4>
+      <pre>let senior_sum = c_tot + insurance;
+let residual   = vault.saturating_sub(senior_sum);
+let h_num      = residual.min(matured_pos_tot);
+let is_whole   = h_num &gt;= matured_pos_tot;
+if is_whole {
+    <span class="accent">// matured converts whole to capital — claimed at withdraw</span>
+}</pre>
+
+      <p>When <code>insurance</code> shrinks by <code>pay</code> and <code>vault</code> is unchanged, <code>residual</code> grows by <code>pay</code>. The K/F-winning side, whose <code>matured</code> equals <code>ΔK·N</code>, finds <code>h_num = matured</code> exactly — and converts the entire matured amount to claimable capital.</p>
+    </div>
+
+    <!-- ============== 04 PROTECTIONS ============== -->
+    <div data-reveal id="protections">
+      <div class="section-label">04 · Why Toly's listed protections didn't catch it</div>
+      <h2 class="section-title">Each invariant is correct. <span class="accent">In isolation.</span></h2>
+
+      <table class="proto-table">
+        <thead>
+          <tr>
+            <th>Protection (Toly's documented set)</th>
+            <th>Status</th>
+            <th>Mechanism</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Loss settlement local-before-insurance</td>
+            <td><span class="ok-mark">Holds</span></td>
+            <td><code>settle_losses</code> charges loser's capital first.</td>
+          </tr>
+          <tr>
+            <td>K/F PnL conservation (A loss = B gain)</td>
+            <td><span class="ok-mark">Holds</span></td>
+            <td>Side accumulators preserve this exactly across all paths.</td>
+          </tr>
+          <tr>
+            <td>Haircut residual cap <code>R = V − (C_tot + I)</code></td>
+            <td><span class="fail-mark">Vacuous</span></td>
+            <td>Residual <em>grows</em> by the insurance-absorbed amount, so the "cap" never bites — it caps growth, not the amount claimed.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>The third row is F7. It's not a missing check — the cap is enforced exactly as documented. The structural property is that the cap doesn't <em>oppose</em> the attacker's profit; the attacker's profit shows up <em>as</em> residual growth, which the cap unconditionally permits.</p>
+    </div>
+
+    <!-- ============== 05 PROOF ============== -->
+    <div data-reveal id="proof">
+      <div class="section-label">05 · End-to-end balance proof</div>
+      <h2 class="section-title">A drains <span class="accent">(ΔK − IM) · N</span> per cycle.</h2>
+
+      <p class="lede">Setup: attacker opens A (long N) and B (short N) via <code>TradeNoCpi</code> self-trade with <code>matcher_program = [0;32]</code>. Each posts <code>0.2N</code> capital (IM = 20%). Insurance = 5 SOL (the actual mainnet balance at disclosure time). Vault = <code>5 + 0.4N</code>.</p>
+
+      <h4>Step 1 — adverse swing past IM</h4>
+      <p>Wait for any oracle move <code>ΔK &gt; 0.2</code>. Pyth SOL/USD provides this routinely — historical look-back shows <code>ΔK &gt; 0.2</code> events multiple times per quarter on a 24-hour window.</p>
+
+      <h4>Step 2 — liquidate B</h4>
+      <p>Attacker calls <code>LiquidateAtOracle(B)</code>. This is permissionless (verified on-chain: <code>liquidationAuthority = [0;32]</code>):</p>
+      <ul>
+        <li><code>touch B</code> → <code>B.pnl = -ΔK·N</code> (settled from side accumulator).</li>
+        <li><code>settle_losses(B)</code> → charges <code>B.capital = 0.2N</code> → <code>B.pnl = -(ΔK-0.2)·N</code>.</li>
+        <li><code>attach_effective_position(B, 0)</code> → <code>B.basis = 0</code>; the side K-accumulator is <strong>not</strong> decremented.</li>
+        <li><code>enqueue_adl</code> → <code>use_insurance_buffer((ΔK-0.2)·N)</code> → insurance shrinks; <strong>vault unchanged</strong>.</li>
+      </ul>
+
+      <p>Post-step state: <code>vault = 5 + 0.4N</code>, <code>insurance = 5 − (ΔK − 0.2)·N</code>, <code>c_tot = 0.2N</code> (A only).</p>
+
+      <h4>Step 3 — touch A (any path)</h4>
+      <p>Anything that calls <code>accrue_market_to + touch_account_live_local</code> for A — a Trade, a Withdraw, a KeeperCrank — will work. <code>settle_side_effects_live(A)</code> reads current K_long (still at <code>+ΔK</code>; never decremented in Step 2): <code>A.pnl = +ΔK·N</code>, routed through warmup → matured.</p>
+
+      <h4>Step 4 — conversion at <code>finalize_touched_accounts_post_live</code></h4>
+      <pre>senior_sum = c_tot + insurance
+           = 0.2N + (5 − (ΔK − 0.2)·N)
+
+residual   = vault − senior_sum
+           = (5 + 0.4N) − (0.2N + 5 − (ΔK − 0.2)·N)
+           = ΔK·N
+
+h_num      = min(residual, matured_pos_tot)
+           = min(ΔK·N, ΔK·N)
+           = ΔK·N
+
+<span class="ok">is_whole = true → A's matured converts whole to capital</span></pre>
+
+      <h4>Step 5 — withdraw</h4>
+      <p>A withdraws <code>0.2N + ΔK·N</code>. Net P&amp;L:</p>
+      <pre>A_in    = 0.2N
+B_in    = 0.2N
+A_out   = 0.2N + ΔK·N
+B_out   = 0
+       ─────────
+Net     = (0.2N + ΔK·N) − (0.2N + 0.2N)
+        = <span class="accent">(ΔK − 0.2)·N</span>
+
+Insurance loss = (ΔK − 0.2)·N.
+<span class="ok">Exact match.</span></pre>
+    </div>
+
+    <!-- ============== 06 SIZING ============== -->
+    <div data-reveal id="sizing">
+      <div class="section-label">06 · Exploit sizing</div>
+      <h2 class="section-title">5 SOL · single cycle.</h2>
+      <p>At <code>N = 25 SOL</code> and <code>ΔK = 0.4</code> (one ~40% adverse swing), the attacker captures <code>(0.4 − 0.2) · 25 = 5 SOL</code> — the entire insurance fund balance at the time of disclosure. <code>IM = 0.2</code> is the break-even. Any <code>ΔK &gt; 0.2</code> is profitable; the attacker can wait at <code>~0.11 SOL/day</code> maintenance fee (<code>maintenanceFeePerSlot = 265</code>) for a natural Pyth move that crosses the threshold.</p>
+
+      <h3>Permissionless instructions used</h3>
+      <p>All available on mainnet without admin gate (admin / insuranceAuthority / insuranceOperator / hyperpAuthority all verified <code>[0;32]</code>):</p>
+      <ul>
+        <li><code>InitUser</code> / <code>InitLP</code> — <code>matcher_program = [0;32]</code> accepted by <code>InitLP</code></li>
+        <li><code>TradeNoCpi</code> — bilateral signers; <code>NoOpMatcher</code> fills at oracle</li>
+        <li><code>LiquidateAtOracle</code> — permissionless, no admin gate</li>
+        <li><code>KeeperCrank</code> / <code>Withdraw</code> / second <code>TradeNoCpi</code> — anything that triggers A's touch</li>
+      </ul>
+    </div>
+
+    <!-- ============== 07 FIX ============== -->
+    <div data-reveal id="fix">
+      <div class="section-label">07 · Recommended fixes</div>
+      <h2 class="section-title">Three independent options. <span class="accent">Any one suffices.</span></h2>
+
+      <ol>
+        <li><strong>Make insurance-buffer use also debit the vault.</strong> If insurance is held inside the vault accounting, the residual stops growing on absorption. <em>This is the patch verified locally and proposed in PR #39.</em></li>
+        <li><strong>Track consumed insurance in the residual formula.</strong> <code>residual = vault − c_tot − I − I_consumed_this_epoch</code>. The "outside the vault" accounting story stays intact, but the residual no longer inflates.</li>
+        <li><strong>Reject the bilateral-signer self-trade primitive.</strong> If <code>matcher_program = [0;32]</code> with both sides controlled by the same operator is rejected, F7's preconditions never assemble. This is the largest behavioral change but the smallest mechanism change.</li>
+      </ol>
+
+      <p>Option 1 was the patch packaged in <a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">PR #39</a> with a LiteSVM regression test (commit <code>43cdcd8</code>). Local verification: zero regressions across 277 existing tests, F7's PoC test fails as expected with the patch reverted, passes with the patch applied.</p>
+    </div>
+
+    <!-- ============== 08 TIMELINE ============== -->
+    <div data-reveal id="timeline">
+      <div class="section-label">08 · Disclosure timeline</div>
+      <h2 class="section-title">From hypothesis to upstream PR.</h2>
+
+      <div class="timeline">
+        <div class="event">
+          <div class="when">2026-04-22</div>
+          <div class="what">Cycle dispatched. F7 hypothesis generated. Layer-3 trace lands on <code>finalize_touched_accounts_post_live</code>; Layer-4 PoC fires positive on the first run.</div>
+        </div>
+        <div class="event">
+          <div class="when">2026-04-22 (same day)</div>
+          <div class="what">Manual triage. Three independent agent audits had previously pointed at this region (K/F conservation under liquidation) but had refuted the epoch-staleness lead. F7's vector — the residual formula plus self-trade — was the one that survived cross-check.</div>
+        </div>
+        <div class="event">
+          <div class="when">2026-04-23 — 2026-04-29</div>
+          <div class="what">Patch construction. The vault-debit fix is implemented and verified against the existing test suite. LiteSVM regression test (commit <code>43cdcd8</code>) exercises the full self-trade primitive end-to-end.</div>
+        </div>
+        <div class="event">
+          <div class="when">2026-04-30</div>
+          <div class="what">Disclosure. <a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">PR #39</a> opened against <code>aeyakovenko/percolator-prog</code>. Contains: root-cause writeup, end-to-end balance proof, the patch, and the LiteSVM PoC test.</div>
+        </div>
+        <div class="event">
+          <div class="when">2026-05-04</div>
+          <div class="what">Validation comment posted under the PR with the worked balance proof and the patched-vs-unpatched test diff. Vault-debit fix verified locally — zero regressions across 277 tests.</div>
+        </div>
+        <div class="event">
+          <div class="when">Ongoing</div>
+          <div class="what">Sibling-class hypotheses in the same bug class ("insurance-residual coupling") are queued for cross-protocol propagation against any other Solana protocol that maintains a vault counter and an out-of-vault insurance counter. Today: zero confirmed siblings.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============== 09 TAKEAWAY ============== -->
+    <div data-reveal id="takeaway">
+      <div class="section-label">09 · What this proves about the methodology</div>
+      <h2 class="section-title">Continuous beats <span class="accent">point-in-time.</span></h2>
+      <p>F7 is the canonical test case for why the Jelleo loop is structured the way it is. The bug is not detectable by a single static-analysis pass: every individual function holds its documented invariant. It is not detectable by reading the dev's intent: the design is intentional, and the comment block at <code>percolator.rs:2303-2321</code> explicitly endorses it. It is detectable by simulating the interaction of three protections under a self-trade primitive — which is exactly what Layer-2 hypothesis generation plus Layer-4 PoC dispatch was designed to do.</p>
+
+      <p>The four pillars that produced F7 are the same four pillars proposed for every protocol on the funded plan:</p>
+      <ul>
+        <li><strong>P1 — detection</strong> (Layers 1-6): the loop that landed F7 in 18 minutes of automated wall-clock.</li>
+        <li><strong>P2 — propagation</strong>: the F7 bug class is now a sibling-hypothesis seed for every protocol with a vault/insurance accumulator pair.</li>
+        <li><strong>P3 — fix bundle</strong>: PR #39 ships the patch, the regression test, and the worked balance proof — not just a finding.</li>
+        <li><strong>P4 — attestation</strong>: every cycle that touched F7 was signed Ed25519. The public key lives at <a href="/keys/jelleo.ed25519.pub">/keys/jelleo.ed25519.pub</a>; the cycle-receipt archive is at <a href="https://api.jelleo.com/cycles/" target="_blank" rel="noopener">api.jelleo.com/cycles/ ↗</a>.</li>
+      </ul>
+
+      <p>F7 is one disclosure. The thesis behind Jelleo is that the same loop, scaled across the cluster, produces an F7-class disclosure on every protocol that runs it long enough — and that the cost of running the loop is structurally lower than the cost of the attacks it prevents.</p>
+    </div>
+
+    <!-- CTA -->
+    <div data-reveal style="margin-top: 80px; padding: 40px 0; border-top: 1px solid var(--rule); text-align: center;">
+      <p style="margin-bottom: 24px; color: var(--ink-2);">Maintain a Solana protocol? Want this loop on yours?</p>
+      <a href="/integrate/" class="btn btn-primary">Request integration <span class="arrow">→</span></a>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">jelleo</a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Reference</h5>
+        <ul>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/security.html">Security model</a></li>
+          <li><a href="/protocols/">Protocols</a></li>
+          <li><a href="/status/">Status</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>This case study</h5>
+        <ul>
+          <li><a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">PR #39 ↗</a></li>
+          <li><a href="/methodology.html#f7">Methodology · §09</a></li>
+          <li><a href="/protocols/percolator/">Percolator page</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Contact</h5>
+        <ul>
+          <li><a href="mailto:security@jelleo.com">security@jelleo.com</a></li>
+          <li><a href="mailto:kirill@jelleo.com">kirill@jelleo.com</a></li>
+          <li><a href="https://jelleo.com">jelleo.com</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span>v0.1 · F7 case study · 2026-05-07</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/shared.js"></script>
+</body>
+</html>

@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Status</title>
+<meta name="description" content="Jelleo platform status — live service health, last cycle, last hunt, signed-receipt count.">
+<meta name="theme-color" content="#050504">
+<link rel="canonical" href="https://jelleo.com/status/">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+
+.status-banner {
+  margin: 32px 0 56px;
+  padding: 24px 28px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--ok);
+  display: flex; align-items: center; gap: 18px;
+}
+.status-banner.degraded { border-left-color: var(--warn); }
+.status-banner.down     { border-left-color: var(--alert); }
+
+.status-banner .pulse {
+  width: 14px; height: 14px;
+  background: var(--ok); border-radius: 50%;
+  box-shadow: 0 0 12px rgba(74,222,128,0.6);
+  animation: pulse-grow 2s ease-out infinite;
+  flex-shrink: 0;
+}
+.status-banner.degraded .pulse { background: var(--warn); box-shadow: 0 0 12px rgba(251,191,36,0.6); }
+.status-banner.down     .pulse { background: var(--alert); box-shadow: 0 0 12px rgba(239,68,68,0.6); }
+@keyframes pulse-grow {
+  0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.5); }
+  100% { box-shadow: 0 0 0 14px rgba(74,222,128,0); }
+}
+.status-banner .text {
+  font-family: var(--font);
+}
+.status-banner .text .head {
+  font-size: 18px; font-weight: 600;
+  color: var(--ink); letter-spacing: -0.012em;
+}
+.status-banner .text .sub {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--ink-3); margin-top: 4px;
+  letter-spacing: 0.04em;
+}
+
+/* Service grid */
+.services {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+  margin-bottom: 56px;
+}
+.service-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 24px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--rule);
+  align-items: center;
+}
+@media (max-width: 720px) {
+  .service-row { grid-template-columns: 1fr auto; gap: 12px; }
+  .service-row .col-cadence, .service-row .col-last { display: none; }
+}
+.service-row:last-child { border-bottom: none; }
+.service-name {
+  font-size: 14px; font-weight: 500;
+  color: var(--ink); letter-spacing: -0.01em;
+}
+.service-name .desc {
+  font-size: 12px; color: var(--ink-3);
+  font-weight: 400; margin-top: 2px;
+  font-family: var(--mono); letter-spacing: 0.04em;
+}
+.service-state {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  padding: 4px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.service-state .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+.service-state.up       { color: var(--ok);    background: rgba(74,222,128,0.06);  border: 1px solid rgba(74,222,128,0.3); }
+.service-state.degraded { color: var(--warn);  background: rgba(251,191,36,0.06);  border: 1px solid rgba(251,191,36,0.3); }
+.service-state.down     { color: var(--alert); background: rgba(239,68,68,0.06);   border: 1px solid rgba(239,68,68,0.3); }
+.service-state.unknown  { color: var(--ink-3); border: 1px solid var(--rule); }
+.col-cadence, .col-last {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* Counter row */
+.counter-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  margin-bottom: 56px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+@media (max-width: 768px) { .counter-row { grid-template-columns: repeat(2, 1fr); } }
+.counter-cell {
+  padding: 24px 28px;
+  border-right: 1px solid var(--rule);
+}
+.counter-cell:last-child { border-right: none; }
+@media (max-width: 768px) {
+  .counter-cell:nth-child(2) { border-right: none; }
+  .counter-cell:nth-child(1), .counter-cell:nth-child(2) { border-bottom: 1px solid var(--rule); }
+}
+.counter-num {
+  font-size: 32px; font-weight: 700; color: var(--ink);
+  letter-spacing: -0.02em; line-height: 1;
+}
+.counter-num.ok    { color: var(--ok); }
+.counter-num.amber { color: var(--amber); }
+.counter-label {
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-3); margin-top: 8px;
+}
+
+.note {
+  margin: 32px 0;
+  padding: 20px 24px;
+  background: var(--surface);
+  border: 1px dashed var(--rule);
+  border-radius: 8px;
+  font-size: 13px; line-height: 1.65;
+  color: var(--ink-3);
+  font-family: var(--mono); letter-spacing: 0.02em;
+}
+.note strong { color: var(--ink); }
+
+.timestamp-line {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-4);
+  letter-spacing: 0.1em;
+  text-align: right;
+  margin-top: 24px;
+}
+</style>
+</head>
+<body>
+
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/protocols/">Protocols</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html">Security</a>
+    <a href="/status/" class="active">Status</a>
+  </div>
+  <div class="nav-right">
+    <span class="nav-status">
+      <span class="live-dot"></span>
+      <span id="nav-status-text">Loading status…</span>
+    </span>
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/protocols/" role="menuitem">Protocols</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="/status/" role="menuitem">Status</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
+</div>
+
+<section class="hero">
+  <span class="hero-bracket tl"></span>
+  <span class="hero-bracket br"></span>
+  <div class="container">
+    <div data-reveal>
+      <div class="hero-eyebrow">Status · live signal</div>
+      <h1 class="hero-title">Platform <span class="accent">status.</span></h1>
+      <p class="hero-lede">Live health of the Jelleo loop: shadow service, watch service, scheduler timers, snapshot publication, signed-receipt count, and last-cycle timestamps. Driven by <code>https://api.jelleo.com/snapshot.json</code>, refreshed automatically every 60 seconds.</p>
+    </div>
+  </div>
+</section>
+
+<section class="doc">
+  <div class="container">
+    <div data-reveal>
+      <div id="status-banner" class="status-banner">
+        <div class="pulse"></div>
+        <div class="text">
+          <div class="head" id="banner-head">Loading status…</div>
+          <div class="sub" id="banner-sub">Fetching snapshot from api.jelleo.com</div>
+        </div>
+      </div>
+
+      <div class="counter-row">
+        <div class="counter-cell">
+          <div class="counter-num ok" id="ct-services">—</div>
+          <div class="counter-label">Services up</div>
+        </div>
+        <div class="counter-cell">
+          <div class="counter-num" id="ct-cycles">—</div>
+          <div class="counter-label">Total cycles</div>
+        </div>
+        <div class="counter-cell">
+          <div class="counter-num amber" id="ct-receipts">—</div>
+          <div class="counter-label">Signed receipts</div>
+        </div>
+        <div class="counter-cell">
+          <div class="counter-num" id="ct-uptime">—</div>
+          <div class="counter-label">Loop uptime</div>
+        </div>
+      </div>
+
+      <h3 style="font-size: clamp(20px, 2vw, 26px); font-weight: 600; margin: 32px 0 18px; color: var(--ink); letter-spacing: -0.01em;">Service health</h3>
+
+      <div class="services" id="services-grid">
+        <div class="service-row">
+          <div class="service-name">jelleo-shadow.service<div class="desc">Layer-6 mainnet shadow · 60s polling</div></div>
+          <div class="col-cadence">continuous</div>
+          <div class="col-last">—</div>
+          <div class="service-state unknown" data-svc="shadow"><span class="dot"></span>Unknown</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">jelleo-watch.service<div class="desc">Layer-5 commit watch · auto-hunt on update</div></div>
+          <div class="col-cadence">continuous</div>
+          <div class="col-last">—</div>
+          <div class="service-state unknown" data-svc="watch"><span class="dot"></span>Unknown</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">jelleo-scheduler-24h.timer<div class="desc">Daily cycle + customer-cadence dispatcher</div></div>
+          <div class="col-cadence">24 hr</div>
+          <div class="col-last">—</div>
+          <div class="service-state unknown" data-svc="scheduler-24h"><span class="dot"></span>Unknown</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">jelleo-scheduler-weekly.timer<div class="desc">Weekly digest cycle</div></div>
+          <div class="col-cadence">7 days</div>
+          <div class="col-last">—</div>
+          <div class="service-state unknown" data-svc="scheduler-weekly"><span class="dot"></span>Unknown</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">jelleo-scheduler-monthly.timer<div class="desc">Monthly digest cycle</div></div>
+          <div class="col-cadence">30 days</div>
+          <div class="col-last">—</div>
+          <div class="service-state unknown" data-svc="scheduler-monthly"><span class="dot"></span>Unknown</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">jelleo-snapshot.timer<div class="desc">Public snapshot.json publisher</div></div>
+          <div class="col-cadence">5 min</div>
+          <div class="col-last">—</div>
+          <div class="service-state unknown" data-svc="snapshot"><span class="dot"></span>Unknown</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">jelleo-backup.timer<div class="desc">Findings DB off-site backup</div></div>
+          <div class="col-cadence">24 hr</div>
+          <div class="col-last">—</div>
+          <div class="service-state unknown" data-svc="backup"><span class="dot"></span>Unknown</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">jelleo-health.timer<div class="desc">Self-test on the loop itself</div></div>
+          <div class="col-cadence">15 min</div>
+          <div class="col-last">—</div>
+          <div class="service-state unknown" data-svc="health"><span class="dot"></span>Unknown</div>
+        </div>
+      </div>
+
+      <div class="note" id="signal-note">
+        <strong>Signal source.</strong> Each service writes its last-tick + status into the platform DB. The snapshot publisher rolls these into <code>api.jelleo.com/snapshot.json</code> every 5 minutes. This page polls that JSON every 60 seconds and re-renders. If the snapshot itself is stale (older than 30 minutes) the banner flips to <em>degraded</em>.
+      </div>
+
+      <div class="timestamp-line" id="last-fetch">Last fetched: never</div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">jelleo</a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Status</h5>
+        <ul>
+          <li><a href="/status/">Service health</a></li>
+          <li><a href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">Raw snapshot ↗</a></li>
+          <li><a href="https://api.jelleo.com/cycles/" target="_blank" rel="noopener">Cycle archive ↗</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Reference</h5>
+        <ul>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/security.html">Security model</a></li>
+          <li><a href="/protocols/">Protocols</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Provenance</h5>
+        <ul>
+          <li><a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Platform pubkey ↗</a></li>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">Source ↗</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span>v0.1 · Status · Live signal</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function() {
+  const SNAPSHOT_URL = 'https://api.jelleo.com/snapshot.json';
+  const REFRESH_MS = 60_000;
+  const STALE_AFTER_MS = 30 * 60_000; // 30 min
+
+  const banner = document.getElementById('status-banner');
+  const head   = document.getElementById('banner-head');
+  const sub    = document.getElementById('banner-sub');
+  const navStatusText = document.getElementById('nav-status-text');
+  const lastFetch = document.getElementById('last-fetch');
+  const ctServices = document.getElementById('ct-services');
+  const ctCycles   = document.getElementById('ct-cycles');
+  const ctReceipts = document.getElementById('ct-receipts');
+  const ctUptime   = document.getElementById('ct-uptime');
+
+  function setBanner(state, headText, subText) {
+    banner.classList.remove('degraded', 'down');
+    if (state !== 'up') banner.classList.add(state);
+    head.textContent = headText;
+    sub.textContent  = subText;
+    navStatusText.textContent = headText;
+  }
+
+  function relTime(ms) {
+    if (ms == null) return '—';
+    const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+    if (sec < 60)   return `${sec}s ago`;
+    if (sec < 3600) return `${Math.floor(sec/60)} min ago`;
+    if (sec < 86400) return `${Math.floor(sec/3600)} hr ago`;
+    return `${Math.floor(sec/86400)} d ago`;
+  }
+
+  function setSvc(svcKey, state, lastTickMs) {
+    const cell = document.querySelector(`[data-svc="${svcKey}"]`);
+    if (!cell) return;
+    cell.classList.remove('up', 'degraded', 'down', 'unknown');
+    cell.classList.add(state);
+    cell.innerHTML = `<span class="dot"></span>${state.charAt(0).toUpperCase() + state.slice(1)}`;
+    const row = cell.closest('.service-row');
+    if (row) {
+      const lastCol = row.querySelector('.col-last');
+      if (lastCol) lastCol.textContent = lastTickMs ? relTime(lastTickMs) : '—';
+    }
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch(SNAPSHOT_URL, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const snap = await r.json();
+      const generatedAt = snap.generated_at_ms || Date.parse(snap.generated_at || '') || null;
+
+      if (generatedAt && (Date.now() - generatedAt) > STALE_AFTER_MS) {
+        setBanner('degraded', 'Stale snapshot', `Last published ${relTime(generatedAt)} — snapshot publisher may be lagging.`);
+      } else {
+        const allUp = (snap.services || []).every(s => s.state === 'up');
+        if (allUp) setBanner('up',       'All systems operational', `Last update ${relTime(generatedAt)} · ${(snap.services||[]).length} services`);
+        else       setBanner('degraded', 'Degraded',                `Last update ${relTime(generatedAt)} · check service grid below`);
+      }
+
+      // Counters
+      const upCount = (snap.services || []).filter(s => s.state === 'up').length;
+      const total   = (snap.services || []).length;
+      ctServices.textContent = total ? `${upCount}/${total}` : '—';
+      ctCycles.textContent   = (snap.cycles_total || 0);
+      ctReceipts.textContent = (snap.receipts_signed || 0);
+      ctUptime.textContent   = snap.loop_uptime_human || '—';
+
+      // Service rows
+      (snap.services || []).forEach(s => setSvc(s.key, s.state, s.last_tick_ms));
+
+      lastFetch.textContent = `Last fetched: ${new Date().toISOString()}`;
+    } catch (err) {
+      setBanner('down', 'Status feed unreachable', `Cannot reach api.jelleo.com — error: ${err.message || err}`);
+      lastFetch.textContent = `Last fetched: error at ${new Date().toISOString()}`;
+    }
+  }
+
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+})();
+</script>
+
+<script src="/shared.js"></script>
+</body>
+</html>

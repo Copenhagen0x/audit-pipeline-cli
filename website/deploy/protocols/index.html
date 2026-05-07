@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Protocols</title>
+<meta name="description" content="Solana protocols under continuous Jelleo audit. Live monitoring, hypothesis library scope, severity history, last cycle timestamp.">
+<meta name="theme-color" content="#050504">
+<link rel="canonical" href="https://jelleo.com/protocols/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Jelleo">
+<meta property="og:url" content="https://jelleo.com/protocols/">
+<meta property="og:title" content="Jelleo · Protocols">
+<meta property="og:description" content="Solana protocols under continuous Jelleo audit. Live monitoring, hypothesis libraries, severity history.">
+<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+/* ====== Protocols index page ====== */
+
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+
+section.doc h3 {
+  font-size: clamp(20px, 2vw, 26px);
+  line-height: 1.25; font-weight: 600;
+  margin: 48px 0 18px; color: var(--ink);
+  letter-spacing: -0.01em;
+}
+section.doc p { color: var(--ink-2); margin-bottom: 16px; max-width: 76ch; line-height: 1.65; }
+section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; max-width: 70ch; }
+
+/* Status legend */
+.status-legend {
+  display: flex; gap: 28px; flex-wrap: wrap;
+  margin: 32px 0 56px;
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-3);
+}
+.status-legend .legend-item { display: inline-flex; align-items: center; gap: 10px; }
+.status-legend .legend-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+.legend-dot.live    { background: var(--ok); box-shadow: 0 0 8px rgba(74,222,128,0.5); }
+.legend-dot.scoped  { background: var(--amber); box-shadow: 0 0 8px var(--amber-glow); }
+.legend-dot.roadmap { background: var(--ink-4); }
+
+/* Protocol grid — 2 columns desktop, 1 mobile */
+.protocols-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+  margin-top: 32px;
+}
+@media (min-width: 880px) {
+  .protocols-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.protocol-card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--ink-4);
+  border-radius: 0 8px 8px 0;
+  padding: 28px 32px;
+  position: relative;
+  transition: border-color .25s ease, transform .25s var(--ease-out), background .25s ease;
+}
+.protocol-card:hover {
+  background: var(--surface-2);
+  transform: translateY(-2px);
+}
+.protocol-card.live    { border-left-color: var(--ok); }
+.protocol-card.scoped  { border-left-color: var(--amber); }
+.protocol-card.roadmap { border-left-color: var(--ink-4); opacity: 0.7; }
+.protocol-card.live:hover    { border-color: rgba(74,222,128,0.4); }
+.protocol-card.scoped:hover  { border-color: rgba(245,184,0,0.4); }
+
+.protocol-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; margin-bottom: 12px;
+}
+.protocol-name {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.012em; color: var(--ink);
+}
+.protocol-name a {
+  color: inherit;
+  border-bottom: 1px dashed transparent;
+  transition: border-color .15s ease, color .15s ease;
+}
+.protocol-name a:hover { color: var(--amber); border-bottom-color: var(--amber); }
+.protocol-status {
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.16em;
+  padding: 4px 10px; border-radius: 999px;
+  white-space: nowrap; flex-shrink: 0;
+  border: 1px solid var(--rule-2);
+}
+.protocol-status.live    { color: var(--ok);    border-color: rgba(74,222,128,0.3);  background: rgba(74,222,128,0.06); }
+.protocol-status.scoped  { color: var(--amber); border-color: rgba(245,184,0,0.3);  background: rgba(245,184,0,0.06); }
+.protocol-status.roadmap { color: var(--ink-3); border-color: var(--rule); }
+
+.protocol-class {
+  font-family: var(--mono); font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--ink-3); margin-bottom: 16px;
+}
+
+.protocol-desc {
+  font-size: 14px; line-height: 1.6;
+  color: var(--ink-2); margin-bottom: 20px;
+  max-width: 60ch;
+}
+
+.protocol-meta {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+}
+.meta-cell .meta-label {
+  font-family: var(--mono); font-size: 9px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-4); margin-bottom: 6px;
+}
+.meta-cell .meta-value {
+  font-size: 14px; font-weight: 500; color: var(--ink);
+}
+.meta-cell .meta-value.dim { color: var(--ink-3); }
+.meta-cell .meta-value.amber { color: var(--amber); }
+.meta-cell .meta-value.ok    { color: var(--ok); }
+
+.protocol-foot {
+  margin-top: 22px;
+  display: flex; align-items: center; gap: 14px;
+}
+.protocol-foot a {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.16em;
+  color: var(--ink-3); border-bottom: 1px solid var(--rule);
+  padding-bottom: 2px;
+  transition: color .15s ease, border-color .15s ease;
+}
+.protocol-foot a:hover { color: var(--amber); border-bottom-color: var(--amber); }
+
+/* Counter row at top */
+.counter-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  margin: 40px 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+@media (max-width: 768px) {
+  .counter-row { grid-template-columns: repeat(2, 1fr); }
+}
+.counter-cell {
+  padding: 22px 24px;
+  border-right: 1px solid var(--rule);
+}
+.counter-cell:last-child { border-right: none; }
+@media (max-width: 768px) {
+  .counter-cell:nth-child(2) { border-right: none; }
+  .counter-cell:nth-child(1), .counter-cell:nth-child(2) { border-bottom: 1px solid var(--rule); }
+}
+.counter-num {
+  font-size: 36px; font-weight: 700; color: var(--ink);
+  letter-spacing: -0.02em; line-height: 1;
+}
+.counter-num.amber { color: var(--amber); }
+.counter-num.ok    { color: var(--ok); }
+.counter-label {
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-3); margin-top: 8px;
+}
+
+/* Onboarding queue */
+.queue {
+  margin-top: 56px;
+  padding: 28px 32px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+}
+.queue-head {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.22em;
+  color: var(--ink-3); margin-bottom: 14px;
+}
+.queue-list {
+  display: flex; flex-wrap: wrap; gap: 8px 14px;
+  font-size: 13px; color: var(--ink-2);
+}
+.queue-list span {
+  font-family: var(--mono); font-size: 12px;
+  padding: 4px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  color: var(--ink-3);
+}
+
+</style>
+</head>
+<body>
+
+<!-- ============== BACKGROUND ============== -->
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<!-- ============== CURSOR ============== -->
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+
+<!-- ============== SCROLL PROGRESS ============== -->
+<div class="scroll-progress" id="progress"></div>
+
+<!-- ============== NAV ============== -->
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/protocols/" class="active">Protocols</a>
+    <a href="/#product">Product</a>
+    <a href="/#live-ops">Live ops</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html">Security</a>
+  </div>
+  <div class="nav-right">
+    <span class="nav-status">
+      <span class="live-dot"></span>
+      1 active · 26 candidates
+    </span>
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/protocols/" role="menuitem">Protocols</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener" role="menuitem">Source</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
+</div>
+
+<!-- ============== HERO ============== -->
+<section class="hero">
+  <span class="hero-bracket tl"></span>
+  <span class="hero-bracket br"></span>
+  <div class="container">
+    <div data-reveal>
+      <div class="hero-eyebrow">Protocols · coverage state</div>
+      <h1 class="hero-title">Solana protocols on the <span class="accent">Jelleo loop.</span></h1>
+      <p class="hero-lede"><strong>Today:</strong> one protocol — Percolator — running continuously on the loop. F7 (Critical) was the first finding, disclosed via PR #39. <strong>Funded-state target:</strong> 27 protocols active by Year-1 exit. Candidate protocols below are reserved on the cluster ramp; library scoping for each begins as cluster nodes 2-12 come online.</p>
+      <div class="hero-meta">
+        <span><strong>1</strong> active</span>
+        <span><strong>26</strong> Y1 candidates</span>
+        <span><strong>F7</strong> disclosed</span>
+        <span><strong>v0.1</strong> deployed</span>
+      </div>
+    </div>
+
+    <div class="counter-row" data-reveal data-delay="1">
+      <div class="counter-cell">
+        <div class="counter-num ok">1</div>
+        <div class="counter-label">Active monitor</div>
+      </div>
+      <div class="counter-cell">
+        <div class="counter-num">31</div>
+        <div class="counter-label">Hypotheses · Percolator</div>
+      </div>
+      <div class="counter-cell">
+        <div class="counter-num amber">F7</div>
+        <div class="counter-label">Critical · disclosed</div>
+      </div>
+      <div class="counter-cell">
+        <div class="counter-num">26</div>
+        <div class="counter-label">Y1 candidates</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== ACTIVE ============== -->
+<section class="doc">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">01 · Active monitoring</div>
+      <h2 class="section-title">Live on <span class="accent">mainnet today.</span></h2>
+      <p class="lede">Continuous shadow audit running on the VPS. Every hunt cycle pushes signed receipts to <code>jelleo.com/cycles/</code>. F7 — the structural insurance-residual drain — was the first disclosure produced by this loop.</p>
+
+      <div class="status-legend">
+        <span class="legend-item"><span class="legend-dot live"></span>Active — running on the loop today</span>
+        <span class="legend-item"><span class="legend-dot scoped"></span>Y1 candidate — library not yet written</span>
+      </div>
+    </div>
+
+    <div class="protocols-grid" data-reveal data-delay="1">
+
+      <article class="protocol-card live">
+        <div class="protocol-head">
+          <div class="protocol-name"><a href="/protocols/percolator/">Percolator</a></div>
+          <span class="protocol-status live">Active</span>
+        </div>
+        <div class="protocol-class">Perpetual DEX · F7 origin</div>
+        <p class="protocol-desc">Anatoly Yakovenko's perpetual-futures protocol. First protocol on the Jelleo loop. Layer-1–6 audit cycle running continuously since April 2026.</p>
+        <div class="protocol-meta">
+          <div class="meta-cell">
+            <div class="meta-label">Hypotheses</div>
+            <div class="meta-value">31</div>
+          </div>
+          <div class="meta-cell">
+            <div class="meta-label">Findings</div>
+            <div class="meta-value amber">F7 confirmed</div>
+          </div>
+          <div class="meta-cell">
+            <div class="meta-label">Cadence</div>
+            <div class="meta-value ok">Live shadow</div>
+          </div>
+        </div>
+        <div class="protocol-foot">
+          <a href="/protocols/percolator/">Protocol page →</a>
+          <a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">F7 disclosure ↗</a>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============== Y1 CANDIDATES ============== -->
+<section class="doc" style="padding-top: 32px;">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">02 · Year-1 candidates</div>
+      <h2 class="section-title">Reserved on the <span class="accent">cluster ramp.</span></h2>
+      <p class="lede">Below: the protocols slotted for Year-1 onboarding. Each will get a scoped hypothesis library, a target program ID, and a cadence as cluster nodes 2-12 come online under the funded plan. Order of onboarding is set by TVL, customer requests, and STRIDE-tier eligibility — none of these have a written library yet, and none are active on the loop today.</p>
+
+      <div class="queue">
+        <div class="queue-head">Perp DEX · queued</div>
+        <div class="queue-list">
+          <span>Drift Protocol</span>
+          <span>Mango v4</span>
+          <span>Jupiter Perps</span>
+        </div>
+      </div>
+
+      <div class="queue" style="margin-top: 22px;">
+        <div class="queue-head">Lending · queued</div>
+        <div class="queue-list">
+          <span>Kamino Lend</span>
+          <span>MarginFi</span>
+          <span>Solend</span>
+          <span>Save Finance</span>
+          <span>Hubble Protocol</span>
+        </div>
+      </div>
+
+      <div class="queue" style="margin-top: 22px;">
+        <div class="queue-head">AMM / CLMM · queued</div>
+        <div class="queue-list">
+          <span>Orca Whirlpools</span>
+          <span>Raydium</span>
+          <span>Kamino Liquidity</span>
+          <span>Meteora</span>
+          <span>Phoenix</span>
+        </div>
+      </div>
+
+      <div class="queue" style="margin-top: 22px;">
+        <div class="queue-head">Aggregator / vaults / strategies · queued</div>
+        <div class="queue-list">
+          <span>Jupiter Aggregator</span>
+          <span>Drift Vaults</span>
+          <span>Lulo Finance</span>
+          <span>Voltr</span>
+          <span>Adrastea</span>
+          <span>Texture Capital</span>
+        </div>
+      </div>
+
+      <div class="queue" style="margin-top: 22px;">
+        <div class="queue-head">LST / oracles / bridge / multisig · queued</div>
+        <div class="queue-list">
+          <span>Marinade</span>
+          <span>Sanctum</span>
+          <span>Jito</span>
+          <span>Pyth Network</span>
+          <span>Switchboard</span>
+          <span>Wormhole</span>
+          <span>Squads Protocol</span>
+          <span>Tensor</span>
+        </div>
+      </div>
+
+      <div class="queue" style="margin-top: 22px;">
+        <div class="queue-head">Q3 evaluation pool</div>
+        <div class="queue-list">
+          <span>Cypher</span>
+          <span>Helium Mobile</span>
+          <span>Hawksight</span>
+          <span>Ratio</span>
+          <span>Adrena</span>
+          <span>Carrot</span>
+          <span>Loopscale</span>
+          <span>Parcl</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== CTA ============== -->
+<section class="doc" style="padding-bottom: 120px;">
+  <div class="container">
+    <div data-reveal style="max-width: 720px; margin: 0 auto; text-align: center;">
+      <div class="section-label" style="justify-content: center;">03 · Integration</div>
+      <h2 class="section-title" style="margin-left: auto; margin-right: auto;">Want your protocol on the loop?</h2>
+      <p class="lede" style="margin-left: auto; margin-right: auto;">If you maintain a Solana protocol and want continuous shadow audit alongside your point-in-time audit, request integration. Scoping is free; deployment runs on the customer-portal track.</p>
+      <p style="margin-left: auto; margin-right: auto; margin-top: 32px;">
+        <a href="/integrate/" class="btn btn-primary">Request integration <span class="arrow">→</span></a>
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== FOOTER ============== -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">jelleo</a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="/protocols/">Protocols</a></li>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/security.html">Security &amp; disclosure</a></li>
+          <li><a href="/customer/">Customer portal</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Open source</h5>
+        <ul>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">Platform</a></li>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/HYPOTHESIS_SCHEMA.md" target="_blank" rel="noopener">Schema spec</a></li>
+          <li><a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">F7 disclosure</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Contact</h5>
+        <ul>
+          <li><a href="mailto:security@jelleo.com">security@jelleo.com</a></li>
+          <li><a href="mailto:kirill@jelleo.com">kirill@jelleo.com</a></li>
+          <li><a href="mailto:info@jelleo.com">info@jelleo.com</a></li>
+          <li><a href="https://jelleo.com">jelleo.com</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span>v0.1 · Protocols · 2026-05-07</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/shared.js"></script>
+
+</body>
+</html>

@@ -231,16 +231,53 @@ canvas#particles {
   100% { box-shadow: 0 0 0 12px rgba(74,222,128,0); }
 }
 
+.nav-portal {
+  font-size: 13px; font-weight: 500;
+  padding: 9px 18px;
+  color: var(--ink-2);
+  background: rgba(245,243,237,0.04);
+  border: 1px solid var(--rule-2);
+  border-radius: 999px;
+  white-space: nowrap;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+.nav-portal:hover {
+  color: var(--amber);
+  border-color: rgba(245,184,0,0.5);
+  background: rgba(245,184,0,0.06);
+  transform: translateY(-1px);
+}
+.nav-portal.active-portal {
+  color: var(--amber);
+  border-color: var(--amber);
+  background: rgba(245,184,0,0.06);
+}
+
 .nav-cta {
   font-size: 13px; font-weight: 600; padding: 10px 22px;
   background: var(--amber); color: var(--bg); border-radius: 999px;
   transition: all 0.25s var(--ease-out);
   box-shadow: 0 0 0 0 var(--amber-glow);
+  white-space: nowrap;
 }
 .nav-cta:hover {
   background: var(--amber-2);
   box-shadow: 0 0 24px var(--amber-glow);
   transform: translateY(-1px);
+}
+/* When the user is already on /integrate/, gray-out the CTA so the visual
+   doesn't promise navigation that's a no-op. */
+.nav-cta.active-cta {
+  background: rgba(245,184,0,0.18);
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  cursor: default;
+  pointer-events: none;
+}
+.nav-cta.active-cta:hover {
+  background: rgba(245,184,0,0.18);
+  box-shadow: none;
+  transform: none;
 }
 
 /* Laptop nav scaling */
@@ -252,6 +289,7 @@ canvas#particles {
   .nav-center { padding: 3px; }
   .nav-center a { font-size: 12px; padding: 7px 14px; }
   .nav-status { font-size: 10px; gap: 7px; letter-spacing: 0.14em; }
+  .nav-portal { font-size: 12px; padding: 8px 14px; }
   .nav-cta { font-size: 12px; padding: 9px 18px; }
   .nav-right { gap: 12px; }
 }
@@ -261,6 +299,7 @@ canvas#particles {
   .nav { grid-template-columns: 1fr auto; }
   .nav-center { display: none; }
   .nav-status { display: none; }
+  .nav-portal { display: none; }
   .nav-cta { display: none; }
   .nav-toggle {
     display: flex; flex-direction: column; gap: 4px;
@@ -318,7 +357,7 @@ section { padding: 140px 0; position: relative; }
 
 .section-title {
   font-size: clamp(36px, 5.6vw, 84px);
-  font-weight: 700; letter-spacing: -0.04em; line-height: 1.0;
+  font-weight: 700; letter-spacing: -0.04em; line-height: 1.2;
   color: var(--ink); margin-bottom: 32px; max-width: 22ch;
 }
 .section-title .accent {
@@ -359,7 +398,7 @@ section { padding: 140px 0; position: relative; }
 }
 .hero-title {
   font-size: clamp(48px, 7vw, 110px);
-  font-weight: 800; line-height: 0.95; letter-spacing: -0.04em;
+  font-weight: 800; line-height: 1.2; letter-spacing: -0.04em;
   color: var(--ink); margin-bottom: 32px; max-width: 18ch;
 }
 .hero-title .accent {
@@ -402,9 +441,25 @@ section { padding: 140px 0; position: relative; }
   opacity: 0;
   transform: translateY(10px);
   animation: title-char-in 0.5s var(--ease-out) forwards;
+  /* Belt-and-suspenders: keep descenders (g, p, y, q, j) visible even when
+     a parent's line-height is tighter than the font's natural metric. */
+  padding-bottom: 0.06em;
 }
 @keyframes title-char-in {
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* The typewriter wraps each character in an inline-block .title-char span.
+   Without this rule, an .accent ancestor's gradient background-clip: text
+   does NOT propagate through the new inline-block descendants, so the accent
+   text renders fully transparent. Re-apply the gradient on each .title-char
+   inside an .accent so the per-character animation still shows the amber. */
+.section-title .accent .title-char,
+.hero-title .accent .title-char,
+.dash-section-title .accent .title-char {
+  background: linear-gradient(135deg, var(--amber), var(--amber-2));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* Belt-and-suspenders: section titles never break inside a word */

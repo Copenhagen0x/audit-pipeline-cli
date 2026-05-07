@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Request integration</title>
+<meta name="description" content="Get Jelleo onto your Solana protocol. Choose a tier, share your scope, request an estimate.">
+<meta name="theme-color" content="#050504">
+<link rel="canonical" href="https://jelleo.com/integrate/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Jelleo">
+<meta property="og:url" content="https://jelleo.com/integrate/">
+<meta property="og:title" content="Jelleo · Request integration">
+<meta property="og:description" content="Get Jelleo onto your Solana protocol. Choose a tier, share your scope, request an estimate.">
+<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+section.doc p { color: var(--ink-2); margin-bottom: 16px; max-width: 76ch; line-height: 1.65; }
+section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; max-width: 70ch; }
+
+/* Tier picker — 3 cards */
+.tier-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+  margin: 40px 0 56px;
+}
+@media (min-width: 880px) { .tier-grid { grid-template-columns: repeat(3, 1fr); } }
+
+.tier-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 28px 28px 24px;
+  cursor: pointer;
+  transition: border-color .25s ease, transform .25s var(--ease-out), background .25s ease;
+  display: flex; flex-direction: column;
+}
+.tier-card:hover {
+  background: var(--surface-2);
+  transform: translateY(-2px);
+}
+.tier-card.selected {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 1px var(--amber), 0 0 32px rgba(245,184,0,0.15);
+  background: rgba(245,184,0,0.04);
+}
+.tier-card .tier-radio {
+  position: absolute; top: 24px; right: 24px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--rule-2);
+  background: transparent;
+  transition: all .2s ease;
+}
+.tier-card.selected .tier-radio {
+  border-color: var(--amber);
+  background: var(--amber);
+  box-shadow: 0 0 0 4px rgba(245,184,0,0.15);
+}
+.tier-card.selected .tier-radio::after {
+  content: ''; position: absolute; inset: 4px;
+  background: var(--bg); border-radius: 50%;
+}
+
+.tier-name {
+  font-size: 20px; font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.tier-card.recommended .tier-name::after {
+  content: '· recommended';
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--amber);
+  margin-left: 8px;
+  font-weight: 500;
+}
+.tier-tagline {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3); letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+.tier-price {
+  font-size: 34px; font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.tier-price .per { font-size: 13px; color: var(--ink-3); font-weight: 500; }
+.tier-yearly {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-4); letter-spacing: 0.06em;
+  margin-bottom: 22px;
+}
+.tier-features {
+  list-style: none; margin: 0; padding: 18px 0 0;
+  border-top: 1px solid var(--rule);
+  font-size: 13px; line-height: 1.6; color: var(--ink-2);
+  flex: 1;
+}
+.tier-features li {
+  padding: 6px 0; padding-left: 22px; position: relative;
+}
+.tier-features li::before {
+  content: '✓'; position: absolute; left: 0;
+  color: var(--amber); font-weight: 600;
+}
+
+/* Form */
+.req-form {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 36px 40px;
+  margin: 32px 0 56px;
+}
+@media (max-width: 600px) {
+  .req-form { padding: 28px 20px; }
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px 28px;
+}
+@media (max-width: 700px) { .field-grid { grid-template-columns: 1fr; gap: 18px; } }
+.field-grid .field-full { grid-column: 1 / -1; }
+
+.field label {
+  display: block;
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
+.field label .opt { color: var(--ink-4); margin-left: 8px; font-size: 10px; }
+
+.field input,
+.field textarea,
+.field select {
+  width: 100%;
+  background: var(--bg-2);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-family: var(--mono); font-size: 13px;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+  transition: border-color .2s ease, box-shadow .2s ease;
+  cursor: text;
+}
+.field textarea {
+  resize: vertical;
+  min-height: 110px;
+  line-height: 1.55;
+}
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px rgba(245,184,0,0.12);
+}
+.field input::placeholder, .field textarea::placeholder { color: var(--ink-4); }
+
+.submit-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+.submit-btn {
+  display: inline-flex; align-items: center; gap: 12px;
+  padding: 16px 28px;
+  background: var(--amber); color: var(--bg);
+  font-family: var(--font); font-size: 14px; font-weight: 600;
+  letter-spacing: 0.01em;
+  border: none; border-radius: 8px;
+  cursor: pointer;
+  transition: background .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+.submit-btn:hover {
+  background: var(--amber-2);
+  box-shadow: 0 0 28px rgba(245,184,0,0.3);
+  transform: translateY(-1px);
+}
+.submit-btn:disabled {
+  background: var(--rule-2);
+  color: var(--ink-4);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+.submit-note {
+  font-size: 12px; color: var(--ink-3);
+  font-family: var(--mono); letter-spacing: 0.04em;
+}
+
+.field-error {
+  margin-top: 14px; padding: 10px 14px;
+  background: rgba(239,68,68,0.06);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 6px;
+  font-size: 13px; color: var(--alert);
+  display: none;
+}
+.field-error.shown { display: block; }
+
+/* Alt-contact strip */
+.alt-strip {
+  margin: 24px 0 56px;
+  padding: 22px 28px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 24px;
+}
+@media (max-width: 720px) { .alt-strip { grid-template-columns: 1fr; gap: 16px; } }
+.alt-strip .alt-item .alt-label {
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-4); margin-bottom: 6px;
+}
+.alt-strip .alt-item .alt-value {
+  font-size: 14px;
+}
+.alt-strip .alt-item .alt-value a {
+  color: var(--amber);
+  border-bottom: 1px dashed rgba(245,184,0,0.3);
+}
+.alt-strip .alt-item .alt-value a:hover { border-bottom-color: var(--amber); }
+</style>
+</head>
+<body>
+
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+<div class="scroll-progress" id="progress"></div>
+
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/protocols/">Protocols</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html">Security</a>
+    <a href="/case-studies/f7-percolator/">F7 case study</a>
+  </div>
+  <div class="nav-right">
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta active-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/protocols/" role="menuitem">Protocols</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
+</div>
+
+<section class="hero">
+  <span class="hero-bracket tl"></span>
+  <span class="hero-bracket br"></span>
+  <div class="container">
+    <div data-reveal>
+      <div class="hero-eyebrow">Integration · request</div>
+      <h1 class="hero-title">Get Jelleo on <span class="accent">your protocol.</span></h1>
+      <p class="hero-lede">Tell us what you maintain and how you want to engage. We'll reply within one business day with a scoped proposal: target program ID, hypothesis library coverage, cadence, monthly estimate.</p>
+      <div class="hero-meta">
+        <span><strong>Typical reply</strong> &lt;24h</span>
+        <span><strong>Pricing</strong> 2.4× raw API</span>
+        <span><strong>Engagement</strong> month-to-month</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TIER PICKER -->
+<section class="doc">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">01 · Pick a tier</div>
+      <h2 class="section-title">Three depths. <span class="accent">Pick one.</span></h2>
+      <p class="lede">Pricing is 2.4× our raw Anthropic API cost (58% gross margin). You can move between tiers month over month. All tiers ship the same contractual surface — signed cycle receipts, 24h / weekly / monthly reports, live customer dashboard, immediate notification on Critical/High, GitHub-issue auto-file, cross-protocol propagation channel access. Higher tiers add Kani proofs on every Critical/High, P3 fix-bundle PRs, attack-chain enumeration depth, and on-call SLA.</p>
+    </div>
+
+    <div class="tier-grid" data-reveal data-delay="1">
+
+      <label class="tier-card" data-tier="foundation">
+        <span class="tier-radio"></span>
+        <div class="tier-name">Foundation</div>
+        <div class="tier-tagline">monitoring depth · daily runs</div>
+        <div class="tier-price">$30K<span class="per"> / mo</span></div>
+        <div class="tier-yearly">$360K / year · open-ended</div>
+        <ul class="tier-features">
+          <li>~300 hypotheses / day · Sonnet-only</li>
+          <li>24h / weekly / monthly signed reports</li>
+          <li>Live customer dashboard</li>
+          <li>Immediate Critical/High notifications</li>
+          <li>GitHub-issue auto-file on confirmed</li>
+          <li>Cross-protocol propagation channel</li>
+        </ul>
+      </label>
+
+      <label class="tier-card recommended selected" data-tier="production">
+        <span class="tier-radio"></span>
+        <div class="tier-name">Production</div>
+        <div class="tier-tagline">default for $1B+ TVL DeFi</div>
+        <div class="tier-price">$60K<span class="per"> / mo</span></div>
+        <div class="tier-yearly">$720K / year · open-ended</div>
+        <ul class="tier-features">
+          <li>~500 hypotheses / day</li>
+          <li>Sonnet + tool-using Opus + weekly Kani</li>
+          <li>Everything in Foundation, plus:</li>
+          <li>Kani proofs on every Critical/High</li>
+          <li>P3 fix-bundle PRs (maintainer-ready)</li>
+          <li>On-call SLA on disclosure response</li>
+        </ul>
+      </label>
+
+      <label class="tier-card" data-tier="ceiling">
+        <span class="tier-radio"></span>
+        <div class="tier-name">Ceiling</div>
+        <div class="tier-tagline">attack-chain enumeration depth</div>
+        <div class="tier-price">$120K<span class="per"> / mo</span></div>
+        <div class="tier-yearly">$1.44M / year · open-ended</div>
+        <ul class="tier-features">
+          <li>~1,500+ hypotheses / day</li>
+          <li>Multi-round refinement</li>
+          <li>Attack-chain enumeration depth</li>
+          <li>Kani synthesis on every Critical/High</li>
+          <li>Foundation-grant reimbursement path (STRIDE T2)</li>
+          <li>Direct line to founder + on-call team</li>
+        </ul>
+      </label>
+
+    </div>
+
+    <p style="font-size: 13px; color: var(--ink-3); margin-top: -20px;">Not sure which tier fits? Default to <strong style="color: var(--ink);">Production</strong> — we'll talk through it on the response email.</p>
+  </div>
+</section>
+
+<!-- FORM -->
+<section class="doc" style="padding-top: 32px;">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">02 · Tell us about your protocol</div>
+      <h2 class="section-title">Scoping <span class="accent">starts here.</span></h2>
+      <p class="lede">No commitment — completing this form just tells us what to scope. We reply with a written estimate: target program ID, library coverage, cadence, monthly cost. You decide from there.</p>
+    </div>
+
+    <form class="req-form" id="req-form" data-reveal data-delay="1" autocomplete="off">
+      <div class="field-grid">
+
+        <div class="field">
+          <label for="protocol-name">Protocol name</label>
+          <input type="text" id="protocol-name" placeholder="e.g. MyProtocol Perps" required>
+        </div>
+
+        <div class="field">
+          <label for="protocol-class">Protocol class</label>
+          <select id="protocol-class" required>
+            <option value="">Select…</option>
+            <option>Perpetuals / futures</option>
+            <option>AMM / spot DEX</option>
+            <option>CLMM / concentrated liquidity</option>
+            <option>Lending / borrowing</option>
+            <option>Liquid staking / LST</option>
+            <option>Aggregator / router</option>
+            <option>Vaults / strategies</option>
+            <option>Oracles</option>
+            <option>Bridge</option>
+            <option>NFT exchange</option>
+            <option>Other (describe in notes)</option>
+          </select>
+        </div>
+
+        <div class="field field-full">
+          <label for="program-id">Mainnet program ID <span class="opt">if deployed</span></label>
+          <input type="text" id="program-id" placeholder="e.g. 6qWZvUtfyShbxTQkwjCayk3LuGqTGJwBo2QfkePK5jdJ" spellcheck="false">
+        </div>
+
+        <div class="field field-full">
+          <label for="github-url">Source repository <span class="opt">GitHub URL</span></label>
+          <input type="url" id="github-url" placeholder="https://github.com/your-org/protocol-repo" spellcheck="false">
+        </div>
+
+        <div class="field">
+          <label for="contact-name">Your name</label>
+          <input type="text" id="contact-name" placeholder="Full name" required>
+        </div>
+
+        <div class="field">
+          <label for="contact-email">Your email</label>
+          <input type="email" id="contact-email" placeholder="you@protocol.xyz" required spellcheck="false">
+        </div>
+
+        <div class="field">
+          <label for="contact-role">Your role</label>
+          <select id="contact-role">
+            <option value="">Select…</option>
+            <option>Founder / CEO</option>
+            <option>Engineering lead</option>
+            <option>Security lead</option>
+            <option>Smart contract engineer</option>
+            <option>Operations / on-call</option>
+            <option>Other</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="tvl-range">TVL range <span class="opt">approximate</span></label>
+          <select id="tvl-range">
+            <option value="">Select…</option>
+            <option>Pre-launch / testnet</option>
+            <option>Under $10M</option>
+            <option>$10M – $100M</option>
+            <option>$100M – $1B</option>
+            <option>$1B+ (STRIDE T2 eligible)</option>
+          </select>
+        </div>
+
+        <div class="field field-full">
+          <label for="tier-pref">Tier preference</label>
+          <select id="tier-pref" required>
+            <option value="Production">Production · $60K / mo · default</option>
+            <option value="Foundation">Foundation · $30K / mo</option>
+            <option value="Ceiling">Ceiling · $120K / mo</option>
+            <option value="Not sure">Not sure — recommend one</option>
+          </select>
+        </div>
+
+        <div class="field field-full">
+          <label for="when-start">When would you want to start?</label>
+          <select id="when-start">
+            <option value="">Select…</option>
+            <option>This week</option>
+            <option>Within 2 weeks</option>
+            <option>Within 1 month</option>
+            <option>Within a quarter</option>
+            <option>Just exploring</option>
+          </select>
+        </div>
+
+        <div class="field field-full">
+          <label for="notes">Anything else we should know? <span class="opt">optional</span></label>
+          <textarea id="notes" placeholder="Existing audits, specific bug classes you're worried about, integration constraints, deadlines, STRIDE eligibility, etc."></textarea>
+        </div>
+
+      </div>
+
+      <div class="submit-row">
+        <button type="submit" class="submit-btn">
+          Send request <span class="arrow">→</span>
+        </button>
+        <span class="submit-note">Opens your email client with the request pre-filled to <strong style="color: var(--ink);">kirill@jelleo.com</strong></span>
+      </div>
+
+      <div id="form-error" class="field-error">Please fill in the required fields (marked above) before sending.</div>
+    </form>
+
+    <div class="alt-strip" data-reveal data-delay="2">
+      <div class="alt-item">
+        <div class="alt-label">Direct email</div>
+        <div class="alt-value"><a href="mailto:kirill@jelleo.com">kirill@jelleo.com</a></div>
+      </div>
+      <div class="alt-item">
+        <div class="alt-label">Security disclosures</div>
+        <div class="alt-value"><a href="mailto:security@jelleo.com">security@jelleo.com</a></div>
+      </div>
+      <div class="alt-item">
+        <div class="alt-label">Demo access</div>
+        <div class="alt-value"><a href="/customer/">Customer portal · token <code style="background: rgba(245,184,0,0.1); padding: 1px 6px; border-radius: 3px; color: var(--amber); border: 1px solid rgba(245,184,0,0.3); font-size: 12px;">demo</code></a></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">jelleo</a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="/protocols/">Protocols</a></li>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/security.html">Security &amp; disclosure</a></li>
+          <li><a href="/customer/">Customer portal</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Engagement</h5>
+        <ul>
+          <li><a href="/integrate/">Request integration</a></li>
+          <li><a href="/methodology.html#tiers">Tiers &amp; pricing</a></li>
+          <li><a href="/case-studies/f7-percolator/">F7 case study</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Contact</h5>
+        <ul>
+          <li><a href="mailto:kirill@jelleo.com">kirill@jelleo.com</a></li>
+          <li><a href="mailto:security@jelleo.com">security@jelleo.com</a></li>
+          <li><a href="mailto:info@jelleo.com">info@jelleo.com</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span>v0.1 · Integration request · 2026-05-07</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function() {
+  // Tier picker
+  const cards = document.querySelectorAll('.tier-card');
+  const tierField = document.getElementById('tier-pref');
+  cards.forEach(c => {
+    c.addEventListener('click', (e) => {
+      e.preventDefault();
+      cards.forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+      const tier = c.dataset.tier;
+      const map = {foundation: 'Foundation', production: 'Production', ceiling: 'Ceiling'};
+      tierField.value = map[tier] || 'Production';
+    });
+  });
+  tierField.addEventListener('change', () => {
+    cards.forEach(x => x.classList.remove('selected'));
+    const sel = (tierField.value || '').toLowerCase();
+    const card = document.querySelector('.tier-card[data-tier="' + sel + '"]');
+    if (card) card.classList.add('selected');
+  });
+
+  // Form submission → mailto: composer
+  const form  = document.getElementById('req-form');
+  const error = document.getElementById('form-error');
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = (id) => (document.getElementById(id).value || '').trim();
+    const required = ['protocol-name', 'protocol-class', 'contact-name', 'contact-email', 'tier-pref'];
+    const missing = required.filter(id => !v(id));
+    if (missing.length) {
+      error.classList.add('shown');
+      return;
+    }
+    error.classList.remove('shown');
+
+    const subject = 'Jelleo — integration request · ' + v('protocol-name') + ' · ' + v('tier-pref');
+    const body = [
+      'Protocol',
+      '  Name        : ' + v('protocol-name'),
+      '  Class       : ' + v('protocol-class'),
+      '  Program ID  : ' + (v('program-id') || '(not deployed / not provided)'),
+      '  Source repo : ' + (v('github-url') || '(not provided)'),
+      '  TVL range   : ' + (v('tvl-range') || '(not specified)'),
+      '',
+      'Contact',
+      '  Name  : ' + v('contact-name'),
+      '  Email : ' + v('contact-email'),
+      '  Role  : ' + (v('contact-role') || '(not specified)'),
+      '',
+      'Engagement',
+      '  Tier preference : ' + v('tier-pref'),
+      '  Start window    : ' + (v('when-start') || '(not specified)'),
+      '',
+      'Notes',
+      v('notes') || '(none)',
+      '',
+      '---',
+      'Sent from jelleo.com/integrate/',
+    ].join('\n');
+
+    const url = 'mailto:kirill@jelleo.com?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    window.location.href = url;
+  });
+
+  // Clear error on input
+  form.querySelectorAll('input, select, textarea').forEach(f => {
+    f.addEventListener('input',  () => error.classList.remove('shown'));
+    f.addEventListener('change', () => error.classList.remove('shown'));
+  });
+})();
+</script>
+
+<script src="/shared.js"></script>
+</body>
+</html>
