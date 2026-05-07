@@ -83,18 +83,32 @@ def dashboard_cmd(
 def _build_snapshot(db: FindingsDB) -> dict:
     """Serialize the DB state into a stable, public-safe JSON shape.
 
-    What goes IN: aggregated counts, target names, recent cycles, recent
-    findings (severity + status + bug_class only — never repro details).
-    What stays OUT: claim text, recon transcripts, agent prompts, customer
-    PII. The snapshot is meant to be safe to publish at jelleo.com without
-    leaking embargoed details.
+    What goes IN: aggregated counts, target names, recent cycles, and ONLY
+    publicly-disclosed findings (status in disclosed/fixed/verified/rejected)
+    with title + hypothesis_id stripped — bug_class is the public-safe label.
+
+    What stays OUT, ALWAYS:
+      - finding titles (can leak file:line refs to undisclosed bugs)
+      - hypothesis ids (leak attack-surface analysis)
+      - claim text, recon transcripts, agent prompts, PoC paths
+      - findings in new/triaged/confirmed states (in-progress, not yet
+        disclosed — exposing them telegraphs zero-days to attackers)
+      - SMTP credentials, signing keys, customer recipient addresses
+
+    The snapshot is intended for public consumption (jelleo.com dashboard)
+    so it MUST be safe even when the URL is shared, indexed, or scraped.
     """
     from datetime import datetime, timezone
+
+    # Findings are only safe to expose once they're publicly known. New /
+    # triaged / confirmed findings are in-progress disclosures — listing
+    # them publicly defeats the embargo.
+    PUBLIC_STATUSES = {"disclosed", "fixed", "verified", "rejected"}
 
     stats = db.stats()
     targets = db.list_targets()
     cycles = db.list_cycles(limit=20)
-    findings = db.list_findings(limit=50)
+    findings = db.list_findings(limit=200)
 
     by_target = []
     for t in targets:
@@ -107,30 +121,35 @@ def _build_snapshot(db: FindingsDB) -> dict:
             "Low":      sum(1 for f in t_findings if f.get("severity") == "Low"),
             "Info":     sum(1 for f in t_findings if f.get("severity") == "Info"),
         }
+        n_disclosed = sum(1 for f in t_findings if (f.get("status") or "") in PUBLIC_STATUSES)
         last_cycle = t_cycles[0] if t_cycles else None
         by_target.append({
             "name": t["name"],
             "engine_repo": (t.get("engine_repo") or "").replace("https://github.com/", ""),
             "n_findings": len(t_findings),
+            "n_findings_disclosed": n_disclosed,
             "severity_counts": sev_counts,
             "last_cycle_at": (last_cycle or {}).get("started_at"),
             "last_cycle_id": (last_cycle or {}).get("cycle_id"),
         })
 
-    recent_findings = [
+    # Public findings list: only disclosed/fixed/verified/rejected. Title
+    # and hypothesis_id stripped — public consumers see severity + status
+    # + bug_class only. Anyone who wants details fetches via authenticated
+    # customer dashboard (future) or reads the public disclosure on GitHub.
+    public_findings = [
         {
             "id": f["id"],
             "target_id": f["target_id"],
-            "hypothesis_id": f.get("hypothesis_id"),
-            "title": f.get("title"),
             "severity": f.get("severity"),
             "status": f.get("status"),
-            "bug_class": f.get("bug_class"),
+            "bug_class": f.get("bug_class"),  # generalized class, public-safe
             "verdict": f.get("verdict"),
             "poc_fired": bool(f.get("poc_fired")),
             "updated_at": f.get("updated_at"),
         }
         for f in findings
+        if (f.get("status") or "") in PUBLIC_STATUSES
     ]
 
     recent_cycles = [
@@ -146,14 +165,30 @@ def _build_snapshot(db: FindingsDB) -> dict:
         for c in cycles
     ]
 
+    # Public stats reflect only-disclosed surface. The full counts (including
+    # in-progress findings) stay on the VPS findings.db.
+    public_stats = {
+        "n_targets": stats.get("n_targets", 0),
+        "n_cycles":  stats.get("n_cycles", 0),
+        "n_findings_total":     stats.get("n_findings", 0),
+        "n_findings_disclosed": sum(t["n_findings_disclosed"] for t in by_target),
+        "by_severity_disclosed": {
+            "Critical": sum(1 for f in public_findings if f["severity"] == "Critical"),
+            "High":     sum(1 for f in public_findings if f["severity"] == "High"),
+            "Medium":   sum(1 for f in public_findings if f["severity"] == "Medium"),
+            "Low":      sum(1 for f in public_findings if f["severity"] == "Low"),
+            "Info":     sum(1 for f in public_findings if f["severity"] == "Info"),
+        },
+    }
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "platform": "jelleo",
         "version": "v0.1",
-        "stats": stats,
+        "stats": public_stats,
         "targets": by_target,
         "recent_cycles": recent_cycles,
-        "recent_findings": recent_findings,
+        "public_findings": public_findings,
     }
 
 
