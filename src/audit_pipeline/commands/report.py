@@ -34,43 +34,48 @@ console = Console()
 
 
 def _render_html_to_pdf(html_path: Path) -> Path | None:
-    """Render an HTML report to PDF via chromium-headless.
+    """Render an HTML report to PDF via headless Chromium/Chrome.
 
-    Returns the PDF path on success, None if chromium is not installed
-    or rendering failed. Non-fatal — caller decides whether to surface.
+    Returns the PDF path on success, None if no working browser is found.
+    Non-fatal — caller decides whether to surface.
 
-    Looks for chromium-browser, chromium, google-chrome, chrome on PATH.
-    Uses --no-sandbox so it works as root in the systemd context.
+    Iterates candidates in order of reliability. On Ubuntu 22.04 the apt
+    'chromium-browser' is a wrapper around the snap, which is sandboxed
+    by AppArmor — `--print-to-pdf` reports success but the file never
+    materializes outside the snap's view. So we try google-chrome (deb)
+    first, validate the output file actually exists, fall through if not.
     """
-    chromium = None
-    for cmd in ("chromium-browser", "chromium", "google-chrome", "chrome"):
-        if shutil.which(cmd):
-            chromium = cmd
-            break
-    if not chromium:
-        return None
-
+    candidates = (
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "chrome",
+    )
     pdf_path = html_path.with_suffix(".pdf")
-    try:
-        subprocess.run(
-            [
-                chromium,
-                "--headless",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--no-pdf-header-footer",
-                f"--print-to-pdf={pdf_path}",
-                f"file://{html_path.resolve()}",
-            ],
-            capture_output=True,
-            timeout=60,
-        )
-    except subprocess.TimeoutExpired:
-        return None
-    except OSError:
-        return None
-    if pdf_path.exists() and pdf_path.stat().st_size > 0:
-        return pdf_path
+    for cmd in candidates:
+        if not shutil.which(cmd):
+            continue
+        try:
+            if pdf_path.exists():
+                pdf_path.unlink()
+            subprocess.run(
+                [
+                    cmd,
+                    "--headless",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--no-pdf-header-footer",
+                    f"--print-to-pdf={pdf_path}",
+                    f"file://{html_path.resolve()}",
+                ],
+                capture_output=True,
+                timeout=60,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+        if pdf_path.exists() and pdf_path.stat().st_size > 0:
+            return pdf_path
     return None
 
 
