@@ -323,6 +323,8 @@ def _fire_cadence_for_target(
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = out_dir / f"{target_name}_{cadence}_{now:%Y%m%d}.html"
 
+    # Render HTML + PDF (the --pdf flag uses chromium-headless if installed,
+    # warns and skips otherwise — we still ship HTML in that case).
     cmd = [
         _audit_pipeline_bin(),
         "--workspace", str(workspace),
@@ -330,17 +332,27 @@ def _fire_cadence_for_target(
         "--target", target_name,
         "--days", str(days),
         "--output", str(report_path),
+        "--pdf",
     ]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
     except subprocess.TimeoutExpired:
         return {"ok": False, "reason": "report_render_timeout"}
     if proc.returncode != 0:
         return {"ok": False, "reason": f"report_render_fail: {proc.stderr.strip()[:200]}"}
 
-    sig_path = report_path.with_suffix(report_path.suffix + ".sig")
-    if not sig_path.exists():
-        sig_path = None
+    # Prefer PDF as the email attachment; fall back to HTML if chromium
+    # was unavailable. Signature uses whichever file we're sending.
+    pdf_path = report_path.with_suffix(".pdf")
+    pdf_sig_path = report_path.with_suffix(".pdf.sig")
+    html_sig_path = report_path.with_suffix(report_path.suffix + ".sig")
+
+    if pdf_path.exists():
+        attachment_path = pdf_path
+        sig_path = pdf_sig_path if pdf_sig_path.exists() else None
+    else:
+        attachment_path = report_path
+        sig_path = html_sig_path if html_sig_path.exists() else None
 
     findings = [
         f for f in db.list_findings(target_id=target["id"], limit=2000)
@@ -362,20 +374,20 @@ def _fire_cadence_for_target(
             settings,
             cadence=cadence,
             target_name=target_name,
-            report_path=report_path,
+            report_path=attachment_path,
             sig_path=sig_path,
             summary=summary,
         )
     except NotifierError as e:
         return {
             "ok": True,  # report rendered + signed; just email failed
-            "report_path": str(report_path),
+            "report_path": str(attachment_path),
             "sig_path": str(sig_path) if sig_path else None,
             "email_warning": str(e),
         }
 
     return {
         "ok": True,
-        "report_path": str(report_path),
+        "report_path": str(attachment_path),
         "sig_path": str(sig_path) if sig_path else None,
     }

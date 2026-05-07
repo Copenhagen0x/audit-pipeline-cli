@@ -462,6 +462,42 @@ td strong { color: var(--ink); }
 .cover-summary-cell.med .num  { color: var(--medium); }
 .cover-summary-cell.low .num  { color: var(--low); }
 
+/* Caption + status breakdown — shown directly under the severity strip
+   to explain that the headline counts are CONFIRMED findings only, with
+   the rest of the lifecycle pipeline visible underneath. */
+.cover-summary-caption {
+  margin-top: 14px; margin-bottom: 0;
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--ink-3); text-align: center;
+}
+.cover-status-breakdown {
+  margin-top: 22px;
+  display: flex; gap: 0;
+  border-top: 1px solid var(--rule);
+  padding-top: 18px;
+  flex-wrap: wrap;
+  font-family: var(--mono); font-size: 13px;
+  color: var(--ink-2);
+  justify-content: space-between;
+  row-gap: 8px;
+}
+.cover-status-breakdown .pipe-stage {
+  display: inline-flex; align-items: baseline; gap: 8px;
+}
+.cover-status-breakdown .pipe-num {
+  font-size: 18px; font-weight: 700; color: var(--ink);
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+.cover-status-breakdown .pipe-label {
+  font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.cover-status-breakdown .pipe-stage.confirmed .pipe-num { color: var(--ok); }
+.cover-status-breakdown .pipe-stage.disclosed .pipe-num { color: var(--low); }
+.cover-status-breakdown .pipe-stage.new       .pipe-num { color: var(--medium); }
+.cover-status-breakdown .pipe-stage.rejected  .pipe-num { color: var(--ink-3); }
+
 /* Footer: receipt + meta side-by-side */
 .cover-bottom {
   display: grid; grid-template-columns: 1fr 1fr; gap: 36px;
@@ -630,6 +666,44 @@ def read_pubkey_fingerprint(workspace: Path | None = None) -> str:
     return "(public key not available — see jelleo.com/keys/jelleo.ed25519.pub)"
 
 
+def _status_breakdown_line_html(breakdown: dict[str, int]) -> str:
+    """Render the lifecycle status pipeline as a row of (count, label) cells.
+
+    The headline severity strip shows confirmed/disclosed/fixed/verified
+    only. This breakdown shows the FULL pipeline so the customer
+    understands the noise filter at work — most LLM verdicts get rejected
+    on triage, only a fraction make it to confirmed.
+
+    Order: confirmed → disclosed → new → triaged → rejected → fixed → verified
+    (only renders cells where count > 0)
+    """
+    if not breakdown:
+        return ""
+    order = [
+        ("confirmed", "Confirmed"),
+        ("disclosed", "Disclosed"),
+        ("new",       "Awaiting triage"),
+        ("triaged",   "Triaged"),
+        ("rejected",  "Rejected (false positive)"),
+        ("fixed",     "Fixed"),
+        ("verified",  "Verified"),
+    ]
+    cells = []
+    for key, label in order:
+        n = breakdown.get(key, 0)
+        if n <= 0:
+            continue
+        cells.append(
+            f'<span class="pipe-stage {key}">'
+            f'<span class="pipe-num">{n}</span>'
+            f'<span class="pipe-label">{label}</span>'
+            f'</span>'
+        )
+    if not cells:
+        return ""
+    return f'<div class="cover-status-breakdown">{"".join(cells)}</div>'
+
+
 def cover_page_html(
     *,
     target_name: str,
@@ -639,6 +713,7 @@ def cover_page_html(
     engine_sha: str = "",
     wrapper_sha: str = "",
     severity_counts: dict[str, int] | None = None,
+    status_breakdown: dict[str, int] | None = None,
     pubkey_fingerprint: str = "",
     generated_at: str = "",
 ) -> str:
@@ -706,6 +781,12 @@ def cover_page_html(
           <div class="cover-summary-cell low"><div class="num">{sc.get('Low', 0)}</div><span class="label">Low</span></div>
           <div class="cover-summary-cell"><div class="num">{sc.get('Info', 0)}</div><span class="label">Info</span></div>
         </div>
+
+        <div class="cover-summary-caption">
+          confirmed · disclosed · fixed · verified
+        </div>
+
+        {_status_breakdown_line_html(status_breakdown or {})}
       </div>
 
       <div class="cover-bottom">

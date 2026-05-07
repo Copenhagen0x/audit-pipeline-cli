@@ -186,6 +186,77 @@ for attempt in 1 2 3; do
     git pull --rebase origin main || true
 done
 
+# --------------------------------------------------------------------------
+# 4. Publish the signed cycle report to /var/www/jelleo.com/cycles/<id>/ so
+#    customers can fetch it from https://api.jelleo.com/cycles/<id>/...
+#    Best-effort — failures here don't block the cycle.
+# --------------------------------------------------------------------------
+
+PUBLIC_CYCLE_DIR="${PUBLIC_CYCLE_DIR:-/var/www/jelleo.com/cycles/$LATEST}"
+if mkdir -p "$PUBLIC_CYCLE_DIR" 2>/dev/null; then
+    # Copy summary + report + signature
+    cp -f "$WORKSPACE/hunts/$LATEST/hunt_summary.json" "$PUBLIC_CYCLE_DIR/" 2>/dev/null || true
+    [ -f "$WORKSPACE/hunts/$LATEST/hunt_report.html"     ] && \
+        cp -f "$WORKSPACE/hunts/$LATEST/hunt_report.html"     "$PUBLIC_CYCLE_DIR/" || true
+    [ -f "$WORKSPACE/hunts/$LATEST/hunt_report.html.sig" ] && \
+        cp -f "$WORKSPACE/hunts/$LATEST/hunt_report.html.sig" "$PUBLIC_CYCLE_DIR/" || true
+
+    # Render HTML -> PDF via chromium (if installed) and sign the PDF
+    if [ -f "$PUBLIC_CYCLE_DIR/hunt_report.html" ]; then
+        CHROMIUM_BIN=""
+        for c in chromium-browser chromium google-chrome; do
+            if command -v "$c" >/dev/null 2>&1; then CHROMIUM_BIN="$c"; break; fi
+        done
+        if [ -n "$CHROMIUM_BIN" ]; then
+            "$CHROMIUM_BIN" --headless --disable-gpu --no-sandbox --no-pdf-header-footer \
+                --print-to-pdf="$PUBLIC_CYCLE_DIR/hunt_report.pdf" \
+                "file://$PUBLIC_CYCLE_DIR/hunt_report.html" >/dev/null 2>&1 || true
+            if [ -f "$PUBLIC_CYCLE_DIR/hunt_report.pdf" ]; then
+                /root/.local/bin/audit-pipeline --workspace "$WORKSPACE" \
+                    sign sign "$PUBLIC_CYCLE_DIR/hunt_report.pdf" >/dev/null 2>&1 || true
+                echo "publish_cycle: rendered + signed hunt_report.pdf"
+            fi
+        else
+            echo "publish_cycle: chromium not installed — skipping PDF render (HTML+sig published)"
+        fi
+    fi
+
+    # Lock down ownership so nginx can serve, but only root can write
+    chown -R www-data:www-data "$PUBLIC_CYCLE_DIR" 2>/dev/null || true
+    chmod -R a+r "$PUBLIC_CYCLE_DIR" 2>/dev/null || true
+
+    echo "publish_cycle: published to $PUBLIC_CYCLE_DIR"
+else
+    echo "publish_cycle: could not create $PUBLIC_CYCLE_DIR — skipping public copy"
+fi
+
+# --------------------------------------------------------------------------
+# 5. Email immediate alerts for confirmed Critical/High findings in this cycle.
+#    Uses `audit-pipeline notify critical --finding-id N` which routes via
+#    notifier.json's critical_oncall + critical_team channels (SMTP).
+#    Best-effort — non-fatal on failure.
+# --------------------------------------------------------------------------
+
+if [ -f "$WORKSPACE/findings.db" ] && command -v sqlite3 >/dev/null 2>&1; then
+    REPRO_BASE="https://api.jelleo.com/cycles/$LATEST"
+    CONFIRMED_IDS=$(sqlite3 "$WORKSPACE/findings.db" \
+        "SELECT id FROM findings WHERE cycle_id='$LATEST' AND status='confirmed' AND severity IN ('Critical','High');" \
+        2>/dev/null || true)
+    if [ -n "$CONFIRMED_IDS" ]; then
+        N_NOTIFIED=0
+        for FID in $CONFIRMED_IDS; do
+            if /root/.local/bin/audit-pipeline --workspace "$WORKSPACE" \
+                notify critical --finding-id "$FID" --repro-link "$REPRO_BASE/" \
+                >/dev/null 2>&1; then
+                N_NOTIFIED=$((N_NOTIFIED + 1))
+            fi
+        done
+        echo "publish_cycle: emailed $N_NOTIFIED critical/high alerts"
+    else
+        echo "publish_cycle: no confirmed Critical/High in cycle $LATEST — no email alerts"
+    fi
+fi
+
 # Telegram alert (best-effort — doesn't change exit code).
 # Sends only if both env vars are set. Different message tone for routine
 # cycles vs. cycles with TRUE verdicts vs. cycles with confirmed PoC fires.
