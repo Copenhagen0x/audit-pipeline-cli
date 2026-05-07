@@ -1293,11 +1293,15 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
 
 <script>
 (function() {
-  // Patch numeric fields in-place when /snapshot.json is available.
+  // Patch numeric fields in-place when api.jelleo.com is reachable.
+  // Defensive: any fetch failure (offline, CORS, snapshot missing) silently
+  // leaves the marketing mockup intact. The "Live data" badge only appears
+  // when real data successfully loads.
+  const SNAPSHOT_URL = 'https://api.jelleo.com/snapshot.json';
   async function patchFromSnapshot() {
     let data;
     try {
-      const res = await fetch('/snapshot.json', { cache: 'no-store' });
+      const res = await fetch(SNAPSHOT_URL, { cache: 'no-store' });
       if (!res.ok) return;
       data = await res.json();
     } catch (_) {
