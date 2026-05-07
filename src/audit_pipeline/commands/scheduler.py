@@ -40,6 +40,16 @@ from audit_pipeline.db import FindingsDB
 from audit_pipeline.notifier import NotifierError, NotifierSettings, send_cadence_report
 from audit_pipeline.severity import Severity
 
+
+def _audit_pipeline_bin() -> str:
+    """Resolve the audit-pipeline binary path. Same logic as commands/hunt.py
+    so subprocess self-recursion picks up the same install regardless of PATH
+    (which is empty under systemd by default)."""
+    argv0 = sys.argv[0] if sys.argv else ""
+    if argv0 and Path(argv0).name in ("audit-pipeline", "audit-pipeline.exe") and Path(argv0).exists():
+        return str(Path(argv0).resolve())
+    return "audit-pipeline"
+
 console = Console()
 
 
@@ -314,7 +324,7 @@ def _fire_cadence_for_target(
     report_path = out_dir / f"{target_name}_{cadence}_{now:%Y%m%d}.html"
 
     cmd = [
-        sys.executable, "-m", "audit_pipeline",
+        _audit_pipeline_bin(),
         "--workspace", str(workspace),
         "report", "weekly",
         "--target", target_name,
