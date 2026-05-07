@@ -1,0 +1,284 @@
+# percolator_bounty_regression.yaml
+#
+# Regression hypothesis library derived from the disclosed bug bounty
+# issues at https://github.com/aeyakovenko/percolator-prog/issues
+#
+# Each hypothesis encodes a bug class that has been disclosed and patched.
+# Run this library whenever Anatoly pushes new code to verify the patches
+# remain in place. A TRUE/HIGH verdict on any hypothesis means either
+# (a) the patch is incomplete or has regressed, or (b) the recon agent
+# is confabulating — hand-verification required.
+#
+# Usage:
+#   audit-pipeline hunt \
+#     --source-repo aeyakovenko/percolator-prog \
+#     --hypotheses src/audit_pipeline/templates/hypotheses/percolator_bounty_regression.yaml \
+#     --skip-poc --skip-debate --skip-narrative \
+#     --target-name percolator-bounty-regression
+#
+# Bounty win condition (max_risk.md §8):
+#   "cause engine.insurance_fund.balance to decrease below its current
+#    value via any sequence of public calls"
+#
+# Each hypothesis below references the originating disclosure thread,
+# the attack pattern, and the conditions under which the bug fires.
+# Run against engine SHA 5059332 + wrapper SHA 04b854e (bounty 3 pin).
+
+hypotheses:
+
+  # ===================================================================
+  # FAMILY: F7-class conservation violation (insurance/vault accounting)
+  # ===================================================================
+
+  - id: BR-F7-helper-conservation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      use_insurance_buffer at percolator.rs:4811 debits insurance without
+      debiting vault. The function-level invariant is violated as
+      empirically demonstrated by test_confirm_v1_vault_residual_conservation
+      (panicked with delta=+10000 at SHA 5059332). Verify whether any
+      public-instruction call path can reach use_insurance_buffer with
+      a non-zero loss argument WITHOUT a corresponding legitimate per-
+      account loss event.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#39
+
+  # ===================================================================
+  # FAMILY: Cascade bypass (multi-instruction, partial-liquidation)
+  # Disclosure thread: #58, #59, #60, #61, #65, #69
+  # ===================================================================
+
+  - id: BR-cascade-bypass-tradenocpi
+    class: invariant_property
+    severity: Critical
+    claim: >
+      TradeNoCpi advances market clock + applies fresh K updates without
+      running partial-liquidation cascade on accounts other than the two
+      counterparties. Verify at current pin that every TradeNoCpi call
+      either runs cascade on all eligible candidates or rejects market-
+      progress that would expose untouched accounts.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#61
+
+  - id: BR-cascade-bypass-tradecpi-zerofill
+    class: invariant_property
+    severity: Critical
+    claim: >
+      TradeCpi zero-fill path (matcher returns exec_size=0 with
+      FLAG_PARTIAL_OK) advances market clock without touching accounts.
+      Verify wrapper at current pin either rejects zero-fill returns,
+      runs cascade on every candidate even when exec_size=0, or blocks
+      market-clock advancement when no accounts are touched.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#69
+
+  - id: BR-cascade-bypass-keeper-crank-elsebranch
+    class: invariant_property
+    severity: Critical
+    claim: >
+      KeeperCrank in-budget else-branch uses
+      ensure_market_accrued_to_now_with_policy without
+      reject_account_limited_market_progress. Verify at current pin
+      that the else-branch either uses the reject_account_limited variant
+      or the wrapper enforces progress rejection externally.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#65
+
+  - id: BR-cascade-bypass-liquidate-decoy
+    class: invariant_property
+    severity: Critical
+    claim: >
+      LiquidateAtOracle against zero-position decoy account advances
+      market clock + K updates without running partial-liquidation
+      cascade. Verify at current pin that LiquidateAtOracle rejects
+      calls against zero-position accounts at entry, or runs cascade
+      on all candidates regardless of decoy state.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#58, #59
+
+  - id: BR-cascade-bypass-withdrawal
+    class: invariant_property
+    severity: Critical
+    claim: >
+      WithdrawCollateral bypasses partial-liquidation cascade —
+      advances state without touching candidates. Verify at current
+      pin that withdraw either rejects when there are unsettled
+      candidates or runs cascade before vault debit.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#60
+
+  # ===================================================================
+  # FAMILY: Sweep-Gap K-Drift (temporal accumulation attacks)
+  # Disclosure thread: #57, #62, #54, #55
+  # ===================================================================
+
+  - id: BR-sweepgap-k-drift
+    class: invariant_property
+    severity: Critical
+    claim: >
+      KeeperCrank Phase 2 round-robin takes ~64 cranks to cycle through
+      all account slots. During this window, untouched accounts
+      accumulate K-coefficient drift without PnL reconciliation. If
+      price moves >maintenance-margin during this window, accumulated
+      loss exceeds capital → use_insurance_buffer absorbs deficit.
+      Verify at current pin that the per-slot price-move cap coupled
+      with max_accrual_dt_slots prevents the exposure, OR that the
+      Phase 2 sweep window has been widened.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#57
+
+  - id: BR-funding-k-walk-no-oracle
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Attacker-deployed CPI matcher drives mark_e via repeated trades
+      that walk the K accumulator while leaving accounts untouched.
+      No Pyth oracle move required. Verify at current pin that any
+      matcher-driven mark advance is gated by per-account touch
+      requirement, bounded mark-walk rate per crank, OR explicit
+      OI-conservation check.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#62
+
+  - id: BR-cursor-wrap-consumption-reset
+    class: invariant_property
+    severity: High
+    claim: >
+      keeper_crank_not_atomic cursor-wrap atomic consumption-budget
+      reset: caller can repeatedly trigger keeper_crank with carefully
+      placed cursor positions to reset price-move budget without
+      performing real work, giving subsequent operations more
+      permissive admission than the envelope intends. Verify
+      consumption reset is gated on actual progress (touched accounts,
+      sweep_generation advance) rather than on cursor wrap.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#54, #55
+
+  # ===================================================================
+  # FAMILY: KeeperCrank reward / fee distribution edge cases
+  # Disclosure thread: #63, #67
+  # ===================================================================
+
+  - id: BR-keeper-reward-redirect-attacker
+    class: invariant_property
+    severity: High
+    claim: >
+      Caller account materialized in same slot as crank pays no own-fee
+      debt during bitmap sweep but receives 50% of candidate-sync'd
+      third-party maintenance fees. ins_before captured BEFORE candidate
+      sync misattributes third-party fees as crank reward. Verify fix
+      excludes same-slot materialization from reward, OR captures
+      ins_before AFTER candidate sync.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#63
+
+  - id: BR-keeper-reward-zero-on-populated
+    class: invariant_property
+    severity: Medium
+    claim: >
+      sweep_delta captured AFTER candidate sync. On populated risk
+      buffer, candidate sync charges fees first then bitmap sweep is
+      idempotent → sweep_delta=0 → reward=0 always. Keeper griefing
+      vector. Verify reward computation accounts for candidate-sync
+      delta separately.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#67
+
+  # ===================================================================
+  # FAMILY: catchup_accrue / oracle staleness gaps
+  # Disclosure thread: #75, #76, #64
+  # ===================================================================
+
+  - id: BR-catchup-zero-funding-skip-envelope
+    class: invariant_property
+    severity: High
+    claim: >
+      catchup_accrue early-returns when funding_rate_e9==0 (or OI
+      sides zero, or fund_px_last==0). When early-return fires,
+      wrapper performs no chunked accrual and no per-slot price-move
+      budget check. Verify the early-return either still enforces
+      price-move bounds or is gated by an additional slot-gap check.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#75
+
+  - id: BR-catchup-partial-rollback-monotonicity
+    class: invariant_property
+    severity: High
+    claim: >
+      CatchupAccrue partial-mode rollback restores config_pre but only
+      preserves last_good_oracle_slot, NOT last_oracle_publish_time.
+      Partial catchup followed by oracle push at same timestamp can
+      advance state with stale oracle metadata. Verify rollback
+      preserves all timestamp fields.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#76
+
+  - id: BR-no-oracle-wrapper-paths
+    class: invariant_property
+    severity: High
+    claim: >
+      TopUpInsurance, ReclaimEmptyAccount, DepositFeeCredits run on
+      no-oracle accrue branch and clamp now_slot. Silent admission
+      even when clock.slot - last_market_slot exceeds
+      max_accrual_dt_slots. Verify fix rejects stale-clock instructions
+      OR routes them through the same envelope check trade/crank uses.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#64
+
+  # ===================================================================
+  # FAMILY: Wrapper hardening / ABI / DoS
+  # Disclosure thread: #54, #70, #72, #77
+  # ===================================================================
+
+  - id: BR-wrapper-stair-step-divergence
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Wrapper feeding sub-maximal price steps under per-slot cap can
+      stair-step engine forward, accumulating mark-vs-oracle divergence
+      while staying within each per-step envelope. Eventually desyncs
+      enough that oracle snap-back triggers cascade liquidation. Verify
+      cumulative stair-step distance per slot window is bounded.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#54
+
+  - id: BR-trade-oversized-size-panic
+    class: invariant_property
+    severity: High
+    claim: >
+      TradeNoCpi/TradeCpi rejects only zero and i128::MIN sizes at entry.
+      Oversized but valid (non-MIN) i128 size reaches wrapper fee-cap
+      math before MAX_TRADE_SIZE_Q validation, triggering SBF panic.
+      Verify both Trade* handlers validate size <= MAX_TRADE_SIZE_Q
+      before fee math runs OR use checked arithmetic that maps overflow
+      to clean rejection.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#70
+
+  - id: BR-defer-phase2-rr-denial
+    class: invariant_property
+    severity: High
+    claim: >
+      KeeperCrank defer_phase2 path zeros Phase-2 RR window when
+      deferred candidate is unhealthy. Attacker can repeatedly submit
+      unhealthy candidates to deny round-robin progress. Verify
+      defer_phase2 either requires actual progress on deferred
+      candidate, preserves RR window for non-deferred slots, OR caps
+      consecutive defers.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#72
+
+  - id: BR-tradecpi-is-signer-forward
+    class: invariant_property
+    severity: Medium
+    claim: >
+      TradeCpi variadic tail (accounts[8..]) forwards is_signer flags
+      verbatim to matcher CPI. Solana runtime gates effective signer
+      power, but a malicious matcher could attempt to use forged
+      signer flags. Verify wrapper either zeros is_signer on tail
+      AccountMetas before forwarding, validates no tail account is
+      marked signer, OR documents matcher's responsibility for key
+      validation.
+    target_file: src/percolator.rs
+    discloses: percolator-prog#77

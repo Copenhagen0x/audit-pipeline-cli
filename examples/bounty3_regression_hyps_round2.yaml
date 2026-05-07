@@ -1,0 +1,138 @@
+# Bounty 3 round-2 regression hyps — second batch of closed issues from
+# https://github.com/aeyakovenko/percolator-prog/issues
+#
+# Targets wrapper instruction handlers (run with --source-repo
+# aeyakovenko/percolator-prog).
+#
+# Each hyp asks: at the current bounty-3 pin (engine 5059332, wrapper
+# 04b854e), is the disclosed attack still reproducible?
+
+hypotheses:
+
+  - id: B77-tradecpi-is-signer-forward
+    class: invariant_property
+    severity: High
+    claim: >
+      TradeCpi is_signer flag forwarding (per disclosed issue #77).
+      The TradeCpi handler's variadic tail (accounts[8..]) is passed
+      straight through to invoke_signed_trade with the original
+      is_signer flags preserved. If a malicious caller can supply a
+      tail account marked is_signer=true, the matcher CPI sees a
+      forged signer claim. Verify at the current wrapper pin (04b854e)
+      that the TradeCpi handler either (a) zeros is_signer on every
+      tail AccountMeta before forwarding, or (b) explicitly validates
+      that no tail account is marked as signer, or (c) the matcher
+      itself rejects spurious signers by key.
+    target_file: src/percolator.rs
+
+  - id: B67-keeper-crank-reward-zero
+    class: invariant_property
+    severity: Medium
+    claim: >
+      KeeperCrank reward always zero on populated risk buffer (per
+      disclosed issue #67). sweep_delta is captured AFTER the candidate
+      sync loop. On the second and subsequent cranks, the risk buffer
+      auto-populates with all positioned accounts. Candidate sync
+      charges fees to insurance first, then the bitmap sweep (same
+      accounts) is idempotent → sweep_delta=0 → reward always zero.
+      Verify at wrapper pin 04b854e that sweep_delta is captured
+      BEFORE candidate sync, OR that the reward base accounts for the
+      candidate-sync delta separately.
+    target_file: src/percolator.rs
+
+  - id: B69-tradecpi-zero-fill-cascade-bypass
+    class: invariant_property
+    severity: Critical
+    claim: >
+      TradeCpi zero-fill cascade bypass (per disclosed issue #69).
+      The TradeCpi handler contains a zero-fill path (matcher returns
+      exec_size=0 with FLAG_PARTIAL_OK) that advances the engine's
+      market clock via catchup_accrue + accrue_market_to with a fresh
+      oracle price WITHOUT touching any account. This is the same
+      class as #60/#61/#65 cascade bypass. Verify the wrapper at pin
+      04b854e either (a) rejects zero-fill returns from the matcher,
+      or (b) runs the partial-liquidation cascade on every candidate
+      even when exec_size=0, or (c) blocks market-clock advancement
+      when no accounts are touched.
+    target_file: src/percolator.rs
+
+  - id: B72-keeper-crank-defer-phase2-zero-rr-window
+    class: invariant_property
+    severity: High
+    claim: >
+      KeeperCrank defer_phase2 zeros Phase-2 RR window (per disclosed
+      issue #72). The wrapper-side defer_phase2 path closes the
+      risk_buffer-eviction walker from #65 but introduces a different
+      failure: the coverage gate at percolator.rs:4576-4594 sets
+      defer_phase2=true when a candidate is unhealthy, which zeros
+      the Phase-2 RR window for that crank. An attacker can repeatedly
+      submit unhealthy candidates to deny round-robin progress
+      indefinitely. Verify at pin 04b854e that defer_phase2 either
+      (a) requires actual progress on the deferred candidate before
+      skipping Phase 2, or (b) ensures Phase-2 RR window is preserved
+      for non-deferred slots, or (c) caps the number of consecutive
+      defers an attacker can force.
+    target_file: src/percolator.rs
+
+  - id: B70-tradenocpi-oversized-trade-panic
+    class: invariant_property
+    severity: High
+    claim: >
+      TradeNoCpi/TradeCpi production panic from oversized trade (per
+      disclosed issue #70). On origin/main at fb1116c1839b6, TradeNoCpi
+      rejects only zero and i128::MIN sizes at entry. TradeCpi does
+      the same. An oversized but valid (non-MIN) i128 size reaches
+      wrapper fee-cap math before the engine's MAX_TRADE_SIZE_Q
+      validation, triggering an SBF panic via overflow in the fee
+      calculation. Verify at pin 04b854e that both Trade* handlers
+      validate size <= MAX_TRADE_SIZE_Q before any fee math runs, OR
+      use saturating/checked arithmetic in fee-cap calculation that
+      maps overflow to a clean rejection rather than panic.
+    target_file: src/percolator.rs
+
+  - id: B62-funding-k-walk-no-oracle-move
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Funding-rate K-walk variant w/o oracle move (per disclosed issue
+      #62). The deployed bounty-2 mainnet binary was exposed to a
+      K-walk-without-touch drain that does NOT require any Pyth oracle
+      move. Attacker-deployed CPI matcher drives mark_e via repeated
+      trades that walk the K accumulator while leaving accounts
+      untouched. Verify at the bounty-3 pin (engine 5059332, wrapper
+      04b854e) that any matcher-driven mark advance is now gated by
+      either (a) per-account touch requirement, or (b) bounded
+      mark-walk rate per crank, or (c) explicit OI-conservation check
+      that rejects mark advances disconnected from real fills.
+    target_file: src/percolator.rs
+
+  - id: B58-liquidate-at-oracle-zero-decoy-bypass
+    class: invariant_property
+    severity: Critical
+    claim: >
+      LiquidateAtOracle zero-position decoy cascade bypass (per
+      disclosed issues #58, #59). The original attack: LiquidateAtOracle
+      against a zero-position account (a decoy) advances the engine's
+      market clock + applies fresh K updates without running the
+      partial-liquidation cascade on real positioned accounts. Verify
+      at wrapper pin 04b854e that LiquidateAtOracle either (a) rejects
+      calls against zero-position accounts at entry, or (b) runs the
+      partial-liquidation cascade on all candidates regardless of the
+      decoy's position state.
+    target_file: src/percolator.rs
+
+  - id: B54-wrapper-hardening-stair-step-dos
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Wrapper stair-step divergence DoS (per disclosed issue #54 G1).
+      A wrapper feeding sub-maximal price steps under the per-slot
+      cap can repeatedly stair-step the engine forward, accumulating
+      divergence between the engine's mark and the underlying oracle
+      while staying within each per-step envelope. Eventually this
+      desyncs accounts enough that an oracle snap-back triggers
+      cascade liquidation. Verify at pin 04b854e that the wrapper
+      either bounds the cumulative stair-step distance per slot
+      window, or rejects oracle observations beyond a configurable
+      drift threshold from accumulated mark.
+    target_file: src/percolator.rs

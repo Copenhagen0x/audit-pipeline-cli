@@ -1,0 +1,49 @@
+{"tool": "grep", "input": {"pattern": "absorb_protocol_loss", "path": "src"}}
+{"tool": "grep", "input": {"pattern": "use_insurance_buffer", "path": "src"}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 4800, "end_line": 5050}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 7100, "end_line": 7200}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 7200, "end_line": 7350}}
+{"tool": "grep", "input": {"pattern": "resolve_flat_negative", "path": "src/percolator.rs"}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 9900, "end_line": 10000}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 10390, "end_line": 10500}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 7050, "end_line": 7130}}
+{"tool": "grep", "input": {"pattern": "settle_losses", "path": "src/percolator.rs"}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 10350, "end_line": 10430}}
+{"tool": "grep", "input": {"pattern": "pub fn.*not_atomic", "path": "src/percolator.rs"}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 7534, "end_line": 7680}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 9286, "end_line": 9430}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 9688, "end_line": 9940}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 10205, "end_line": 10360}}
+{"tool": "grep", "input": {"pattern": "charge_fee_to_insurance", "path": "src/percolator.rs"}}
+{"tool": "grep", "input": {"pattern": "set_pnl\\b", "path": "src/percolator.rs", "max_matches": 30}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 7938, "end_line": 8000}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 2360, "end_line": 2450}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 1, "end_line": 120}}
+{"tool": "grep", "input": {"pattern": "struct RiskEngine\\|pub struct RiskEngine\\|struct RiskParams\\|pub struct RiskParams", "path": "src/percolator.rs"}}
+{"tool": "grep", "input": {"pattern": "struct RiskEngine\\|struct RiskParams\\|pub struct Risk", "path": "src"}}
+{"tool": "grep", "input": {"pattern": "RiskEngine::new\\|fn new.*RiskParams\\|impl RiskEngine", "path": "src/percolator.rs"}}
+{"tool": "grep", "input": {"pattern": "struct.*Engine\\|impl.*Engine\\|struct.*Params\\|fn new\\b", "path": "src/percolator.rs", "max_matches": 20}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 120, "end_line": 350}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 350, "end_line": 600}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 600, "end_line": 900}}
+{"tool": "grep", "input": {"pattern": "fn new\\b\\|fn default\\b\\|fn init\\b", "path": "src/percolator.rs", "max_matches": 20}}
+{"tool": "grep", "input": {"pattern": "top_up_insurance_fund\\|fn deposit_fee_credits\\|fn accrue_market_to", "path": "src/percolator.rs"}}
+{"tool": "grep", "input": {"pattern": "pub fn ", "path": "src/percolator.rs", "max_matches": 50}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 1677, "end_line": 1840}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 10097, "end_line": 10170}}
+{"tool": "grep", "input": {"pattern": "assert_public_postconditions\\|V >= C_tot\\|vault.*c_tot\\|conservation", "path": "src/percolator.rs", "max_matches": 15}}
+{"tool": "grep", "input": {"pattern": "fn assert_public_postconditions\\|postconditions", "path": "src/percolator.rs"}}
+{"tool": "grep", "input": {"pattern": "assert_public_post\\|public_post", "path": "src/percolator.rs"}}
+{"tool": "grep", "input": {"pattern": "assert_public", "path": "src/percolator.rs"}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 6037, "end_line": 6120}}
+{"tool": "grep", "input": {"pattern": "fn check_conservation", "path": "src/percolator.rs"}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 5971, "end_line": 6040}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 7122, "end_line": 7160}}
+{"tool": "grep", "input": {"pattern": "set_pnl_with_reserve.*NoPositive\\|NoPositiveIncreaseAllowed", "path": "src/percolator.rs"}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 7350, "end_line": 7420}}
+{"tool": "grep", "input": {"pattern": "set_capital\\b", "path": "src/percolator.rs", "max_matches": 20}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 2574, "end_line": 2620}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 10530, "end_line": 10600}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 10165, "end_line": 10210}}
+{"tool": "read_file", "input": {"path": "src/percolator.rs", "start_line": 10376, "end_line": 10432}}
+{"tool": "grep", "input": {"pattern": "accrue_market_to\\b", "path": "src/percolator.rs", "max_matches": 20}}

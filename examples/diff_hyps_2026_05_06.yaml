@@ -1,0 +1,93 @@
+# Diff-targeted hypotheses for percolator engine changes
+# Baseline: b8829d0 (May 4 22:41 UTC)
+# HEAD:     5059332 (May 6 03:54 UTC)
+# Source diff: +11 lines (3 test_visible! wraps + 5 lines U512 fast path)
+
+hypotheses:
+
+  - id: D1-u512-fast-path-divides-correctly
+    class: differential_property
+    severity: High
+    claim: >
+      The new U512::checked_div_rem_by_u256 fast path at wide_math.rs:1323-1327
+      diverts to div_rem_u256 when the numerator upper 256 bits are zero.
+      For every U512 numerator and U256 divisor where the fast-path condition
+      fires, the (quotient, remainder) returned by the fast path agrees with
+      the long-division loop at 1336-1352.
+    target_file: src/wide_math.rs
+
+  - id: D2-u512-fast-path-precondition-tight
+    class: invariant_property
+    severity: Medium
+    claim: >
+      The fast path at wide_math.rs:1323 fires when self.0[2]==0 AND
+      self.0[3]==0 AND self >= den_512 (the less-than early-return at 1318
+      already handles self < den_512). For any input where self fits in U256
+      but the fast path produces wrong output, this is a violation. Verify
+      div_rem_u256(self_lower_u256, den) yields the same result as the
+      long-division branch.
+    target_file: src/wide_math.rs
+
+  - id: D3-test-visible-compute-kf-pnl-no-leak
+    class: invariant_property
+    severity: Low
+    claim: >
+      compute_kf_pnl_delta at percolator.rs:3157 was wrapped in test_visible
+      macro at b8829d0..5059332. Verify the function signature is pure (no
+      mut self, no side effects) so exposing it under cfg(test)/cfg(kani)
+      cannot drive engine state into an invalid configuration via test code.
+    target_file: src/percolator.rs
+
+  - id: D4-test-visible-settle-losses-no-leak
+    class: invariant_property
+    severity: Medium
+    claim: >
+      settle_losses at percolator.rs:7113 was wrapped in test_visible
+      (state-mutating, takes mut self). Verify direct test access cannot
+      bypass any precondition that public callers of settle_losses_with_context
+      enforce (account shape validation, market mode, accrue+touch ordering).
+    target_file: src/percolator.rs
+
+  - id: D5-test-visible-account-b-dispatch-no-leak
+    class: invariant_property
+    severity: High
+    claim: >
+      try_permissionless_account_b_dispatch at percolator.rs:8714 was
+      wrapped in test_visible (state-mutating). The intended public entry
+      is permissionless_progress_not_atomic. Verify direct test access
+      cannot bypass admission validation, market_mode constraints, slot
+      ordering, or any other precondition the public path enforces.
+    target_file: src/percolator.rs
+
+  - id: D6-kani-proofs-liveness-cover-recent-dispatcher-changes
+    class: coverage_property
+    severity: Low
+    claim: >
+      tests/proofs_liveness.rs gained +885 lines covering dispatcher
+      recovery branches at b8829d0..5059332. Verify each new harness
+      drives a real public/test_visible API path rather than a stub
+      that does not exercise actual engine state.
+    target_file: tests/proofs_liveness.rs
+
+  - id: D7-u512-fast-path-quotient-fits-u256
+    class: invariant_property
+    severity: Medium
+    claim: >
+      The fast path at wide_math.rs:1323-1327 calls div_rem_u256 which
+      returns the quotient as U256. Since num fits in U256 and den is
+      non-zero, the quotient num/den is at most num which is at most U256::MAX,
+      so it fits. Verify no edge case (den=1, den=num, den at boundary)
+      makes this assumption fail.
+    target_file: src/wide_math.rs
+
+  - id: D8-test-visible-callers-respect-postconditions
+    class: invariant_property
+    severity: Medium
+    claim: >
+      With three new test_visible exposures (compute_kf_pnl_delta,
+      settle_losses, try_permissionless_account_b_dispatch), verify no
+      test in tests/proofs_*.rs calls these functions in a sequence the
+      public API would never produce, and that any such tests still
+      maintain the global engine invariants (conservation, vault solvency,
+      account shape).
+    target_file: tests/proofs_safety.rs
