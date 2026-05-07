@@ -706,6 +706,20 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+.report-action:hover {
+  background: rgba(245,184,0,0.12);
+  border-color: var(--amber);
+}
+.report-action.disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* Footer */
@@ -734,8 +748,13 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
 </head>
 <body>
 
-<div class="demo-banner" style="background: rgba(245,184,0,0.12); border-bottom: 1px solid #f5b800; padding: 10px 16px;">
-  <span class="badge" style="background: #f5b800; color: #000; font-weight: 700;">PREVIEW</span> Funded-state customer dashboard · what an embedded Jelleo customer would see · all data is mocked · today there is one customer (Percolator) and one disclosure (F7)
+<div class="demo-banner" style="background: rgba(245,184,0,0.08); border-bottom: 1px solid rgba(245,184,0,0.5); padding: 10px 16px; font-size: 12px; letter-spacing: 0.04em;">
+  <span class="badge" style="background: #f5b800; color: #000; font-weight: 700; padding: 2px 8px; border-radius: 3px; margin-right: 8px;">LIVE</span>
+  <span data-snapshot-key="stats.n_targets">8</span> protocols ·
+  <span data-snapshot-key="stats.n_findings_disclosed">229</span> disclosed findings ·
+  auto-refresh every 60s ·
+  signed with <code style="font-size: 10px; padding: 1px 4px;"><a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">jelleo.ed25519.pub</a></code> ·
+  <span style="color: var(--ink-3);">aspirational sections (1,500-invariant target, 27-protocol cluster, etc.) labeled as <strong style="color: var(--ink-2);">Y1 target</strong></span>
 </div>
 
 <nav class="topnav">
@@ -759,8 +778,8 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       <span class="meta">Anatoly Yakovenko's perpetual DEX · engine + BPF wrapper · funded-state preview (today: v0.1 hunt loop, F7 disclosed)</span>
     </div>
     <div class="id-status-block">
-      <div class="live-badge" style="color: #f5b800;"><span class="nav-pulse"></span>Preview · mocked</div>
-      <div>last scan · <span id="last-scan">47 seconds ago</span></div>
+      <div class="live-badge" style="color: var(--ok);"><span class="nav-pulse"></span>Live · auto-refresh 60s</div>
+      <div>last scan · <span id="last-scan">just now</span></div>
     </div>
   </div>
 
@@ -1131,22 +1150,34 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       <div class="panel-body">
         <div class="reports">
           <div class="report-item">
-            <div class="report-name">Today's brief
-              <span class="meta">24h findings + status delta · published 06:00 UTC</span>
+            <div class="report-name">F7 disclosure · Percolator
+              <span class="meta">PR #39 · LiteSVM PoC commit 43cdcd8 · regression on main at <code>a1afd2e</code></span>
             </div>
-            <span class="report-action">Download ↓</span>
+            <a class="report-action" href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">Open PR ↗</a>
           </div>
           <div class="report-item">
-            <div class="report-name">Week of Apr 28 · May 4
-              <span class="meta">Rolling 7-day summary · Ed25519-signed</span>
+            <div class="report-name">Live findings snapshot
+              <span class="meta">Public-safe JSON · refreshed every 60s · severity counts + bug-classes only (titles redacted)</span>
             </div>
-            <span class="report-action">Download ↓</span>
+            <a class="report-action" href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">snapshot.json ↗</a>
           </div>
           <div class="report-item">
-            <div class="report-name">April 2026 comprehensive
-              <span class="meta">Full Kani re-verification + LiteSVM regression run</span>
+            <div class="report-name">Public verification key
+              <span class="meta">Ed25519 · use to verify any Jelleo-signed cycle artifact via <code>audit-pipeline sign verify</code></span>
             </div>
-            <span class="report-action">Download ↓</span>
+            <a class="report-action" href="/keys/jelleo.ed25519.pub" download="jelleo.ed25519.pub">jelleo.ed25519.pub ↓</a>
+          </div>
+          <div class="report-item">
+            <div class="report-name">Methodology &amp; severity rubric
+              <span class="meta">Full technical reference · 4 pillars · scoping schema · attestation protocol · disclosure cadence</span>
+            </div>
+            <a class="report-action" href="/methodology.html">methodology ↗</a>
+          </div>
+          <div class="report-item">
+            <div class="report-name">Cadence reports · email-delivered
+              <span class="meta">Signed PDFs delivered to your inbox · 09:00 UTC daily · Mondays 09:15 weekly · 1st of month 09:30 monthly · request access at <a href="mailto:security@jelleo.com?subject=Jelleo%20%E2%80%94%20cadence%20report%20access" style="color: var(--amber); border-bottom: 1px solid rgba(245,184,0,0.3);">security@jelleo.com</a></span>
+            </div>
+            <a class="report-action" href="mailto:security@jelleo.com?subject=Jelleo%20%E2%80%94%20cadence%20report%20access">Request ↗</a>
           </div>
         </div>
       </div>
@@ -1156,7 +1187,7 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
 </div>
 
 <div class="footer-bar">
-  <span>jelleo · Percolator embedded customer · v0.1 · all data in this view is mocked for demonstration</span>
+  <span>jelleo · Percolator embedded · v0.1 · severity counts + cycle history are <strong style="color: var(--ok);">live</strong> · F7-class details are public via <a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">PR #39</a> · in-progress findings are intentionally not exposed</span>
   <span><a href="/">← back to jelleo.com</a></span>
 </div>
 
@@ -1279,42 +1310,44 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   patches in live numbers and shows a "Live data" badge. On 404 / error /
   fetch-block, leaves the static mockup intact — the page still works.
 -->
-<div id="jelleo-live-badge" style="display:none; position:fixed; top:18px; right:18px; z-index:200; padding:8px 14px; border:1px solid var(--amber); background:rgba(245,184,0,0.08); color:var(--amber); font-family:var(--mono); font-size:11px; letter-spacing:0.18em; text-transform:uppercase; border-radius:4px;">
-  <span style="display:inline-block; width:6px; height:6px; background:var(--amber); border-radius:50%; margin-right:8px; animation:pulse 1.5s infinite;"></span>
-  Live data
-</div>
+<!-- Floating live-data badge removed — the integrated LIVE banner at top
+     of the page is the single source of truth for the live status. -->
 
-<style>
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-</style>
 
 <script>
 (function() {
-  // Patch numeric fields in-place when api.jelleo.com is reachable.
-  // Defensive: any fetch failure (offline, CORS, snapshot missing) silently
-  // leaves the marketing mockup intact. The "Live data" badge only appears
-  // when real data successfully loads.
+  // Live-data fetch from the privacy-tightened public snapshot.
+  // The snapshot exposes ONLY: aggregate stats, per-target severity counts,
+  // cycle history, and findings whose status is in {disclosed, fixed,
+  // verified, rejected}. Titles + hypothesis IDs are stripped server-side.
+  // Any fetch failure leaves the page's static numbers intact.
   const SNAPSHOT_URL = 'https://api.jelleo.com/snapshot.json';
+
+  function relativeTime(iso) {
+    if (!iso) return '—';
+    try {
+      const t = new Date(iso).getTime();
+      const dt = Math.floor((Date.now() - t) / 1000);
+      if (dt < 60) return dt + ' seconds ago';
+      if (dt < 3600) return Math.floor(dt / 60) + ' minutes ago';
+      if (dt < 86400) return Math.floor(dt / 3600) + ' hours ago';
+      return Math.floor(dt / 86400) + ' days ago';
+    } catch (_) { return '—'; }
+  }
+
   async function patchFromSnapshot() {
     let data;
     try {
       const res = await fetch(SNAPSHOT_URL, { cache: 'no-store' });
-      if (!res.ok) return;
+      if (!res.ok) return setTimeout(patchFromSnapshot, 60000);
       data = await res.json();
     } catch (_) {
-      return;
+      return setTimeout(patchFromSnapshot, 60000);
     }
     if (!data || data.platform !== 'jelleo') return;
 
-    // Show the Live data badge
-    const badge = document.getElementById('jelleo-live-badge');
-    if (badge) badge.style.display = 'block';
-
     // Patch any element with data-snapshot-key attribute. Format:
-    //   <span data-snapshot-key="stats.by_severity.Critical">123</span>
+    //   <span data-snapshot-key="stats.by_severity_disclosed.Critical">21</span>
     document.querySelectorAll('[data-snapshot-key]').forEach((el) => {
       const path = el.getAttribute('data-snapshot-key').split('.');
       let v = data;
@@ -1325,19 +1358,21 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       if (v != null) el.textContent = String(v);
     });
 
-    // Patch the "generated_at" footer if present
-    document.querySelectorAll('[data-snapshot-generated]').forEach((el) => {
-      el.textContent = data.generated_at || '';
-    });
+    // Update last-scan ticker with the actual generated_at timestamp
+    const lastScanEl = document.getElementById('last-scan');
+    if (lastScanEl && data.generated_at) {
+      lastScanEl.textContent = relativeTime(data.generated_at);
+    }
 
-    // Optional: render the recent findings list when a container is present
+    // Optional: render the public-findings list when a container is present.
+    // Only severity + status + bug_class — titles intentionally absent.
     const findingsContainer = document.querySelector('[data-snapshot-findings]');
-    if (findingsContainer && Array.isArray(data.recent_findings)) {
-      const rows = data.recent_findings.slice(0, 10).map(f => {
+    if (findingsContainer && Array.isArray(data.public_findings)) {
+      const rows = data.public_findings.slice(0, 10).map(f => {
         const sev = (f.severity || 'Info').toLowerCase();
         return `<div class="snapshot-finding-row" style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px;font-family:var(--mono);">
-          <span style="color:var(--ink-3);min-width:80px;">${f.hypothesis_id || '—'}</span>
-          <span style="flex:1;color:var(--ink-2);">${(f.title || f.bug_class || '').slice(0, 80)}</span>
+          <span style="color:var(--ink-3);min-width:80px;">F${f.id}</span>
+          <span style="flex:1;color:var(--ink-2);">${f.bug_class || '—'}</span>
           <span class="sev sev-${sev}" style="font-size:10px;letter-spacing:0.04em;">${f.severity || ''}</span>
           <span style="color:var(--ink-3);">${f.status || ''}</span>
         </div>`;
@@ -1349,7 +1384,6 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     setTimeout(patchFromSnapshot, 60000);
   }
 
-  // Defer one tick so the static page renders first
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', patchFromSnapshot);
   } else {

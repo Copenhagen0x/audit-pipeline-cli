@@ -7,7 +7,7 @@ Jelleo is a Solana-program audit platform. This file describes how to report sec
 If you have found a security issue in the Jelleo platform — the audit pipeline, the hypothesis library, the CLI, the dashboard, the website, or the signing/attestation key handling — please report it to:
 
 **security@jelleo.com** (preferred)
-or **info@wifpros.com** (fallback)
+or **kirill@jelleo.com** (direct to founder for time-sensitive cases)
 
 A PGP key is published at `keys/jelleo.gpg.pub` in this repo for sensitive reports. We will acknowledge receipt within 48 hours and provide a status update within 5 business days.
 
@@ -100,4 +100,4 @@ We thank every researcher who has improved Jelleo's security. The honor roll is 
 
 ---
 
-*This policy is published under the same Apache-2.0 license as the rest of the repository. Last updated: 2026-05-07. Maintained by Jelleo (Kirill Sakharuk · info@wifpros.com).*
+*This policy is published under the same Apache-2.0 license as the rest of the repository. Last updated: 2026-05-07. Maintained by Jelleo (Kirill Sakharuk · kirill@jelleo.com).*
