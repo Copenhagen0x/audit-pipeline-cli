@@ -1,8 +1,8 @@
 # Layer 4 parallel attack sweep — 2026-05-06
 
-**Four LiteSVM attack tests, four parallel sub-agents, four attack
-vectors, four defended. Total cost: $0 (run inside the orchestrating
-session, not via paid API calls).**
+**Nine LiteSVM attack tests across two waves of parallel sub-agents.
+Nine attack vectors targeted. Nine defended. Total cost: $0 (run inside
+the orchestrating session, not via paid API calls).**
 
 This run extends the autonomous Layer 4 dispatcher
 ([`scripts/litesvm_attack_attempt.py`](../../scripts/litesvm_attack_attempt.py))
@@ -25,13 +25,25 @@ shared BPF binary.
 
 ## Results
 
-| Vector | Disclosure | Outcome | Insurance pre/post | Time |
-|---|---|---|---|---|
-| Sweep-Gap K-Drift | [#57](https://github.com/aeyakovenko/percolator-prog/issues/57) | ✅ PASS | 5,000,000,121 / 5,000,000,121 (Δ=0) | 28.8s |
-| TradeCpi zero-fill cascade bypass | [#69](https://github.com/aeyakovenko/percolator-prog/issues/69) | ✅ PASS (engine returned `CatchupRequired` 0x1d) | 5,000,000,004 / 5,000,000,004 (Δ=0) | — |
-| CatchupAccrue rollback | [#76](https://github.com/aeyakovenko/percolator-prog/issues/76) | ✅ PASS (tag 31 fully retired) | 5,000,000,000 / preserved | — |
-| Resolved-mode reconciliation | [F7 family](https://github.com/aeyakovenko/percolator-prog/pull/39) | ✅ PASS | 10,000,000,000 / 10,000,000,764 (+764 from new-account fees, not a drain) | 8.67s |
-| Cursor-wrap consumption budget | [#55](https://github.com/aeyakovenko/percolator-prog/issues/55) | ⚠️ blocked by Anthropic cyber-safety filter | — | — |
+### Wave 1 — disclosed-bug-class regressions
+
+| Vector | Disclosure | Outcome | Insurance pre/post |
+|---|---|---|---|
+| Sweep-Gap K-Drift | [#57](https://github.com/aeyakovenko/percolator-prog/issues/57) | ✅ PASS | 5,000,000,121 / 5,000,000,121 (Δ=0) |
+| TradeCpi zero-fill cascade bypass | [#69](https://github.com/aeyakovenko/percolator-prog/issues/69) | ✅ PASS (engine returned `CatchupRequired` 0x1d) | 5,000,000,004 / 5,000,000,004 |
+| CatchupAccrue rollback | [#76](https://github.com/aeyakovenko/percolator-prog/issues/76) | ✅ PASS (**tag 31 fully retired**) | 5,000,000,000 / preserved |
+| Resolved-mode reconciliation | [F7 family](https://github.com/aeyakovenko/percolator-prog/pull/39) | ✅ PASS | 10,000,000,000 / 10,000,000,764 (+764 from fees) |
+| Cursor-wrap consumption budget | [#55](https://github.com/aeyakovenko/percolator-prog/issues/55) | ⚠️ blocked by Anthropic cyber-safety filter | — |
+
+### Wave 2 — broader attack surface
+
+| Vector | Source | Outcome | Insurance pre/post |
+|---|---|---|---|
+| K-walk via attacker matcher | [#62](https://github.com/aeyakovenko/percolator-prog/issues/62) | ✅ PASS (band check + reject_account_limited) | 5,000,000,001 / 5,000,000,005 (+4) |
+| WithdrawCollateral cascade bypass | [#60](https://github.com/aeyakovenko/percolator-prog/issues/60) | ✅ PASS (cascade ran inline before withdraw) | 5,000,000,004 / 5,000,000,004 (Δ=0) |
+| LiquidateAtOracle zero-position decoy | [#58/#59](https://github.com/aeyakovenko/percolator-prog/issues/58) | ✅ PASS (decoy call benign no-op) | 5,000,000,004 / 5,642,083,339 (+642M from fees) |
+| Mark EWMA dust-trade manipulation | novel | ✅ PASS (600 dust trades → 0 movement) | 5,000,000,000 / 5,000,000,004 (+4 from fees) |
+| Account slot reuse / generation | novel | ✅ PASS (B reused A's slot, no carryover) | 5,000,000,000 / 5,000,000,003 (+3 from fees) |
 
 ## Key findings
 
@@ -73,10 +85,18 @@ invariant held: `insurance_decrease ≤ legitimate_loss_total`.
 ## Files
 
 ```
+# Wave 1 — disclosed-bug-class regressions
 test_sweepgap_kdrift_attack.rs        — 121-account drift attack
 test_tradecpi_zerofill_bypass.rs      — zero-fill matcher cascade attack
 test_catchup_rollback_attack.rs       — partial-rollback monotonicity attack
 test_resolved_reconciliation_drain.rs — resolved-mode permissionless reconcile
+
+# Wave 2 — broader attack surface
+test_kwalk_matcher_defense.rs         — 100 matcher-driven band-edge trades
+test_withdraw_cascade_defense.rs      — withdraw against parked-victim cascade
+test_liquidate_decoy_defense.rs       — LiquidateAtOracle on flat decoy
+test_mark_ewma_dust_defense.rs        — 600 dust-weight TradeNoCpi calls
+test_slot_reuse_defense.rs            — close A → init B at same slot index
 ```
 
 The cursor-wrap attack vector ([#55](https://github.com/aeyakovenko/percolator-prog/issues/55))
