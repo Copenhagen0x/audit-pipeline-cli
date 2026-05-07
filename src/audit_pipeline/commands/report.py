@@ -17,7 +17,13 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from audit_pipeline.branding import CSS, footer_html, topbar_html
+from audit_pipeline.branding import (
+    CSS,
+    cover_page_html,
+    footer_html,
+    read_pubkey_fingerprint,
+    topbar_html,
+)
 from audit_pipeline.commands.sign import SignError, default_key_path, sign_file
 from audit_pipeline.db import FindingsDB
 from audit_pipeline.severity import DEFINITIONS, Severity
@@ -78,7 +84,8 @@ def cycle_report(
 
     out = output or (workspace / "hunts" / cycle_id / "hunt_report.html")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(_render_cycle_html(target, cycle, findings), encoding="utf-8")
+    pubkey = read_pubkey_fingerprint(workspace)
+    out.write_text(_render_cycle_html(target, cycle, findings, pubkey), encoding="utf-8")
     console.print(f"[green]wrote[/green] {out}")
     _auto_sign(workspace, out, sign)
 
@@ -108,7 +115,8 @@ def weekly_report(
 
     out = output or (workspace / "reports" / f"{target}_weekly_{datetime.now(timezone.utc):%Y%m%d}.html")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(_render_weekly_html(t, cycles, findings, days), encoding="utf-8")
+    pubkey = read_pubkey_fingerprint(workspace)
+    out.write_text(_render_weekly_html(t, cycles, findings, days, pubkey), encoding="utf-8")
     console.print(f"[green]wrote[/green] {out}")
     _auto_sign(workspace, out, sign)
 
@@ -179,7 +187,12 @@ def _findings_table(findings: list[dict]) -> str:
     </table>"""
 
 
-def _render_cycle_html(target: dict, cycle: dict | None, findings: list[dict]) -> str:
+def _render_cycle_html(
+    target: dict,
+    cycle: dict | None,
+    findings: list[dict],
+    pubkey_fingerprint: str = "",
+) -> str:
     target_name = html.escape(target.get("name", "?"))
     cycle_id = html.escape(cycle.get("cycle_id", "?") if cycle else "?")
     engine_sha = html.escape((cycle.get("engine_sha") or "?")[:10] if cycle else "?")
@@ -196,6 +209,18 @@ def _render_cycle_html(target: dict, cycle: dict | None, findings: list[dict]) -
     else:
         status_label, status_class = "Cycle complete · no Critical/High", "ok"
 
+    cover = cover_page_html(
+        target_name=target_name,
+        report_title="Hunt cycle ·",
+        window_label=f"cycle {cycle_id}",
+        cycle_id=cycle_id,
+        engine_sha=engine_sha,
+        wrapper_sha=wrapper_sha,
+        severity_counts=counts,
+        pubkey_fingerprint=pubkey_fingerprint,
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -208,6 +233,8 @@ def _render_cycle_html(target: dict, cycle: dict | None, findings: list[dict]) -
 </head><body>
 
 {topbar_html(status_label, status_class)}
+
+{cover}
 
 <div class="shell">
 
@@ -252,6 +279,7 @@ def _render_cycle_html(target: dict, cycle: dict | None, findings: list[dict]) -
 
 def _render_weekly_html(
     target: dict, cycles: list[dict], findings: list[dict], days: int,
+    pubkey_fingerprint: str = "",
 ) -> str:
     target_name = html.escape(target.get("name", "?"))
     counts = _sev_counts(findings)
@@ -263,6 +291,33 @@ def _render_weekly_html(
         status_label, status_class = f"{counts['High']} High this period", "warn"
     else:
         status_label, status_class = f"Active · {days}-day window", "ok"
+
+    # Window label: e.g. "24-hour rollup" / "7-day rollup" / "30-day rollup"
+    if days == 1:
+        window_label = "24-hour rollup"
+        report_title = "24-hour audit ·"
+    elif days <= 7:
+        window_label = f"{days}-day rollup"
+        report_title = f"{days}-day audit ·"
+    else:
+        window_label = f"{days}-day rollup"
+        report_title = "Monthly audit ·"
+
+    most_recent_cycle = sorted(
+        cycles, key=lambda x: x.get("started_at") or "", reverse=True
+    )[0] if cycles else None
+
+    cover = cover_page_html(
+        target_name=target_name,
+        report_title=report_title,
+        window_label=window_label,
+        cycle_id="",
+        engine_sha=(most_recent_cycle.get("engine_sha") or "")[:10] if most_recent_cycle else "",
+        wrapper_sha=(most_recent_cycle.get("wrapper_sha") or "")[:10] if most_recent_cycle else "",
+        severity_counts=counts,
+        pubkey_fingerprint=pubkey_fingerprint,
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
 
     cycle_rows = []
     for c in sorted(cycles, key=lambda x: x.get("started_at") or "", reverse=True):
@@ -287,6 +342,8 @@ def _render_weekly_html(
 </head><body>
 
 {topbar_html(status_label, status_class)}
+
+{cover}
 
 <div class="shell">
 
