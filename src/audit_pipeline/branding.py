@@ -493,11 +493,38 @@ td strong { color: var(--ink); }
   border-color: var(--rule);
 }
 
-.cover-meta-block {
-  font-size: 14px; line-height: 1.9; color: var(--ink-3); font-family: var(--mono);
+/* Right-column platform card — mirrors .cover-receipt styling exactly */
+.cover-info {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  border-radius: 0 6px 6px 0;
+  padding: 20px 24px;
 }
-.cover-meta-block strong { color: var(--ink); font-weight: 700; font-size: 15px; }
-.cover-meta-block a { color: var(--amber); }
+.cover-info .header {
+  font-size: 12px; letter-spacing: .24em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 14px; font-family: var(--mono);
+  font-weight: 500;
+}
+.cover-info .body {
+  font-size: 13px; line-height: 1.85; color: var(--ink-2);
+  font-family: var(--mono);
+}
+.cover-info .body strong { color: var(--ink); font-weight: 700; }
+.cover-info .body a { color: var(--amber); }
+.cover-info .body .row {
+  display: flex; gap: 8px; align-items: baseline;
+  padding-top: 4px;
+}
+.cover-info .body .row .key {
+  color: var(--ink-3); min-width: 100px;
+  font-size: 11.5px; letter-spacing: .04em;
+}
+.cover-info .body .footer-row {
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px dashed var(--rule);
+  font-size: 12px; color: var(--ink-3);
+}
 
 /* ============================== PRINT RULES ============================== */
 /* Rendered by Chrome --print-to-pdf, weasyprint, wkhtmltopdf, etc.
@@ -690,11 +717,17 @@ def cover_page_html(
             public key at <a href="{PUBLIC_KEY_URL}">{PUBLIC_KEY_URL}</a>
           </div>
         </div>
-        <div class="cover-meta-block">
-          <strong>{PRODUCT_NAME}</strong> · The underwriting layer for Solana DeFi.<br>
-          Methodology: <a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a><br>
-          Disclosure: <a href="https://jelleo.com/security.html">jelleo.com/security.html</a><br>
-          Apache-2.0 · v0.1 · <a href="mailto:security@jelleo.com">security@jelleo.com</a>
+        <div class="cover-info">
+          <div class="header">Platform · v0.1</div>
+          <div class="body">
+            <strong>{PRODUCT_NAME}</strong> · The underwriting layer for Solana DeFi.
+            <div class="row"><span class="key">Methodology</span><a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a></div>
+            <div class="row"><span class="key">Disclosure</span><a href="https://jelleo.com/security.html">jelleo.com/security.html</a></div>
+            <div class="row"><span class="key">Source</span><a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a></div>
+            <div class="footer-row">
+              Apache-2.0 · contact <a href="mailto:security@jelleo.com">security@jelleo.com</a>
+            </div>
+          </div>
         </div>
       </div>
     </section>
