@@ -364,15 +364,15 @@ td strong { color: var(--ink); }
 .cover-logo {
   display: inline-flex; align-items: center;
   position: relative;
-  height: 56px;
-  padding: 0 28px;
+  height: 64px;
+  padding: 0 32px;
   align-self: start;
   justify-self: start;
 }
 .cover-logo::before, .cover-logo::after {
   content: ''; position: absolute;
-  width: 18px; height: 18px;
-  border: 2px solid var(--amber);
+  width: 22px; height: 22px;
+  border: 2.5px solid var(--amber);
   filter: drop-shadow(0 0 8px var(--amber-glow));
   pointer-events: none;
 }
@@ -380,14 +380,14 @@ td strong { color: var(--ink); }
 .cover-logo::after  { bottom: 0; left: 0; border-right: none; border-top: none; }
 
 .cover-wordmark {
-  font-size: 32px; font-weight: 800; letter-spacing: .025em; color: var(--ink);
+  font-size: 38px; font-weight: 800; letter-spacing: .03em; color: var(--ink);
   line-height: 1;
 }
 .cover-tagline {
-  margin-left: 16px; padding-left: 16px;
+  margin-left: 18px; padding-left: 18px;
   border-left: 1px solid var(--rule-2);
-  font-family: var(--mono); font-size: 10px;
-  letter-spacing: .24em; text-transform: uppercase;
+  font-family: var(--mono); font-size: 12px;
+  letter-spacing: .22em; text-transform: uppercase;
   color: var(--ink-3); line-height: 1.4;
 }
 
@@ -397,22 +397,23 @@ td strong { color: var(--ink); }
   justify-content: center;
   align-self: center;
   width: 100%;
-  max-width: 880px;
+  max-width: 920px;
 }
 
 .cover-eyebrow {
-  font-family: var(--mono); font-size: 11px;
-  letter-spacing: .32em; text-transform: uppercase; color: var(--amber);
-  margin-bottom: 22px; display: flex; align-items: center; gap: 14px;
+  font-family: var(--mono); font-size: 14px;
+  letter-spacing: .28em; text-transform: uppercase; color: var(--amber);
+  margin-bottom: 28px; display: flex; align-items: center; gap: 16px;
+  font-weight: 500;
 }
 .cover-eyebrow::before {
-  content: ''; width: 28px; height: 1px;
-  background: var(--amber); box-shadow: 0 0 6px var(--amber-glow);
+  content: ''; width: 32px; height: 1.5px;
+  background: var(--amber); box-shadow: 0 0 8px var(--amber-glow);
 }
 
 .cover-title {
-  font-size: clamp(48px, 5.4vw, 72px); font-weight: 700; letter-spacing: -0.025em;
-  line-height: 1.05; color: var(--ink); margin-bottom: 36px; max-width: 16ch;
+  font-size: clamp(56px, 6.4vw, 88px); font-weight: 700; letter-spacing: -0.025em;
+  line-height: 1.04; color: var(--ink); margin-bottom: 44px; max-width: 16ch;
 }
 .cover-title .accent {
   background: linear-gradient(135deg, var(--amber), var(--amber-2));
@@ -421,17 +422,18 @@ td strong { color: var(--ink); }
 }
 
 .cover-meta-grid {
-  display: grid; grid-template-columns: 140px 1fr; gap: 10px 28px;
-  font-size: 13px; line-height: 1.55;
-  margin-bottom: 36px;
+  display: grid; grid-template-columns: 180px 1fr; gap: 14px 36px;
+  font-size: 17px; line-height: 1.5;
+  margin-bottom: 44px;
 }
 .cover-meta-grid .label {
-  font-family: var(--mono); font-size: 10px; letter-spacing: .2em;
-  text-transform: uppercase; color: var(--ink-3); padding-top: 3px;
+  font-family: var(--mono); font-size: 13px; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--ink-3); padding-top: 4px;
+  font-weight: 500;
 }
-.cover-meta-grid .value { color: var(--ink); font-weight: 500; }
+.cover-meta-grid .value { color: var(--ink); font-weight: 500; font-size: 17px; }
 .cover-meta-grid .value code {
-  font-size: 12px; padding: 2px 8px; color: var(--amber);
+  font-size: 15px; padding: 3px 10px; color: var(--amber);
   border-color: rgba(245,184,0,0.2);
 }
 
@@ -441,18 +443,19 @@ td strong { color: var(--ink); }
   background: var(--surface); overflow: hidden;
 }
 .cover-summary-cell {
-  padding: 18px 16px; text-align: center;
+  padding: 24px 18px; text-align: center;
   border-right: 1px solid var(--rule);
 }
 .cover-summary-cell:last-child { border-right: none; }
 .cover-summary-cell .num {
-  font-size: 28px; font-weight: 700; line-height: 1;
+  font-size: 40px; font-weight: 700; line-height: 1;
   font-variant-numeric: tabular-nums; color: var(--ink);
+  letter-spacing: -0.02em;
 }
 .cover-summary-cell .label {
-  display: block; margin-top: 8px;
-  font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
-  color: var(--ink-3); font-family: var(--mono);
+  display: block; margin-top: 12px;
+  font-size: 12px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--ink-3); font-family: var(--mono); font-weight: 500;
 }
 .cover-summary-cell.crit .num { color: var(--critical); }
 .cover-summary-cell.high .num { color: var(--high); }
@@ -461,37 +464,39 @@ td strong { color: var(--ink); }
 
 /* Footer: receipt + meta side-by-side */
 .cover-bottom {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 32px;
-  border-top: 1px solid var(--rule); padding-top: 28px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 36px;
+  border-top: 1px solid var(--rule); padding-top: 32px;
   align-self: end;
 }
 .cover-receipt {
   background: var(--surface); border: 1px solid var(--rule);
   border-left: 3px solid var(--amber); border-radius: 0 6px 6px 0;
-  padding: 16px 20px;
+  padding: 20px 24px;
 }
 .cover-receipt .header {
-  font-size: 9px; letter-spacing: .24em; text-transform: uppercase;
-  color: var(--amber); margin-bottom: 10px; font-family: var(--mono);
+  font-size: 12px; letter-spacing: .24em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 14px; font-family: var(--mono);
+  font-weight: 500;
 }
 .cover-receipt .pubkey {
-  font-size: 10.5px; color: var(--ink-2); font-family: var(--mono);
+  font-size: 13px; color: var(--ink-2); font-family: var(--mono);
   word-break: break-all; line-height: 1.55;
 }
 .cover-receipt .verify {
-  margin-top: 12px; padding-top: 10px;
+  margin-top: 16px; padding-top: 14px;
   border-top: 1px dashed var(--rule);
-  font-size: 9.5px; color: var(--ink-3); font-family: var(--mono);
+  font-size: 12px; color: var(--ink-3); font-family: var(--mono);
   line-height: 1.7;
 }
 .cover-receipt .verify code {
-  font-size: 9.5px; padding: 1px 5px; color: var(--ink-2);
+  font-size: 11.5px; padding: 2px 6px; color: var(--ink-2);
+  border-color: var(--rule);
 }
 
 .cover-meta-block {
-  font-size: 11px; line-height: 1.85; color: var(--ink-3); font-family: var(--mono);
+  font-size: 14px; line-height: 1.9; color: var(--ink-3); font-family: var(--mono);
 }
-.cover-meta-block strong { color: var(--ink); font-weight: 700; }
+.cover-meta-block strong { color: var(--ink); font-weight: 700; font-size: 15px; }
 .cover-meta-block a { color: var(--amber); }
 
 /* ============================== PRINT RULES ============================== */
@@ -519,10 +524,10 @@ td strong { color: var(--ink); }
   .shell { padding: 0 !important; max-width: 100% !important; }
 
   .cover {
-    height: 100vh; padding: 0.4in 0.4in 0.5in;
+    height: 100vh; padding: 0.5in 0.5in 0.6in;
     page-break-after: always; break-after: page;
   }
-  .cover-title { font-size: 56px !important; }
+  .cover-title { font-size: 72px !important; }
 
   /* Avoid breaking inside cards, KPIs, and table rows */
   .kpi, .card, .empty, .cover-receipt, .cover-summary { page-break-inside: avoid; break-inside: avoid; }
