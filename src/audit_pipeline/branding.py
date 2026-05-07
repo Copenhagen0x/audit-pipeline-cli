@@ -344,99 +344,114 @@ td strong { color: var(--ink); }
 .footer a:hover { color: var(--amber); }
 
 /* ============================== COVER PAGE ============================== */
+/* 3-row grid: logo / hero (centered) / footer. No page-level decorative
+   brackets — the logo carries the bracket motif. Tight, structured spacing. */
 
 .cover {
-  height: 100vh;
-  display: flex; flex-direction: column; justify-content: space-between;
-  padding: 64px 56px 56px;
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 56px;
+  padding: 72px 64px 56px;
   position: relative;
-  overflow: hidden;
   page-break-after: always;
   break-after: page;
 }
-.cover::before, .cover::after {
-  content: ''; position: absolute;
-  width: 80px; height: 80px;
-  border-color: var(--amber);
-  filter: drop-shadow(0 0 10px var(--amber-glow));
-}
-.cover::before { top: 32px; left: 32px; border-top: 1.5px solid var(--amber); border-left: 1.5px solid var(--amber); }
-.cover::after  { bottom: 32px; right: 32px; border-bottom: 1.5px solid var(--amber); border-right: 1.5px solid var(--amber); }
 
-.cover-top { display: flex; align-items: center; gap: 16px; }
-.cover-mark {
-  position: relative; width: 56px; height: 56px; display: inline-block;
+/* Logo: brackets wrap AROUND the JELLEO wordmark (matches nav-logo pattern
+   from index.html). Wordmark + tagline are inline; tagline is divided by
+   a thin rule. Width is just-enough for the word + tagline. */
+.cover-logo {
+  display: inline-flex; align-items: center;
+  position: relative;
+  height: 56px;
+  padding: 0 28px;
+  align-self: start;
+  justify-self: start;
 }
-.cover-mark::before, .cover-mark::after {
+.cover-logo::before, .cover-logo::after {
   content: ''; position: absolute;
-  width: 22px; height: 22px;
-  border: 3px solid var(--amber);
+  width: 18px; height: 18px;
+  border: 2px solid var(--amber);
   filter: drop-shadow(0 0 8px var(--amber-glow));
+  pointer-events: none;
 }
-.cover-mark::before { top: 0; right: 0; border-left: none; border-bottom: none; }
-.cover-mark::after  { bottom: 0; left: 0; border-right: none; border-top: none; }
+.cover-logo::before { top: 0; right: 0; border-left: none; border-bottom: none; }
+.cover-logo::after  { bottom: 0; left: 0; border-right: none; border-top: none; }
+
 .cover-wordmark {
-  font-size: 28px; font-weight: 800; letter-spacing: .03em; color: var(--ink);
+  font-size: 32px; font-weight: 800; letter-spacing: .025em; color: var(--ink);
+  line-height: 1;
 }
 .cover-tagline {
-  font-size: 11px; letter-spacing: .24em; text-transform: uppercase;
-  color: var(--ink-3); font-family: var(--mono); margin-top: 4px;
+  margin-left: 16px; padding-left: 16px;
+  border-left: 1px solid var(--rule-2);
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: .24em; text-transform: uppercase;
+  color: var(--ink-3); line-height: 1.4;
 }
 
-.cover-mid { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+/* Hero: vertically-centered block holding eyebrow / title / meta / severity */
+.cover-hero {
+  display: flex; flex-direction: column;
+  justify-content: center;
+  align-self: center;
+  width: 100%;
+  max-width: 880px;
+}
+
 .cover-eyebrow {
   font-family: var(--mono); font-size: 11px;
   letter-spacing: .32em; text-transform: uppercase; color: var(--amber);
-  margin-bottom: 18px; display: flex; align-items: center; gap: 14px;
+  margin-bottom: 22px; display: flex; align-items: center; gap: 14px;
 }
 .cover-eyebrow::before {
   content: ''; width: 28px; height: 1px;
   background: var(--amber); box-shadow: 0 0 6px var(--amber-glow);
 }
+
 .cover-title {
-  font-size: clamp(48px, 6vw, 80px); font-weight: 700; letter-spacing: -0.025em;
-  line-height: 1.0; color: var(--ink); margin-bottom: 22px; max-width: 18ch;
+  font-size: clamp(48px, 5.4vw, 72px); font-weight: 700; letter-spacing: -0.025em;
+  line-height: 1.05; color: var(--ink); margin-bottom: 36px; max-width: 16ch;
 }
 .cover-title .accent {
   background: linear-gradient(135deg, var(--amber), var(--amber-2));
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
 .cover-meta-grid {
-  display: grid; grid-template-columns: 200px 1fr; gap: 12px 32px;
-  margin-top: 32px; max-width: 700px;
-  font-size: 14px; line-height: 1.7;
+  display: grid; grid-template-columns: 140px 1fr; gap: 10px 28px;
+  font-size: 13px; line-height: 1.55;
+  margin-bottom: 36px;
 }
 .cover-meta-grid .label {
   font-family: var(--mono); font-size: 10px; letter-spacing: .2em;
-  text-transform: uppercase; color: var(--ink-3); padding-top: 4px;
+  text-transform: uppercase; color: var(--ink-3); padding-top: 3px;
 }
-.cover-meta-grid .value {
-  color: var(--ink); font-weight: 500;
-}
+.cover-meta-grid .value { color: var(--ink); font-weight: 500; }
 .cover-meta-grid .value code {
-  font-size: 13px; padding: 2px 8px; color: var(--amber);
+  font-size: 12px; padding: 2px 8px; color: var(--amber);
   border-color: rgba(245,184,0,0.2);
 }
 
 .cover-summary {
   display: grid; grid-template-columns: repeat(5, 1fr);
-  gap: 0; margin-top: 36px; max-width: 700px;
   border: 1px solid var(--rule); border-radius: 8px;
   background: var(--surface); overflow: hidden;
 }
 .cover-summary-cell {
-  padding: 14px 16px; text-align: center;
+  padding: 18px 16px; text-align: center;
   border-right: 1px solid var(--rule);
 }
 .cover-summary-cell:last-child { border-right: none; }
 .cover-summary-cell .num {
-  font-size: 24px; font-weight: 700; line-height: 1;
+  font-size: 28px; font-weight: 700; line-height: 1;
   font-variant-numeric: tabular-nums; color: var(--ink);
 }
 .cover-summary-cell .label {
-  display: block; margin-top: 6px;
-  font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+  display: block; margin-top: 8px;
+  font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
   color: var(--ink-3); font-family: var(--mono);
 }
 .cover-summary-cell.crit .num { color: var(--critical); }
@@ -444,32 +459,40 @@ td strong { color: var(--ink); }
 .cover-summary-cell.med .num  { color: var(--medium); }
 .cover-summary-cell.low .num  { color: var(--low); }
 
+/* Footer: receipt + meta side-by-side */
 .cover-bottom {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
-  border-top: 1px solid var(--rule); padding-top: 24px;
-  font-size: 11px; font-family: var(--mono); color: var(--ink-3);
+  display: grid; grid-template-columns: 1fr 1fr; gap: 32px;
+  border-top: 1px solid var(--rule); padding-top: 28px;
+  align-self: end;
 }
 .cover-receipt {
   background: var(--surface); border: 1px solid var(--rule);
   border-left: 3px solid var(--amber); border-radius: 0 6px 6px 0;
-  padding: 14px 18px;
+  padding: 16px 20px;
 }
 .cover-receipt .header {
   font-size: 9px; letter-spacing: .24em; text-transform: uppercase;
-  color: var(--amber); margin-bottom: 8px;
+  color: var(--amber); margin-bottom: 10px; font-family: var(--mono);
 }
 .cover-receipt .pubkey {
-  font-size: 10px; color: var(--ink-2);
-  word-break: break-all; line-height: 1.5;
+  font-size: 10.5px; color: var(--ink-2); font-family: var(--mono);
+  word-break: break-all; line-height: 1.55;
 }
 .cover-receipt .verify {
-  margin-top: 10px; padding-top: 10px;
+  margin-top: 12px; padding-top: 10px;
   border-top: 1px dashed var(--rule);
-  font-size: 9.5px; color: var(--ink-3);
+  font-size: 9.5px; color: var(--ink-3); font-family: var(--mono);
+  line-height: 1.7;
+}
+.cover-receipt .verify code {
+  font-size: 9.5px; padding: 1px 5px; color: var(--ink-2);
 }
 
-.cover-meta-block { font-size: 11px; line-height: 1.7; color: var(--ink-3); }
-.cover-meta-block strong { color: var(--ink-2); }
+.cover-meta-block {
+  font-size: 11px; line-height: 1.85; color: var(--ink-3); font-family: var(--mono);
+}
+.cover-meta-block strong { color: var(--ink); font-weight: 700; }
+.cover-meta-block a { color: var(--amber); }
 
 /* ============================== PRINT RULES ============================== */
 /* Rendered by Chrome --print-to-pdf, weasyprint, wkhtmltopdf, etc.
@@ -626,15 +649,12 @@ def cover_page_html(
 
     return f"""
     <section class="cover">
-      <div class="cover-top">
-        <span class="cover-mark"></span>
-        <div>
-          <div class="cover-wordmark">{PRODUCT_NAME}</div>
-          <div class="cover-tagline">{TAGLINE}</div>
-        </div>
+      <div class="cover-logo">
+        <span class="cover-wordmark">{PRODUCT_NAME}</span>
+        <span class="cover-tagline">{TAGLINE}</span>
       </div>
 
-      <div class="cover-mid">
+      <div class="cover-hero">
         <div class="cover-eyebrow">Audit report · {window_label}</div>
         <h1 class="cover-title">{report_title} <span class="accent">{target_name}.</span></h1>
 
@@ -661,15 +681,15 @@ def cover_page_html(
           <div class="header">Signed · Ed25519</div>
           <div class="pubkey">{pk_display}</div>
           <div class="verify">
-            verify with: audit-pipeline sign verify &lt;file&gt; &lt;file&gt;.sig --pubkey jelleo.ed25519.pub
-            <br>public key: <a href="{PUBLIC_KEY_URL}">{PUBLIC_KEY_URL}</a>
+            verify with <code>audit-pipeline sign verify &lt;file&gt; &lt;file&gt;.sig --pubkey jelleo.ed25519.pub</code><br>
+            public key at <a href="{PUBLIC_KEY_URL}">{PUBLIC_KEY_URL}</a>
           </div>
         </div>
         <div class="cover-meta-block">
           <strong>{PRODUCT_NAME}</strong> · The underwriting layer for Solana DeFi.<br>
-          Methodology &amp; severity rubric: <a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a><br>
-          Disclosure policy: <a href="https://jelleo.com/security.html">jelleo.com/security.html</a><br>
-          Apache-2.0 · v0.1 · contact <a href="mailto:security@jelleo.com">security@jelleo.com</a>
+          Methodology: <a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a><br>
+          Disclosure: <a href="https://jelleo.com/security.html">jelleo.com/security.html</a><br>
+          Apache-2.0 · v0.1 · <a href="mailto:security@jelleo.com">security@jelleo.com</a>
         </div>
       </div>
     </section>
