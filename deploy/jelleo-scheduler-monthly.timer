@@ -1,0 +1,14 @@
+[Unit]
+Description=Jelleo - monthly cadence trigger
+Documentation=https://jelleo.com/methodology.html#reporting
+
+[Timer]
+# 1st of month at 09:30 UTC. Offset from 24h+weekly so all three don't
+# fire simultaneously on Monday-the-1st.
+OnCalendar=*-*-01 09:30:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+Unit=jelleo-scheduler-monthly.service
+
+[Install]
+WantedBy=timers.target

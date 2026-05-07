@@ -61,3 +61,33 @@ dmypy.json
 audit_ws/
 workspaces/
 *.audit-workspace/
+
+# Cryptographic keys — NEVER commit private keys.
+# Public keys (.pub) are explicitly re-included so the platform key
+# stays publishable for signature verification.
+keys/*.ed25519
+keys/*.gpg
+keys/*.pem
+keys/*.key
+keys/*.priv
+!keys/*.pub
+!keys/*.pub.*
+
+# SMTP / runtime secrets
+.env
+.env.local
+deploy/.env
+deploy/.env.local
+notifier.json
+deploy/notifier.json
+
+# Findings DB + scheduler state — workspace-local, not source
+findings.db
+scheduler.state.json
+*.audit-workspace.db
+
+# Generated reports + signatures (rendered per cycle, not source)
+reports/
+hunts/*/hunt_report.html
+hunts/*/*.sig
+*.report.md.sig

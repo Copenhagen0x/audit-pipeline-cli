@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Security &amp; Disclosure Policy</title>
+<meta name="description" content="Jelleo's security policy: how to report vulnerabilities against the platform, disclosure timeline for findings, embargo conditions, and cryptographic attestation verification.">
+<meta name="theme-color" content="#050504">
+<link rel="canonical" href="https://jelleo.com/security.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Jelleo">
+<meta property="og:url" content="https://jelleo.com/security.html">
+<meta property="og:title" content="Jelleo · Security &amp; Disclosure Policy">
+<meta property="og:description" content="Coordinated disclosure model. 30-day default embargo. Ed25519-signed cycle receipts. Public methodology.">
+<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:title" content="Jelleo · Security &amp; Disclosure Policy">
+<meta name="twitter:description" content="Coordinated disclosure model. Signed cycle receipts. Public methodology.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+/* ====== Page-specific styles for security ====== */
+
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+
+section.doc h3 {
+  font-size: clamp(20px, 2vw, 26px);
+  line-height: 1.25; font-weight: 600;
+  margin: 48px 0 18px; color: var(--ink);
+  letter-spacing: -0.01em;
+}
+section.doc p { color: var(--ink-2); margin-bottom: 16px; max-width: 76ch; line-height: 1.65; }
+section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; max-width: 70ch; }
+section.doc ul, section.doc ol { color: var(--ink-2); margin: 0 0 16px 24px; max-width: 76ch; line-height: 1.7; }
+section.doc li { margin-bottom: 6px; }
+section.doc strong { color: var(--ink); }
+section.doc a {
+  color: var(--amber);
+  border-bottom: 1px solid rgba(245,184,0,0.3);
+  transition: border-color .15s ease;
+}
+section.doc a:hover { border-bottom-color: var(--amber); }
+
+/* Contact block */
+.contact-block {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  padding: 24px 28px;
+  margin: 28px 0;
+  font-size: 16px;
+  color: var(--ink);
+  max-width: 700px;
+  border-radius: 0 8px 8px 0;
+}
+.contact-block .label {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--amber);
+  display: block; margin-bottom: 6px;
+}
+.contact-block a {
+  font-family: var(--mono);
+  font-size: 17px;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule-2);
+}
+.contact-block a:hover { color: var(--amber); border-bottom-color: var(--amber); }
+.contact-block .label.spaced { margin-top: 18px; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: 24px 0 32px; }
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: 14px; line-height: 1.55;
+}
+th, td {
+  text-align: left; padding: 14px 16px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+th {
+  font-weight: 600; font-size: 11px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1.5px solid var(--rule-2);
+  font-family: var(--mono);
+}
+td { color: var(--ink-2); }
+td strong { color: var(--ink); }
+tbody tr:hover td { background: rgba(245,243,237,0.015); }
+
+/* Principle blocks */
+.principle {
+  border-left: 2px solid var(--rule-2);
+  padding: 14px 0 14px 22px;
+  margin: 18px 0;
+  transition: border-color .25s ease;
+}
+.principle:hover { border-left-color: var(--amber); }
+.principle strong {
+  display: block;
+  font-size: 16px;
+  margin-bottom: 6px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.principle p { font-size: 15px; color: var(--ink-2); margin: 0; }
+</style>
+</head>
+<body>
+
+<!-- ============== BACKGROUND LAYERS ============== -->
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<!-- ============== CURSOR ============== -->
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+
+<!-- ============== SCROLL PROGRESS ============== -->
+<div class="scroll-progress" id="progress"></div>
+
+<!-- ============== NAV ============== -->
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/#coverage">Coverage</a>
+    <a href="/#product">Product</a>
+    <a href="/#live-ops">Live ops</a>
+    <a href="/#dashboard-preview">Dashboard</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html" class="active">Security</a>
+  </div>
+  <div class="nav-right">
+    <span class="nav-status">
+      <span class="live-dot"></span>
+      Disclosure · v1 · public
+    </span>
+    <a href="/#contact" class="nav-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/#product" role="menuitem">Product</a>
+  <a href="/#live-ops" role="menuitem">Live ops</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/dashboard.html" role="menuitem">Dashboard</a>
+  <a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener" role="menuitem">Source</a>
+  <a href="/#contact" role="menuitem" style="color: var(--amber);">Request integration →</a>
+</div>
+
+<!-- ============== HERO ============== -->
+<section class="hero">
+  <span class="hero-bracket tl"></span>
+  <span class="hero-bracket br"></span>
+  <div class="container">
+    <div data-reveal>
+      <div class="hero-eyebrow">Security &amp; disclosure policy</div>
+      <h1 class="hero-title">Coordinated disclosure. <span class="accent">Signed receipts. No silent fixes.</span></h1>
+      <p class="hero-lede">Jelleo is a Solana-program audit platform. This page describes how to report security issues against the platform, how Jelleo handles findings against its audit targets, and how to verify a Jelleo cycle's signed attestation.</p>
+      <div class="hero-meta">
+        <span><strong>v1</strong> published 2026-05-07</span>
+        <span><strong>30-day</strong> default embargo</span>
+        <span><strong>Ed25519</strong> signed receipts</span>
+        <span><strong>Apache-2.0</strong></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 01 · REPORTING ============== -->
+<section class="doc" id="report">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">01 · Reporting a vulnerability</div>
+      <h2 class="section-title">How to report</h2>
+      <p class="section-lede">If you have found a security issue in the Jelleo platform — the audit pipeline, the hypothesis library, the CLI, the dashboard, the website, or the signing/attestation key handling — please report it directly to us.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <div class="contact-block">
+        <span class="label">Primary contact</span>
+        <a href="mailto:security@jelleo.com">security@jelleo.com</a>
+        <span class="label spaced">Fallback</span>
+        <a href="mailto:info@wifpros.com">info@wifpros.com</a>
+      </div>
+
+      <p>A PGP key is published in the platform repository at <code>keys/jelleo.gpg.pub</code> for sensitive reports. Acknowledgement within <strong>48 hours</strong>; status update within <strong>5 business days</strong>.</p>
+
+      <p>For findings Jelleo has produced against a third-party Solana protocol, the protocol maintainer is the disclosure target — Jelleo's role is to coordinate that disclosure. Direct disclosures from external researchers about a Jelleo customer's protocol are routed via the same email above.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 02 · SCOPE ============== -->
+<section class="doc" id="scope">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">02 · Scope</div>
+      <h2 class="section-title">What is in scope, <span class="accent">what is not.</span></h2>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <h3>In scope</h3>
+      <ul>
+        <li>The audit-pipeline CLI (<a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">platform repo</a>)</li>
+        <li>The Jelleo website source (<code>website/deploy/</code>)</li>
+        <li>The hypothesis library (<code>OUTREACH/*.yaml</code> + templates)</li>
+        <li>The findings database schema (<code>src/audit_pipeline/db.py</code>)</li>
+        <li>The Ed25519 signing implementation (<code>src/audit_pipeline/commands/sign.py</code>)</li>
+        <li>The shadow-audit logic (<code>src/audit_pipeline/commands/shadow.py</code>)</li>
+        <li>The dashboard (<code>src/audit_pipeline/commands/dashboard.py</code>)</li>
+        <li>Any signed Jelleo cycle receipts that are claimed but cryptographically invalid</li>
+      </ul>
+
+      <h3>Out of scope</h3>
+      <ul>
+        <li>The Solana programs Jelleo audits (report those upstream — Jelleo will help coordinate)</li>
+        <li>The Anthropic API, the Solana RPC providers, or other third-party services Jelleo depends on</li>
+        <li>Self-XSS, missing security headers absent demonstrable impact, or other low-impact web findings without an exploit chain</li>
+        <li>Issues requiring physical access to the maintainer's workstation</li>
+        <li>Social engineering attacks against Jelleo personnel</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 03 · DISCLOSURE ============== -->
+<section class="doc" id="disclosure">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">03 · Disclosure policy</div>
+      <h2 class="section-title">For findings Jelleo produces</h2>
+      <p class="section-lede">Jelleo follows a coordinated-disclosure model. The defaults below are floors; specific engagements may extend any of them by mutual agreement.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <h3>Timeline</h3>
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>State</th><th>Action</th><th>Default duration</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>confirmed</code></td><td>PoC reproduces. Disclosure email sent to the maintainer with a private GitHub issue or alternative.</td><td>Day 0</td></tr>
+          <tr><td><code>disclosed</code></td><td>Maintainer acknowledged. Embargo begins.</td><td>30 days</td></tr>
+          <tr><td><code>fixed</code> (in window)</td><td>Maintainer ships patch within the 30-day window. Public disclosure proceeds coordinated.</td><td>within 30 days</td></tr>
+          <tr><td><code>fixed</code> (extension)</td><td>Maintainer requests extension — granted by default for active fix work, up to 90 days total.</td><td>30–90 days</td></tr>
+          <tr><td>Public release</td><td>Writeup, PoC, fix bundle, attestation made public.</td><td>Day 30 or after fix</td></tr>
+          <tr><td>No-acknowledgement</td><td>If no acknowledgement after 14 days of repeated outreach, public disclosure proceeds.</td><td>Day 30</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h3>Embargo conditions</h3>
+      <ul>
+        <li><strong>Critical findings</strong> affecting deployed mainnet protocols receive maximum embargo flexibility — Jelleo will not publish until a fix is shipped or the protocol's funds are no longer at risk.</li>
+        <li><strong>High findings</strong> against active protocols default to 30 days, extensible to 90.</li>
+        <li><strong>Medium / Low / Info findings</strong> default to public disclosure on the next regular cadence (weekly or monthly rollup).</li>
+        <li>Embargo duration is recorded in the signed cycle receipt (<a href="/methodology.html#attestation">methodology §07</a>).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 04 · PRINCIPLES ============== -->
+<section class="doc" id="principles">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">04 · Principles</div>
+      <h2 class="section-title">Responsible-disclosure principles</h2>
+      <p class="section-lede">Derived from <a href="https://www.kb.cert.org/vuls/guidance/" target="_blank" rel="noopener">CERT/CC guidelines</a>.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <div class="principle">
+        <strong>Maintainer first.</strong>
+        <p>Findings are sent to maintainers before any third party.</p>
+      </div>
+      <div class="principle">
+        <strong>Embargo is genuine.</strong>
+        <p>Customers, partners, and Jelleo employees do not receive in-embargo finding details until the embargo lifts.</p>
+      </div>
+      <div class="principle">
+        <strong>No silent disclosure.</strong>
+        <p>Every finding eventually becomes public — either with a fix in place or with the maintainer's explicit acknowledgement that no fix will ship.</p>
+      </div>
+      <div class="principle">
+        <strong>No selling.</strong>
+        <p>Jelleo does not sell findings. It does not sell early access to findings. Customers receive findings against their own protocol; nothing more.</p>
+      </div>
+      <div class="principle">
+        <strong>Crediting researchers.</strong>
+        <p>External researchers who report platform vulnerabilities are credited in the disclosure unless they request anonymity.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 05 · ATTESTATION ============== -->
+<section class="doc" id="attestation">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">05 · Cryptographic attestation</div>
+      <h2 class="section-title">How to verify a <span class="accent">Jelleo signature.</span></h2>
+      <p class="section-lede">Every Jelleo cycle produces an Ed25519-signed receipt. The current platform public key is published in three places — any one of them is authoritative.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <ul>
+        <li><code>keys/jelleo.ed25519.pub</code> in the platform repo</li>
+        <li><a href="/methodology.html#attestation">jelleo.com/methodology.html#attestation</a></li>
+        <li><code>https://jelleo.com/keys/jelleo.ed25519.pub</code> (when deployed)</li>
+      </ul>
+
+      <p>To verify a Jelleo signature:</p>
+      <div class="terminal-block">
+        <div class="terminal-chrome">
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-title">$ verify a signed cycle</span>
+        </div>
+<pre><code><span class="cmt">$</span> <span class="kw">audit-pipeline sign verify</span> &lt;file&gt; &lt;file&gt;.sig --pubkey jelleo.ed25519.pub
+<span class="hl"><span class="ok">✓ VALID</span> signature on &lt;file&gt;</span></code></pre>
+      </div>
+
+      <p>If a signature does not verify, <strong>do not trust the file</strong>. A failed verification means either the file has been altered since signing, or the file was not signed by the published Jelleo platform key. Either case warrants a direct report to <a href="mailto:security@jelleo.com">security@jelleo.com</a>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 06 · BOUNTY ============== -->
+<section class="doc" id="bounty">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">06 · Bounty</div>
+      <h2 class="section-title">Bug bounty</h2>
+      <p class="section-lede">Jelleo does not currently operate a formal bug bounty program. We extend courtesy compensation for impactful findings on a case-by-case basis. The intent is to formalize a bounty within the Year-1 funded build.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 07 · ACKNOWLEDGEMENTS ============== -->
+<section class="doc" id="acknowledgements">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">07 · Acknowledgements</div>
+      <h2 class="section-title">Researcher honor roll</h2>
+      <p class="section-lede">We thank every researcher who has improved Jelleo's security. As of the date below, no external researchers have reported platform vulnerabilities. This list will grow.</p>
+      <p style="font-size: 14px; color: var(--ink-3); margin-top: 14px;">Last updated: 2026-05-07.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============== FOOTER ============== -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">jelleo</a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="/#product">The four pillars</a></li>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/security.html">Security &amp; disclosure</a></li>
+          <li><a href="/dashboard.html">Dashboard</a></li>
+          <li><a href="/#case-study">F7 case study</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Open source</h5>
+        <ul>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">Platform</a></li>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/SECURITY.md" target="_blank" rel="noopener">SECURITY.md</a></li>
+          <li><a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">F7 disclosure</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Contact</h5>
+        <ul>
+          <li><a href="mailto:security@jelleo.com">security@jelleo.com</a></li>
+          <li><a href="mailto:info@wifpros.com">info@wifpros.com</a></li>
+          <li><a href="https://jelleo.com">jelleo.com</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span>v0.1 · Security policy v1 · 2026-05-07</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/shared.js"></script>
+
+</body>
+</html>

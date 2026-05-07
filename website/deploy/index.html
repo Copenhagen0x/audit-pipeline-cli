@@ -1196,6 +1196,52 @@ section {
   .method-node { margin-top: 4px; flex-shrink: 0; }
 }
 
+/* Method-page CTA — bottom of the methodology section, links to /methodology.html */
+.method-cta {
+  margin-top: 64px;
+  padding: 36px 40px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  border-radius: 0 8px 8px 0;
+  background: linear-gradient(90deg, rgba(245,184,0,0.06), rgba(245,184,0,0.02) 60%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 40px;
+  flex-wrap: wrap;
+  position: relative;
+  overflow: hidden;
+}
+.method-cta::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 32px; height: 1px;
+  background: var(--amber);
+  box-shadow: 0 0 12px var(--amber-glow);
+}
+.method-cta-text { flex: 1 1 480px; min-width: 280px; }
+.method-cta-eyebrow {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.32em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 14px;
+}
+.method-cta-eyebrow::before {
+  content: ''; width: 24px; height: 1px;
+  background: var(--amber); box-shadow: 0 0 6px var(--amber-glow);
+}
+.method-cta-text p {
+  margin: 0; font-size: 16px; line-height: 1.6;
+  color: var(--ink-2); max-width: 64ch;
+}
+.method-cta-text p strong { color: var(--ink); }
+@media (max-width: 768px) {
+  .method-cta { padding: 28px 24px; gap: 24px; margin-top: 48px; }
+  .method-cta-text p { font-size: 15px; }
+  .method-cta .btn { width: 100%; justify-content: center; }
+}
+
 /* ========== DEMO ========== */
 .demo { position: relative; }
 
@@ -3603,7 +3649,8 @@ body.preloading { overflow: hidden; }
     <a href="#live-ops">Live ops</a>
     <a href="#dashboard-preview">Dashboard</a>
     <a href="#disclosures">Ledger</a>
-    <a href="#attestation">Registry</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html">Security</a>
   </div>
   <div class="nav-right">
     <span class="nav-status" title="Year-1 funded-state target — see preview banner">
@@ -3639,7 +3686,8 @@ body.preloading { overflow: hidden; }
   <a href="#live-ops" role="menuitem">Live ops</a>
   <a href="#dashboard-preview" role="menuitem">Dashboard</a>
   <a href="#disclosures" role="menuitem">Ledger</a>
-  <a href="#attestation" role="menuitem">Registry</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
   <a href="#contact" role="menuitem" style="color: #f5b800;">Request integration →</a>
 </div>
 
@@ -3946,6 +3994,14 @@ body.preloading { overflow: hidden; }
           <p class="method-desc">Every confirmed finding feeds back into the catalog. The platform extracts the structural attack pattern and auto-derives N sibling hypotheses targeting the same class through different code paths. F7 alone produced a 12-hypothesis sibling library on day one. The catalog compounds with every disclosure.</p>
         </div>
       </div>
+    </div>
+
+    <div class="method-cta" data-reveal>
+      <div class="method-cta-text">
+        <div class="method-cta-eyebrow">Technical reference</div>
+        <p>The full methodology — four pillars, hypothesis scoping schema, propagation engine, severity rubric, lifecycle state machine, attestation, reporting cadence — is published as a public reference document.</p>
+      </div>
+      <a href="/methodology.html" class="btn btn-primary">Read the full methodology <span class="arrow">→</span></a>
     </div>
   </div>
 </section>
@@ -4403,7 +4459,7 @@ body.preloading { overflow: hidden; }
       </a>
       <a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/examples/confirm-session-2026-05-06" target="_blank" rel="noopener" class="repo-row">
         <span class="repo-label">/ 06 — Empirical confirm session</span>
-        <span class="repo-url">2026-05-06 · F7 re-discovered + 2 attestations + 2 cannot_test</span>
+        <span class="repo-url">2026-05-06 · 4 confirms: 1 fired (F7-class) + 1 attestation + 2 cannot_test</span>
         <span class="repo-arrow">→</span>
       </a>
     </div>
@@ -4448,7 +4504,8 @@ body.preloading { overflow: hidden; }
         <h5>Product</h5>
         <ul>
           <li><a href="#product">The four pillars</a></li>
-          <li><a href="#methodology">Methodology</a></li>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/security.html">Security &amp; disclosure</a></li>
           <li><a href="#dashboard-preview">Live demo</a></li>
           <li><a href="#case-study">F7 case study</a></li>
         </ul>

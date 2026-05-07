@@ -26,6 +26,7 @@ from audit_pipeline.commands import (
     learn,
     litesvm,
     narrative,
+    notify,
     onboard,
     poc,
     propagate,
@@ -33,6 +34,7 @@ from audit_pipeline.commands import (
     recon,
     report,
     run,
+    scheduler,
     shadow,
     sign,
     spec_check,
@@ -56,7 +58,7 @@ console = Console()
 )
 @click.pass_context
 def main(ctx: click.Context, workspace: str) -> None:
-    """audit-pipeline — orchestrate a Solana security audit through 5 layers.
+    """audit-pipeline — orchestrate a continuous Solana security audit (Layers 0–6).
 
     \b
     Core layers:
@@ -85,7 +87,7 @@ def main(ctx: click.Context, workspace: str) -> None:
     ctx.obj["workspace"] = workspace
 
 
-# Subcommands — core 5-layer pipeline
+# Subcommands — core pipeline (Layers 0–6)
 main.add_command(init.init_cmd)
 main.add_command(provision_vps.provision_vps_cmd)
 main.add_command(sync.sync_cmd)
@@ -129,6 +131,10 @@ main.add_command(health.health_cmd)                # daemon health check (system
 # Subcommands — finding-quality layer (narrative writeups + signed disclosures)
 main.add_command(narrative.narrative_cmd)          # LLM narrative writeups for findings
 main.add_command(sign.sign_cmd)                    # Ed25519-signed disclosures
+
+# Subcommands — customer-facing notifications + cadence dispatch (Sprint 3.3)
+main.add_command(notify.notify_cmd)                # email: test/critical/cadence
+main.add_command(scheduler.scheduler_cmd)          # cadence daemon: tick/run/status
 
 
 if __name__ == "__main__":

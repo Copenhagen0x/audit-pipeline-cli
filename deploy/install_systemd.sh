@@ -22,13 +22,54 @@ if [[ ! -x /root/.local/bin/audit-pipeline ]]; then
 fi
 
 echo "=== Installing systemd units ==="
+# Core daemons (shadow + watch)
 cp "$DEPLOY_DIR/jelleo-shadow.service" "$UNIT_DIR/"
-cp "$DEPLOY_DIR/jelleo-watch.service" "$UNIT_DIR/"
+cp "$DEPLOY_DIR/jelleo-watch.service"  "$UNIT_DIR/"
+# Operational (health + backup)
 [[ -f "$DEPLOY_DIR/jelleo-health.service" ]] && cp "$DEPLOY_DIR/jelleo-health.service" "$UNIT_DIR/"
 [[ -f "$DEPLOY_DIR/jelleo-health.timer"   ]] && cp "$DEPLOY_DIR/jelleo-health.timer"   "$UNIT_DIR/"
 [[ -f "$DEPLOY_DIR/jelleo-backup.service" ]] && cp "$DEPLOY_DIR/jelleo-backup.service" "$UNIT_DIR/"
 [[ -f "$DEPLOY_DIR/jelleo-backup.timer"   ]] && cp "$DEPLOY_DIR/jelleo-backup.timer"   "$UNIT_DIR/"
 chmod +x "$DEPLOY_DIR/backup_findings_db.sh"
+# Sprint 3: cadence scheduler + dashboard snapshot
+for u in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot; do
+    [[ -f "$DEPLOY_DIR/${u}.service" ]] && cp "$DEPLOY_DIR/${u}.service" "$UNIT_DIR/"
+    [[ -f "$DEPLOY_DIR/${u}.timer"   ]] && cp "$DEPLOY_DIR/${u}.timer"   "$UNIT_DIR/"
+done
+
+# Workspace dirs the new units need (idempotent — won't error if exist)
+mkdir -p /root/audit_runs/percolator-live/scheduler
+mkdir -p /root/audit_runs/percolator-live/keys
+mkdir -p /root/audit_runs/percolator-live/reports
+
+# Ensure cryptography is installed (Sprint 3 sign module needs it). pip
+# install is a no-op if already present.
+echo "=== Ensuring cryptography is installed ==="
+/root/.local/bin/python3 -m pip install --user cryptography 2>/dev/null || \
+    python3 -m pip install --user cryptography || \
+    echo "  (could not install cryptography automatically — run 'pip install --user cryptography' manually)"
+
+# Generate the signing keypair on first run only — refuses to overwrite.
+if [[ ! -f /root/audit_runs/percolator-live/keys/jelleo.ed25519 ]]; then
+    echo "=== Generating Ed25519 signing keypair ==="
+    /root/.local/bin/audit-pipeline --workspace /root/audit_runs/percolator-live sign keygen || \
+        echo "  WARN: keygen failed — re-run manually after fixing"
+fi
+
+# Publish the public key under the website docroot if it exists.
+WWW_DIR="${JELLEO_WWW_DIR:-/var/www/jelleo.com}"
+if [[ -d "$WWW_DIR" ]] && [[ -f /root/audit_runs/percolator-live/keys/jelleo.ed25519.pub ]]; then
+    mkdir -p "$WWW_DIR/keys"
+    install -m 0644 /root/audit_runs/percolator-live/keys/jelleo.ed25519.pub "$WWW_DIR/keys/jelleo.ed25519.pub"
+    echo "  published public key to $WWW_DIR/keys/jelleo.ed25519.pub"
+fi
+
+# notifier.json scaffold — install only if absent (don't clobber real recipients)
+if [[ ! -f /root/audit_runs/percolator-live/notifier.json ]]; then
+    [[ -f "$DEPLOY_DIR/notifier.example.json" ]] && \
+        install -m 0640 "$DEPLOY_DIR/notifier.example.json" /root/audit_runs/percolator-live/notifier.json && \
+        echo "  copied notifier.example.json -> notifier.json (EDIT IT before scheduler tick)"
+fi
 
 echo "=== Stopping legacy tmux sessions (if any) ==="
 tmux kill-session -t jelleo-shadow 2>/dev/null && echo "  killed jelleo-shadow tmux" || echo "  no jelleo-shadow tmux"
@@ -49,6 +90,15 @@ if [[ -f "$UNIT_DIR/jelleo-backup.timer" ]]; then
     systemctl enable jelleo-backup.timer
     systemctl restart jelleo-backup.timer
 fi
+
+# Sprint 3 timers — scheduler + snapshot
+for t in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot; do
+    if [[ -f "$UNIT_DIR/${t}.timer" ]]; then
+        systemctl enable "${t}.timer"
+        systemctl restart "${t}.timer"
+        echo "  enabled ${t}.timer"
+    fi
+done
 
 sleep 3
 

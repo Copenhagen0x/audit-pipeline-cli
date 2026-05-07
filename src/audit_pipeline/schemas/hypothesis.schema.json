@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jelleo.com/schemas/hypothesis.schema.json",
+  "title": "Jelleo hypothesis library entry",
+  "description": "Schema for entries under the top-level 'hypotheses:' list in a hypotheses.yaml file. See docs/HYPOTHESIS_SCHEMA.md and https://jelleo.com/methodology.html#scoping for prose documentation.",
+  "type": "object",
+  "required": ["id", "class", "claim"],
+  "additionalProperties": true,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^H\\d+-[a-z][a-z0-9-]*$",
+      "description": "Unique hypothesis identifier. Convention: H<n>-<slug>. Stable across cycles."
+    },
+    "class": {
+      "type": "string",
+      "enum": [
+        "invariant_property",
+        "state_transition",
+        "authorization",
+        "arithmetic_overflow",
+        "implicit_invariant"
+      ],
+      "description": "Hypothesis class — drives Layer-2 dispatch path selection."
+    },
+    "claim": {
+      "type": "string",
+      "minLength": 20,
+      "description": "The falsifiable claim in plain English. Phrased so a clean negative result strengthens the disclosure."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["Critical", "High", "Medium", "Low", "Info"],
+      "description": "Optional declared severity floor. Auto-derived severity may promote (never demote) this value."
+    },
+    "applies_to": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "List of protocol names this hypothesis applies to. Use ['*'] to apply universally. Default if absent: ['*']."
+    },
+    "scope_conditions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "List of predicate names. Hypothesis loads only if every predicate evaluates true under target's workspace.json conditions. Vocabulary: has_insurance_pool, has_haircut_accounting, perpetual_funding, uses_pyth_oracle, uses_switchboard_oracle, liquidation_engine, multi_market, clob_orderbook, amm_constant_product, flash_loan, multi_collateral, cross_program_invocation_heavy."
+    },
+    "bug_class": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,63}$",
+      "description": "Generalized bug-class identifier for cross-protocol propagation. When this hypothesis confirms TRUE, the propagation engine dispatches the same bug_class against every protocol in applies_to."
+    },
+    "target_file": {
+      "type": "string",
+      "description": "Anchor file path within the target's engine repo. Used by the recon agent to focus its initial reading window."
+    },
+    "relevant_constants": {
+      "type": "string",
+      "description": "Free-form text listing bound constants the agent should consider."
+    },
+    "relevant_instructions": {
+      "type": "string",
+      "description": "Free-form list of public instructions / helpers the hypothesis touches."
+    }
+  }
+}

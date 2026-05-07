@@ -474,3 +474,261 @@ def _write_report(
 
     out_path.write_text("\n".join(lines), encoding="utf-8")
     console.print(f"\n[green]Report written: {out_path}[/green]")
+
+
+# ---------------------------------------------------------------------------
+# Bug-class → signature catalog
+#
+# Each entry maps a `bug_class` (the value declared on a hypothesis YAML
+# entry) to a list of regex signatures that identify candidate code in
+# the corpus. The auto-fire subcommand looks up signatures here based on
+# the confirmed finding's bug_class and runs the existing search machinery.
+#
+# The catalog is open: a hypothesis may declare a `bug_class` that does not
+# yet appear here. In that case auto-fire records "no signatures registered"
+# rather than skipping silently — that surfaces the gap so we can author
+# signatures for new classes after they confirm.
+# ---------------------------------------------------------------------------
+
+BUG_CLASS_SIGNATURES: dict[str, list[str]] = {
+    "insurance-counter-vault-divergence": [
+        r"insurance.*\.balance\s*[-+]?=",
+        r"insurance.*counter\s*[-+]?=",
+        r"vault.*\.balance\s*[-+]?=",
+        r"use_insurance_buffer|absorb_protocol_loss",
+    ],
+    "vault-balance-divergence": [
+        r"vault.*\.balance\s*[-+]?=",
+        r"reserves\s*[-+]?=",
+    ],
+    "haircut-direction-violation": [
+        r"haircut|claim_cap|positive_pnl_cap",
+    ],
+    "self-trade-cash-flow-violation": [
+        r"self_trade|same_authority|fill_match",
+    ],
+    "funding-rate-self-bias": [
+        r"funding_rate|funding_index",
+        r"mark_ewma|mark_price|effective_price",
+    ],
+    "liquidation-incentive-overpayment": [
+        r"liquidation.*incentive|liquidation.*bonus",
+        r"LIQUIDATION_INCENTIVE|LIQUIDATION_BONUS",
+    ],
+    "clock-advance-without-touch": [
+        r"accrue_market_to|advance_clock",
+        r"touch_account|materialize",
+    ],
+    "keeper-cursor-budget-bypass": [
+        r"keeper_crank|cursor.*budget|sweep_window",
+    ],
+    "resolved-state-pnl-leak": [
+        r"Resolved|MarketState::Resolved",
+        r"claimable_pnl|matured_pnl",
+    ],
+    "init-state-invariant-violation": [
+        r"init_market|initialize_market|create_market",
+        r"assert_public_postconditions|invariant",
+    ],
+    "account-gc-state-leak": [
+        r"free_slot|reclaim_empty|materialize_at",
+    ],
+    "arithmetic-overflow-pnl-mark": [
+        r"checked_(mul|add|sub|div)|saturating_",
+        r"i128::MAX|i128::MIN|MAX_VAULT_TVL|MAX_POSITION",
+    ],
+    "token-balance-conservation-violation": [
+        r"token::transfer|spl_token::instruction::transfer",
+        r"reserves|total_supply",
+    ],
+    "authorization-bypass": [
+        r"signer\.is_signer|authority\s*==|admin\s*==",
+        r"require!\(|assert_eq!.*signer",
+    ],
+    "constant-product-invariant-violation": [
+        r"x\s*\*\s*y|reserve_a\s*\*\s*reserve_b|invariant\s*=",
+    ],
+    "fee-accounting-rounding-asymmetry": [
+        r"fee\s*=|fee_numerator|fee_bps",
+        r"checked_div|round_(up|down)",
+    ],
+    "flash-loan-repayment-bypass": [
+        r"flash_loan|flash_borrow|begin_swap",
+        r"repay|end_flash|finalize_swap",
+    ],
+}
+
+
+def signatures_for_bug_class(bug_class: str) -> list[str]:
+    """Return the registered signatures for a bug_class, or [] if unknown."""
+    return list(BUG_CLASS_SIGNATURES.get(bug_class, []))
+
+
+# ---------------------------------------------------------------------------
+# Auto-fire entrypoint
+# ---------------------------------------------------------------------------
+
+
+def run_for_finding(
+    db: "FindingsDB",
+    finding_id: int,
+    corpus_path: Path,
+    output_dir: Path,
+    min_score: int = MIN_SCORE_TO_REPORT,
+) -> dict:
+    """Auto-fire propagation for a single confirmed finding.
+
+    Looks up the finding's bug_class, resolves to signatures via
+    BUG_CLASS_SIGNATURES, walks the corpus, and writes a report.
+
+    Returns a summary dict suitable for serialization (used by the CLI
+    and by the lifecycle hook in hunt.py).
+    """
+    finding = db.get_finding(finding_id)
+    if not finding:
+        return {"ok": False, "reason": "finding_not_found", "finding_id": finding_id}
+
+    bug_class = finding.get("bug_class")
+    if not bug_class:
+        return {"ok": False, "reason": "no_bug_class", "finding_id": finding_id}
+
+    sigs = signatures_for_bug_class(bug_class)
+    if not sigs:
+        return {
+            "ok": False,
+            "reason": "no_signatures_registered",
+            "finding_id": finding_id,
+            "bug_class": bug_class,
+            "hint": "Add an entry to BUG_CLASS_SIGNATURES in propagate.py",
+        }
+
+    if not corpus_path.exists():
+        return {
+            "ok": False,
+            "reason": "corpus_missing",
+            "corpus_path": str(corpus_path),
+            "hint": "Run `audit-pipeline propagate init-corpus -c <path>` first",
+        }
+
+    compiled_sigs = [(s, re.compile(s)) for s in sigs]
+    repos = sorted(p for p in corpus_path.iterdir() if p.is_dir())
+    matches_by_file: dict[str, CorpusMatch] = {}
+    files_scanned = 0
+    for repo_dir in repos:
+        for src_path in _walk_source_files(repo_dir):
+            files_scanned += 1
+            try:
+                content = src_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            file_matches = _scan_file_for_signatures(content, compiled_sigs)
+            if not file_matches:
+                continue
+            distinct_sigs_hit = sorted({s for s, _, _ in file_matches})
+            score = len(distinct_sigs_hit)
+            if score < min_score:
+                continue
+            first = file_matches[0]
+            snippet = _snippet_around(content, first[1], context=2)
+            key = f"{repo_dir.name}:{src_path.relative_to(repo_dir)}"
+            matches_by_file[key] = CorpusMatch(
+                repo=repo_dir.name,
+                file=str(src_path.relative_to(repo_dir)),
+                line=first[1],
+                score=score,
+                matched_signatures=distinct_sigs_hit,
+                snippet=snippet,
+            )
+
+    ranked = sorted(matches_by_file.values(), key=lambda m: -m.score)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_name = f"propagation_finding_{finding_id}_{bug_class}"
+    report_path = output_dir / f"{report_name}.md"
+    _write_report(ranked, report_path, tuple(sigs), files_scanned, len(repos))
+
+    return {
+        "ok": True,
+        "finding_id": finding_id,
+        "bug_class": bug_class,
+        "n_signatures": len(sigs),
+        "files_scanned": files_scanned,
+        "repos_scanned": len(repos),
+        "n_candidates": len(ranked),
+        "top_candidates": [
+            {"repo": m.repo, "file": m.file, "line": m.line, "score": m.score}
+            for m in ranked[:10]
+        ],
+        "report_path": str(report_path),
+    }
+
+
+# CLI subcommand for auto-fire
+@propagate_cmd.command(name="auto-fire")
+@click.option(
+    "--finding-id",
+    type=int,
+    required=True,
+    help="ID of a confirmed finding in the findings DB",
+)
+@click.option(
+    "--corpus",
+    "-c",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Directory containing the cloned-protocol corpus",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Output dir (defaults to <workspace>/recon/propagate/auto-fire/)",
+)
+@click.option("--min-score", type=int, default=MIN_SCORE_TO_REPORT, show_default=True)
+@click.pass_context
+def propagate_auto_fire(
+    ctx: click.Context,
+    finding_id: int,
+    corpus: Path,
+    output: Path | None,
+    min_score: int,
+) -> None:
+    """Auto-fire propagation for a single confirmed finding.
+
+    Reads the finding's bug_class, resolves to registered signatures,
+    walks the corpus, and emits a report. This is what the lifecycle
+    hook (Sprint 3.1+) calls automatically when a finding moves to
+    status=confirmed.
+    """
+    import json
+    from audit_pipeline.db import FindingsDB
+
+    workspace = Path(ctx.obj["workspace"])
+    db = FindingsDB(workspace / "findings.db")
+    output_dir = output or (workspace / "recon" / "propagate" / "auto-fire")
+
+    result = run_for_finding(db, finding_id, corpus, output_dir, min_score=min_score)
+
+    console.print()
+    if not result.get("ok"):
+        console.print(f"[red]auto-fire skipped:[/red] {result.get('reason')}")
+        if "hint" in result:
+            console.print(f"[dim]hint: {result['hint']}[/dim]")
+        return
+
+    console.print(
+        f"[bold green]auto-fire complete[/bold green] · finding {finding_id} · "
+        f"bug_class={result['bug_class']}"
+    )
+    console.print(
+        f"  Scanned {result['files_scanned']:,} files across "
+        f"{result['repos_scanned']} repos with {result['n_signatures']} signature(s)."
+    )
+    console.print(f"  Candidates: {result['n_candidates']}")
+    console.print(f"  Report: {result['report_path']}")
+    if result.get("top_candidates"):
+        console.print()
+        console.print("Top candidates:")
+        for c in result["top_candidates"][:5]:
+            console.print(f"  · {c['repo']} / {c['file']}:{c['line']} (score {c['score']})")

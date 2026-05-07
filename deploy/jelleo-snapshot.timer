@@ -1,0 +1,15 @@
+[Unit]
+Description=Jelleo - dashboard snapshot every 60s
+Documentation=https://jelleo.com/methodology.html#reporting
+
+[Timer]
+# Refresh the public snapshot every 60s. Cheap (single SQLite read + JSON
+# write) so this cadence is fine. Aligns with the 60s auto-refresh in the
+# deployed dashboard.html JS.
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=jelleo-snapshot.service
+
+[Install]
+WantedBy=timers.target
