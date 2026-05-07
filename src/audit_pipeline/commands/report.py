@@ -11,6 +11,8 @@ using the shared Jelleo design system (audit_pipeline.branding).
 from __future__ import annotations
 
 import html
+import shutil
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,6 +31,47 @@ from audit_pipeline.db import FindingsDB
 from audit_pipeline.severity import DEFINITIONS, Severity
 
 console = Console()
+
+
+def _render_html_to_pdf(html_path: Path) -> Path | None:
+    """Render an HTML report to PDF via chromium-headless.
+
+    Returns the PDF path on success, None if chromium is not installed
+    or rendering failed. Non-fatal — caller decides whether to surface.
+
+    Looks for chromium-browser, chromium, google-chrome, chrome on PATH.
+    Uses --no-sandbox so it works as root in the systemd context.
+    """
+    chromium = None
+    for cmd in ("chromium-browser", "chromium", "google-chrome", "chrome"):
+        if shutil.which(cmd):
+            chromium = cmd
+            break
+    if not chromium:
+        return None
+
+    pdf_path = html_path.with_suffix(".pdf")
+    try:
+        subprocess.run(
+            [
+                chromium,
+                "--headless",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--no-pdf-header-footer",
+                f"--print-to-pdf={pdf_path}",
+                f"file://{html_path.resolve()}",
+            ],
+            capture_output=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    except OSError:
+        return None
+    if pdf_path.exists() and pdf_path.stat().st_size > 0:
+        return pdf_path
+    return None
 
 
 def _auto_sign(workspace: Path, report_path: Path, sign_enabled: bool) -> None:
@@ -65,9 +108,11 @@ def report_cmd() -> None:
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None)
 @click.option("--sign/--no-sign", default=True, show_default=True,
               help="Auto-sign the generated report with the workspace's Ed25519 key.")
+@click.option("--pdf/--no-pdf", default=False, show_default=True,
+              help="Also render the HTML to PDF via chromium-headless and sign the PDF.")
 @click.pass_context
 def cycle_report(
-    ctx: click.Context, cycle_id: str, output: Path | None, sign: bool,
+    ctx: click.Context, cycle_id: str, output: Path | None, sign: bool, pdf: bool,
 ) -> None:
     """Generate an HTML report for a single hunt cycle."""
     workspace = Path(ctx.obj["workspace"])
@@ -89,6 +134,14 @@ def cycle_report(
     console.print(f"[green]wrote[/green] {out}")
     _auto_sign(workspace, out, sign)
 
+    if pdf:
+        pdf_path = _render_html_to_pdf(out)
+        if pdf_path:
+            console.print(f"[green]rendered[/green] {pdf_path}")
+            _auto_sign(workspace, pdf_path, sign)
+        else:
+            console.print("[yellow]chromium not available — PDF skipped[/yellow]")
+
 
 @report_cmd.command(name="weekly")
 @click.option("--target", required=True)
@@ -96,9 +149,11 @@ def cycle_report(
 @click.option("--days", type=int, default=7, show_default=True)
 @click.option("--sign/--no-sign", default=True, show_default=True,
               help="Auto-sign the generated report with the workspace's Ed25519 key.")
+@click.option("--pdf/--no-pdf", default=False, show_default=True,
+              help="Also render the HTML to PDF via chromium-headless and sign the PDF.")
 @click.pass_context
 def weekly_report(
-    ctx: click.Context, target: str, output: Path | None, days: int, sign: bool,
+    ctx: click.Context, target: str, output: Path | None, days: int, sign: bool, pdf: bool,
 ) -> None:
     """Rolling N-day summary across all cycles for one target."""
     workspace = Path(ctx.obj["workspace"])
@@ -120,6 +175,14 @@ def weekly_report(
     console.print(f"[green]wrote[/green] {out}")
     _auto_sign(workspace, out, sign)
 
+    if pdf:
+        pdf_path = _render_html_to_pdf(out)
+        if pdf_path:
+            console.print(f"[green]rendered[/green] {pdf_path}")
+            _auto_sign(workspace, pdf_path, sign)
+        else:
+            console.print("[yellow]chromium not available — PDF skipped[/yellow]")
+
 
 # ---------------------------------------------------------------------------
 # HTML render helpers
@@ -133,6 +196,35 @@ def _sev_counts(findings: list[dict]) -> dict[str, int]:
         if s in by:
             by[s] += 1
     return by
+
+
+# Findings only count as "real" once they've moved through the lifecycle
+# beyond raw recon. A new/triaged verdict is just an LLM opinion; a
+# confirmed/disclosed/fixed/verified finding has PoC backing, debate
+# promotion, or human review behind it. Cover-page headline numbers
+# show the real bucket only — full counts go in a separate breakdown.
+REAL_STATUSES = {"confirmed", "disclosed", "fixed", "verified"}
+
+
+def _real_severity_counts(findings: list[dict]) -> dict[str, int]:
+    """Severity counts limited to confirmed/disclosed/fixed/verified findings.
+
+    new = unreviewed LLM verdict (could be hallucination)
+    triaged = human looked but no PoC yet
+    rejected = false positive
+
+    None of those are "real findings" for customer-facing display.
+    """
+    return _sev_counts([f for f in findings if (f.get("status") or "") in REAL_STATUSES])
+
+
+def _status_breakdown(findings: list[dict]) -> dict[str, int]:
+    """Count of findings per lifecycle status (for the breakdown line)."""
+    out: dict[str, int] = {}
+    for f in findings:
+        s = (f.get("status") or "unknown")
+        out[s] = out.get(s, 0) + 1
+    return out
 
 
 def _sev_bar(counts: dict[str, int]) -> str:
@@ -199,15 +291,19 @@ def _render_cycle_html(
     wrapper_sha = html.escape((cycle.get("wrapper_sha") or "?")[:10] if cycle else "?")
     started = html.escape(cycle.get("started_at", "?") if cycle else "?")
 
-    counts = _sev_counts(findings)
+    counts = _sev_counts(findings)              # full counts (all statuses)
+    real_counts = _real_severity_counts(findings)  # confirmed/disclosed/fixed/verified only
+    sb = _status_breakdown(findings)
     n_confirmed = sum(1 for f in findings if f.get("status") == "confirmed")
 
-    if counts["Critical"] > 0:
-        status_label, status_class = f"{counts['Critical']} Critical · disclosure required", "critical"
-    elif counts["High"] > 0:
-        status_label, status_class = f"{counts['High']} High · review required", "warn"
+    # Status banner reflects real findings only — 50 'new' verdicts
+    # shouldn't trigger a "Critical" red status when 0 of them are confirmed.
+    if real_counts["Critical"] > 0:
+        status_label, status_class = f"{real_counts['Critical']} Critical confirmed · disclosure pending", "critical"
+    elif real_counts["High"] > 0:
+        status_label, status_class = f"{real_counts['High']} High confirmed · review pending", "warn"
     else:
-        status_label, status_class = "Cycle complete · no Critical/High", "ok"
+        status_label, status_class = "Cycle complete · no confirmed Critical/High", "ok"
 
     cover = cover_page_html(
         target_name=target_name,
@@ -216,7 +312,8 @@ def _render_cycle_html(
         cycle_id=cycle_id,
         engine_sha=engine_sha,
         wrapper_sha=wrapper_sha,
-        severity_counts=counts,
+        severity_counts=real_counts,        # real findings only on the headline
+        status_breakdown=sb,                # full pipeline state context
         pubkey_fingerprint=pubkey_fingerprint,
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
@@ -282,13 +379,15 @@ def _render_weekly_html(
     pubkey_fingerprint: str = "",
 ) -> str:
     target_name = html.escape(target.get("name", "?"))
-    counts = _sev_counts(findings)
+    counts = _sev_counts(findings)              # full counts (all statuses)
+    real_counts = _real_severity_counts(findings)  # confirmed/disclosed/fixed/verified only
+    sb = _status_breakdown(findings)
     total_confirmed = sum(int(c.get("n_confirmed") or 0) for c in cycles)
 
-    if counts["Critical"] > 0:
-        status_label, status_class = f"{counts['Critical']} Critical this period", "critical"
-    elif counts["High"] > 0:
-        status_label, status_class = f"{counts['High']} High this period", "warn"
+    if real_counts["Critical"] > 0:
+        status_label, status_class = f"{real_counts['Critical']} Critical confirmed", "critical"
+    elif real_counts["High"] > 0:
+        status_label, status_class = f"{real_counts['High']} High confirmed", "warn"
     else:
         status_label, status_class = f"Active · {days}-day window", "ok"
 
@@ -314,7 +413,8 @@ def _render_weekly_html(
         cycle_id="",
         engine_sha=(most_recent_cycle.get("engine_sha") or "")[:10] if most_recent_cycle else "",
         wrapper_sha=(most_recent_cycle.get("wrapper_sha") or "")[:10] if most_recent_cycle else "",
-        severity_counts=counts,
+        severity_counts=real_counts,        # real findings only on the headline
+        status_breakdown=sb,                # full pipeline state context
         pubkey_fingerprint=pubkey_fingerprint,
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
