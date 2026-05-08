@@ -22,7 +22,7 @@ class Severity(str, Enum):
     INFO = "Info"
 
     @classmethod
-    def parse(cls, raw: str | None, default: "Severity" = None) -> "Severity":
+    def parse(cls, raw: str | None, default: Severity = None) -> Severity:
         if raw is None:
             return default or cls.MEDIUM
         s = str(raw).strip().capitalize()

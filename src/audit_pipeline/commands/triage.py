@@ -24,7 +24,6 @@ Server is single-threaded http.server. Trivial to run, no deps.
 from __future__ import annotations
 
 import json
-import socket
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -314,8 +313,8 @@ def triage_cmd(
         console.print(f"  severity floor = {severity_floor}")
     if target:
         console.print(f"  target = {target}")
-    console.print(f"  shortcuts: [bold]C[/bold]onfirm · [bold]T[/bold]riage · [bold]R[/bold]eject · [bold]N[/bold]ext")
-    console.print(f"  press Ctrl+C to stop")
+    console.print("  shortcuts: [bold]C[/bold]onfirm · [bold]T[/bold]riage · [bold]R[/bold]eject · [bold]N[/bold]ext")
+    console.print("  press Ctrl+C to stop")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -360,7 +359,7 @@ def _handler_factory(
             self._send(code, json.dumps(payload).encode("utf-8"), "application/json")
 
         def do_GET(self):  # noqa: N802
-            from urllib.parse import urlparse, parse_qs
+            from urllib.parse import parse_qs, urlparse
             url = urlparse(self.path)
             if url.path == "/" or url.path == "/index.html":
                 self._send(200, TRIAGE_HTML.encode("utf-8"), "text/html; charset=utf-8")

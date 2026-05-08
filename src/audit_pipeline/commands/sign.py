@@ -102,8 +102,8 @@ def sign_cmd() -> None:
 def keygen_cmd(ctx: click.Context, key_dir: Path | None, force: bool) -> None:
     """Generate a new Ed25519 keypair for signing disclosures."""
     try:
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
         from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     except ImportError:
         raise click.ClickException(
             "`cryptography` package required. Run: pip install cryptography"
@@ -181,8 +181,8 @@ def verify_cmd(
 ) -> None:
     """Verify a Jelleo signature against a file."""
     try:
-        from cryptography.hazmat.primitives import serialization
         from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import serialization
     except ImportError:
         raise click.ClickException("`cryptography` package required.")
 

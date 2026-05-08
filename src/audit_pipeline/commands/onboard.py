@@ -148,7 +148,7 @@ def onboard_cmd(
     console.print("Next steps:")
     console.print(f"  1. Edit [cyan]{hyp_path}[/cyan] with protocol-specific invariants")
     console.print(f"  2. Smoke-test:  [cyan]audit-pipeline --workspace {target_dir} hunt --skip-poc[/cyan]")
-    console.print(f"  3. Production:  add to systemd watch unit's --on-update")
+    console.print("  3. Production:  add to systemd watch unit's --on-update")
 
 
 def _name_from_url(url: str) -> str:

@@ -25,13 +25,12 @@ mid-cycle.
 from __future__ import annotations
 
 import io
-import os
 import shutil
 import tarfile
 import tempfile
+from collections.abc import Iterator
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Iterator
 
 import requests
 
@@ -138,7 +137,7 @@ class GitHubSnapshot(AbstractContextManager["GitHubSnapshot"]):
     # Context manager
     # ------------------------------------------------------------------
 
-    def __enter__(self) -> "GitHubSnapshot":
+    def __enter__(self) -> GitHubSnapshot:
         ref = self.sha or "HEAD"
         url = (
             f"https://api.github.com/repos/{self.owner}/{self.repo_name}"

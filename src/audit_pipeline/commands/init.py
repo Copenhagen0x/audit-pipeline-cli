@@ -130,7 +130,7 @@ def init_cmd(
     console.print(tree)
 
     console.print()
-    console.print(f"[bold green]Workspace ready.[/bold green]")
+    console.print("[bold green]Workspace ready.[/bold green]")
     console.print(f"  Next step: [cyan]cd {output} && audit-pipeline provision-vps --host <vps> --ssh-key <key>[/cyan]")
 
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 import html
 import http.server
 import socketserver
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -256,7 +256,8 @@ def _probe_services() -> list[dict]:
     """
     import shutil
     import subprocess
-    from datetime import datetime, timezone as _tz
+    from datetime import datetime
+    from datetime import timezone as _tz
 
     KNOWN = [
         ("shadow",            "jelleo-shadow.service"),
@@ -518,7 +519,8 @@ def _loop_uptime_human() -> str:
     """
     import shutil
     import subprocess
-    from datetime import datetime, timezone as _tz
+    from datetime import datetime
+    from datetime import timezone as _tz
 
     if not shutil.which("systemctl"):
         return "—"

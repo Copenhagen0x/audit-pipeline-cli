@@ -21,10 +21,14 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
 from rich.table import Table
+
+if TYPE_CHECKING:
+    from audit_pipeline.db import FindingsDB
 
 console = Console()
 
@@ -376,7 +380,7 @@ def _walk_source_files(repo: Path):
     for path in repo.rglob("*"):
         if not path.is_file():
             continue
-        if not path.suffix in SEARCH_EXTENSIONS:
+        if path.suffix not in SEARCH_EXTENSIONS:
             continue
         if any(part in skip_dirs for part in path.parts):
             continue
@@ -722,7 +726,6 @@ def propagate_auto_fire(
     hook (Sprint 3.1+) calls automatically when a finding moves to
     status=confirmed.
     """
-    import json
     from audit_pipeline.db import FindingsDB
 
     workspace = Path(ctx.obj["workspace"])

@@ -265,7 +265,7 @@ def synth_kani_cmd(
     )
 
     transcript: list[str] = [
-        f"# NL-to-Kani auto synthesis log\n",
+        "# NL-to-Kani auto synthesis log\n",
         f"- Invariant: `{invariant}`",
         f"- Function: `{engine_function}`",
         f"- Mode: `{mode}`",
@@ -279,7 +279,7 @@ def synth_kani_cmd(
         response = complete(rendered)
     except LLMUnavailable as e:
         raise click.ClickException(str(e))
-    transcript.append(f"## Round 1 — initial generation\n")
+    transcript.append("## Round 1 — initial generation\n")
     transcript.append(f"_Tokens: in={response.input_tokens:,}, out={response.output_tokens:,}_\n")
 
     code = extract_rust_code_block(response.text)
@@ -296,7 +296,7 @@ def synth_kani_cmd(
 
     # Compile-fix-retry loop
     iteration = 1
-    last_check: "object" = None
+    last_check: object = None
     while iteration <= max_iterations:
         console.print(f"  Compiling [cyan]{harness_path.name}[/cyan]...")
         check = cargo_check_tests(engine_dir)
@@ -366,7 +366,7 @@ def synth_kani_cmd(
     console.print(f"\n[bold]Running cargo kani --harness {harness_name}...[/bold]")
     console.print("[dim](this can take 10-30 minutes; output streamed below)[/dim]")
     kani = cargo_kani(engine_dir, harness_name)
-    transcript.append(f"\n## cargo kani verdict\n")
+    transcript.append("\n## cargo kani verdict\n")
     transcript.append(f"- verdict: **{kani.verdict}**")
     transcript.append(f"- ok: {kani.ok}\n")
     transcript_path.write_text("\n".join(transcript), encoding="utf-8")

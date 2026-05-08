@@ -1,7 +1,6 @@
 """Tests for the 5 force-multiplier commands (debate, spec-check, synth-kani, propagate, shadow)."""
 
 import json
-from pathlib import Path
 
 import pytest
 from click.testing import CliRunner

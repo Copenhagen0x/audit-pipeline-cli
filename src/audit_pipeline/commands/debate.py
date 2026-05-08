@@ -15,7 +15,6 @@ returns FALSE/HIGH and is wrong because it trusted a doc comment or
 collapsed multiple call paths.
 """
 
-import json
 import re
 from pathlib import Path
 
@@ -318,7 +317,7 @@ def _verdicts_disagree(proposer: str, challenger: str) -> bool:
     c = challenger.upper()
     if "DISAGREE" in c or "NEEDS_LAYER_2" in c:
         return True
-    if "AGREE" in c and not "DISAGREE" in c:
+    if "AGREE" in c and "DISAGREE" not in c:
         return False
     # Fallback: check for opposite TRUE/FALSE
     p_true = "TRUE" in p and "FALSE" not in p

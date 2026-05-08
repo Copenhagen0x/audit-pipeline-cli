@@ -41,8 +41,9 @@ from rich.panel import Panel
 from rich.table import Table
 
 from audit_pipeline.db import FindingsDB
-from audit_pipeline.lifecycle import Status, from_hunt_outcome
-from audit_pipeline.severity import Severity, derive_severity, emoji as sev_emoji
+from audit_pipeline.lifecycle import from_hunt_outcome
+from audit_pipeline.severity import derive_severity
+from audit_pipeline.severity import emoji as sev_emoji
 from audit_pipeline.utils import is_available
 from audit_pipeline.utils.daily_cap import DailyCap
 from audit_pipeline.utils.github_snapshot import GitHubSnapshot, SnapshotDownloadError
@@ -211,8 +212,11 @@ def hunt_cmd(
             "--hypotheses and --protocol-class are mutually exclusive."
         )
     if protocol_class:
+        import tempfile
+
+        import yaml as _yaml
+
         from audit_pipeline.scoping import load_class_library
-        import tempfile, yaml as _yaml
         merged, files = load_class_library(protocol_class, extra_dirs=[workspace])
         console.print(
             f"  [cyan]protocol_class='{protocol_class}': {len(merged)} hyps from "
@@ -239,12 +243,15 @@ def hunt_cmd(
     # and filter the hypothesis library to only hyps targeting changed files.
     # Hyps without a target_file always run (whole-protocol invariants).
     if diff_since_sha:
+        import tempfile
+
+        import yaml as _yaml2
+
         from audit_pipeline.scoping import (
             changed_files_between,
             filter_hypotheses_by_diff,
             load_hypotheses,
         )
-        import tempfile, yaml as _yaml2
         engine_dir = workspace / config["engine"]["local"]
         changed = changed_files_between(engine_dir, diff_since_sha, "HEAD")
         if not changed:

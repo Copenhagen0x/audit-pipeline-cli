@@ -13,7 +13,6 @@ Layer 0: the pre-hypothesis step. Two modes:
 
 import re
 from pathlib import Path
-from typing import Any
 
 import click
 import yaml

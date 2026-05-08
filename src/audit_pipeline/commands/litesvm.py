@@ -88,7 +88,7 @@ def litesvm_dispatch(ctx: click.Context, test: str, features: str) -> None:
     config_path = workspace / "workspace.json"
 
     if not config_path.exists():
-        raise click.ClickException(f"No workspace.json. Run init first.")
+        raise click.ClickException("No workspace.json. Run init first.")
 
     config = json.loads(config_path.read_text())
     host = config.get("vps", {}).get("host")
