@@ -1,8 +1,22 @@
-# JELLEO
+# audit-pipeline-cli
 
-**The underwriting layer for Solana DeFi.** Four interlocking pillars — counterfactual mainnet detection, cross-protocol bug-class propagation, closed-loop fix bundles, and on-chain attestation registry — produce continuous, on-chain, cryptographically-signed attestations of code-level invariant integrity that **insurance protocols, partner DeFi protocols, and STRIDE evaluators all consume as a live signal**. The autonomous immune system replaces static-PDF audit reports with adaptive, ecosystem-composable security. Built on the F7-disclosure methodology. Inaugural deployment: Anatoly Yakovenko's Percolator perpetual DEX.
+> **What this is:** the Python CLI that runs Jelleo's continuous Solana security hunt loop.
+> Reads protocol source, dispatches multi-agent recon, drives empirical PoCs to compile +
+> pass under `cargo test`, synthesises Kani harnesses, and writes signed disclosures into a
+> SQLite findings DB. Inaugural deployment: Anatoly Yakovenko's Percolator perpetual DEX.
 
-Track record: F7 disclosure to [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39) — closed without merge; the maintainer chose to absorb the disclosure into the engine's existing defenses rather than the proposed vault-debit patch. Regression coverage formally labeled "PR39/F7" lives in `main` of `aeyakovenko/percolator-prog` at commit [`a1afd2e`](https://github.com/aeyakovenko/percolator-prog/commit/a1afd2e).
+> **30-second pitch:** Jelleo is the underwriting layer for Solana DeFi — continuous,
+> commit-anchored, on-chain-signed attestations of code-level invariant integrity, designed
+> for insurers / partner protocols / STRIDE evaluators to consume as a live signal. This
+> repo is the platform.
+
+**Track record.** F7 (residual-conservation insurance-siphon class) disclosed via
+[`aeyakovenko/percolator-prog#39`](https://github.com/aeyakovenko/percolator-prog/pull/39).
+PR was closed without merging the proposed vault-debit patch; the maintainer adopted
+A1-class regression coverage on `main` at commit
+[`a1afd2e`](https://github.com/aeyakovenko/percolator-prog/commit/a1afd2e), labeled
+`PR39/F7`. Honest reading: the disclosure produced regression-locked defensive coverage on
+`main`, not a structural patch.
 
 **Recent capability uplift (2026-04-28):** Tool-using deep-audit mode (`hunt-deep`) — agents have `read_file`, `grep`, `find_function` and iteratively explore source code to render line-cited verdicts. Disclosure-pattern miner (`learn-from-disclosures`) auto-generates sibling hypotheses from public bug reports. Custom PoC writer (`confirm`) generates Rust tests targeting specific finding claims and runs them under `cargo test`. See [OUTREACH/jelleo-one-pager.md](OUTREACH/jelleo-one-pager.md) and [examples/](examples/) for sample outputs.
 
@@ -81,6 +95,94 @@ Every verdict — confirmed, refuted, or escalated — is written to a SQLite fi
 
 ---
 
+## Platform · live state
+
+What's deployed right now (this section is updated whenever the platform ships). A tech walking in cold should be able to read this, hit the URLs, and confirm reality in under a minute.
+
+### Public surfaces (jelleo.com — Netlify)
+
+| URL | What's there |
+|---|---|
+| [`/`](https://jelleo.com) | Marketing home (live ops feed, 4-pillar overview, F7 disclosure callout) |
+| [`/protocols/`](https://jelleo.com/protocols/) | Coverage state — 1 active (Percolator), 26 Y1 candidates |
+| [`/protocols/percolator/`](https://jelleo.com/protocols/percolator/) | Per-protocol page — program ID, cadence, F7 history, scope |
+| [`/methodology.html`](https://jelleo.com/methodology.html) | Public technical reference — pillars, hypothesis schema, lifecycle, severity rubric, F7 worked example |
+| [`/security.html`](https://jelleo.com/security.html) | Disclosure policy + Ed25519 attestation model |
+| [`/case-studies/f7-percolator/`](https://jelleo.com/case-studies/f7-percolator/) | F7 long-form: dispatch path, root cause, balance proof, sizing, fixes, timeline |
+| [`/customer/`](https://jelleo.com/customer/) | Token-gated entry to customer dashboards. Universal demo token: `demo` |
+| [`/customer/demo/`](https://jelleo.com/customer/demo/) | Demo customer dashboard (Percolator team view). Real data via manifest fetch. |
+| [`/customer/demo/full.html`](https://jelleo.com/customer/demo/full.html) | Rich live dashboard (formerly `/dashboard.html`, now token-gated) |
+| [`/status/`](https://jelleo.com/status/) | Service health grid · counter row · driven by snapshot.json |
+| [`/integrate/`](https://jelleo.com/integrate/) | Integration request — tier picker + structured form → composes a `mailto:` to kirill@jelleo.com |
+| `/dashboard.html` | Now a meta-refresh redirect to `/customer/` (kept for old bookmarks) |
+
+### Data feeds (api.jelleo.com — VPS, 193.24.234.91)
+
+CORS-locked to `https://jelleo.com`. Proper Cache-Control: no-store on the JSON feeds; 5-minute cache on cycle artifacts.
+
+| Endpoint | Audience | What's inside |
+|---|---|---|
+| [`/snapshot.json`](https://api.jelleo.com/snapshot.json) | Public homepage feed | Aggregated stats, target rollups, recent cycles, **disclosed** findings only (with title + hyp_id + disclosure URL — disclosed = public). Receipt fingerprints on each cycle. Service health. Receipts-signed count. |
+| `/customer/<token>/manifest.json` | Per-customer dashboard | Same JSON shape, scoped to the customer's owned target(s), **includes confirmed in-progress findings** (private to the customer behind the token gate). Today: only `demo` exists. |
+| `/cycles/<id>/cycle.html` | Public cycle reports | Per-cycle signed HTML report |
+| `/cycles/<id>/cycle.pdf` | Public cycle reports | Per-cycle signed PDF report |
+| `/cycles/<id>/cycle.html.sig` | Verification | Ed25519 signature, base64 |
+| [`/keys/jelleo.ed25519.pub`](https://api.jelleo.com/keys/jelleo.ed25519.pub) | Verification | Platform public key. Verify any signed receipt against this. |
+
+### VPS systemd services (193.24.234.91)
+
+All units in `deploy/jelleo-*.service`/`*.timer`, installed via `deploy/install_systemd.sh`. Each restarts on failure and survives reboots.
+
+| Unit | Cadence | Purpose |
+|---|---|---|
+| `jelleo-shadow.service` | continuous (60s polling) | Layer-6 mainnet shadow — Percolator program + insurance-fund account state-delta detection |
+| `jelleo-watch.service` | continuous | Layer-5 commit watch — auto-hunt on upstream update |
+| `jelleo-scheduler-24h.timer` | 24h | Daily cycle + customer-cadence dispatcher |
+| `jelleo-scheduler-weekly.timer` | 7 days | Weekly digest cycle |
+| `jelleo-scheduler-monthly.timer` | 30 days | Monthly digest cycle |
+| `jelleo-snapshot.timer` | 5 min | Builds `/var/www/jelleo.com/snapshot.json` AND every customer's `/customer/<id>/manifest.json` |
+| `jelleo-backup.timer` | 24h | SQLite findings DB → off-site rotation |
+| `jelleo-health.timer` | 15 min | Self-test on the loop itself |
+
+### Source of truth — code paths
+
+| Concept | Where |
+|---|---|
+| Public snapshot builder | [`src/audit_pipeline/commands/dashboard.py`](src/audit_pipeline/commands/dashboard.py) — `_build_snapshot()` |
+| Per-customer manifest builder | same file — `_build_customer_manifest()`, plus `_customers_to_publish()` for the customer list |
+| Receipt fingerprint reader | same file — `_read_receipt_fingerprint()` (reads `cycle.html.sig`, returns first 8 bytes as colon-hex) |
+| Service health prober | same file — `_probe_services()` (calls `systemctl is-active` per known unit) |
+| Cycle publish hook | [`deploy/publish_cycle.sh`](deploy/publish_cycle.sh) — copies signed HTML + PDF + sig to docroot, fires email-on-confirmed |
+| Hypothesis libraries | `src/audit_pipeline/templates/hypotheses/*.yaml` (today: Percolator only — 4 files) |
+| Findings DB schema | [`src/audit_pipeline/db.py`](src/audit_pipeline/db.py) |
+| Lifecycle state machine | [`src/audit_pipeline/lifecycle.py`](src/audit_pipeline/lifecycle.py) — `new → triaged → confirmed → disclosed → fixed → verified` (+ `rejected`) |
+| Per-protocol page generator | [`website/deploy/protocols/_generate.py`](website/deploy/protocols/_generate.py) |
+
+### Verify in 30 seconds
+
+```bash
+# Public feed reachable, JSON well-formed, has services + cycles + findings:
+curl -s https://api.jelleo.com/snapshot.json | jq '{cycles_total, receipts_signed, services: (.services|length), public_findings: (.public_findings|length), generated_at}'
+
+# Customer manifest reachable + scoped to demo:
+curl -s https://api.jelleo.com/customer/demo/manifest.json | jq '{customer, stats}'
+
+# Platform pubkey served:
+curl -sf https://api.jelleo.com/keys/jelleo.ed25519.pub > /dev/null && echo OK
+
+# Live website status page (it polls snapshot.json every 60s):
+open https://jelleo.com/status/
+
+# VPS systemd state (requires SSH access):
+ssh root@193.24.234.91 'systemctl is-active jelleo-snapshot.timer jelleo-watch.service jelleo-shadow.service'
+```
+
+### Health-status page (one-stop)
+
+For a single human-readable view: [jelleo.com/status/](https://jelleo.com/status/) — auto-refreshes every 60 seconds from `snapshot.json`. Shows service grid (8 units, individual `up`/`degraded`/`down`/`unknown` state), cycle count, signed-receipt count, loop uptime, and a banner that goes red when `api.jelleo.com` is unreachable or the snapshot is stale (>30 min).
+
+---
+
 ## Architecture (one-liner)
 
 `watch --on-update` triggers `hunt`, which orchestrates `recon --auto` → `debate --auto` → `poc` → `synth-kani --auto` → write to `findings.db` → emit cycle artifacts → optionally alert/file.
@@ -88,7 +190,7 @@ Every verdict — confirmed, refuted, or escalated — is written to a SQLite fi
 All modules are standalone CLI commands and remain individually invokable for offline analysis, custom workflows, or human-in-the-loop investigation.
 
 ```
-─── Core 5-layer pipeline ─────────────────────────
+─── Core pipeline (Layers 0–6) ─────────────────────
 audit-pipeline init           # scaffold a new audit workspace at pinned SHAs
 audit-pipeline provision-vps  # one-time VPS setup (Rust + Solana + Kani + tmux)
 audit-pipeline sync           # sync target repo to a VPS workspace
