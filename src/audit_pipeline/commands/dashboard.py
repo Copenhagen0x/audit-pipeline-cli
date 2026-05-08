@@ -228,6 +228,7 @@ def _build_snapshot(db: FindingsDB) -> dict:
     }
 
     now = datetime.now(timezone.utc)
+    workspace = db.path.parent
     return {
         "generated_at": now.isoformat(timespec="seconds"),
         "generated_at_ms": int(now.timestamp() * 1000),
@@ -241,6 +242,92 @@ def _build_snapshot(db: FindingsDB) -> dict:
         "cycles_total":    stats.get("n_cycles", 0),
         "receipts_signed": _count_signed_receipts(),
         "loop_uptime_human": _loop_uptime_human(),
+        # G27: P2 propagation surface — what's been tagged, derived, swept,
+        # queued. None of these expose customer-private data; everything
+        # is cumulative-platform stats. Drives the /status/ counter row.
+        "propagation_stats": _propagation_stats(workspace, db),
+    }
+
+
+def _propagation_stats(workspace: Path, db: FindingsDB) -> dict:
+    """G27 + G28: P2 propagation activity counters for the public snapshot.
+
+    Drawn from filesystem state + DB. None of these expose private data:
+      * bug_classes_catalogued — count of distinct bug_class values across
+        the bundled YAML library (a public-facing taxonomy stat)
+      * findings_with_bug_class — DB count of findings with bug_class set
+        (operational hygiene signal)
+      * sibling_files — count of derived/<id>-siblings.yaml files
+      * propagation_reports — count of recon/propagate/auto-fire/*.md
+      * dispatches_queued — count of pending Layer-1 hunts in the
+        scheduled queue
+      * dispatches_pending — same, only items still in 'pending' state
+
+    All counts are cumulative-since-DB-init.
+    """
+    import json as _json
+
+    # YAML-derived bug classes (declared)
+    bug_classes_catalogued = 0
+    try:
+        import yaml as _yaml
+
+        from audit_pipeline.scoping import hypotheses_dir
+        seen: set[str] = set()
+        for p in hypotheses_dir().glob("*.yaml"):
+            try:
+                raw = _yaml.safe_load(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            for h in (raw or {}).get("hypotheses", []):
+                if isinstance(h, dict) and h.get("bug_class"):
+                    seen.add(h["bug_class"])
+        bug_classes_catalogued = len(seen)
+    except Exception:
+        pass
+
+    # DB hygiene
+    findings_with_bug_class = 0
+    try:
+        with db._conn() as c:  # noqa: SLF001
+            row = c.execute("SELECT COUNT(*) AS n FROM findings WHERE bug_class IS NOT NULL").fetchone()
+            findings_with_bug_class = int(row["n"] or 0) if row else 0
+    except Exception:
+        pass
+
+    # Filesystem signals
+    sibling_files = 0
+    propagation_reports = 0
+    dispatches_queued = 0
+    dispatches_pending = 0
+    try:
+        derived = workspace / "derived"
+        if derived.is_dir():
+            sibling_files = sum(1 for p in derived.glob("*-siblings.yaml"))
+        autofire = workspace / "recon" / "propagate" / "auto-fire"
+        if autofire.is_dir():
+            propagation_reports = sum(1 for p in autofire.glob("*.md"))
+        scheduled = workspace / "recon" / "propagate" / "scheduled"
+        if scheduled.is_dir():
+            for q in scheduled.glob("*.json"):
+                try:
+                    data = _json.loads(q.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                for item in (data.get("items") or []):
+                    dispatches_queued += 1
+                    if item.get("status") == "pending":
+                        dispatches_pending += 1
+    except Exception:
+        pass
+
+    return {
+        "bug_classes_catalogued":   bug_classes_catalogued,
+        "findings_with_bug_class":  findings_with_bug_class,
+        "sibling_files":            sibling_files,
+        "propagation_reports":      propagation_reports,
+        "dispatches_queued":        dispatches_queued,
+        "dispatches_pending":       dispatches_pending,
     }
 
 
@@ -446,6 +533,14 @@ def _build_customer_manifest(db: FindingsDB, customer: dict) -> dict:
         for c in cycles
     ]
 
+    # G28: per-customer propagation slice. Counts are scoped to findings
+    # whose hypothesis_id (or derived siblings) belong to this customer's
+    # owned targets. Today the customer can see their own in-progress
+    # confirmed findings — propagation hits associated with those go here.
+    customer_propagation = _customer_propagation_slice(
+        db.path.parent, customer_findings, owned_target_ids,
+    )
+
     now = datetime.now(timezone.utc)
     return {
         "generated_at": now.isoformat(timespec="seconds"),
@@ -479,6 +574,70 @@ def _build_customer_manifest(db: FindingsDB, customer: dict) -> dict:
         "cycles_total":    len(recent_cycles),
         "receipts_signed": _count_signed_receipts(),
         "loop_uptime_human": _loop_uptime_human(),
+        # G28: customer-scoped propagation activity
+        "propagation_stats": customer_propagation,
+    }
+
+
+def _customer_propagation_slice(
+    workspace: Path,
+    customer_findings: list[dict],
+    owned_target_ids: set[int],
+) -> dict:
+    """G28: customer-private propagation counters.
+
+    Mirrors the public _propagation_stats shape but scopes counts to
+    findings owned by this customer (so they see only THEIR class library
+    growth + propagation activity).
+    """
+    # Distinct bug_class values across THIS customer's findings
+    customer_bug_classes = {
+        f.get("bug_class")
+        for f in customer_findings
+        if f.get("bug_class")
+    }
+
+    # Count this customer's findings that have a bug_class set
+    findings_with_bug_class = sum(
+        1 for f in customer_findings if f.get("bug_class")
+    )
+
+    # Filesystem-level counts: sibling YAMLs derived from this customer's
+    # findings, propagation reports for this customer's findings.
+    derived_dir = workspace / "derived"
+    autofire_dir = workspace / "recon" / "propagate" / "auto-fire"
+    sibling_files = 0
+    propagation_reports = 0
+
+    customer_finding_ids = {f.get("id") for f in customer_findings}
+    customer_hyp_slugs = {
+        (f.get("hypothesis_id") or f"finding-{f.get('id')}").replace("/", "-")
+        for f in customer_findings
+    }
+
+    if derived_dir.is_dir():
+        for p in derived_dir.glob("*-siblings.yaml"):
+            stem = p.stem  # "<slug>-siblings"
+            slug = stem.removesuffix("-siblings")
+            if slug in customer_hyp_slugs:
+                sibling_files += 1
+
+    if autofire_dir.is_dir():
+        for p in autofire_dir.glob("propagation_finding_*.md"):
+            # filename = propagation_finding_<id>_<bug_class>.md
+            try:
+                fid_str = p.stem.split("_")[2]
+                fid = int(fid_str)
+                if fid in customer_finding_ids:
+                    propagation_reports += 1
+            except (IndexError, ValueError):
+                continue
+
+    return {
+        "bug_classes_seen":         len(customer_bug_classes),
+        "findings_with_bug_class":  findings_with_bug_class,
+        "sibling_files":            sibling_files,
+        "propagation_reports":      propagation_reports,
     }
 
 
