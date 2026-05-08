@@ -85,6 +85,61 @@ cp "$TMP/cycle.html.sig" "$STAGING/"
 [ -f "$TMP/cycle.pdf" ]      && cp "$TMP/cycle.pdf"     "$STAGING/"
 [ -f "$TMP/cycle.pdf.sig" ]  && cp "$TMP/cycle.pdf.sig" "$STAGING/"
 
+# 4a. Write a minimal index.html so the bare directory URL serves something
+# instead of returning 403 (nginx doesn't auto-index, by design). The customer
+# dashboard's "verify" link points at /cycles/<id>/ — without this, every
+# verify link is broken even when the artefacts are present.
+cat > "$STAGING/index.html" <<HTMLEOF
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo cycle ${CYCLE_ID}</title>
+<style>
+  body{font-family:Inter,system-ui,sans-serif;background:#050504;color:#e6e1d8;margin:0;padding:48px 32px;max-width:760px;margin-inline:auto;line-height:1.55}
+  h1{color:#f5b800;font-weight:600;letter-spacing:-0.01em;margin:0 0 8px}
+  h2{color:#f5b800;font-weight:500;font-size:1.05rem;margin:32px 0 12px;letter-spacing:-0.005em}
+  p{color:#bdb5a8;margin:8px 0}
+  a{color:#f5b800;text-decoration:none;border-bottom:1px dashed rgba(245,184,0,0.3)}
+  a:hover{border-bottom-style:solid}
+  ul{padding-left:20px;color:#e6e1d8}
+  ul li{margin:8px 0;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.9rem}
+  pre{background:rgba(245,184,0,0.04);border:1px solid rgba(245,184,0,0.18);border-radius:6px;padding:14px 18px;overflow-x:auto;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.83rem;color:#d4cdc0}
+  .meta{color:#7a7163;font-size:0.85rem}
+  hr{border:0;border-top:1px solid rgba(245,184,0,0.18);margin:32px 0}
+</style>
+</head>
+<body>
+<h1>Jelleo · cycle ${CYCLE_ID}</h1>
+<p class="meta">Signed cycle receipt bundle. Every artefact below is attested with the platform's Ed25519 key.</p>
+
+<h2>Artefacts</h2>
+<ul>
+  <li><a href="cycle.html">cycle.html</a> &middot; branded HTML report</li>
+  <li><a href="cycle.html.sig">cycle.html.sig</a> &middot; Ed25519 signature over cycle.html</li>
+  <li><a href="cycle.pdf">cycle.pdf</a> &middot; PDF render of the report</li>
+  <li><a href="cycle.pdf.sig">cycle.pdf.sig</a> &middot; Ed25519 signature over cycle.pdf</li>
+</ul>
+
+<h2>Verify (independent of Jelleo)</h2>
+<p>Pin the platform public key once, then verify any cycle artefact against it without trusting the operator:</p>
+<pre>curl -O https://api.jelleo.com/keys/jelleo.ed25519.pub
+curl -O https://api.jelleo.com/cycles/${CYCLE_ID}/cycle.html
+curl -O https://api.jelleo.com/cycles/${CYCLE_ID}/cycle.html.sig
+
+audit-pipeline sign verify --pubkey jelleo.ed25519.pub \\
+  --artifact cycle.html --sig cycle.html.sig
+# &rarr; "&check; signature valid, signed by &lt;fingerprint&gt;"</pre>
+
+<p>Or with any standard Ed25519 verifier (Python <code>cryptography</code>, <code>openssl</code>, etc.) — the signature is base64 PKCS#8 inside a JELLEO armour block.</p>
+
+<hr>
+<p class="meta">Methodology &sect;07 &middot; <a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology">spec</a> &middot; <a href="https://api.jelleo.com/keys/jelleo.ed25519.pub">platform public key</a></p>
+</body>
+</html>
+HTMLEOF
+
 chown -R www-data:www-data "$STAGING"
 chmod -R a+r "$STAGING"
 find "$STAGING" -type d -exec chmod a+x {} \;
