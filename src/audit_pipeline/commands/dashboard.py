@@ -37,6 +37,12 @@ console = Console()
               help="HTML file to write (default: <workspace>/dashboard.html)")
 @click.option("--snapshot-json", type=click.Path(path_type=Path), default=None,
               help="ALSO write a JSON snapshot of the dashboard data (for jelleo.com fetch)")
+@click.option("--customer-manifest-dir", type=click.Path(path_type=Path), default=None,
+              help="ALSO write per-customer manifest.json files under this dir "
+                   "(e.g. /var/www/jelleo.com/customer/). The 'demo' customer is always "
+                   "included; future customers come from a config file. Each manifest "
+                   "contains the customer's owned findings INCLUDING confirmed (in-progress) "
+                   "ones — that data is private to the customer behind the token gate.")
 @click.option("--serve", is_flag=True, help="Serve via http.server after writing")
 @click.option("--port", type=int, default=8765, show_default=True)
 @click.option("--auto-refresh", type=int, default=60, show_default=True,
@@ -46,16 +52,21 @@ def dashboard_cmd(
     ctx: click.Context,
     output: Path | None,
     snapshot_json: Path | None,
+    customer_manifest_dir: Path | None,
     serve: bool,
     port: int,
     auto_refresh: int,
 ) -> None:
     """Generate (and optionally serve) the customer-facing dashboard.
 
-    Pass --snapshot-json <path> to also emit a JSON dump of the same data
-    the HTML view shows. Customers upload that JSON to a known location
-    (e.g. jelleo.com/snapshot.json) so the deployed dashboard.html can
-    fetch live data instead of showing the static funded-state mockup.
+    Three artifacts are produced, each scoped to a different audience:
+
+      1. dashboard.html (always)         — the rich HTML view.
+      2. snapshot.json (--snapshot-json) — public homepage feed; only
+         disclosed/fixed/verified findings, with title + hyp_id surfaced.
+      3. customer/<token>/manifest.json (--customer-manifest-dir) — per-
+         customer JSON behind the token gate; INCLUDES that customer's
+         confirmed (in-progress) findings, since the customer owns the data.
     """
     import json
 
@@ -75,6 +86,17 @@ def dashboard_cmd(
             encoding="utf-8",
         )
         console.print(f"[green]wrote[/green] {snapshot_path}")
+
+    if customer_manifest_dir:
+        cdir = Path(customer_manifest_dir)
+        for cust in _customers_to_publish(workspace):
+            mpath = cdir / cust["id"] / "manifest.json"
+            mpath.parent.mkdir(parents=True, exist_ok=True)
+            mpath.write_text(
+                json.dumps(_build_customer_manifest(db, cust), indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            console.print(f"[green]wrote[/green] {mpath}")
 
     if serve:
         _serve(out.parent, out.name, port)
@@ -100,10 +122,12 @@ def _build_snapshot(db: FindingsDB) -> dict:
     """
     from datetime import datetime, timezone
 
-    # Findings are only safe to expose once they're publicly known. New /
-    # triaged / confirmed findings are in-progress disclosures — listing
-    # them publicly defeats the embargo.
-    PUBLIC_STATUSES = {"disclosed", "fixed", "verified", "rejected"}
+    # Findings safe for the public snapshot.json (jelleo.com homepage data).
+    # "rejected" used to be in this set, but rejected findings are false
+    # positives produced by the engine — listing them publicly is noise that
+    # makes the platform look worse than it is. Keep them in the DB for
+    # bookkeeping; do not expose them.
+    PUBLIC_STATUSES = {"disclosed", "fixed", "verified"}
 
     stats = db.stats()
     targets = db.list_targets()
@@ -293,6 +317,168 @@ def _count_signed_receipts() -> int:
     if not root.is_dir():
         return 0
     return sum(1 for p in root.iterdir() if p.is_dir() and (p / "cycle.html.sig").exists())
+
+
+def _customers_to_publish(workspace: Path) -> list[dict]:
+    """List of customers whose manifests should be published.
+
+    Reads <workspace>/customers.json if present (Tier 5 #27 will populate this
+    via `audit-pipeline customer add`). Always includes a hardcoded "demo"
+    customer mapped to the Percolator target, so OtterSec / prospects can
+    walk through a real-data view at /customer/demo/ today.
+    """
+    import json as _json
+    customers = [
+        {
+            "id":            "demo",
+            "name":          "Demo customer · Percolator team view",
+            "protocol_name": "Percolator",
+            "tier":          "Production",
+            "since":         "2026-04-22",
+            "target_match":  "percolator",  # case-insensitive substring on target name
+        }
+    ]
+    cfg = workspace / "customers.json"
+    if cfg.is_file():
+        try:
+            extra = _json.loads(cfg.read_text(encoding="utf-8"))
+            if isinstance(extra, list):
+                # Skip duplicates by id
+                seen = {c["id"] for c in customers}
+                for c in extra:
+                    if isinstance(c, dict) and c.get("id") and c["id"] not in seen:
+                        customers.append(c)
+                        seen.add(c["id"])
+        except Exception:
+            pass
+    return customers
+
+
+def _build_customer_manifest(db: FindingsDB, customer: dict) -> dict:
+    """Build the per-customer manifest the gated portal renders.
+
+    Same shape as the public snapshot, but scoped to this customer's owned
+    target(s) AND including their confirmed (in-progress) findings — those
+    are private to the customer, served behind the token gate.
+
+    Embargo rules still apply: in-progress findings here are visible only to
+    the customer who owns the protocol. They never end up in snapshot.json.
+    """
+    from datetime import datetime, timezone
+
+    # For the customer's own data, surface everything except brand-new /
+    # rejected findings. "rejected" = engine false-positive (don't worry the
+    # customer); "new" = pre-triage, no signal yet. Everything else (triaged,
+    # confirmed, disclosed, fixed, verified) is actionable to the customer.
+    CUSTOMER_STATUSES = {"triaged", "confirmed", "disclosed", "fixed", "verified"}
+
+    target_match = (customer.get("target_match") or "").lower()
+    targets = db.list_targets()
+    owned_targets = [
+        t for t in targets
+        if not target_match or target_match in (t.get("name") or "").lower()
+    ]
+    owned_target_ids = {t["id"] for t in owned_targets}
+
+    cycles = [
+        c for c in db.list_cycles(limit=20)
+        if not owned_target_ids or c.get("target_id") in owned_target_ids
+    ]
+    findings_all = db.list_findings(limit=500)
+    findings = [
+        f for f in findings_all
+        if (not owned_target_ids or f.get("target_id") in owned_target_ids)
+        and (f.get("status") or "") in CUSTOMER_STATUSES
+    ]
+
+    # Enrich each finding with the same envelope as the public snapshot,
+    # but here title + hyp_id are always included (customer owns the data).
+    customer_findings = []
+    for f in findings:
+        details = {}
+        try:
+            import json as _json
+            raw = f.get("details_json")
+            if raw:
+                parsed = _json.loads(raw)
+                if isinstance(parsed, dict):
+                    details = parsed
+        except Exception:
+            details = {}
+        customer_findings.append({
+            "id": f["id"],
+            "target_id": f["target_id"],
+            "cycle_id": f.get("cycle_id"),
+            "hypothesis_id": f.get("hypothesis_id"),
+            "title": f.get("title"),
+            "severity": f.get("severity"),
+            "status": f.get("status"),
+            "bug_class": f.get("bug_class"),
+            "verdict": f.get("verdict"),
+            "poc_fired": bool(f.get("poc_fired")),
+            "updated_at": f.get("updated_at"),
+            "disclosure_url": details.get("disclosure_url") or details.get("pr_url") or None,
+            "n_siblings":     details.get("n_siblings") or 0,
+        })
+
+    # Status counters scoped to the customer.
+    sev_disclosed = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
+    sev_in_progress = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
+    for f in customer_findings:
+        st = f["status"]
+        sev = f.get("severity")
+        bucket = sev_disclosed if st in ("disclosed", "fixed", "verified") else sev_in_progress
+        if sev in bucket:
+            bucket[sev] += 1
+
+    recent_cycles = [
+        {
+            "cycle_id": c.get("cycle_id"),
+            "target_id": c.get("target_id"),
+            "engine_sha": (c.get("engine_sha") or "")[:10],
+            "started_at": c.get("started_at"),
+            "finished_at": c.get("finished_at"),
+            "n_dispatched": c.get("n_dispatched"),
+            "n_confirmed": c.get("n_confirmed"),
+            "receipt_fingerprint": _read_receipt_fingerprint(c.get("cycle_id")),
+        }
+        for c in cycles
+    ]
+
+    now = datetime.now(timezone.utc)
+    return {
+        "generated_at": now.isoformat(timespec="seconds"),
+        "generated_at_ms": int(now.timestamp() * 1000),
+        "platform": "jelleo",
+        "version": "v0.1",
+        "customer": {
+            "id":             customer.get("id"),
+            "name":           customer.get("name"),
+            "protocol_name":  customer.get("protocol_name"),
+            "tier":           customer.get("tier"),
+            "since":          customer.get("since"),
+            "view_kind":      "customer-private",
+        },
+        "stats": {
+            "n_cycles":              len(recent_cycles),
+            "n_findings_total":      len(customer_findings),
+            "by_severity_disclosed":   sev_disclosed,
+            "by_severity_in_progress": sev_in_progress,
+        },
+        "targets": [
+            {
+                "name": t["name"],
+                "engine_repo": (t.get("engine_repo") or "").replace("https://github.com/", ""),
+            }
+            for t in owned_targets
+        ],
+        "recent_cycles": recent_cycles,
+        "public_findings": customer_findings,  # name kept for shape compatibility with snapshot.json
+        "services": _probe_services(),
+        "cycles_total":    len(recent_cycles),
+        "receipts_signed": _count_signed_receipts(),
+        "loop_uptime_human": _loop_uptime_human(),
+    }
 
 
 def _read_receipt_fingerprint(cycle_id: str | None) -> str | None:
