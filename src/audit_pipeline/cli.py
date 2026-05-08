@@ -29,6 +29,7 @@ from audit_pipeline.commands import (
     kani,
     learn,
     litesvm,
+    metrics,
     narrative,
     notify,
     onboard,
@@ -147,6 +148,9 @@ main.add_command(scheduler.scheduler_cmd)          # cadence daemon: tick/run/st
 # Subcommands — multi-tenant + proof-of-running (Tier 5)
 main.add_command(customer.customer_cmd)            # Tier 5 #26 + #27 + #28: customer registry + derived keys
 main.add_command(heartbeat.heartbeat_cmd)          # Tier 5 #29: signed proof-of-running heartbeat
+
+# Subcommands — observability (P2 Wave 7c)
+main.add_command(metrics.metrics_cmd)              # Prometheus-format metrics endpoint
 
 
 if __name__ == "__main__":

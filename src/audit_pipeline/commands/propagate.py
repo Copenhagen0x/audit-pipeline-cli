@@ -587,6 +587,144 @@ BUG_CLASS_SIGNATURES: dict[str, list[str]] = {
         r"K_factor|k_factor|funding_index",
         r"compute_current_funding_rate|accrue_market_to",
     ],
+
+    # ────────────────────────────────────────────────────────────────────
+    # P2 Wave 6a — top-frequency bug-class signatures added 2026-05-08
+    # to close the 19→40+ catalog gap. Selected by frequency across the
+    # 339 distinct bug_class values declared in the YAML library, focused
+    # on cross-cluster patterns (admin/auth, oracle, AMM/CLMM, init/PDAs).
+    # ────────────────────────────────────────────────────────────────────
+
+    # Admin / authority / pause patterns
+    "admin-gate-bypass": [
+        r"admin\s*[:=]\s*Pubkey|is_admin\s*\(",
+        r"require!\s*\(\s*.*admin|assert!\s*\(\s*.*admin",
+        r"AccessControl|admin_pubkey|admin_authority",
+    ],
+    "multisig-threshold-bypass": [
+        r"multisig|MultiSig|threshold\s*[:=]",
+        r"signers\.len\(\)|signer_count|approval_count",
+    ],
+    "admin-handover-single-step": [
+        r"set_admin|transfer_admin|change_authority|set_authority",
+        r"pending_admin|new_admin|propose_admin",
+    ],
+    "pause-bypass": [
+        r"is_paused|paused\s*[:=]|Pause\b",
+        r"require!\s*\(\s*!.*paused|require!\s*\(.*Pause",
+    ],
+    "pause-authority-confusion": [
+        r"pause_authority|emergency_admin|guardian",
+        r"unpause|resume_protocol",
+    ],
+
+    # Oracle patterns
+    "oracle-staleness-bypass": [
+        r"publish_time|publish_slot|last_update_slot|last_oracle_publish",
+        r"staleness|stale_after|MAX_AGE|MAX_STALENESS",
+    ],
+    "oracle-confidence-bypass": [
+        r"confidence|conf_interval|confidence_interval",
+        r"price_feed|pyth|switchboard",
+    ],
+    "oracle-silent-fallback": [
+        r"oracle_target_price|fallback_price|backup_price",
+        r"if let Some\(.*price.*\)|unwrap_or\(.*price",
+    ],
+
+    # AMM / liquidity invariants
+    "k-invariant-violation": [
+        r"x\s*\*\s*y|reserve_a\s*\*\s*reserve_b|x_times_y",
+        r"sqrt_k|invariant_k|constant_product",
+    ],
+    "swap-drain-bound": [
+        r"min_amount_out|min_output|minimum_amount_out|slippage",
+        r"swap|exchange|trade",
+    ],
+    "slippage-protection-bypass": [
+        r"min_amount_out|max_amount_in|slippage_bps|max_slippage",
+        r"require!\s*\(.*amount.*>=\s*min|require!\s*\(.*amount.*<=\s*max",
+    ],
+    "donation-attack": [
+        r"first_deposit|initial_liquidity|MINIMUM_LIQUIDITY|minimum_share",
+        r"total_supply\s*==\s*0|total_shares\s*==\s*0",
+    ],
+    "lp-share-inflation-first-deposit": [
+        r"sqrt\(.*reserves|sqrt\(.*amount.*amount",
+        r"first_deposit|initial_mint|burn.*minimum",
+    ],
+    "pool-double-init": [
+        r"is_initialized|initialized\s*[:=]\s*true|MARKER",
+        r"init_pool|initialize_pool|create_market",
+    ],
+
+    # PDA / account validation
+    "pda-bump-malleability": [
+        r"find_program_address|create_program_address",
+        r"bump\s*[:=]|canonical_bump",
+    ],
+    "pda-rent-exemption": [
+        r"is_rent_exempt|minimum_balance|Rent::get",
+        r"check_rent_exempt|require_rent_exempt",
+    ],
+    "account-discriminator-bypass": [
+        r"DISCRIMINATOR|discriminator|account_data\[..8\]",
+        r"AccountInfo|deserialize|try_from_slice",
+    ],
+    "account-close-state-leak": [
+        r"close_account|reclaim|free_slot",
+        r"zero_out|memset|fill\(0\)",
+    ],
+
+    # Token / fee accounting
+    "token-program-substitution": [
+        r"token_program\.key|token::ID|spl_token::id",
+        r"require!\s*\(.*token_program",
+    ],
+    "protocol-fee-double-count": [
+        r"protocol_fee|fee_collected|fees_accrued",
+        r"fee_growth|fee_per_share|accumulated_fee",
+    ],
+    "precision-loss-compounding": [
+        r"checked_div|checked_mul|saturating",
+        r"Q64|Q128|FixedPoint|fixed_point",
+    ],
+    "fee-direction-violation": [
+        r"fee_amount|fee_bps|fee_numerator",
+        r"checked_div|round_up|round_down",
+    ],
+
+    # Lifecycle / withdrawal / state
+    "zero-exchange-rate": [
+        r"exchange_rate|conversion_rate|sol_per_lst",
+        r"==\s*0|is_zero|return_if_zero",
+    ],
+    "deposit-cap-circumvention": [
+        r"deposit_cap|max_deposit|deposit_limit|tvl_cap",
+        r"require!\s*\(.*deposit.*<=|assert!\s*\(.*deposit.*<=",
+    ],
+    "emergency-withdraw-non-pro-rata": [
+        r"emergency_withdraw|emergency_unstake|force_withdraw",
+        r"pro_rata|proportional|share_of_pool",
+    ],
+    "conditional-order-reentry": [
+        r"conditional_order|trigger_order|stop_loss|take_profit",
+        r"reentr|in_progress|locked",
+    ],
+
+    # Math overflow / arithmetic
+    "arithmetic-overflow-k-product": [
+        r"u128\s*\*|u256\s*\*|saturating_mul|checked_mul",
+        r"reserve_a\s*\*|reserve_b\s*\*|x\s*\*\s*y",
+    ],
+    "arithmetic-overflow-fee": [
+        r"fee.*overflow|fee\.checked|fee_amount.*max",
+        r"u64::MAX|u128::MAX",
+    ],
+    "arithmetic-overflow-share-conv": [
+        r"share_to_amount|amount_to_share|convert_shares",
+        r"checked_mul|checked_div|saturating",
+    ],
 }
 
 
@@ -617,6 +755,13 @@ def propagate_from_finding_async(workspace: Path, finding_id: int) -> None:
     no-op.
     """
     try:
+        # E20 (P2 Wave 7a): per-hour rate limit. Default 50 propagations/hour,
+        # tunable via env var. Prevents runaway hooks if a flood of findings
+        # confirms in a tight window. The marker file rolls per UTC hour so
+        # the cap auto-resets.
+        if not _check_rate_limit(workspace):
+            return
+
         # F23 idempotency check
         marker_dir = workspace / "recon" / "propagate" / "markers"
         marker_dir.mkdir(parents=True, exist_ok=True)
@@ -629,6 +774,7 @@ def propagate_from_finding_async(workspace: Path, finding_id: int) -> None:
         corpus = workspace / "recon" / "propagate" / "corpus"
         output_dir = workspace / "recon" / "propagate" / "auto-fire"
         result = run_for_finding(db, finding_id, corpus, output_dir)
+        _record_rate_limit_event(workspace)
 
         # E17: queue Layer-1 dispatch on top candidates
         if result.get("ok") and result.get("top_candidates"):
@@ -644,6 +790,38 @@ def propagate_from_finding_async(workspace: Path, finding_id: int) -> None:
         )
     except Exception:
         return
+
+
+def _check_rate_limit(workspace: Path) -> bool:
+    """E20: returns True if under cap, False if rate limit hit."""
+    import os
+    cap = int(os.environ.get("JELLEO_HOOK_RATE_LIMIT_PER_HOUR", "50"))
+    hour_key = datetime.now(timezone.utc).strftime("%Y%m%d-%H")
+    rate_file = workspace / "hooks" / f"rate-limit-{hour_key}.count"
+    try:
+        if rate_file.is_file():
+            count = int(rate_file.read_text(encoding="utf-8").strip() or "0")
+        else:
+            count = 0
+        return count < cap
+    except (OSError, ValueError):
+        return True  # fail open if filesystem hiccup
+
+
+def _record_rate_limit_event(workspace: Path) -> None:
+    """E20: bump the per-hour counter."""
+    hour_key = datetime.now(timezone.utc).strftime("%Y%m%d-%H")
+    rate_dir = workspace / "hooks"
+    rate_dir.mkdir(parents=True, exist_ok=True)
+    rate_file = rate_dir / f"rate-limit-{hour_key}.count"
+    try:
+        if rate_file.is_file():
+            count = int(rate_file.read_text(encoding="utf-8").strip() or "0")
+        else:
+            count = 0
+        rate_file.write_text(str(count + 1) + "\n", encoding="utf-8")
+    except (OSError, ValueError):
+        pass
 
 
 def _enqueue_layer1_dispatches(

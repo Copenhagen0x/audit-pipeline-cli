@@ -415,9 +415,10 @@ class FindingsDB:
     def _fire_confirmed_hooks(self, finding_id: int) -> None:
         """Fire the on-confirmed hooks: sibling derivation + propagation.
 
-        Both hooks are best-effort. They run in a daemon thread so the
-        caller never blocks; exceptions are silenced. The workspace path
-        is derived from the DB file's parent directory.
+        Each hook runs in its OWN daemon thread (P2 Wave 7a — concurrent
+        execution). At low volume both finish quickly; at higher volume
+        (multiple findings confirming in one cycle) parallelism keeps the
+        wall-clock latency from compounding linearly.
 
         F21: every hook invocation is logged to
         ``<workspace>/hooks/<finding_id>-<hook_name>-<ts>.log``. The log
@@ -425,16 +426,30 @@ class FindingsDB:
         a short exception traceback. Without this, the daemon-thread
         silenced exceptions are a debug nightmare — operators can't tell
         whether the hook ran, succeeded, or crashed.
+
+        E20 (per-cycle rate limit): a global counter at
+        ``<workspace>/hooks/cycle-rate-limit.json`` tracks total propagation
+        events fired in the current UTC hour. Default cap = 50 events/hour
+        (configurable via env JELLEO_HOOK_RATE_LIMIT_PER_HOUR). Above the
+        cap, propagation is queued but not executed. Sibling derivation
+        is NOT rate-limited globally — it has its own daily budget cap
+        (D15 in derive_siblings.py).
         """
         import threading
         ws = self.path.parent
 
-        def _run() -> None:
-            self._run_one_hook(ws, finding_id, "derive_siblings", _derive_target)
-            self._run_one_hook(ws, finding_id, "propagate", _propagate_target)
-
-        t = threading.Thread(target=_run, daemon=True)
-        t.start()
+        derive_thread = threading.Thread(
+            target=self._run_one_hook,
+            args=(ws, finding_id, "derive_siblings", _derive_target),
+            daemon=True,
+        )
+        propagate_thread = threading.Thread(
+            target=self._run_one_hook,
+            args=(ws, finding_id, "propagate", _propagate_target),
+            daemon=True,
+        )
+        derive_thread.start()
+        propagate_thread.start()
 
     def _run_one_hook(
         self,
