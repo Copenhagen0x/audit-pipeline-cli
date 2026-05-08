@@ -569,6 +569,27 @@ def signatures_for_bug_class(bug_class: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def propagate_from_finding_async(workspace: Path, finding_id: int) -> None:
+    """Tier 2 #9 lifecycle hook target: auto-fire propagation on confirmed.
+
+    Wrapper around `run_for_finding` that resolves the corpus + output
+    paths from the workspace conventions and silences all errors so the
+    DB transition is never blocked.
+
+    Default corpus path: <workspace>/recon/propagate/corpus/. If the
+    corpus doesn't exist (no init-corpus has been run), the hook is a
+    no-op.
+    """
+    try:
+        from audit_pipeline.db import FindingsDB
+        db = FindingsDB(workspace / "findings.db")
+        corpus = workspace / "recon" / "propagate" / "corpus"
+        output_dir = workspace / "recon" / "propagate" / "auto-fire"
+        run_for_finding(db, finding_id, corpus, output_dir)
+    except Exception:
+        return
+
+
 def run_for_finding(
     db: "FindingsDB",
     finding_id: int,

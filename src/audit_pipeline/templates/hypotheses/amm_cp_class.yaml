@@ -1,0 +1,639 @@
+# Class library: constant-product AMMs (x*y=k)
+#
+# Loads when target.protocol_class == "amm_cp" (Raydium CP, Orca CP variants,
+# Saber, Aldrin, etc.).
+#
+# Schema: docs/HYPOTHESIS_SCHEMA.md
+# Sub-categories below are grouped by attack surface, organized by the
+# `bug_class` taxonomy so propagation can match across protocols.
+
+hypotheses:
+
+  # ────────────────────────────── 1. K-INVARIANT ──────────────────────────────
+
+  - id: AMM1-k-invariant-preserved-on-swap
+    class: invariant_property
+    severity: Critical
+    claim: >
+      For every swap, after fees are taken out of the input, the resulting
+      reserves satisfy x_out * y_out >= x_in * y_in. No path lets a swap
+      regress the constant-product invariant.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: k-invariant-violation
+
+  - id: AMM2-k-not-decreased-by-deposit
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Adding liquidity at the current ratio strictly increases x*y, never
+      decreases it. The deposit math cannot yield a smaller reserve product.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: k-invariant-deposit-regression
+
+  - id: AMM3-k-not-decreased-by-fee-accumulation
+    class: invariant_property
+    severity: High
+    claim: >
+      Fee accumulation (whether to LP pool or protocol bucket) cannot cause
+      the K-invariant to regress between externally observable states.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: k-invariant-fee-regression
+
+  - id: AMM4-zero-amount-swap-rejected
+    class: authorization
+    severity: Medium
+    claim: >
+      Swaps with zero input or zero output are rejected at instruction
+      entry — no degenerate path lets a zero swap mint LP shares or move
+      the curve.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: zero-input-edge-case
+
+  - id: AMM5-swap-output-rounding-favors-pool
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      The output amount of a swap is computed with rounding-down semantics
+      so the pool keeps the rounding residual. There is no path where the
+      rounding favors the swapper at the pool's expense.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: swap-precision-rounding
+
+  - id: AMM6-swap-input-bounded-by-reserves
+    class: invariant_property
+    severity: High
+    claim: >
+      A swap cannot drain more than (input-reserve - 1 lamport) of the
+      output token in a single instruction; the curve goes asymptotic
+      before allowing total drain.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: swap-drain-bound
+
+  - id: AMM7-min-amount-out-respected
+    class: authorization
+    severity: High
+    claim: >
+      The user-supplied min_amount_out parameter is enforced atomically
+      against the actual output. Sandwich-attack mitigation is not bypassed
+      by any internal path.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: slippage-protection-bypass
+
+  # ────────────────────────────── 2. FEE ACCRUAL ──────────────────────────────
+
+  - id: AMM10-fee-direction-monotonic
+    class: implicit_invariant
+    severity: High
+    claim: >
+      Trading fees only ever accrue TO the LP pool (or designated fee
+      destination), never reduce LP-claimable balance.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: fee-direction-violation
+
+  - id: AMM11-protocol-fee-collected-once
+    class: state_transition
+    severity: High
+    claim: >
+      The protocol-fee share is deducted from each swap exactly once. No
+      path lets the same swap fund both the LP pool and the protocol-fee
+      bucket twice.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: protocol-fee-double-count
+
+  - id: AMM12-fee-tier-change-deferred
+    class: state_transition
+    severity: Medium
+    claim: >
+      A fee-tier change request is queued and applied only after a delay
+      (or epoch boundary), preventing front-running of the fee adjustment.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: fee-tier-frontrun
+
+  - id: AMM13-fee-collection-recipient-authorized
+    class: authorization
+    severity: Medium
+    claim: >
+      Withdrawal of accumulated protocol fees can only be initiated by
+      the configured fee authority. No permissionless path lets a non-
+      authority drain the bucket.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: fee-collection-authorization
+
+  - id: AMM14-fee-bucket-cannot-go-negative
+    class: invariant_property
+    severity: Medium
+    claim: >
+      The accumulated-fee bucket is always non-negative; fee withdrawal
+      cannot underflow.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: fee-bucket-underflow
+
+  - id: AMM15-fee-on-self-trade
+    class: state_transition
+    severity: Medium
+    claim: >
+      Fees are charged on every fill, including self-trades. No path lets
+      the same authority on both sides of a trade rebate the fee.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: self-trade-fee-rebate
+
+  # ────────────────────────────── 3. LP SHARES ────────────────────────────────
+
+  - id: AMM20-lp-mint-pro-rata
+    class: invariant_property
+    severity: Critical
+    claim: >
+      LP-token mint on deposit preserves shares-per-asset monotonicity.
+      No first-deposit-exploit lets an attacker mint shares such that
+      pool_value / shares_total decreases.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: lp-share-inflation-first-deposit
+
+  - id: AMM21-lp-burn-conservation
+    class: state_transition
+    severity: Critical
+    claim: >
+      Burning N LP shares returns at most floor(N / total_shares × pool_x)
+      of token X and floor(N / total_shares × pool_y) of token Y.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: lp-burn-rounding-abuse
+
+  - id: AMM22-deposit-withdraw-symmetry
+    class: invariant_property
+    severity: High
+    claim: >
+      Depositing N units of (x, y) and immediately withdrawing the minted
+      shares returns at most (x, y) — never more. Round-trip is value-
+      preserving or value-decreasing for the user.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: deposit-withdraw-asymmetry
+
+  - id: AMM23-donation-attack-resistance
+    class: state_transition
+    severity: High
+    claim: >
+      Direct token-account donations to the pool do not change shares-
+      per-asset such that an attacker can pre-donate, deposit at the
+      inflated rate, and withdraw a larger pro-rata share.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: donation-attack
+
+  - id: AMM24-imbalanced-deposit-rejected
+    class: authorization
+    severity: Medium
+    claim: >
+      Deposits that don't match the current pool ratio are either rejected
+      or implicitly swap-and-deposit; there is no path that lets an
+      imbalanced deposit mint shares at a stale ratio.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: imbalanced-deposit-share-mint
+
+  - id: AMM25-lp-token-supply-cap
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Total LP-token supply fits in u64; mint operations cannot overflow
+      the supply counter even at maximum-pool-size deposits.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: lp-supply-overflow
+
+  - id: AMM26-burn-cannot-mint
+    class: invariant_property
+    severity: High
+    claim: >
+      The burn instruction cannot, under any code path, increase total
+      LP supply. Burn is strictly destructive of LP shares.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: burn-mint-direction
+
+  - id: AMM27-lp-token-account-binding
+    class: authorization
+    severity: High
+    claim: >
+      The LP-token account passed to a withdraw instruction must be owned
+      by the caller; no spoofed-account path lets an attacker burn another
+      user's shares.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: lp-account-spoofing
+
+  - id: AMM28-emergency-withdraw-pro-rata
+    class: invariant_property
+    severity: High
+    claim: >
+      Emergency-withdraw paths (pause-mode unwinds) still observe pro-rata
+      share semantics; no caller can extract more than their share of
+      reserves during a pause unwind.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: emergency-withdraw-non-pro-rata
+
+  # ────────────────────────────── 4. POOL INIT ────────────────────────────────
+
+  - id: AMM30-init-no-double-init
+    class: authorization
+    severity: High
+    claim: >
+      A pool account cannot be initialized twice; the second init reverts
+      and does not overwrite reserves or fee config.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: pool-double-init
+
+  - id: AMM31-init-token-pair-distinct
+    class: authorization
+    severity: High
+    claim: >
+      Pool init rejects identical token-A and token-B mints; no path
+      creates a "trivial pool" of one token against itself.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: identical-mint-pool
+
+  - id: AMM32-init-fee-config-bounded
+    class: authorization
+    severity: Medium
+    claim: >
+      Pool init rejects fee-tier configs outside the configured min/max
+      bounds (e.g. >100% trading fee).
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: pool-init-fee-config
+
+  - id: AMM33-init-state-invariants
+    class: invariant_property
+    severity: High
+    claim: >
+      A freshly-initialised pool satisfies every invariant downstream
+      instructions assume: total_shares = 0, reserves = 0, fee
+      destination valid, oracle (if any) fresh.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: pool-init-invariant
+
+  # ────────────────────────────── 5. ARITHMETIC ───────────────────────────────
+
+  - id: AMM40-overflow-on-large-pool
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      The reserve product x*y fits in u128 for all reachable (x, y) pairs
+      given the engine's max_pool_size cap.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: arithmetic-overflow-k-product
+
+  - id: AMM41-fee-multiplication-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Fee multiplications (input × fee_rate) fit in u128 across the full
+      reserve range; no path triggers wrapping.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: arithmetic-overflow-fee
+
+  - id: AMM42-share-conversion-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Share-amount → asset-amount conversion (shares × reserve / total)
+      fits in u128 for any pool state.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: arithmetic-overflow-share-conv
+
+  - id: AMM43-rounding-direction-deposit
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Deposit rounds shares-minted DOWN (favoring pool); withdraw rounds
+      shares-burned UP (favoring pool). Round-trip cannot extract value.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: rounding-direction-deposit
+
+  - id: AMM44-rounding-direction-fee
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Trading-fee rounding favors the LP pool / protocol bucket — never
+      the swapper.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: rounding-direction-fee
+
+  - id: AMM45-precision-loss-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Precision loss across a swap is bounded by 1 lamport per token; no
+      compounding loss path lets repeated tiny swaps drain the pool.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: precision-loss-compounding
+
+  # ─────────────────────────── 6. AUTHORIZATION ───────────────────────────────
+
+  - id: AMM50-pool-pause-respected
+    class: authorization
+    severity: High
+    claim: >
+      When the pool is paused (status == frozen), every state-mutating
+      instruction (swap, deposit, withdraw) returns early without changing
+      reserves.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: pool-pause-bypass
+
+  - id: AMM51-admin-instructions-gated
+    class: authorization
+    severity: Critical
+    claim: >
+      Every admin-only instruction (pause, fee update, oracle swap, sweep)
+      checks the signer against the configured admin pubkey.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: admin-gate-bypass
+
+  - id: AMM52-pause-only-by-pause-authority
+    class: authorization
+    severity: High
+    claim: >
+      Pause/unpause requires the configured pause authority signer; admin
+      and fee-authority cannot pause unless they ARE the pause authority.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: pause-authority-confusion
+
+  - id: AMM53-multisig-threshold-respected
+    class: authorization
+    severity: High
+    claim: >
+      Multisig-gated admin actions require the configured threshold of
+      signers; no single-signer path bypasses the threshold.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: multisig-threshold-bypass
+
+  - id: AMM54-pool-deletion-gated
+    class: authorization
+    severity: Critical
+    claim: >
+      Pool-close / pool-delete requires both empty reserves AND admin
+      signature; partial-state deletion is rejected.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: pool-deletion-with-state
+
+  - id: AMM55-admin-handover-two-step
+    class: authorization
+    severity: Medium
+    claim: >
+      Admin handover is a two-step process (propose then accept). A
+      single-step transfer cannot lock the admin role at a wrong key.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: admin-handover-single-step
+
+  # ─────────────────────────── 7. CPI / REENTRANCY ───────────────────────────
+
+  - id: AMM60-cpi-callback-no-reentrancy
+    class: authorization
+    severity: Critical
+    claim: >
+      Token-2022 hook / transfer-callback during a swap cannot re-enter
+      the AMM and modify reserves mid-instruction.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [cross_program_invocation_heavy]
+    bug_class: cpi-reentrancy
+
+  - id: AMM61-token-account-mint-binding
+    class: authorization
+    severity: High
+    claim: >
+      User token accounts passed in are validated to match the pool's
+      configured mint A / mint B; a spoofed mint cannot be deposited.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: token-account-mint-spoofing
+
+  - id: AMM62-cpi-token-program-pinned
+    class: authorization
+    severity: High
+    claim: >
+      The token-program pubkey passed to CPI is validated against the
+      canonical SPL Token / Token-2022 program ID; substituted programs
+      are rejected.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: token-program-substitution
+
+  # ─────────────────────────── 8. ORACLE / TWAP ──────────────────────────────
+
+  - id: AMM70-twap-price-init-bounded
+    class: invariant_property
+    severity: Medium
+    claim: >
+      The TWAP-price initialization at pool-init reflects spot reserves;
+      no path lets a TWAP start at a stale or zero value that
+      downstream consumers misuse.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: twap-init-zero
+
+  - id: AMM71-twap-update-monotone-clock
+    class: state_transition
+    severity: Medium
+    claim: >
+      The TWAP cumulative price index updates only forward in time; no
+      path with a lower slot than last_update can advance the TWAP.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: twap-clock-regression
+
+  # ─────────────────────────── 9. EDGE / DEGENERATE ──────────────────────────
+
+  - id: AMM80-max-input-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Swap input larger than reserves * MAX_FACTOR is rejected; no path
+      lets an absurdly large input cause math overflow.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: max-input-overflow
+
+  - id: AMM81-empty-pool-swap-rejected
+    class: authorization
+    severity: Medium
+    claim: >
+      A swap against a pool with zero reserves of either token is rejected
+      at instruction entry; no degenerate output is computed.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: empty-pool-swap
+
+  - id: AMM82-deposit-after-pool-closed
+    class: authorization
+    severity: Medium
+    claim: >
+      Deposits to a closed pool are rejected; no path lets a depositor
+      mint shares of a non-functional pool.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: closed-pool-deposit
+
+  - id: AMM83-withdraw-from-closed-pool
+    class: state_transition
+    severity: Medium
+    claim: >
+      Withdrawal from a closed pool processes pro-rata; emergency-unwind
+      semantics still observe share fairness.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: closed-pool-withdraw
+
+  - id: AMM84-rounding-residual-stays-in-pool
+    class: invariant_property
+    severity: High
+    claim: >
+      Rounding residuals from any swap remain in pool reserves; no path
+      sweeps residuals to a side account that the user can withdraw.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: rounding-residual-leak
+
+  - id: AMM85-cancel-deposit-no-effect
+    class: state_transition
+    severity: Low
+    claim: >
+      A cancelled-deposit (insufficient input) instruction makes no state
+      mutations; partial-credit paths do not exist.
+    applies_to: [raydium-cp, orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: partial-deposit-credit
+
+  # ─────────────────────────── 10. RAYDIUM ORDERBOOK ─────────────────────────
+
+  - id: AMM90-orderbook-fill-respects-curve
+    class: state_transition
+    severity: Critical
+    claim: >
+      Raydium-style AMM-to-orderbook fills respect the constant-product
+      curve at every fill point; no fill can move reserves below the K
+      that would result from an equivalent pure-AMM swap.
+    applies_to: [raydium-cp]
+    scope_conditions: [amm_constant_product, clob_orderbook]
+    bug_class: orderbook-fill-curve-violation
+
+  - id: AMM91-orderbook-cpi-account-validation
+    class: authorization
+    severity: High
+    claim: >
+      The Serum/openbook market account passed to AMM-to-orderbook CPI
+      matches the pool's configured market; no substitution attack.
+    applies_to: [raydium-cp]
+    scope_conditions: [amm_constant_product, clob_orderbook]
+    bug_class: orderbook-account-substitution
+
+  - id: AMM92-staking-program-pinned
+    class: authorization
+    severity: High
+    claim: >
+      Liquidity-mining / farm rewards CPI uses a pinned staking-program
+      ID; no rogue staking program can drain the rewards bucket.
+    applies_to: [raydium-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: staking-program-substitution
+
+  # ─────────────────────────── 11. SABER STABLESWAP ──────────────────────────
+
+  - id: AMM95-stableswap-amp-bounded
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      The amplification-coefficient ramp is bounded; no admin path can
+      ramp A to a value that overflows the curve math.
+    applies_to: [saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: stableswap-amp-overflow
+
+  - id: AMM96-stableswap-d-converges
+    class: arithmetic_overflow
+    severity: Critical
+    claim: >
+      The Newton iteration for D in stableswap converges within the
+      configured max-iterations under all reachable reserve ratios; no
+      reserve state causes infinite loop.
+    applies_to: [saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: stableswap-newton-divergence
+
+  # ─────────────────────────── 12. ORCA TOKEN-2022 ───────────────────────────
+
+  - id: AMM97-token-2022-transfer-fee-handled
+    class: state_transition
+    severity: High
+    claim: >
+      Token-2022 transfer-fee extension is correctly accounted: the pool
+      records pre-transfer-fee amounts, not post-fee, when computing
+      reserve updates after a deposit.
+    applies_to: [orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: token-2022-transfer-fee
+
+  - id: AMM98-token-2022-interest-bearing-handled
+    class: state_transition
+    severity: Medium
+    claim: >
+      Interest-bearing tokens are either rejected at pool init or have
+      their balance growth correctly attributed to LPs; no path lets the
+      interest growth bypass the pool's accounting.
+    applies_to: [orca-cp]
+    scope_conditions: [amm_constant_product]
+    bug_class: token-2022-interest-bearing
+
+  - id: AMM99-token-2022-transfer-hook-cpi-validation
+    class: authorization
+    severity: High
+    claim: >
+      Transfer-hook CPI invoked during a swap validates the hook's program
+      ID and account list against the mint's configured hook authority;
+      no swap can invoke an arbitrary program via a token-2022 hook.
+    applies_to: [orca-cp]
+    scope_conditions: [amm_constant_product, cross_program_invocation_heavy]
+    bug_class: token-2022-hook-substitution
+
+  # ─────────────────────────── 13. CROSS-FILE EDGE ───────────────────────────
+
+  - id: AMM100-pool-state-version-pinned
+    class: authorization
+    severity: High
+    claim: >
+      The pool-state account's serialization version matches the program's
+      expected version; no path lets a stale-version state account be
+      operated on with new program logic.
+    applies_to: [raydium-cp, orca-cp, saber]
+    scope_conditions: [amm_constant_product]
+    bug_class: state-version-mismatch

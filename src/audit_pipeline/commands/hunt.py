@@ -58,6 +58,31 @@ console = Console()
     help="YAML file describing hypotheses (defaults to <workspace>/hypotheses.yaml)",
 )
 @click.option(
+    "--protocol-class",
+    type=click.Choice(["perp_dex", "amm_cp", "clmm", "lending", "lst"], case_sensitive=False),
+    default=None,
+    help=(
+        "Load the entire class library for the given protocol class (e.g. "
+        "perp_dex loads perp_dex_*.yaml + percolator*.yaml from the bundled "
+        "templates). Mutually exclusive with --hypotheses. The class library "
+        "is filtered by the target's applies_to + scope_conditions before "
+        "dispatch."
+    ),
+)
+@click.option(
+    "--diff-since-sha",
+    default=None,
+    envvar="AUDIT_DIFF_SINCE_SHA",
+    help=(
+        "Tier 2 #11 — diff-aware hunting. When set, hunt computes "
+        "`git diff <SHA>..HEAD --name-only` against the engine repo and "
+        "skips any hypothesis whose `target_file` is NOT in the diff. "
+        "Hyps without a target_file always run (whole-protocol invariants). "
+        "Typically passed by `watch --on-update` so commit-triggered cycles "
+        "skip hyps for unchanged files (~5x cheaper)."
+    ),
+)
+@click.option(
     "--target-name", "-t",
     default=None,
     help="Target name (defaults to workspace.json `name` or 'default')",
@@ -141,6 +166,8 @@ console = Console()
 def hunt_cmd(
     ctx: click.Context,
     hypotheses: str | None,
+    protocol_class: str | None,
+    diff_since_sha: str | None,
     target_name: str | None,
     budget_cap_usd: float,
     daily_cap_usd: float,
@@ -176,14 +203,75 @@ def hunt_cmd(
             "--source-sha requires --source-repo to be set."
         )
 
-    if hypotheses is None:
+    # --hypotheses and --protocol-class are mutually exclusive. If neither
+    # is passed we fall back to <workspace>/hypotheses.yaml. If --protocol-class
+    # is passed, materialize the merged class library to a temp file.
+    if hypotheses and protocol_class:
+        raise click.ClickException(
+            "--hypotheses and --protocol-class are mutually exclusive."
+        )
+    if protocol_class:
+        from audit_pipeline.scoping import load_class_library
+        import tempfile, yaml as _yaml
+        merged, files = load_class_library(protocol_class, extra_dirs=[workspace])
+        console.print(
+            f"  [cyan]protocol_class='{protocol_class}': {len(merged)} hyps from "
+            f"{len(files)} file(s)[/cyan]"
+        )
+        # Write merged hypotheses to a temp yaml file for downstream commands
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False, encoding="utf-8",
+        )
+        _yaml.safe_dump({"hypotheses": merged}, tmp, sort_keys=False, allow_unicode=True)
+        tmp.close()
+        hypotheses = tmp.name
+    elif hypotheses is None:
         candidate = workspace / "hypotheses.yaml"
         if not candidate.exists():
             raise click.ClickException(
-                f"No --hypotheses passed and {candidate} not found. "
-                "Either pass --hypotheses or drop a hypotheses.yaml in the workspace."
+                f"No --hypotheses or --protocol-class passed and {candidate} not found. "
+                "Either pass --hypotheses, --protocol-class, or drop a hypotheses.yaml in the workspace."
             )
         hypotheses = str(candidate)
+
+    # Tier 2 #11 — diff-aware hunting.
+    # If --diff-since-sha is set, compute the diff against the engine repo
+    # and filter the hypothesis library to only hyps targeting changed files.
+    # Hyps without a target_file always run (whole-protocol invariants).
+    if diff_since_sha:
+        from audit_pipeline.scoping import (
+            changed_files_between,
+            filter_hypotheses_by_diff,
+            load_hypotheses,
+        )
+        import tempfile, yaml as _yaml2
+        engine_dir = workspace / config["engine"]["local"]
+        changed = changed_files_between(engine_dir, diff_since_sha, "HEAD")
+        if not changed:
+            console.print(
+                f"  [yellow]--diff-since-sha={diff_since_sha[:10]}: no diff "
+                f"info from {engine_dir} — running full library[/yellow]"
+            )
+        else:
+            console.print(
+                f"  [cyan]diff vs {diff_since_sha[:10]}: {len(changed)} file(s) "
+                f"changed[/cyan]"
+            )
+            hyps_in = load_hypotheses(Path(hypotheses))
+            kept, skipped = filter_hypotheses_by_diff(hyps_in, changed)
+            console.print(
+                f"  [cyan]diff filter: {len(kept)} hyps kept, "
+                f"{len(skipped)} skipped (~{round(100 * len(kept) / max(len(hyps_in), 1))}%"
+                f" of library)[/cyan]"
+            )
+            tmp2 = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".yaml", delete=False, encoding="utf-8",
+            )
+            _yaml2.safe_dump(
+                {"hypotheses": kept}, tmp2, sort_keys=False, allow_unicode=True
+            )
+            tmp2.close()
+            hypotheses = tmp2.name
 
     if not is_available():
         raise click.ClickException(
