@@ -267,11 +267,18 @@ def _propagation_stats(workspace: Path, db: FindingsDB) -> dict:
     """
     import json as _json
 
-    # YAML-derived bug classes (declared)
-    bug_classes_catalogued = 0
+    # Two distinct counts (clarified 2026-05-08 audit):
+    #   bug_classes_declared:        distinct bug_class values across YAMLs
+    #                                ("what classes does the library mention?")
+    #   bug_classes_with_signatures: subset that has regex signatures registered
+    #                                ("what classes can propagation actually
+    #                                sweep for?"; gap is the C9 backlog)
+    bug_classes_declared = 0
+    bug_classes_with_signatures = 0
     try:
         import yaml as _yaml
 
+        from audit_pipeline.commands.propagate import BUG_CLASS_SIGNATURES
         from audit_pipeline.scoping import hypotheses_dir
         seen: set[str] = set()
         for p in hypotheses_dir().glob("*.yaml"):
@@ -282,7 +289,8 @@ def _propagation_stats(workspace: Path, db: FindingsDB) -> dict:
             for h in (raw or {}).get("hypotheses", []):
                 if isinstance(h, dict) and h.get("bug_class"):
                     seen.add(h["bug_class"])
-        bug_classes_catalogued = len(seen)
+        bug_classes_declared = len(seen)
+        bug_classes_with_signatures = len(BUG_CLASS_SIGNATURES)
     except Exception:
         pass
 
@@ -322,12 +330,13 @@ def _propagation_stats(workspace: Path, db: FindingsDB) -> dict:
         pass
 
     return {
-        "bug_classes_catalogued":   bug_classes_catalogued,
-        "findings_with_bug_class":  findings_with_bug_class,
-        "sibling_files":            sibling_files,
-        "propagation_reports":      propagation_reports,
-        "dispatches_queued":        dispatches_queued,
-        "dispatches_pending":       dispatches_pending,
+        "bug_classes_declared":          bug_classes_declared,
+        "bug_classes_with_signatures":   bug_classes_with_signatures,
+        "findings_with_bug_class":       findings_with_bug_class,
+        "sibling_files":                 sibling_files,
+        "propagation_reports":           propagation_reports,
+        "dispatches_queued":             dispatches_queued,
+        "dispatches_pending":            dispatches_pending,
     }
 
 

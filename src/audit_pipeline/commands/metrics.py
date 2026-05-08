@@ -95,9 +95,26 @@ def metrics_cmd(ctx: click.Context, output: Path | None) -> None:
 
     # ---- Propagation surface ----
     try:
+        import yaml as _yaml
+
         from audit_pipeline.commands.propagate import BUG_CLASS_SIGNATURES
-        out.append(_emit("bug_classes_catalogued", len(BUG_CLASS_SIGNATURES),
-                         "Distinct bug_class values with registered regex signatures"))
+        from audit_pipeline.scoping import hypotheses_dir
+        # Two distinct counts (matches dashboard.py shape):
+        #   bug_classes_declared:        distinct values declared in YAMLs
+        #   bug_classes_with_signatures: entries in the runtime catalog
+        declared: set[str] = set()
+        for p in hypotheses_dir().glob("*.yaml"):
+            try:
+                raw = _yaml.safe_load(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            for h in (raw or {}).get("hypotheses", []):
+                if isinstance(h, dict) and h.get("bug_class"):
+                    declared.add(h["bug_class"])
+        out.append(_emit("bug_classes_declared", len(declared),
+                         "Distinct bug_class values declared across YAML library"))
+        out.append(_emit("bug_classes_with_signatures", len(BUG_CLASS_SIGNATURES),
+                         "Distinct bug_class values with registered regex signatures (subset of declared)"))
 
         derived_dir = workspace / "derived"
         sibling_files = sum(1 for p in derived_dir.glob("*-siblings.yaml")) if derived_dir.is_dir() else 0
