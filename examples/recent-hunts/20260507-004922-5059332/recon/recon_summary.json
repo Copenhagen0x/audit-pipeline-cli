@@ -1,0 +1,67 @@
+{
+  "schema": "audit-pipeline.recon.v1",
+  "workspace": "/root/audit_runs/percolator-live",
+  "engine_sha": "5059332",
+  "wrapper_sha": "04b854e5718112f42ebba9c208335a22132075ad",
+  "n_hypotheses": 6,
+  "n_dispatched": 6,
+  "n_skipped_budget": 0,
+  "skipped_for_budget": [],
+  "n_errors": 0,
+  "n_ok": 6,
+  "total_input_tokens": 14365,
+  "total_output_tokens": 18742,
+  "total_cost_usd": 0.3242,
+  "elapsed_seconds": 122.7,
+  "verdicts": [
+    {
+      "hypothesis_id": "W1-public-api-reaches-absorb-protocol-loss",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2435,
+      "output_tokens": 2917
+    },
+    {
+      "hypothesis_id": "W2-resolve-flat-negative-via-touch-public",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2431,
+      "output_tokens": 1886
+    },
+    {
+      "hypothesis_id": "W3-resolved-mode-reconciliation-insurance-drain",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2393,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "W4-permissionless-progress-bypass-bankruptcy-lock",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2341,
+      "output_tokens": 2041
+    },
+    {
+      "hypothesis_id": "W5-set-pnl-with-reserve-after-absorb",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2400,
+      "output_tokens": 2596
+    },
+    {
+      "hypothesis_id": "W6-conservation-postcondition-coverage",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2365,
+      "output_tokens": 1110
+    }
+  ],
+  "completed_at": "2026-05-07T00:51:26Z"
+}

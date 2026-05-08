@@ -1,0 +1,80 @@
+{
+  "schema": "audit-pipeline.hunt.v1",
+  "cycle_id": "20260507-004922-5059332",
+  "target": "percolator-bounty3-wincondition",
+  "workspace": "/root/audit_runs/percolator-live",
+  "source_mode": "snapshot",
+  "source_repo": "aeyakovenko/percolator",
+  "engine_sha": "5059332",
+  "wrapper_sha": "04b854e5718112f42ebba9c208335a22132075ad",
+  "started_at": "2026-05-07T00:49:22+00:00",
+  "elapsed_seconds": 124.6,
+  "total_cost_usd": 0.3242,
+  "daily_spent_usd": 6.1577,
+  "daily_cap_usd": 50.0,
+  "n_hypotheses": 6,
+  "n_candidates": 1,
+  "n_debate_runs": 0,
+  "n_poc_scaffolded": 0,
+  "n_poc_fired": 0,
+  "n_kani_runs": 0,
+  "n_litesvm_runs": 0,
+  "n_narratives": 0,
+  "n_confirmed": 0,
+  "confirmed": [],
+  "verdicts": [
+    {
+      "hypothesis_id": "W1-public-api-reaches-absorb-protocol-loss",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2435,
+      "output_tokens": 2917
+    },
+    {
+      "hypothesis_id": "W2-resolve-flat-negative-via-touch-public",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2431,
+      "output_tokens": 1886
+    },
+    {
+      "hypothesis_id": "W3-resolved-mode-reconciliation-insurance-drain",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2393,
+      "output_tokens": 8192
+    },
+    {
+      "hypothesis_id": "W4-permissionless-progress-bypass-bankruptcy-lock",
+      "status": "OK",
+      "verdict": "NEEDS_LAYER_2_TO_DECIDE",
+      "confidence": "HIGH",
+      "input_tokens": 2341,
+      "output_tokens": 2041
+    },
+    {
+      "hypothesis_id": "W5-set-pnl-with-reserve-after-absorb",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2400,
+      "output_tokens": 2596
+    },
+    {
+      "hypothesis_id": "W6-conservation-postcondition-coverage",
+      "status": "OK",
+      "verdict": "UNKNOWN",
+      "confidence": "UNKNOWN",
+      "input_tokens": 2365,
+      "output_tokens": 1110
+    }
+  ],
+  "debate": {},
+  "poc": {},
+  "kani": {},
+  "litesvm": {},
+  "narrative": {}
+}

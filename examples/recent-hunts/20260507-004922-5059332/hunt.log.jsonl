@@ -1,0 +1,4 @@
+{"ts": "2026-05-07T00:49:22+00:00", "event": "hunt_start", "engine_sha": "5059332", "wrapper_sha": "04b854e5718112f42ebba9c208335a22132075ad", "target": "percolator-bounty3-wincondition", "source_mode": "snapshot", "source_repo": "aeyakovenko/percolator", "daily_remaining_usd": 44.1665}
+{"ts": "2026-05-07T00:51:27+00:00", "event": "layer1_done", "returncode": 0}
+{"ts": "2026-05-07T00:51:27+00:00", "event": "layer1_summary", "n_total": 6, "n_true": 0, "n_needs_l2": 1, "n_false_high": 0, "cost_layer1": 0.3242}
+{"ts": "2026-05-07T00:51:27+00:00", "event": "hunt_done", "elapsed": 124.61795401573181, "n_confirmed": 0, "cost": 0.3242}
