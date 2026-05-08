@@ -384,7 +384,7 @@ section.dash { padding: 100px 0 60px; }
       <div>
         <div class="dash-customer">Customer · <span class="name">Percolator team</span></div>
         <div class="dash-title">Continuous audit · Percolator</div>
-        <div class="dash-sub">Pilot since <strong id="dash-since">—</strong> · <span id="dash-cycles-count">—</span> cycles · <span id="dash-hyp-count">—</span> hypotheses scoped</div>
+        <div class="dash-sub">Pilot since <strong id="dash-since">—</strong> · <span id="dash-cycles-count">—</span> cycles · <span id="dash-findings-count">—</span> open findings</div>
       </div>
       <div class="dash-meta">
         <div class="live-pill" id="loop-pill"><span class="dot"></span><span id="loop-pill-text">Connecting…</span></div>
@@ -572,9 +572,12 @@ section.dash { padding: 100px 0 60px; }
     }
     $('dash-since').textContent = (cust && cust.since) || isoDate((oldestCycle || {}).started_at) || '—';
     $('dash-cycles-count').textContent = (snap.cycles_total != null ? snap.cycles_total : (snap.stats || {}).n_cycles) || 0;
-    // Hypothesis count isn't on the snapshot today; surface n_dispatched of last cycle as a proxy.
-    const lastDispatched = (lastCycle || {}).n_dispatched;
-    $('dash-hyp-count').textContent = (target.severity_counts ? '31' : (lastDispatched || '—')); // Percolator is 31; fallback to dispatched
+    // Open findings count = everything in the findings list. For the customer
+    // manifest this is the count of confirmed/triaged/disclosed findings on
+    // the customer's protocol. For the public-snapshot fallback it's the
+    // disclosed-only count (n_findings_total).
+    const findingsEl = $('dash-findings-count');
+    if (findingsEl) findingsEl.textContent = ((snap.public_findings || []).length) || ((snap.stats || {}).n_findings_total) || 0;
     $('last-cycle-rel').textContent = relTime((lastCycle || {}).started_at);
     $('loop-uptime').textContent = snap.loop_uptime_human || '—';
 
