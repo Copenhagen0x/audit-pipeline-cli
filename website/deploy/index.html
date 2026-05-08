@@ -2517,12 +2517,21 @@ section {
 [data-reveal][data-delay="3"] { transition-delay: 0.3s; }
 [data-reveal][data-delay="4"] { transition-delay: 0.4s; }
 
-/* Section-title typewriter — character-by-character reveal on viewport entry */
+/* Section-title typewriter — character-by-character reveal on viewport entry.
+   Each char is an inline-block for the per-char animation, but per-char
+   inline-blocks let the browser break a line mid-word ("Single-tenant" →
+   "Single-ten\nant", "(Y1)" → "(Y1\n)"). Wrap each WORD in .title-word with
+   white-space: nowrap so breaks can only happen between words; chars stay
+   glued together within a word. */
 .title-char {
   display: inline-block;
   opacity: 0;
   transform: translateY(10px);
   animation: title-char-in 0.5s var(--ease-out) forwards;
+}
+.title-word {
+  display: inline-block;
+  white-space: nowrap;
 }
 @keyframes title-char-in {
   to { opacity: 1; transform: translateY(0); }
@@ -4674,14 +4683,29 @@ body.preloading { overflow: hidden; }
     for (const tn of textNodes) {
       const text = tn.textContent;
       const frag = document.createDocumentFragment();
-      for (const ch of text) {
-        const span = document.createElement('span');
-        span.className = 'title-char';
-        span.textContent = ch;
-        if (ch === ' ') span.style.display = 'inline';
-        span.style.animationDelay = (idx * stagger) + 'ms';
-        frag.appendChild(span);
-        idx++;
+      // Split into words + whitespace tokens so we can wrap each word in
+      // a nowrap inline-block. Without this, per-char inline-blocks let
+      // the browser break a line mid-word ("Single-ten / ant", "(Y1 / )").
+      const tokens = text.split(/(\s+)/);
+      for (const token of tokens) {
+        if (token === '') continue;
+        if (/^\s+$/.test(token)) {
+          // Whitespace — render as plain text so the line CAN break here
+          frag.appendChild(document.createTextNode(token));
+          continue;
+        }
+        // Word — wrap in a nowrap container; per-char animation still applies
+        const wordSpan = document.createElement('span');
+        wordSpan.className = 'title-word';
+        for (const ch of token) {
+          const span = document.createElement('span');
+          span.className = 'title-char';
+          span.textContent = ch;
+          span.style.animationDelay = (idx * stagger) + 'ms';
+          wordSpan.appendChild(span);
+          idx++;
+        }
+        frag.appendChild(wordSpan);
       }
       tn.parentNode.replaceChild(frag, tn);
     }
