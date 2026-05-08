@@ -22,6 +22,7 @@ hypotheses:
   - id: SH1-strict-helper-coverage
     class: state_transition
     severity: Critical
+    bug_class: accrual-helper-asymmetry
     claim: >
       Every wrapper-side instruction handler that calls an accrue helper
       uses `ensure_market_accrued_to_now_for_account_limited_op` (which calls
@@ -44,6 +45,7 @@ hypotheses:
   - id: SH2-withdraw-collateral-helper-choice
     class: state_transition
     severity: Critical
+    bug_class: accrual-helper-asymmetry
     claim: >
       `WithdrawCollateral` invokes `ensure_market_accrued_to_now_for_account_limited_op`
       (the strict helper) and not `ensure_market_accrued_to_now_with_policy`,
@@ -56,6 +58,7 @@ hypotheses:
   - id: SH3-k-walk-via-oracle-rejected
     class: state_transition
     severity: Critical
+    bug_class: k-walk-accumulation
     claim: >
       A sequence of two `WithdrawCollateral(decoy, amount=1)` calls at
       10-slot increments, where each carries a Pyth observation 4.5%
@@ -67,6 +70,7 @@ hypotheses:
   - id: SH4-k-walk-via-funding-rejected
     class: state_transition
     severity: Critical
+    bug_class: k-walk-accumulation
     claim: >
       A multi-day warp under static Pyth oracle but non-zero funding rate
       (driven by `mark_ewma` divergence from attacker-controlled CPI matcher
@@ -78,6 +82,7 @@ hypotheses:
   - id: SH5-keeper-crank-touching-completeness
     class: state_transition
     severity: Critical
+    bug_class: clock-advance-without-touch
     claim: >
       `KeeperCrank` (`src/percolator.rs:5434-5673`) commits partial-catchup
       WITH per-candidate `touch_account_live_local` (engine
@@ -89,6 +94,7 @@ hypotheses:
   - id: SH6-resolve-flat-negative-gate
     class: state_transition
     severity: Critical
+    bug_class: insurance-counter-vault-divergence
     claim: >
       `resolve_flat_negative` (engine `src/percolator.rs:4770-4785`) is
       reached only via `touch_account_live_local` step 7
@@ -101,6 +107,7 @@ hypotheses:
   - id: SH7-mark-ewma-update-rate-cap
     class: arithmetic_overflow
     severity: High
+    bug_class: funding-rate-self-bias
     claim: >
       The wrapper's `mark_ewma_e6` update at `src/percolator.rs:6746-6776`
       clamps per-slot mark divergence to ≤ 49 bps/slot under §1.4
@@ -113,6 +120,7 @@ hypotheses:
   - id: SH8-trade-cpi-band-check-tightness
     class: implicit_invariant
     severity: High
+    bug_class: init-state-invariant-violation
     claim: >
       `TradeCpi`'s band check at `src/percolator.rs:6633-6655` enforces
       that `exec_price` is within ±100 bps of the Pyth oracle observation
@@ -123,6 +131,7 @@ hypotheses:
   - id: SH9-stuck-target-accrual-rejection
     class: state_transition
     severity: High
+    bug_class: clock-advance-without-touch
     claim: >
       `reject_stuck_target_accrual` correctly rejects every accrue path
       that would advance market state past a configured staleness window
@@ -133,6 +142,7 @@ hypotheses:
   - id: SH10-cpi-matcher-state-writes-isolated
     class: authorization
     severity: High
+    bug_class: authorization-bypass
     claim: >
       `TradeCpi`'s matcher CPI cannot write to engine state (specifically
       `mark_ewma_e6`, `last_effective_price_e6`, or any account's
@@ -143,6 +153,7 @@ hypotheses:
   - id: SH11-self-matched-pair-cannot-walk-K
     class: state_transition
     severity: Critical
+    bug_class: self-trade-cash-flow-violation
     claim: >
       A self-matched pair (attacker keypairs A long / B short opened via
       `TradeNoCpi` at baseline price) cannot subsequently walk K-state
@@ -155,6 +166,7 @@ hypotheses:
   - id: SH12-insurance-drain-via-resolve-flat-negative
     class: invariant_property
     severity: Critical
+    bug_class: insurance-counter-vault-divergence
     claim: >
       The insurance buffer cannot be drained by a sequence of permissionless
       instructions that does NOT include partial liquidation of every

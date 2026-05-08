@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +26,19 @@ from typing import Any
 
 from audit_pipeline.lifecycle import Status, assert_transition
 from audit_pipeline.severity import Severity
+
+# Hook target wrappers — module-level so they can be passed by reference
+# into _run_one_hook without importing inside the hot path. Each wrapper
+# imports its module lazily (avoiding circular imports at startup).
+
+def _derive_target(workspace: Path, finding_id: int) -> None:
+    from audit_pipeline.commands.derive_siblings import derive_siblings_async
+    derive_siblings_async(workspace, finding_id)
+
+
+def _propagate_target(workspace: Path, finding_id: int) -> None:
+    from audit_pipeline.commands.propagate import propagate_from_finding_async
+    propagate_from_finding_async(workspace, finding_id)
 
 SCHEMA = [
     """
@@ -405,22 +418,86 @@ class FindingsDB:
         Both hooks are best-effort. They run in a daemon thread so the
         caller never blocks; exceptions are silenced. The workspace path
         is derived from the DB file's parent directory.
+
+        F21: every hook invocation is logged to
+        ``<workspace>/hooks/<finding_id>-<hook_name>-<ts>.log``. The log
+        records started_at, completed_at, exit status, and (on failure)
+        a short exception traceback. Without this, the daemon-thread
+        silenced exceptions are a debug nightmare — operators can't tell
+        whether the hook ran, succeeded, or crashed.
         """
         import threading
         ws = self.path.parent
+
         def _run() -> None:
-            try:
-                from audit_pipeline.commands.derive_siblings import derive_siblings_async
-                derive_siblings_async(ws, finding_id)
-            except Exception:
-                pass
-            try:
-                from audit_pipeline.commands.propagate import propagate_from_finding_async
-                propagate_from_finding_async(ws, finding_id)
-            except Exception:
-                pass
+            self._run_one_hook(ws, finding_id, "derive_siblings", _derive_target)
+            self._run_one_hook(ws, finding_id, "propagate", _propagate_target)
+
         t = threading.Thread(target=_run, daemon=True)
         t.start()
+
+    def _run_one_hook(
+        self,
+        workspace: Path,
+        finding_id: int,
+        hook_name: str,
+        target: Callable[[Path, int], None],
+    ) -> None:
+        """Run one hook with structured logging (F21).
+
+        Writes a single log file per invocation under workspace/hooks/.
+        Schema is intentionally simple — one JSON line per phase
+        (started, completed_or_failed) so it's grep-friendly.
+        """
+        import json as _json
+        import traceback as _tb
+        from datetime import datetime, timezone
+
+        hooks_dir = workspace / "hooks"
+        try:
+            hooks_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return  # filesystem read-only or similar — fail silently
+
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        log_path = hooks_dir / f"{finding_id}-{hook_name}-{ts}.log"
+        started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+        def _write(record: dict) -> None:
+            try:
+                with log_path.open("a", encoding="utf-8") as f:
+                    f.write(_json.dumps(record, sort_keys=True) + "\n")
+            except OSError:
+                pass
+
+        _write({
+            "phase":       "started",
+            "ts":          started,
+            "finding_id":  finding_id,
+            "hook":        hook_name,
+            "workspace":   str(workspace),
+        })
+
+        try:
+            target(workspace, finding_id)
+            _write({
+                "phase":        "completed",
+                "ts":           datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "finding_id":   finding_id,
+                "hook":         hook_name,
+                "outcome":      "ok",
+            })
+        except Exception as e:  # noqa: BLE001
+            _write({
+                "phase":        "failed",
+                "ts":           datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "finding_id":   finding_id,
+                "hook":         hook_name,
+                "outcome":      "error",
+                "error_type":   type(e).__name__,
+                "error_msg":    str(e)[:500],
+                "traceback":    _tb.format_exc()[-2000:],
+            })
 
     def get_finding(self, finding_id: int) -> dict | None:
         with self._conn() as c:

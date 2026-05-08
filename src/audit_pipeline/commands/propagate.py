@@ -232,6 +232,19 @@ def corpus_init(
                     ["git", "checkout", entry["ref"]],
                     cwd=str(target), capture_output=True, text=True,
                 )
+            # Init submodules if any. Several Solana protocols carry their
+            # core engine as a submodule (e.g. percolator-prog references
+            # percolator). Without this, the corpus walker only sees the
+            # outer wrapper — and propagation hyps targeting engine code
+            # return UNKNOWN because the agent can't read the file. Caught
+            # 2026-05-07 during F7 regression cycle (B62 verdict UNKNOWN).
+            try:
+                subprocess.run(
+                    ["git", "submodule", "update", "--init", "--recursive"],
+                    cwd=str(target), capture_output=True, text=True, timeout=300,
+                )
+            except (subprocess.TimeoutExpired, OSError):
+                pass  # submodule init is best-effort
             table.add_row(str(i), name, "[green]cloned[/green]")
             cloned += 1
         except subprocess.TimeoutExpired:
@@ -559,6 +572,19 @@ BUG_CLASS_SIGNATURES: dict[str, list[str]] = {
     "flash-loan-repayment-bypass": [
         r"flash_loan|flash_borrow|begin_swap",
         r"repay|end_flash|finalize_swap",
+    ],
+    # F7-derived sibling classes — added 2026-05-08 when SH1-SH4 yamls were
+    # backfilled. SH1+SH2 fire on the helper-asymmetry pattern (one weak
+    # accrual helper + one strict helper that calls reject_*). SH3+SH4
+    # cover the K-walk-accumulation pattern (multi-step state advancement
+    # without per-account-touch gates).
+    "accrual-helper-asymmetry": [
+        r"ensure_market_accrued_to_now",
+        r"reject_account_limited_market_progress|reject_stuck_target_accrual",
+    ],
+    "k-walk-accumulation": [
+        r"K_factor|k_factor|funding_index",
+        r"compute_current_funding_rate|accrue_market_to",
     ],
 }
 

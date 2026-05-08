@@ -79,6 +79,55 @@ def test_class_library_total_at_least_500() -> None:
     assert len(seen) >= 500, f"library has {len(seen)} distinct hyps (target: 500+)"
 
 
+@pytest.mark.parametrize("path", ALL_LIBRARY_FILES, ids=lambda p: p.name)
+def test_every_hypothesis_has_bug_class(path: Path) -> None:
+    """Tier 2 #A3 invariant: every hyp must declare a non-empty `bug_class`.
+
+    Without `bug_class` set, P2 propagation has nothing to pivot on when a
+    finding confirms — the hook fires but `signatures_for_bug_class` returns
+    [] and the auto-fire silently no-ops. So we hard-fail CI on any hyp
+    that's missing the field. Backfilled 2026-05-08 across 639 hyps.
+    """
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    missing = []
+    for h in raw.get("hypotheses", []):
+        if not h.get("bug_class"):
+            missing.append(h.get("id", "?"))
+    assert not missing, (
+        f"{path.name}: {len(missing)} hypotheses missing bug_class: {missing[:5]}"
+        f"{'...' if len(missing) > 5 else ''}"
+    )
+
+
+def test_signature_catalog_no_regression() -> None:
+    """Lock in the bug-class signature catalog from regressing below the
+    current baseline (19 classes as of 2026-05-08 backfill).
+
+    This is intentionally a "no regression" check, not a "100% coverage"
+    check. We have ~200+ bug_class values declared across YAMLs but only
+    19 with registered signatures — closing that gap is item C9 in the
+    P2 buildout and gets done incrementally as bug classes confirm.
+
+    What this DOES enforce:
+      * The current 19+ classes stay registered (don't accidentally delete)
+      * F7's class (`insurance-counter-vault-divergence`) stays registered
+
+    What this does NOT enforce (yet):
+      * That every declared bug_class has signatures — see C9
+    """
+    from audit_pipeline.commands.propagate import BUG_CLASS_SIGNATURES
+
+    assert len(BUG_CLASS_SIGNATURES) >= 19, (
+        f"BUG_CLASS_SIGNATURES has only {len(BUG_CLASS_SIGNATURES)} entries; "
+        f"baseline is 19. If you intentionally removed a class, lower this "
+        f"threshold and update the docstring."
+    )
+    # F7's class is the proof point — propagation MUST be able to fire on it
+    assert "insurance-counter-vault-divergence" in BUG_CLASS_SIGNATURES, (
+        "F7's bug_class missing from signature catalog — propagation can't fire on F7"
+    )
+
+
 def test_list_classes_returns_dicts_with_known_keys() -> None:
     """list_classes() output shape stays stable for the website + methodology
     page consumers."""

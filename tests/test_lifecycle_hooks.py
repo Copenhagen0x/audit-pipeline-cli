@@ -93,16 +93,28 @@ def test_run_hooks_false_does_not_schedule_thread(
 
 
 def test_fire_confirmed_hooks_signature_is_correct() -> None:
-    """The post-confirmed hook must call BOTH async helpers and run in a daemon thread."""
+    """The post-confirmed hook must call BOTH async helpers via _run_one_hook
+    and run in a daemon thread.
+
+    The hooks are now dispatched through `_run_one_hook` (F21 — adds
+    structured logging per invocation under <workspace>/hooks/). Targets
+    are module-level wrappers `_derive_target` and `_propagate_target`
+    that lazily import the underlying async helpers.
+    """
+    import audit_pipeline.db as db_module
+
     src = inspect.getsource(FindingsDB._fire_confirmed_hooks)
-    assert "derive_siblings_async" in src, "must call sibling-derivation hook"
-    assert "propagate_from_finding_async" in src, "must call propagation hook"
+    assert "_derive_target" in src, "must dispatch sibling-derivation hook"
+    assert "_propagate_target" in src, "must dispatch propagation hook"
     assert "threading" in src, "must spawn a thread"
     assert "daemon=True" in src, "thread must be daemon (don't block exit)"
-    # Each hook is wrapped in its own try/except — failure of one
-    # mustn't block the other.
-    assert src.count("try:") >= 2
-    assert src.count("except Exception:") >= 2
+    assert "_run_one_hook" in src, "must wrap each hook with logging dispatcher"
+
+    # Module-level targets must reference the actual async helpers
+    derive_src = inspect.getsource(db_module._derive_target)
+    assert "derive_siblings_async" in derive_src
+    propagate_src = inspect.getsource(db_module._propagate_target)
+    assert "propagate_from_finding_async" in propagate_src
 
 
 def test_transition_finding_signature_includes_run_hooks_flag() -> None:
