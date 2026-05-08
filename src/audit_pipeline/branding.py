@@ -586,9 +586,35 @@ td strong { color: var(--ink); }
 
   .shell { padding: 0 !important; max-width: 100% !important; }
 
+  /* Cover layout — switch from grid to block for print.
+     Chromium headless --print-to-pdf doesn't reliably support 100vh in print,
+     which makes grid-template-rows: auto 1fr auto collapse to zero on the
+     1fr row. With align-self: start/center/end on the three children, that
+     collapse stacks all three sections at the same y-coordinate (the bug
+     where logo + hero + bottom render on top of each other).
+     Solution: drop grid in print, use natural flow with explicit gaps,
+     keep page-break-after so the rest of the report starts on page 2. */
   .cover {
-    height: 100vh; padding: 0.5in 0.5in 0.6in;
-    page-break-after: always; break-after: page;
+    display: block !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0.5in 0.5in 0.6in;
+    page-break-after: always;
+    break-after: page;
+  }
+  .cover > .cover-logo {
+    display: inline-flex !important;
+    align-self: auto !important;
+    justify-self: auto !important;
+    margin-bottom: 56px;
+  }
+  .cover > .cover-hero {
+    align-self: auto !important;
+    margin-bottom: 56px;
+  }
+  .cover > .cover-bottom {
+    align-self: auto !important;
+    margin-bottom: 0;
   }
   .cover-title { font-size: 72px !important; }
 
