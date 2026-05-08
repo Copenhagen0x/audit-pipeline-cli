@@ -1,0 +1,1092 @@
+# Class library: concentrated-liquidity AMMs (Uniswap-v3-style)
+#
+# Loads when target.protocol_class == "clmm" (Orca Whirlpools, Kamino
+# Liquidity, Meteora DLMM).
+#
+# CLMM math is the most arithmetic-heavy class on Solana. Tick-array
+# bookkeeping, fee-growth accumulators, and per-position state diverge
+# easily — every hyp here targets a class of bug that has shipped on a
+# CLMM somewhere in the EVM ecosystem.
+#
+# Schema: docs/HYPOTHESIS_SCHEMA.md
+
+hypotheses:
+
+  # ─────────────────────────── 1. TICK MATH ──────────────────────────────────
+
+  - id: CLMM1-tick-init-once
+    class: invariant_property
+    severity: Critical
+    claim: >
+      A tick is initialized exactly once per (pool, tick-index) pair.
+      Re-initialization is rejected. The initialized-bitmap and the
+      tick-array storage cannot disagree about whether a tick exists.
+    applies_to: [orca-whirlpools, kamino-liquidity, meteora-dlmm]
+    scope_conditions: []
+    bug_class: tick-double-initialization
+
+  - id: CLMM2-tick-array-boundary-safe
+    class: state_transition
+    severity: Critical
+    claim: >
+      A swap that crosses a tick-array boundary correctly transitions the
+      active tick array; liquidity-net updates accumulate exactly once at
+      the boundary tick.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: tick-array-boundary
+
+  - id: CLMM3-tick-spacing-respected
+    class: authorization
+    severity: High
+    claim: >
+      Position open / modify is rejected unless the lower and upper ticks
+      are exact multiples of the pool's tick_spacing.
+    applies_to: [orca-whirlpools, kamino-liquidity, meteora-dlmm]
+    scope_conditions: []
+    bug_class: tick-spacing-violation
+
+  - id: CLMM4-tick-bounds-enforced
+    class: authorization
+    severity: High
+    claim: >
+      Position ticks are clamped to MIN_TICK and MAX_TICK; out-of-range
+      ticks are rejected at instruction entry.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: tick-out-of-range
+
+  - id: CLMM5-tick-uninit-no-liquidity
+    class: invariant_property
+    severity: High
+    claim: >
+      An uninitialized tick reads as zero liquidity-net and zero fee-
+      growth-outside; no path lets uninit tick state contribute to swap
+      math.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: tick-uninit-state-leak
+
+  - id: CLMM6-tick-cross-direction-ordering
+    class: state_transition
+    severity: Critical
+    claim: >
+      Crossing a tick from below adds liquidity-net; crossing from above
+      subtracts it. The direction logic is consistent across all swap
+      paths and never inverts.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: tick-cross-direction
+
+  - id: CLMM7-tick-array-sequence-validated
+    class: authorization
+    severity: High
+    claim: >
+      Tick-array accounts passed to a swap are validated to be in
+      sequence relative to the swap direction; out-of-order tick arrays
+      are rejected.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: tick-array-sequence
+
+  - id: CLMM8-tick-array-mut-once
+    class: authorization
+    severity: High
+    claim: >
+      Each tick-array account passed to a swap is mutated at most once
+      per instruction; duplicate accounts are rejected.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: tick-array-duplicate
+
+  - id: CLMM9-current-tick-in-active-array
+    class: invariant_property
+    severity: High
+    claim: >
+      The pool's current_tick is always within the bounds of the active
+      tick-array (start_tick_index ≤ current_tick < start_tick_index +
+      array_size × tick_spacing).
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: current-tick-out-of-array
+
+  - id: CLMM10-tick-array-init-zero
+    class: invariant_property
+    severity: Medium
+    claim: >
+      A freshly-initialized tick-array has all ticks at zero liquidity-
+      net, zero fee-growth-outside, and uninitialized flag set.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: tick-array-init-state
+
+  - id: CLMM11-tick-init-state-fee-growth
+    class: implicit_invariant
+    severity: Medium
+    claim: >
+      When a tick is first initialized at the current pool tick, its
+      fee-growth-outside captures the current global fee-growth; later
+      crosses correctly compute fee-growth-inside relative to this snapshot.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: tick-init-fee-growth-snapshot
+
+  - id: CLMM12-tick-bitmap-consistency
+    class: invariant_property
+    severity: High
+    claim: >
+      The initialized-bitmap and the tick-array's per-tick "initialized"
+      flag agree at all times; no path lets one say initialized while
+      the other says not.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: tick-bitmap-divergence
+
+  - id: CLMM13-tick-removal-zero-liquidity
+    class: state_transition
+    severity: Medium
+    claim: >
+      A tick is uninitialized only when its total positions referencing it
+      reach zero liquidity. No path uninits a tick with non-zero references.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: tick-premature-uninit
+
+  - id: CLMM14-tick-overflow-saturation
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Liquidity-net add / subtract on a tick is bounded; saturation or
+      overflow on liquidity-net is rejected (or saturating) so no
+      liquidity-net wraparound occurs.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: liquidity-net-overflow
+
+  - id: CLMM15-sqrt-price-monotone-during-swap
+    class: arithmetic_overflow
+    severity: Critical
+    claim: >
+      The sqrt-price-X64 inside the swap loop moves monotonically in the
+      direction of the swap (down for x→y, up for y→x). No sub-step can
+      reverse the price.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: sqrt-price-monotonicity
+
+  - id: CLMM16-sqrt-price-bound-respected
+    class: authorization
+    severity: High
+    claim: >
+      The user-supplied sqrt_price_limit is enforced atomically against
+      the swap's actual final sqrt-price; no path completes a swap past
+      the limit.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: sqrt-price-limit-bypass
+
+  - id: CLMM17-tick-bitmap-traversal-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Tick-bitmap traversal during a swap is bounded by the number of
+      tick-arrays passed in; no infinite-loop path exists.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: tick-bitmap-infinite-loop
+
+  - id: CLMM18-tick-net-liquidity-conservation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Sum of liquidity-net across all initialized ticks equals zero —
+      every position contributes equal-and-opposite at lower and upper
+      ticks.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: liquidity-net-sum-divergence
+
+  - id: CLMM19-active-liquidity-positive
+    class: invariant_property
+    severity: High
+    claim: >
+      The pool's active liquidity (current_liquidity) is always non-
+      negative; no swap or position-update path lets it go negative.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: negative-active-liquidity
+
+  - id: CLMM20-tick-cross-fee-growth-update
+    class: state_transition
+    severity: High
+    claim: >
+      Crossing a tick during a swap updates fee_growth_outside_X64 = (global
+      growth - prior outside growth); the update math is consistent.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: tick-cross-fee-growth-error
+
+  # ─────────────────────────── 2. POSITION ────────────────────────────────────
+
+  - id: CLMM30-position-fee-claim-bounded
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Collecting fees on a position withdraws at most
+      (fee_growth_inside_now - fee_growth_inside_at_last_collect) ×
+      liquidity. There is no path where fees claimed exceed the growth-
+      delta the pool actually accumulated for that range.
+    applies_to: [orca-whirlpools, kamino-liquidity, meteora-dlmm]
+    scope_conditions: []
+    bug_class: fee-claim-overpayment
+
+  - id: CLMM31-position-nft-authority
+    class: authorization
+    severity: Critical
+    claim: >
+      Modifying a position requires the caller to hold the position NFT
+      or its delegated authority. NFT transfer atomically transfers the
+      position; no orphaned authority survives.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: position-nft-authority-leak
+
+  - id: CLMM32-position-nft-supply-cap
+    class: authorization
+    severity: High
+    claim: >
+      Each position NFT has supply 1; minting two NFTs for the same
+      position is impossible.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: position-nft-double-mint
+
+  - id: CLMM33-position-init-state
+    class: invariant_property
+    severity: High
+    claim: >
+      A freshly-opened position has zero liquidity, zero pending fees,
+      zero pending rewards, and fee_growth_inside_last == current_inside.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: position-init-state
+
+  - id: CLMM34-position-tick-bounds-enforced
+    class: authorization
+    severity: High
+    claim: >
+      Position lower_tick < upper_tick; opening a position with reversed
+      bounds is rejected.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: position-tick-reversed
+
+  - id: CLMM35-position-close-zero-liquidity
+    class: authorization
+    severity: Medium
+    claim: >
+      Closing a position requires zero liquidity AND zero pending fees /
+      rewards. No path closes a position while leaving claims unsettled.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: position-close-with-claims
+
+  - id: CLMM36-position-add-liquidity-amount-token-rounding
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Adding L liquidity to a position requires depositing the EXACT
+      computed token-A and token-B amounts (rounded UP, favoring the
+      pool); no path lets a depositor short the deposit.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: liquidity-add-rounding-favors-user
+
+  - id: CLMM37-position-remove-liquidity-amount-rounding
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Removing L liquidity from a position withdraws AT MOST the exact
+      computed token-A and token-B amounts (rounded DOWN, favoring the
+      pool); the pool keeps any rounding residual.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: liquidity-remove-rounding-favors-user
+
+  - id: CLMM38-position-fee-growth-snapshot-correct
+    class: state_transition
+    severity: High
+    claim: >
+      When a position is updated, its fee_growth_inside_last is set to
+      the CURRENT inside-growth; the snapshot is taken AFTER fee-growth
+      updates for the current swap.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: position-fee-growth-snapshot-stale
+
+  - id: CLMM39-position-out-of-range-no-fees
+    class: invariant_property
+    severity: Medium
+    claim: >
+      A position's pending-fees do not grow while the current pool tick
+      is outside the position's range; range-based fee accrual is exact.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: out-of-range-fee-leak
+
+  - id: CLMM40-position-rewards-claim-bounded
+    class: invariant_property
+    severity: High
+    claim: >
+      Reward-token claims on a position are bounded by the position's
+      pro-rata share of accumulated reward emissions during in-range
+      time; no over-claim path.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: position-reward-overpayment
+
+  - id: CLMM41-position-transfer-fee-claims
+    class: state_transition
+    severity: High
+    claim: >
+      Transferring a position NFT does NOT transfer pending-fees or
+      pending-rewards from the prior owner; those are claimed before
+      transfer or are lost.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: position-transfer-fee-leak
+
+  - id: CLMM42-position-update-monotonic-clock
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Position update operations advance fee_growth_inside_last
+      monotonically — no path lets a position re-snapshot to an earlier
+      growth value.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: position-snapshot-regression
+
+  - id: CLMM43-position-modification-atomic
+    class: state_transition
+    severity: High
+    claim: >
+      Position modifications are atomic: collect-then-add OR collect-
+      then-remove all-or-nothing. Partial-state mid-modify is unreachable
+      via re-entry.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: position-modify-non-atomic
+
+  - id: CLMM44-position-multi-position-merge-rejected
+    class: authorization
+    severity: Medium
+    claim: >
+      Two position NFTs cannot be merged into a single position via the
+      open/modify path; each position is independent.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: position-merge-loophole
+
+  # ─────────────────────────── 3. SWAP MATH ───────────────────────────────────
+
+  - id: CLMM50-swap-output-bound
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Token output of a swap is rounded DOWN. The pool's residual after a
+      swap is always at least the theoretical residual.
+    applies_to: [orca-whirlpools, kamino-liquidity, meteora-dlmm]
+    scope_conditions: []
+    bug_class: swap-rounding-direction
+
+  - id: CLMM51-swap-fee-rounding-favors-lp
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Trading-fee rounding favors the LP fee accumulator — never the
+      swapper.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: swap-fee-rounding-direction
+
+  - id: CLMM52-swap-step-amount-conservation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Within each tick-step of a swap, amount_in spent + fees taken =
+      delta-X (or delta-Y) given by the curve math. No tick-step can
+      lose or duplicate amount.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: swap-step-amount-conservation
+
+  - id: CLMM53-swap-tick-cross-liquidity-applied
+    class: state_transition
+    severity: Critical
+    claim: >
+      When a swap crosses a tick, the new active liquidity equals the
+      previous active liquidity + (signed) liquidity-net at the crossed
+      tick. The signed-net add is direction-correct.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: swap-tick-cross-liquidity-error
+
+  - id: CLMM54-swap-input-not-exhausted-without-final
+    class: state_transition
+    severity: Medium
+    claim: >
+      A swap that reaches the sqrt_price_limit OR runs out of liquidity
+      before consuming all input refunds the unused input; no input
+      vanishes.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: swap-unused-input-vanish
+
+  - id: CLMM55-swap-direction-axb-vs-bxa-symmetric
+    class: state_transition
+    severity: High
+    claim: >
+      A swap A→B followed by an equal-output swap B→A returns AT MOST
+      the original A input, never more. Round-trip cannot extract value.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: swap-roundtrip-extraction
+
+  - id: CLMM56-exact-out-amount-respected
+    class: state_transition
+    severity: High
+    claim: >
+      Exact-out swaps consume AT MOST the user-supplied max_input; no
+      path lets exact-out under-deliver and consume more than the cap.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: exact-out-input-cap-bypass
+
+  - id: CLMM57-swap-zero-liquidity-tick-skip
+    class: state_transition
+    severity: Medium
+    claim: >
+      Swap traversal skips zero-liquidity regions correctly without
+      consuming input or moving sqrt-price unnecessarily.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: swap-zero-liquidity-regress
+
+  - id: CLMM58-swap-fee-amount-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Per-step fee amount fits in u128; no path triggers fee-multiplication
+      overflow at maximum input + max fee tier.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: swap-fee-overflow
+
+  - id: CLMM59-swap-slot-or-clock-not-required
+    class: implicit_invariant
+    severity: Low
+    claim: >
+      Swap behavior does not depend on slot or clock state; reproducing
+      a swap at a different slot yields identical output (same inputs,
+      same pool state).
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: swap-clock-dependence
+
+  - id: CLMM60-swap-reentrancy-free
+    class: authorization
+    severity: Critical
+    claim: >
+      No swap CPI / token-2022 hook re-enters the AMM and modifies pool
+      state mid-swap. Reentrancy paths are explicitly blocked.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: [cross_program_invocation_heavy]
+    bug_class: swap-reentrancy
+
+  - id: CLMM61-swap-pool-state-version-pinned
+    class: authorization
+    severity: High
+    claim: >
+      Pool state account passed to swap matches the program's expected
+      version; no path lets a stale-version state account be operated on.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: pool-state-version-mismatch
+
+  - id: CLMM62-swap-amount-specified-non-zero
+    class: authorization
+    severity: Medium
+    claim: >
+      Swap amount-specified (in or out) must be > 0; zero-amount swaps
+      are rejected.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: zero-amount-swap
+
+  - id: CLMM63-protocol-fee-bucket-monotone
+    class: invariant_property
+    severity: Medium
+    claim: >
+      The accumulated protocol-fee bucket is monotone-non-decreasing
+      (modulo authorized withdrawals). No swap path lets it decrease.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: protocol-fee-decrease
+
+  - id: CLMM64-fee-rate-bound-by-tier
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Pool fee rate is one of the configured fee-tier values; no path
+      lets a swap charge a rate outside the configured tier set.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: fee-rate-out-of-tier
+
+  - id: CLMM65-swap-event-amounts-correct
+    class: state_transition
+    severity: Low
+    claim: >
+      Swap-event log fields (amount_in, amount_out, sqrt_price_after)
+      match the actual state changes; off-chain consumers cannot be
+      misled by event mismatches.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: swap-event-divergence
+
+  - id: CLMM66-fee-growth-X64-overflow-handled
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Fee-growth-X64 accumulators are u128 and intentionally model
+      wrapping; per-position fee-claim math correctly handles wrap
+      across the u128 boundary.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: fee-growth-wrap-handling
+
+  - id: CLMM67-amount-in-vault-debit-symmetric
+    class: invariant_property
+    severity: Critical
+    claim: >
+      The amount transferred from user to pool token-vault on a swap
+      equals the swap math's amount_in plus protocol-fee. No silent
+      under-debit.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: swap-vault-debit-mismatch
+
+  - id: CLMM68-amount-out-vault-credit-symmetric
+    class: invariant_property
+    severity: Critical
+    claim: >
+      The amount transferred from pool token-vault to user on a swap
+      equals the swap math's amount_out. No silent over-credit.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: swap-vault-credit-mismatch
+
+  - id: CLMM69-token-vault-binding
+    class: authorization
+    severity: High
+    claim: >
+      Token-vault accounts passed to a swap are validated to match the
+      pool's configured vault A and vault B; substituted vaults are
+      rejected.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: token-vault-substitution
+
+  # ─────────────────────────── 4. FEE GROWTH ──────────────────────────────────
+
+  - id: CLMM80-fee-growth-monotone-globally
+    class: invariant_property
+    severity: High
+    claim: >
+      Per-tick fee_growth_outside accumulators only ever increase across
+      the lifetime of a tick (modulo intentional u128 wrap).
+    applies_to: [orca-whirlpools, kamino-liquidity, meteora-dlmm]
+    scope_conditions: []
+    bug_class: fee-growth-accumulator-regression
+
+  - id: CLMM81-protocol-fee-deducted-before-lp
+    class: implicit_invariant
+    severity: Medium
+    claim: >
+      Protocol fee shares are deducted from LP fees BEFORE the LP fee
+      growth accumulator is updated; no double-count path.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: protocol-fee-double-count
+
+  - id: CLMM82-fee-growth-inside-formula-correct
+    class: invariant_property
+    severity: Critical
+    claim: >
+      fee_growth_inside = global_growth - growth_below(lower) -
+      growth_above(upper). The formula's branch logic for "current tick
+      below lower / between / above upper" is consistent.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: fee-growth-inside-formula
+
+  - id: CLMM83-reward-emissions-pro-rata
+    class: invariant_property
+    severity: High
+    claim: >
+      Reward emissions are distributed pro-rata to in-range liquidity at
+      time of emission; no position out of range can claim reward
+      growth from that period.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: reward-out-of-range-leak
+
+  - id: CLMM84-reward-emission-bounded-by-vault
+    class: invariant_property
+    severity: High
+    claim: >
+      Total reward emissions cannot exceed the funded reward-vault
+      balance; no path lets the program promise rewards it cannot pay.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: reward-overcommit
+
+  - id: CLMM85-reward-rate-monotone-clock
+    class: state_transition
+    severity: Medium
+    claim: >
+      Reward growth advances forward in time only; no path with a slot
+      lower than last_update can advance the reward growth.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: reward-clock-regression
+
+  - id: CLMM86-reward-mint-validation
+    class: authorization
+    severity: High
+    claim: >
+      Reward-token mint validated at init AND at claim; spoofed reward
+      mint cannot drain the reward vault.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: reward-mint-spoofing
+
+  - id: CLMM87-reward-emission-rate-update-bounded
+    class: authorization
+    severity: Medium
+    claim: >
+      Updating reward emission rate is limited to the configured reward
+      authority; no permissionless path mutates rate.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: reward-rate-update-authorization
+
+  - id: CLMM88-fee-growth-on-pool-init-zero
+    class: invariant_property
+    severity: Low
+    claim: >
+      Newly-initialized pool starts at fee_growth_global_X64 = 0 for both
+      tokens. No path lets init seed a non-zero growth.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: fee-growth-init-non-zero
+
+  # ─────────────────────────── 5. LIQUIDITY DELTA ─────────────────────────────
+
+  - id: CLMM100-liquidity-delta-symmetric
+    class: invariant_property
+    severity: High
+    claim: >
+      Adding liquidity L to a position and immediately removing L on the
+      same range returns the same token amounts (x, y) deposited, modulo
+      rounding-down on the way out.
+    applies_to: [orca-whirlpools, kamino-liquidity, meteora-dlmm]
+    scope_conditions: []
+    bug_class: liquidity-deltas-asymmetry
+
+  - id: CLMM101-amount-from-liquidity-monotone-by-tick-distance
+    class: invariant_property
+    severity: Medium
+    claim: >
+      For fixed liquidity L, the required token amounts to deposit
+      monotonically increase with the position's tick range width.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: liquidity-amount-tick-distance
+
+  - id: CLMM102-zero-liquidity-corner-no-state-change
+    class: state_transition
+    severity: Medium
+    claim: >
+      Operations on a position with zero liquidity (closed but not
+      decommissioned) are zero-effect on the pool's tick state.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: zero-liquidity-state-leak
+
+  - id: CLMM103-tick-liquidity-net-monotone-with-position
+    class: invariant_property
+    severity: High
+    claim: >
+      Adding a position with liquidity L increases tick.liquidity_net by
+      L at lower_tick and decreases it by L at upper_tick. Removal
+      reverses exactly. No path drifts the pair.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: tick-liquidity-net-drift
+
+  - id: CLMM104-tick-liquidity-gross-monotone-with-position
+    class: invariant_property
+    severity: High
+    claim: >
+      Tick.liquidity_gross tracks the absolute sum of liquidity referencing
+      a tick across positions; remove correctly decrements gross.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: tick-liquidity-gross-drift
+
+  - id: CLMM105-position-liquidity-non-negative
+    class: invariant_property
+    severity: High
+    claim: >
+      Position.liquidity is always non-negative; no remove-too-much path
+      lets it underflow.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: position-liquidity-underflow
+
+  - id: CLMM106-add-liquidity-zero-rejected
+    class: authorization
+    severity: Low
+    claim: >
+      Adding zero liquidity is rejected at instruction entry.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: zero-liquidity-add
+
+  # ─────────────────────────── 6. VAULTED-LP (KAMINO) ─────────────────────────
+
+  - id: CLMM120-vaulted-rebalance-state-atomic
+    class: state_transition
+    severity: High
+    claim: >
+      Vaulted CLMM strategies atomically: collect fees, remove old-range
+      liquidity, swap to target ratio, deposit new-range liquidity.
+      Partial-state mid-rebalance does not let the vault be deposited
+      to or withdrawn from.
+    applies_to: [kamino-liquidity, meteora-dlmm]
+    scope_conditions: []
+    bug_class: rebalance-non-atomic
+
+  - id: CLMM121-vault-share-mint-burn
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Vaulted-LP share mint/burn preserves shares-per-vault-NAV
+      monotonicity. No deposit-then-rebalance sequence lets a depositor
+      mint at a stale NAV and withdraw at a fresh one.
+    applies_to: [kamino-liquidity, meteora-dlmm]
+    scope_conditions: []
+    bug_class: vault-share-inflation
+
+  - id: CLMM122-vault-fee-collection-pre-deposit
+    class: state_transition
+    severity: High
+    claim: >
+      Vaulted strategy collects all pending fees BEFORE accepting a
+      deposit, so the depositor's mint reflects post-fee NAV.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-deposit-before-fee-collect
+
+  - id: CLMM123-vault-fee-collection-pre-withdraw
+    class: state_transition
+    severity: High
+    claim: >
+      Vaulted strategy collects pending fees BEFORE processing a
+      withdrawal, so the withdrawer's burn reflects post-fee NAV.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-withdraw-before-fee-collect
+
+  - id: CLMM124-vault-cpi-account-validation
+    class: authorization
+    severity: High
+    claim: >
+      Vaulted-LP layers that CPI into the underlying CLMM validate every
+      account passed through the CPI matches the vault's bound state.
+    applies_to: [kamino-liquidity]
+    scope_conditions: [cross_program_invocation_heavy]
+    bug_class: cpi-account-substitution
+
+  - id: CLMM125-vault-share-rounding-favors-vault
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Vault share-mint rounds DOWN (favoring vault); share-burn rounds
+      DOWN (favoring vault). No round-trip can extract value.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-rounding-direction
+
+  - id: CLMM126-vault-rebalance-only-by-strategist
+    class: authorization
+    severity: High
+    claim: >
+      Vault rebalance is callable only by the configured strategy
+      authority; no permissionless path triggers an unprofitable
+      rebalance.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-rebalance-unauthorized
+
+  - id: CLMM127-vault-position-singleton
+    class: invariant_property
+    severity: High
+    claim: >
+      A vault holds at most one underlying CLMM position at any time;
+      no rebalance can leave two positions open and split.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-multi-position-orphan
+
+  - id: CLMM128-vault-deposit-respects-strategy-range
+    class: state_transition
+    severity: Medium
+    claim: >
+      Deposits land in the vault's configured strategy range; no path
+      lets a deposit deploy liquidity to a different range.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-deposit-range-mismatch
+
+  - id: CLMM129-vault-withdraw-pro-rata-on-mixed-tokens
+    class: invariant_property
+    severity: High
+    claim: >
+      Withdrawal returns pro-rata token-A and token-B based on current
+      vault holdings (including pending fees + rewards), not stale ratios.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-withdraw-stale-ratio
+
+  - id: CLMM130-vault-emergency-pause-respected
+    class: authorization
+    severity: High
+    claim: >
+      Vault paused state blocks deposit + rebalance; withdraw remains
+      available so users can exit.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-pause-blocks-withdraw
+
+  - id: CLMM131-vault-share-decimals-preserved
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Vault share token decimals are fixed at init; no path mutates
+      decimals after deployment.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-share-decimals-mutation
+
+  - id: CLMM132-vault-fee-share-bounded
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Performance / management fee share is bounded by the configured
+      max; no rebalance path takes more than the cap.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-fee-share-overcharge
+
+  - id: CLMM133-vault-fee-share-recipient-bound
+    class: authorization
+    severity: Medium
+    claim: >
+      Vault fee-share withdrawal sends to the configured fee-recipient
+      pubkey; no path redirects.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-fee-redirect
+
+  - id: CLMM134-vault-flash-deposit-rejected
+    class: authorization
+    severity: High
+    claim: >
+      Vaults reject flash-loan-style deposit-and-withdraw within the same
+      tx if the rebalance hasn't run; no MEV path captures NAV growth
+      around a rebalance.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: vault-flash-mev
+
+  # ─────────────────────────── 7. CPI / SECURITY ──────────────────────────────
+
+  - id: CLMM150-flash-loan-no-position-takeover
+    class: authorization
+    severity: Critical
+    claim: >
+      Pool flash-loans cannot be used to modify a position the caller
+      doesn't own — the inner callback runs with the caller's authority,
+      not the pool's.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: [flash_loan]
+    bug_class: flash-loan-position-takeover
+
+  - id: CLMM151-token-program-pinned
+    class: authorization
+    severity: High
+    claim: >
+      The token-program pubkey passed to CPI matches the canonical SPL
+      Token / Token-2022 ID; substituted programs are rejected.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: token-program-substitution
+
+  - id: CLMM152-token-2022-transfer-fee-handled
+    class: state_transition
+    severity: High
+    claim: >
+      Token-2022 transfer-fee extension is correctly accounted: the pool
+      records pre-transfer-fee amounts when computing reserve updates.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: token-2022-transfer-fee
+
+  - id: CLMM153-token-2022-hook-validated
+    class: authorization
+    severity: High
+    claim: >
+      Transfer-hook CPI validates the hook's program ID and account list
+      against the mint's configured hook authority.
+    applies_to: [orca-whirlpools]
+    scope_conditions: [cross_program_invocation_heavy]
+    bug_class: token-2022-hook-substitution
+
+  - id: CLMM154-token-2022-interest-bearing-rejected
+    class: authorization
+    severity: Medium
+    claim: >
+      Interest-bearing token-2022 mints are rejected at pool init OR
+      explicitly handled in fee-growth math; no path lets interest growth
+      bypass accounting.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: token-2022-interest-bearing-bypass
+
+  - id: CLMM155-account-discriminator-validated
+    class: authorization
+    severity: High
+    claim: >
+      Every Anchor-style account read validates the discriminator; no
+      path operates on a wrong-type account passed by the caller.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: account-discriminator-bypass
+
+  - id: CLMM156-rent-exemption-on-pda
+    class: authorization
+    severity: Low
+    claim: >
+      All program-owned PDAs are rent-exempt at creation; no path leaves
+      a PDA below rent-exemption threshold.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: pda-rent-exemption
+
+  # ─────────────────────────── 8. AUTHORIZATION ──────────────────────────────
+
+  - id: CLMM170-admin-instructions-gated
+    class: authorization
+    severity: Critical
+    claim: >
+      Every admin-only instruction (init pool, set fee, pause, set
+      reward emission rate) checks the signer against the configured
+      admin pubkey.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: admin-gate-bypass
+
+  - id: CLMM171-fee-rate-update-bounded
+    class: authorization
+    severity: High
+    claim: >
+      Fee-rate updates are restricted to the configured fee-tier set;
+      admin cannot set an arbitrary out-of-tier rate.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: fee-rate-out-of-tier-by-admin
+
+  - id: CLMM172-pause-respected-by-mutating-paths
+    class: authorization
+    severity: High
+    claim: >
+      When the pool is paused, swap / open-position / modify-position
+      / collect-fees all return early without state mutation.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: pause-bypass
+
+  - id: CLMM173-multisig-threshold-respected
+    class: authorization
+    severity: High
+    claim: >
+      Multisig-gated admin actions require the configured threshold of
+      signers.
+    applies_to: [orca-whirlpools, kamino-liquidity]
+    scope_conditions: []
+    bug_class: multisig-threshold-bypass
+
+  - id: CLMM174-admin-handover-two-step
+    class: authorization
+    severity: Medium
+    claim: >
+      Admin handover is a two-step process (propose then accept); single-
+      step transfer cannot lock admin at a wrong key.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: admin-handover-single-step
+
+  - id: CLMM175-strategist-authority-rotation
+    class: authorization
+    severity: Medium
+    claim: >
+      Vault strategist rotation requires the current strategist OR vault
+      admin to sign; no permissionless rotation.
+    applies_to: [kamino-liquidity]
+    scope_conditions: []
+    bug_class: strategist-rotation-permissionless
+
+  # ─────────────────────────── 9. EDGE CASES ─────────────────────────────────
+
+  - id: CLMM190-full-range-position
+    class: invariant_property
+    severity: Medium
+    claim: >
+      A full-range position (MIN_TICK to MAX_TICK) accumulates fees
+      proportionally to total liquidity in range — no degenerate path.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: full-range-edge-case
+
+  - id: CLMM191-single-tick-position-rejected
+    class: authorization
+    severity: Medium
+    claim: >
+      A position with lower_tick == upper_tick is rejected; degenerate
+      single-tick positions are not allowed.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: single-tick-position
+
+  - id: CLMM192-extreme-price-not-corruptive
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Extreme sqrt-prices near MIN/MAX do not corrupt swap math via
+      under/overflow; the curve handles boundaries cleanly.
+    applies_to: [orca-whirlpools]
+    scope_conditions: []
+    bug_class: extreme-price-edge-overflow

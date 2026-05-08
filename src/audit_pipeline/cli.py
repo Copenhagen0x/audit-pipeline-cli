@@ -10,10 +10,12 @@ from rich.console import Console
 
 from audit_pipeline import __version__
 from audit_pipeline.commands import (
+    cache,
     confirm,
     cross_check,
     dashboard,
     debate,
+    derive_siblings,
     disclose,
     expand_coverage,
     freshness,
@@ -40,6 +42,7 @@ from audit_pipeline.commands import (
     spec_check,
     sync,
     synth_kani,
+    triage,
     watch,
 )
 
@@ -115,6 +118,9 @@ main.add_command(hunt.hunt_cmd)                    # recon -> debate -> PoC -> K
 main.add_command(hunt_deep.hunt_deep_cmd)          # tool-using deep hunt (read_file, grep, find_function)
 main.add_command(learn.learn_cmd)                  # generate hyps from public disclosures
 main.add_command(expand_coverage.expand_coverage_cmd)  # generate hyps from spec, kani-gaps, wrapper
+main.add_command(derive_siblings.derive_siblings_cmd)  # auto-derive siblings from a confirmed finding (Tier 2 #8)
+main.add_command(cache.cache_group)                # PoC test cache (Tier 2 #10): list / flush / stats
+main.add_command(triage.triage_cmd)                # Triage UI (Tier 2 #12): local web UI for new-findings backlog
 main.add_command(confirm.confirm_cmd)              # empirical PoC: write custom test, cargo test, report
 
 # Subcommands — commercial layer (T1: severity + lifecycle + reports + issues)

@@ -1,0 +1,487 @@
+# Class library: perpetual DEXes
+#
+# Loads when target.protocol_class == "perp_dex" (Percolator, Drift, Mango v4,
+# Jupiter Perps). Hyps here are protocol-agnostic perp invariants.
+# Protocol-specific hyps (e.g. Percolator's residual formula at exact line
+# numbers) stay in <protocol>.yaml.
+#
+# Schema: docs/HYPOTHESIS_SCHEMA.md
+#
+# How this list grows:
+#   1. A confirmed finding on any perp DEX auto-derives sibling hyps via
+#      `audit-pipeline derive-siblings <finding-id>` (Tier 2 #8). Output
+#      lands here when the bug class generalizes across the cluster.
+#   2. Engineers can add hyps by hand following the same schema.
+#
+# Deduplication: ids are unique across this file AND across <protocol>.yaml
+# files in the same cluster — the loader rejects duplicates.
+
+hypotheses:
+
+  - id: PD1-funding-rate-mark-bias
+    class: state_transition
+    severity: High
+    claim: >
+      The funding rate captured by every settlement instruction is computed
+      BEFORE any oracle-mark mutation in the same instruction, preventing
+      same-tx self-bias where a trader's own action moves the mark used to
+      charge their funding.
+    applies_to: [percolator, drift, mango, jupiter-perps]
+    scope_conditions: [perpetual_funding]
+    bug_class: funding-rate-self-bias
+    relevant_instructions: |
+      place_perp_order, settle_funding, fill_match, accrue_funding
+
+  - id: PD2-oracle-staleness-rejection
+    class: authorization
+    severity: Critical
+    claim: >
+      Every instruction that uses an oracle price for risk decisions
+      (liquidation, margin check, funding) rejects the call when the
+      oracle's slot age exceeds the configured staleness floor. There is
+      no fallback path that lets a stale price drive a state mutation.
+    applies_to: [percolator, drift, mango, jupiter-perps]
+    scope_conditions: [uses_pyth_oracle, uses_switchboard_oracle]
+    bug_class: oracle-staleness-bypass
+
+  - id: PD3-liquidation-pricing-fairness
+    class: state_transition
+    severity: Critical
+    claim: >
+      A liquidator cannot purchase the liquidatee's position at a price
+      better than the oracle minus the configured liquidation discount.
+      In particular, no permissionless instruction lets a self-funded
+      liquidator front-run the oracle to capture more than the discount.
+    applies_to: [percolator, drift, mango, jupiter-perps]
+    scope_conditions: [liquidation_engine, uses_pyth_oracle]
+    bug_class: liquidation-price-skim
+
+  - id: PD4-residual-conservation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      The post-haircut residual cash on a market
+      (vault - cash_locked_in_orderbook - claimable_pnl - insurance_counter)
+      is conserved by every internal accounting helper. If a helper shrinks
+      the insurance counter, it MUST debit the vault by the same amount —
+      otherwise the residual grows without a corresponding credit obligation
+      and a K/F-winning counterparty can claim it (F7 class).
+    applies_to: [percolator, drift, mango, jupiter-perps]
+    scope_conditions: [has_insurance_pool, has_haircut_accounting]
+    bug_class: insurance-counter-vault-divergence
+
+  - id: PD5-self-trade-cash-flow-neutral
+    class: state_transition
+    severity: High
+    claim: >
+      A self-trade (same authority on both sides of a fill) is cash-flow
+      neutral up to fees + IM transitions. A self-trader cannot extract
+      vault cash beyond the fee rebate and the IM round-trip cost.
+    applies_to: [percolator, drift, mango]
+    scope_conditions: [clob_orderbook]
+    bug_class: self-trade-cash-flow-violation
+
+  - id: PD6-vault-balance-conservation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      For every market state transition, the change in vault balance equals
+      the sum of (cash deposited into orderbook + claimable_pnl_credited
+      + insurance_counter_credited - amounts_paid_out).
+    applies_to: [percolator, drift, mango, jupiter-perps]
+    scope_conditions: [has_insurance_pool]
+    bug_class: vault-balance-divergence
+
+  - id: PD7-pnl-mark-bound
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      The lazy mark-to-market PnL computation cannot overflow i128 under
+      the engine's own constants (max position size × max price delta)
+      for any K-walk reachable through cap-respecting accrue_market_to
+      calls. There is no path where an attacker can force a high-magnitude
+      multiplication that wraps.
+    applies_to: [percolator, drift, mango]
+    scope_conditions: [perpetual_funding]
+    bug_class: arithmetic-overflow-pnl-mark
+
+  - id: PD8-account-gc-state-leak
+    class: state_transition
+    severity: Critical
+    claim: >
+      free_slot / reclaim_empty_account zeroes every byte of the account
+      slot, so a subsequent materialize_at on the same index cannot inherit
+      shadow state (PnL, capital, position basis) from the prior owner.
+    applies_to: [percolator, drift, mango, marginfi]
+    scope_conditions: []
+    bug_class: account-gc-state-leak
+
+  - id: PD9-haircut-direction-monotonic
+    class: implicit_invariant
+    severity: High
+    claim: >
+      The haircut (positive-PnL claim cap) only ever shrinks claimable PnL,
+      never increases the residual cash that other claimants can pull. No
+      code path lets the haircut numerator grow during a single-side claim.
+    applies_to: [percolator, drift, mango]
+    scope_conditions: [has_haircut_accounting]
+    bug_class: haircut-direction-violation
+
+  - id: PD10-cross-margin-health-monotone
+    class: invariant_property
+    severity: Critical
+    claim: >
+      A cross-margin account's health metric is monotone-decreasing under
+      adverse price moves at fixed positions. There is no math regression
+      where the same positions + worse oracle yields a higher health score.
+    applies_to: [drift, mango, jupiter-perps]
+    scope_conditions: [perpetual_funding, multi_collateral]
+    bug_class: cross-margin-health-monotonicity
+
+  - id: PD11-fill-event-ordering
+    class: state_transition
+    severity: High
+    claim: >
+      Consume-events processes fill events in the order they were enqueued.
+      No reordering during catchup can let a maker who filled later pay
+      funding accrued from an earlier maker's settlement window.
+    applies_to: [drift, mango]
+    scope_conditions: [clob_orderbook, perpetual_funding]
+    bug_class: fill-event-ordering
+
+  - id: PD12-deposit-cap-circumvention
+    class: authorization
+    severity: High
+    claim: >
+      A position cannot exceed its configured max_open_interest cap via
+      multi-step paths (split-and-recombine, indirect settle, etc.). Every
+      path that adds to a side's open interest checks the cap atomically.
+    applies_to: [percolator, drift, mango, jupiter-perps]
+    scope_conditions: []
+    bug_class: deposit-cap-circumvention
+
+  - id: PD13-stop-loss-reentry
+    class: authorization
+    severity: Medium
+    claim: >
+      A stop-loss order, once triggered and consumed, cannot re-fire from
+      the same conditional state without an explicit re-arm transaction
+      from the position owner.
+    applies_to: [drift, mango]
+    scope_conditions: [clob_orderbook]
+    bug_class: conditional-order-reentry
+
+  - id: PD14-loss-socialization-floor
+    class: invariant_property
+    severity: High
+    claim: >
+      When socialised loss kicks in (insurance + ADL exhausted), every
+      counterparty's positive PnL is reduced by the same haircut ratio.
+      No counterparty escapes a higher-than-pro-rata share of the loss.
+    applies_to: [drift, mango]
+    scope_conditions: [has_insurance_pool, has_haircut_accounting]
+    bug_class: loss-socialization-pro-rata
+
+  - id: PD15-jlp-pool-share-mint-burn
+    class: invariant_property
+    severity: Critical
+    claim: >
+      LP-pool-backed perps (Jupiter-style) preserve shares-per-asset
+      monotonicity: deposit increases pool assets and shares such that
+      shares/assets does not strictly decrease; withdraw is the inverse.
+    applies_to: [jupiter-perps]
+    scope_conditions: []
+    bug_class: lp-share-inflation
+
+  # ─────────────────────────── ADDITIONAL: ORACLE & FUNDING ──────────────────
+
+  - id: PD16-oracle-confidence-respected
+    class: authorization
+    severity: High
+    claim: >
+      Pyth confidence-interval is checked: prices with confidence ratio
+      above the configured floor are rejected for liquidation / borrow
+      decisions.
+    applies_to: [percolator, drift, mango, jupiter-perps]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: oracle-confidence-bypass
+
+  - id: PD17-oracle-twap-fallback-explicit
+    class: state_transition
+    severity: Medium
+    claim: >
+      When primary oracle is stale or rejected, fallback to TWAP / EMA
+      oracle is gated by an explicit policy and logged; no silent fallback.
+    applies_to: [drift, mango]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: oracle-silent-fallback
+
+  - id: PD18-funding-rate-bound
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Per-period funding rate is bounded by max-funding-rate; no path
+      lets a single accrual produce a funding move beyond the cap.
+    applies_to: [percolator, drift, mango]
+    scope_conditions: [perpetual_funding]
+    bug_class: funding-rate-cap-bypass
+
+  - id: PD19-mark-price-clamped-around-oracle
+    class: state_transition
+    severity: High
+    claim: >
+      Per-tick mark price is clamped to within ±X% of oracle; no path
+      lets a wash-trade move the mark beyond the oracle band.
+    applies_to: [drift, mango]
+    scope_conditions: [perpetual_funding]
+    bug_class: mark-price-clamp-bypass
+
+  # ─────────────────────────── ADDITIONAL: MARGIN ────────────────────────────
+
+  - id: PD20-margin-account-init-state
+    class: invariant_property
+    severity: High
+    claim: >
+      Freshly-opened margin account satisfies every invariant downstream
+      assumes: zero positions, zero collateral_locked, healthy.
+    applies_to: [drift, mango, jupiter-perps]
+    scope_conditions: []
+    bug_class: margin-init-invariant
+
+  - id: PD21-leverage-cap-bounded
+    class: authorization
+    severity: High
+    claim: >
+      Effective leverage on a position cannot exceed the configured
+      max-leverage; opening or modifying past the cap is rejected.
+    applies_to: [drift, mango, jupiter-perps]
+    scope_conditions: [perpetual_funding]
+    bug_class: leverage-cap-bypass
+
+  - id: PD22-im-mm-ordering
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Initial margin > Maintenance margin > 0 across all configured
+      markets; no path inverts the ordering.
+    applies_to: [drift, mango, jupiter-perps]
+    scope_conditions: [perpetual_funding]
+    bug_class: im-mm-ordering
+
+  - id: PD23-isolated-mode-no-cross
+    class: authorization
+    severity: High
+    claim: >
+      Isolated-position mode prevents cross-collateral usage; isolated
+      positions cannot draw on other isolated buckets.
+    applies_to: [drift, mango]
+    scope_conditions: []
+    bug_class: isolated-cross-bleed
+
+  # ─────────────────────────── ADDITIONAL: ORDERS ────────────────────────────
+
+  - id: PD24-cancel-replace-atomic
+    class: state_transition
+    severity: Medium
+    claim: >
+      Cancel-and-replace is atomic: either the new order replaces the
+      old, or both fail. No partial-replace state.
+    applies_to: [drift, mango]
+    scope_conditions: [clob_orderbook]
+    bug_class: cancel-replace-non-atomic
+
+  - id: PD25-post-only-truly-post-only
+    class: state_transition
+    severity: Medium
+    claim: >
+      Post-only orders that would cross the spread are rejected, never
+      taken; no path lets post-only become a market order.
+    applies_to: [drift, mango]
+    scope_conditions: [clob_orderbook]
+    bug_class: post-only-crosses-spread
+
+  - id: PD26-conditional-order-trigger-once
+    class: state_transition
+    severity: Medium
+    claim: >
+      A conditional order, once triggered and consumed, cannot re-fire
+      without an explicit re-arm.
+    applies_to: [drift, mango]
+    scope_conditions: [clob_orderbook]
+    bug_class: conditional-order-reentry
+
+  - id: PD27-fill-event-amount-positive
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Every fill event has positive amount; zero-amount fills are
+      rejected at queue time.
+    applies_to: [drift, mango]
+    scope_conditions: [clob_orderbook]
+    bug_class: zero-amount-fill
+
+  # ─────────────────────────── ADDITIONAL: AUTHORIZATION ─────────────────────
+
+  - id: PD28-admin-instructions-gated
+    class: authorization
+    severity: Critical
+    claim: >
+      Admin instructions (adjust IM/MM, pause, set funding window, set
+      max leverage) check signer against configured admin pubkey.
+    applies_to: [percolator, drift, mango, jupiter-perps]
+    scope_conditions: []
+    bug_class: admin-gate-bypass
+
+  - id: PD29-pause-respected
+    class: authorization
+    severity: High
+    claim: >
+      When market is paused, every state-mutating instruction returns
+      early without state mutation.
+    applies_to: [percolator, drift, mango]
+    scope_conditions: []
+    bug_class: pause-bypass
+
+  - id: PD30-multisig-threshold-respected
+    class: authorization
+    severity: High
+    claim: >
+      Multisig-gated admin actions require configured threshold of signers.
+    applies_to: [drift, mango, jupiter-perps]
+    scope_conditions: []
+    bug_class: multisig-threshold-bypass
+
+  - id: PD31-admin-handover-two-step
+    class: authorization
+    severity: Medium
+    claim: >
+      Admin handover is a two-step process (propose then accept).
+    applies_to: [percolator, drift, mango]
+    scope_conditions: []
+    bug_class: admin-handover-single-step
+
+  # ─────────────────────────── ADDITIONAL: ARITHMETIC ────────────────────────
+
+  - id: PD32-pnl-accumulator-overflow
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Per-account PnL accumulator (i128) cannot overflow at maximum
+      position size × maximum price delta over expected hold duration.
+    applies_to: [percolator, drift, mango]
+    scope_conditions: [perpetual_funding]
+    bug_class: pnl-accumulator-overflow
+
+  - id: PD33-collateral-amount-fits-u64
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Collateral-amount fields fit in u64; no path triggers wraparound
+      at maximum funded amounts.
+    applies_to: [drift, mango, jupiter-perps]
+    scope_conditions: []
+    bug_class: collateral-amount-overflow
+
+  - id: PD34-rate-application-rounding
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Rate-application rounds in pool / protocol favor; no path lets
+      a trader benefit from rounding direction.
+    applies_to: [percolator, drift, mango]
+    scope_conditions: [perpetual_funding]
+    bug_class: rate-application-rounding
+
+  # ─────────────────────────── ADDITIONAL: SECURITY ──────────────────────────
+
+  - id: PD35-token-program-pinned
+    class: authorization
+    severity: High
+    claim: >
+      Token-program account passed to CPI is canonical SPL Token /
+      Token-2022 ID; substitution rejected.
+    applies_to: [percolator, drift, mango, jupiter-perps]
+    scope_conditions: []
+    bug_class: token-program-substitution
+
+  - id: PD36-account-discriminator-validated
+    class: authorization
+    severity: High
+    claim: >
+      Every Anchor-style account read validates the discriminator;
+      mistyped account passed by caller is rejected.
+    applies_to: [drift, mango, jupiter-perps]
+    scope_conditions: []
+    bug_class: account-discriminator-bypass
+
+  - id: PD37-pda-bump-canonical
+    class: authorization
+    severity: High
+    claim: >
+      All program-PDAs validate bump seed against canonical bump; no
+      malleability path.
+    applies_to: [percolator, drift, mango]
+    scope_conditions: []
+    bug_class: pda-bump-malleability
+
+  - id: PD38-account-close-zeroes-data
+    class: state_transition
+    severity: High
+    claim: >
+      Closing an account zeros the data buffer before refund; no shadow-
+      state leak.
+    applies_to: [percolator, drift, mango]
+    scope_conditions: []
+    bug_class: account-close-state-leak
+
+  - id: PD39-vault-authority-binding
+    class: authorization
+    severity: Critical
+    claim: >
+      Vault authority is the program-derived authority, never an
+      attacker-owned PDA.
+    applies_to: [percolator, drift, mango, jupiter-perps]
+    scope_conditions: []
+    bug_class: vault-authority-leak
+
+  # ─────────────────────────── ADDITIONAL: EDGE CASES ────────────────────────
+
+  - id: PD40-zero-position-no-state-change
+    class: state_transition
+    severity: Low
+    claim: >
+      Operations on a zero-position account are zero-effect on market
+      state; no shadow-update path.
+    applies_to: [percolator, drift, mango]
+    scope_conditions: []
+    bug_class: zero-position-state-leak
+
+  - id: PD41-price-tick-respects-tick-size
+    class: authorization
+    severity: Medium
+    claim: >
+      Limit-order prices are multiples of configured tick-size; sub-
+      tick prices rejected.
+    applies_to: [drift, mango]
+    scope_conditions: [clob_orderbook]
+    bug_class: sub-tick-price
+
+  - id: PD42-amount-respects-lot-size
+    class: authorization
+    severity: Medium
+    claim: >
+      Order amounts are multiples of configured lot-size; sub-lot
+      amounts rejected.
+    applies_to: [drift, mango]
+    scope_conditions: [clob_orderbook]
+    bug_class: sub-lot-amount
+
+  - id: PD43-event-queue-no-overflow
+    class: state_transition
+    severity: Medium
+    claim: >
+      Event-queue cannot overflow; backpressure (paused fills, queue-
+      full rejection) is enforced when queue depth nears capacity.
+    applies_to: [drift, mango]
+    scope_conditions: [clob_orderbook]
+    bug_class: event-queue-overflow

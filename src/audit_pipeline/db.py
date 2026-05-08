@@ -92,11 +92,27 @@ SCHEMA = [
         FOREIGN KEY(finding_id) REFERENCES findings(id)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS poc_cache (
+        engine_sha     TEXT NOT NULL,
+        hypothesis_id  TEXT NOT NULL,
+        poc_hash       TEXT NOT NULL,
+        outcome        TEXT NOT NULL,
+        cargo_rc       INTEGER,
+        elapsed_s      REAL,
+        log_path       TEXT,
+        n_hits         INTEGER NOT NULL DEFAULT 1,
+        first_seen_at  TEXT NOT NULL,
+        last_seen_at   TEXT NOT NULL,
+        PRIMARY KEY(engine_sha, hypothesis_id, poc_hash)
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_findings_target    ON findings(target_id)",
     "CREATE INDEX IF NOT EXISTS idx_findings_status    ON findings(status)",
     "CREATE INDEX IF NOT EXISTS idx_findings_severity  ON findings(severity)",
     "CREATE INDEX IF NOT EXISTS idx_findings_bug_class ON findings(bug_class)",
     "CREATE INDEX IF NOT EXISTS idx_cycles_target      ON cycles(target_id)",
+    "CREATE INDEX IF NOT EXISTS idx_poc_cache_hyp      ON poc_cache(hypothesis_id)",
 ]
 
 
@@ -342,7 +358,20 @@ class FindingsDB:
         to_status: Status,
         reason: str,
         actor: str = "system",
+        run_hooks: bool = True,
     ) -> None:
+        """Transition a finding to a new lifecycle status.
+
+        After a successful transition (commit), fires post-transition hooks
+        in a background thread:
+          confirmed  → auto-derive siblings (Tier 2 #8)
+                       + auto-fire cross-protocol propagation (Tier 2 #9)
+          disclosed  → currently no-op (placeholder for future hooks)
+
+        Hooks are fire-and-forget — failures are silenced and never block
+        the transition. Pass `run_hooks=False` to suppress hook scheduling
+        (e.g. during bulk imports / tests).
+        """
         with self._conn() as c:
             row = c.execute(
                 "SELECT status FROM findings WHERE id = ?", (finding_id,)
@@ -364,12 +393,140 @@ class FindingsDB:
                 (finding_id, frm.value, to_status.value, reason, actor, now),
             )
 
+        # Post-transition hooks (Tier 2 #8 + #9). Run AFTER commit so the
+        # finding's new status is observable to the hook code; run in a
+        # background thread so a slow LLM call doesn't block the DB write.
+        if run_hooks and to_status == Status.CONFIRMED:
+            self._fire_confirmed_hooks(finding_id)
+
+    def _fire_confirmed_hooks(self, finding_id: int) -> None:
+        """Fire the on-confirmed hooks: sibling derivation + propagation.
+
+        Both hooks are best-effort. They run in a daemon thread so the
+        caller never blocks; exceptions are silenced. The workspace path
+        is derived from the DB file's parent directory.
+        """
+        import threading
+        ws = self.path.parent
+        def _run() -> None:
+            try:
+                from audit_pipeline.commands.derive_siblings import derive_siblings_async
+                derive_siblings_async(ws, finding_id)
+            except Exception:
+                pass
+            try:
+                from audit_pipeline.commands.propagate import propagate_from_finding_async
+                propagate_from_finding_async(ws, finding_id)
+            except Exception:
+                pass
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+
     def get_finding(self, finding_id: int) -> dict | None:
         with self._conn() as c:
             row = c.execute(
                 "SELECT * FROM findings WHERE id = ?", (finding_id,)
             ).fetchone()
             return dict(row) if row else None
+
+    # ─────────────────────────── PoC test cache (Tier 2 #10) ──────────────────
+
+    def get_poc_cache(
+        self,
+        engine_sha: str,
+        hypothesis_id: str,
+        poc_hash: str,
+    ) -> dict | None:
+        """Look up a cached PoC outcome.
+
+        Returns the cached row (dict) on hit, None on miss. The cache
+        key is (engine_sha, hypothesis_id, poc_hash) — same engine SHA
+        + same hyp ID + same test bytes always produces the same outcome
+        because cargo test is deterministic on a fixed input.
+        """
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT * FROM poc_cache WHERE engine_sha = ? AND hypothesis_id = ? AND poc_hash = ?",
+                (engine_sha, hypothesis_id, poc_hash),
+            ).fetchone()
+            if not row:
+                return None
+            # Touch the last_seen_at + bump n_hits so we can see hot entries.
+            c.execute(
+                "UPDATE poc_cache SET last_seen_at = ?, n_hits = n_hits + 1 "
+                "WHERE engine_sha = ? AND hypothesis_id = ? AND poc_hash = ?",
+                (_now(), engine_sha, hypothesis_id, poc_hash),
+            )
+            return dict(row)
+
+    def put_poc_cache(
+        self,
+        engine_sha: str,
+        hypothesis_id: str,
+        poc_hash: str,
+        outcome: str,
+        cargo_rc: int | None = None,
+        elapsed_s: float | None = None,
+        log_path: str | None = None,
+    ) -> None:
+        """Insert (or update) a PoC cache entry.
+
+        Idempotent — re-running the same PoC re-populates the row.
+        """
+        now = _now()
+        with self._conn() as c:
+            c.execute(
+                """
+                INSERT INTO poc_cache (
+                    engine_sha, hypothesis_id, poc_hash,
+                    outcome, cargo_rc, elapsed_s, log_path,
+                    n_hits, first_seen_at, last_seen_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ON CONFLICT(engine_sha, hypothesis_id, poc_hash) DO UPDATE SET
+                    outcome   = excluded.outcome,
+                    cargo_rc  = excluded.cargo_rc,
+                    elapsed_s = excluded.elapsed_s,
+                    log_path  = excluded.log_path,
+                    last_seen_at = excluded.last_seen_at
+                """,
+                (
+                    engine_sha, hypothesis_id, poc_hash,
+                    outcome, cargo_rc, elapsed_s, log_path,
+                    now, now,
+                ),
+            )
+
+    def list_poc_cache(self, limit: int = 100) -> list[dict]:
+        """List recent cache entries (debugging / `audit-pipeline cache list`)."""
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT * FROM poc_cache ORDER BY last_seen_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def flush_poc_cache(
+        self,
+        engine_sha: str | None = None,
+        hypothesis_id: str | None = None,
+    ) -> int:
+        """Delete cache entries. Returns # rows deleted.
+
+        With no args: deletes ALL entries. Filtered args narrow scope.
+        Used by `audit-pipeline cache flush`.
+        """
+        clauses = []
+        params: list[Any] = []
+        if engine_sha is not None:
+            clauses.append("engine_sha = ?")
+            params.append(engine_sha)
+        if hypothesis_id is not None:
+            clauses.append("hypothesis_id = ?")
+            params.append(hypothesis_id)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._conn() as c:
+            cur = c.execute(f"DELETE FROM poc_cache{where}", tuple(params))
+            return cur.rowcount or 0
 
     def list_findings(
         self,

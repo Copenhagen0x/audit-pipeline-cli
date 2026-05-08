@@ -1,0 +1,709 @@
+# Class library: liquid-staking tokens
+#
+# Loads when target.protocol_class == "lst" (Marinade, Sanctum, Jito stakeSOL,
+# bSOL, etc.).
+#
+# Schema: docs/HYPOTHESIS_SCHEMA.md
+
+hypotheses:
+
+  # ─────────────────────────── 1. EXCHANGE RATE ──────────────────────────────
+
+  - id: LST1-exchange-rate-monotone
+    class: invariant_property
+    severity: Critical
+    claim: >
+      The LST/SOL exchange rate is monotone-non-decreasing across normal
+      operations (epoch staking rewards). Only paths that REDUCE it
+      are validator slashing events, recognized via an explicit slashing
+      instruction.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: exchange-rate-regression
+
+  - id: LST2-exchange-rate-update-per-epoch
+    class: state_transition
+    severity: High
+    claim: >
+      Exchange rate update happens at most once per epoch boundary; no
+      mid-epoch rate-update path that could be MEV'd around.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: exchange-rate-mid-epoch-update
+
+  - id: LST3-exchange-rate-cannot-zero
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Exchange rate is never zero — no path lets the pool with depositors
+      reach zero rate.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: zero-exchange-rate
+
+  - id: LST4-stake-rewards-pro-rata
+    class: invariant_property
+    severity: High
+    claim: >
+      Validator stake rewards distribute pro-rata to LST holders by
+      shares; no holder gets a non-pro-rata share of accrued rewards.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: stake-reward-non-pro-rata
+
+  - id: LST5-slashing-loss-pro-rata
+    class: state_transition
+    severity: High
+    claim: >
+      When a slash event applies, the loss is socialized pro-rata across
+      all LST holders proportional to shares; no holder escapes.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: slashing-loss-non-pro-rata
+
+  - id: LST6-rate-update-not-callable-pre-epoch
+    class: authorization
+    severity: Medium
+    claim: >
+      Per-epoch update instruction reverts if called before epoch
+      boundary; no early-trigger path.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: epoch-update-early-trigger
+
+  - id: LST7-rate-update-clock-monotone
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Last-update epoch / slot is monotone-increasing; no path lets
+      clock regress.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: epoch-clock-regression
+
+  # ─────────────────────────── 2. MINT / BURN ────────────────────────────────
+
+  - id: LST20-deposit-share-bounded
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Depositing N SOL mints at most N / current_exchange_rate LST
+      tokens. No path lets a depositor mint at a stale (more favorable)
+      rate.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: lst-mint-stale-rate
+
+  - id: LST21-burn-redemption-bounded
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Burning N LST tokens returns AT MOST N × current_exchange_rate
+      SOL (minus fees). No path lets a burn extract more than pro-rata.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: lst-burn-overpayment
+
+  - id: LST22-mint-supply-fits-u64
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Total LST supply fits in u64; mint operations cannot overflow
+      supply.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: lst-supply-overflow
+
+  - id: LST23-mint-rounding-favors-pool
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Mint rounds DOWN (favoring pool / LP); deposit-then-immediate-
+      burn cannot extract value via rounding.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: lst-mint-rounding-direction
+
+  - id: LST24-burn-rounding-favors-pool
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Burn rounds DOWN (favoring pool); no path lets a burn round-up.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: lst-burn-rounding-direction
+
+  - id: LST25-deposit-fee-collected
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Configured deposit fee is collected before minting LST shares;
+      no path lets a deposit avoid the fee.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: deposit-fee-bypass
+
+  - id: LST26-zero-amount-deposit-rejected
+    class: authorization
+    severity: Low
+    claim: >
+      Zero-amount SOL deposit is rejected at instruction entry.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: zero-deposit
+
+  - id: LST27-zero-amount-burn-rejected
+    class: authorization
+    severity: Low
+    claim: >
+      Zero-amount LST burn is rejected at instruction entry.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: zero-burn
+
+  - id: LST28-deposit-share-mint-rate-snapshot
+    class: state_transition
+    severity: High
+    claim: >
+      Mint rate used for a deposit is the current exchange rate at
+      deposit-time, not a stale snapshot from prior epoch.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: lst-stale-mint-rate
+
+  - id: LST29-burn-rate-snapshot
+    class: state_transition
+    severity: High
+    claim: >
+      Burn rate used is the current exchange rate at burn-time, not
+      stale.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: lst-stale-burn-rate
+
+  - id: LST30-deposit-during-pause-rejected
+    class: authorization
+    severity: High
+    claim: >
+      Deposit-paused state blocks every deposit-like path including
+      liquidity-pool routing.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: pause-bypass
+
+  - id: LST31-mint-only-by-program-authority
+    class: authorization
+    severity: Critical
+    claim: >
+      LST mint authority is the program-derived authority; no external
+      key can mint LST tokens.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: mint-authority-leak
+
+  - id: LST32-burn-respects-supply
+    class: invariant_property
+    severity: High
+    claim: >
+      Burn cannot exceed total LST supply held by caller; no path lets
+      negative-balance burn.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: burn-exceeds-balance
+
+  # ─────────────────────────── 3. WITHDRAW QUEUE ─────────────────────────────
+
+  - id: LST50-withdraw-queue-fifo
+    class: state_transition
+    severity: High
+    claim: >
+      Delayed withdrawals are processed in FIFO order. A later-queued
+      withdrawal cannot jump ahead via cancel-and-requeue.
+    applies_to: [marinade]
+    scope_conditions: []
+    bug_class: withdraw-queue-jumping
+
+  - id: LST51-instant-withdraw-fee-collected
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Instant unstaking pays the configured instant-fee to the LP pool
+      / treasury; no bypass via deposit-then-instant-withdraw of a
+      different account.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: instant-fee-bypass
+
+  - id: LST52-withdraw-queue-position-bound
+    class: authorization
+    severity: Medium
+    claim: >
+      A user can have at most N pending withdrawals (configured cap);
+      queue spam is rejected.
+    applies_to: [marinade]
+    scope_conditions: []
+    bug_class: withdraw-queue-spam
+
+  - id: LST53-withdraw-claim-only-when-ready
+    class: authorization
+    severity: High
+    claim: >
+      Claiming a delayed withdrawal is only permitted after the
+      configured cooldown / epoch boundary; early claim rejected.
+    applies_to: [marinade]
+    scope_conditions: []
+    bug_class: withdraw-early-claim
+
+  - id: LST54-withdraw-claim-rate-locked
+    class: state_transition
+    severity: High
+    claim: >
+      The SOL amount delivered on claim is computed from the rate at
+      QUEUE time, not at claim time; users don't lose value to mid-
+      cooldown rate-changes.
+    applies_to: [marinade]
+    scope_conditions: []
+    bug_class: withdraw-rate-changed-mid-cooldown
+
+  - id: LST55-cancellation-burns-receipt
+    class: state_transition
+    severity: Medium
+    claim: >
+      Cancelling a queued withdrawal burns the receipt and credits LST
+      back to the user; no double-claim path.
+    applies_to: [marinade]
+    scope_conditions: []
+    bug_class: cancel-double-claim
+
+  - id: LST56-claim-receipt-binding
+    class: authorization
+    severity: High
+    claim: >
+      Claim instruction validates that the receipt account matches the
+      caller-owned receipt; spoofing rejected.
+    applies_to: [marinade]
+    scope_conditions: []
+    bug_class: claim-receipt-spoofing
+
+  # ─────────────────────────── 4. VALIDATOR / STAKE ──────────────────────────
+
+  - id: LST70-validator-share-pro-rata
+    class: invariant_property
+    severity: High
+    claim: >
+      LST stake delegated to a specific validator yields rewards at the
+      validator's commission. No accounting path lets one validator's
+      rewards inflate another's pool share.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: validator-reward-cross-contamination
+
+  - id: LST71-validator-add-bounded
+    class: authorization
+    severity: High
+    claim: >
+      Validator-set additions are limited to the validator-add authority;
+      no permissionless path adds validators.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: validator-add-permissionless
+
+  - id: LST72-validator-list-cap
+    class: authorization
+    severity: Medium
+    claim: >
+      Validator-list is bounded by max_validators; addition past the
+      cap is rejected.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: validator-list-overflow
+
+  - id: LST73-validator-removal-stake-redirected
+    class: state_transition
+    severity: High
+    claim: >
+      Removing a validator from the set redirects its stake to remaining
+      validators; no stake is lost in the transition.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: validator-removal-stake-loss
+
+  - id: LST74-stake-pool-balance-matches-validators
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Total pool stake equals sum of (validator-account active stake +
+      reserve SOL); no accounting drift across epoch.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: pool-stake-divergence
+
+  - id: LST75-delegation-respects-target-share
+    class: state_transition
+    severity: Medium
+    claim: >
+      Delegation of new SOL respects target-share allocations; no
+      permissionless path forces 100% to one validator.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: delegation-target-bypass
+
+  - id: LST76-undelegate-respects-cooldown
+    class: authorization
+    severity: Medium
+    claim: >
+      Undelegation from a validator follows Solana's stake cooldown
+      semantics; no path skips cooldown.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: undelegate-cooldown-bypass
+
+  - id: LST77-validator-commission-update-deferred
+    class: state_transition
+    severity: Medium
+    claim: >
+      Validator commission updates take effect at next epoch boundary,
+      not retroactively on already-accrued rewards.
+    applies_to: [marinade]
+    scope_conditions: []
+    bug_class: commission-retroactive
+
+  - id: LST78-validator-vote-account-binding
+    class: authorization
+    severity: High
+    claim: >
+      Validator added to the set has its vote-account validated against
+      Solana's validator registry; no rogue vote accounts.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: rogue-vote-account
+
+  - id: LST79-mev-tip-share-handled
+    class: state_transition
+    severity: Medium
+    claim: >
+      Jito-style MEV-tip distributions accrue to the LST pool by the
+      configured share; no path lets MEV bypass into a side account.
+    applies_to: [jito-stakesol]
+    scope_conditions: []
+    bug_class: mev-tip-bypass
+
+  # ─────────────────────────── 5. POOL RESERVES ──────────────────────────────
+
+  - id: LST90-pool-reserve-exact
+    class: invariant_property
+    severity: High
+    claim: >
+      The unstake-pool's SOL reserve plus its claim on staked SOL equals
+      LST tokens outstanding × exchange rate, modulo fee accumulators.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: pool-reserve-drift
+
+  - id: LST91-fee-accumulator-monotone
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Pool fee accumulator is monotone-non-decreasing across normal
+      operations; only authorized fee-withdrawal can decrease it.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: fee-accumulator-regression
+
+  - id: LST92-reserve-not-double-credited
+    class: state_transition
+    severity: High
+    claim: >
+      Stake-account reactivation / withdrawal credits the reserve
+      exactly once per stake account; no double-credit path.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: reserve-double-credit
+
+  - id: LST93-reserve-not-orphaned
+    class: state_transition
+    severity: Medium
+    claim: >
+      Stake accounts removed from delegation are correctly merged or
+      withdrawn to reserve; no orphan stake account.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: orphan-stake-account
+
+  - id: LST94-pool-mint-account-binding
+    class: authorization
+    severity: High
+    claim: >
+      The LST mint account passed to instructions is validated against
+      pool config; substituted mint rejected.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: lst-mint-substitution
+
+  - id: LST95-stake-account-attribution
+    class: authorization
+    severity: High
+    claim: >
+      Each stake account in the pool has a stable validator binding;
+      no path lets a stake account be re-attributed to a different
+      validator without going through the official rebalance flow.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: stake-account-rebinding
+
+  - id: LST96-stake-deposit-cpi-validated
+    class: authorization
+    severity: High
+    claim: >
+      Stake-program CPI for deposit-stake-account validates the staker /
+      withdrawer authority matches the caller; no spoof.
+    applies_to: [marinade, sanctum]
+    scope_conditions: [cross_program_invocation_heavy]
+    bug_class: stake-deposit-cpi-spoof
+
+  # ─────────────────────────── 6. AUTHORIZATION ──────────────────────────────
+
+  - id: LST120-admin-instructions-gated
+    class: authorization
+    severity: Critical
+    claim: >
+      Admin instructions (set fee, pause, set delegation strategy, set
+      validator-add authority) require admin signer.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: admin-gate-bypass
+
+  - id: LST121-admin-handover-two-step
+    class: authorization
+    severity: Medium
+    claim: >
+      Admin handover is two-step (propose then accept).
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: admin-handover-single-step
+
+  - id: LST122-fee-config-bound
+    class: authorization
+    severity: Medium
+    claim: >
+      Fee configurations (deposit fee, withdraw fee, performance fee)
+      are bounded by max-cap; admin cannot set above.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: fee-config-overcap
+
+  - id: LST123-multisig-threshold-respected
+    class: authorization
+    severity: High
+    claim: >
+      Multisig-gated admin actions require the configured threshold.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: multisig-threshold-bypass
+
+  - id: LST124-pause-only-by-pause-authority
+    class: authorization
+    severity: Medium
+    claim: >
+      Pause requires the configured pause authority.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: pause-authority-confusion
+
+  - id: LST125-emergency-withdraw-pro-rata
+    class: invariant_property
+    severity: High
+    claim: >
+      Emergency-withdraw paths during a pause maintain pro-rata share
+      semantics.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: emergency-withdraw-non-pro-rata
+
+  # ─────────────────────────── 7. SANCTUM ROUTER ─────────────────────────────
+
+  - id: LST140-router-share-symmetry
+    class: state_transition
+    severity: High
+    claim: >
+      LST routers (Sanctum) that swap between LSTs preserve total SOL
+      value in the route. No path extracts a positive SOL delta beyond
+      the configured swap fee.
+    applies_to: [sanctum]
+    scope_conditions: []
+    bug_class: lst-router-arb-extraction
+
+  - id: LST141-router-min-amount-out-respected
+    class: authorization
+    severity: High
+    claim: >
+      Router min-amount-out is enforced atomically; no inner path lets
+      slippage-protection be bypassed.
+    applies_to: [sanctum]
+    scope_conditions: []
+    bug_class: router-slippage-bypass
+
+  - id: LST142-router-supports-only-allowlisted-lsts
+    class: authorization
+    severity: High
+    claim: >
+      Router accepts only LSTs in the configured allowlist; routing
+      through a rogue LST is rejected.
+    applies_to: [sanctum]
+    scope_conditions: []
+    bug_class: router-rogue-lst
+
+  - id: LST143-router-fee-collected
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Configured router fee is collected to fee bucket; no bypass path.
+    applies_to: [sanctum]
+    scope_conditions: []
+    bug_class: router-fee-bypass
+
+  - id: LST144-router-no-reentrancy
+    class: authorization
+    severity: Critical
+    claim: >
+      Router CPI to underlying LST programs cannot be re-entered to
+      double-route within the same tx.
+    applies_to: [sanctum]
+    scope_conditions: [cross_program_invocation_heavy]
+    bug_class: router-reentrancy
+
+  - id: LST145-router-pool-account-validated
+    class: authorization
+    severity: High
+    claim: >
+      Pool / mint accounts passed to router are validated against the
+      LST registry; substitution rejected.
+    applies_to: [sanctum]
+    scope_conditions: []
+    bug_class: router-pool-substitution
+
+  # ─────────────────────────── 8. JITO MEV ───────────────────────────────────
+
+  - id: LST160-jito-stakesol-tip-distribution-pro-rata
+    class: invariant_property
+    severity: High
+    claim: >
+      Jito MEV tips distribute pro-rata to JitoSOL holders by shares; no
+      holder receives non-pro-rata.
+    applies_to: [jito-stakesol]
+    scope_conditions: []
+    bug_class: jito-tip-non-pro-rata
+
+  - id: LST161-jito-tip-receiver-pubkey-validated
+    class: authorization
+    severity: High
+    claim: >
+      Tip-receiver authority pubkey is validated against the configured
+      MEV tip-receiver; no path redirects.
+    applies_to: [jito-stakesol]
+    scope_conditions: []
+    bug_class: jito-tip-redirect
+
+  - id: LST162-jito-stakepool-validator-allowlisted
+    class: authorization
+    severity: High
+    claim: >
+      Validators added to JitoSOL stake-pool are on the allowlist; no
+      rogue validator addition.
+    applies_to: [jito-stakesol]
+    scope_conditions: []
+    bug_class: jito-rogue-validator
+
+  # ─────────────────────────── 9. ARITHMETIC ─────────────────────────────────
+
+  - id: LST180-rate-multiplication-bounded
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Rate × amount multiplications fit in u128 across all reachable
+      pool sizes.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: rate-multiplication-overflow
+
+  - id: LST181-precision-loss-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Precision loss across mint/burn is bounded by 1 lamport; no
+      compounding loss path.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: precision-loss-compounding
+
+  - id: LST182-stake-account-balance-fits-u64
+    class: arithmetic_overflow
+    severity: Low
+    claim: >
+      Per-stake-account balance fits in u64; no overflow at max stake
+      sizes.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: stake-balance-overflow
+
+  - id: LST183-pool-total-stake-fits-u64
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Pool total-stake-aggregate fits in u64; no overflow at max pool
+      sizes.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: pool-total-overflow
+
+  - id: LST184-share-conversion-symmetric
+    class: invariant_property
+    severity: High
+    claim: >
+      sol_to_lst(lst_to_sol(N)) <= N for all N; no path exists where
+      round-trip extracts value.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: []
+    bug_class: lst-share-roundtrip-extraction
+
+  # ─────────────────────────── 10. MISC EDGE ─────────────────────────────────
+
+  - id: LST200-redeposit-blocked-during-pause
+    class: authorization
+    severity: High
+    claim: >
+      When deposit is paused, every deposit-like path is blocked,
+      including liquidity-pool routing.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: pause-bypass-deposit
+
+  - id: LST201-no-stale-rate-from-deserialized-account
+    class: authorization
+    severity: High
+    claim: >
+      Operations against a stale-rate (uninit / pre-update) state
+      account are rejected; refresh required first.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: stale-rate-mutation
+
+  - id: LST202-config-update-deferred
+    class: state_transition
+    severity: Medium
+    claim: >
+      Config changes (delegation strategy, fee, validator-list) take
+      effect at next epoch, not retroactively.
+    applies_to: [marinade, sanctum]
+    scope_conditions: []
+    bug_class: config-retroactive
+
+  - id: LST203-cross-program-invocation-validated
+    class: authorization
+    severity: High
+    claim: >
+      All CPIs to stake-program / system-program / token-program use
+      canonical program IDs.
+    applies_to: [marinade, sanctum, jito-stakesol]
+    scope_conditions: [cross_program_invocation_heavy]
+    bug_class: cpi-program-substitution

@@ -60,7 +60,15 @@ KNOWN_CLASSES: set[str] = {
 
 
 # id pattern: H<number>-<lowercase-slug-with-dashes>
-_ID_RE = re.compile(r"^H\d+-[a-z][a-z0-9-]*$")
+# IDs are short stable identifiers. Convention is `<prefix><n>-<slug>` where
+# the prefix groups related hyps (H/SH for Percolator, PD for perp_dex class,
+# AMM for amm_cp, CLMM, LEND, LST, B for bounty, W for wrapper, L for L<n>,
+# BR for bounty regression, etc). Slug is hyphenated ASCII; mixed case
+# allowed since some legacy IDs encode finding labels (BR-F7-…) or use a
+# trailing capital letter for emphasis. The regex is intentionally
+# permissive — loader-level uniqueness + bug_class is what actually drives
+# propagation.
+_ID_RE = re.compile(r"^[A-Z]+\d*-[A-Za-z0-9][A-Za-z0-9-]*$")
 _BUG_CLASS_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 
 
@@ -109,6 +117,183 @@ class ScopingResult:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+
+# Known protocol classes. Each maps to a glob the class-library loader uses
+# to pull in all yaml files for that class. Adding a new class is two steps:
+#   1. drop a <class>_class.yaml in templates/hypotheses/
+#   2. (optional) add the class -> known-protocols mapping below for the
+#      `audit-pipeline classes list` command and methodology docs
+PROTOCOL_CLASSES: dict[str, dict[str, Any]] = {
+    "perp_dex": {
+        "label": "Perpetual DEX",
+        "globs": ["perp_dex_*.yaml", "percolator*.yaml"],
+        "protocols": ["percolator", "drift", "mango", "jupiter-perps"],
+    },
+    "amm_cp": {
+        "label": "Constant-product AMM",
+        "globs": ["amm_cp_*.yaml"],
+        "protocols": ["raydium-cp", "orca-cp", "saber"],
+    },
+    "clmm": {
+        "label": "Concentrated-liquidity AMM",
+        "globs": ["clmm_*.yaml"],
+        "protocols": ["orca-whirlpools", "kamino-liquidity", "meteora-dlmm"],
+    },
+    "lending": {
+        "label": "Lending market",
+        "globs": ["lending_*.yaml"],
+        "protocols": ["marginfi", "kamino-lend", "solend", "save-finance"],
+    },
+    "lst": {
+        "label": "Liquid staking token",
+        "globs": ["lst_*.yaml"],
+        "protocols": ["marinade", "sanctum", "jito-stakesol"],
+    },
+}
+
+
+# ─────────────────────────── Diff-aware hunting (Tier 2 #11) ──────────────
+
+
+def changed_files_between(repo_dir: Path, prev_sha: str, new_sha: str = "HEAD") -> set[str]:
+    """Return the set of file paths changed between two SHAs in `repo_dir`.
+
+    Uses `git diff --name-only <prev>..<new>`. Returns posix-style relative
+    paths. Empty set on git error or if either SHA is unreachable. The
+    caller should treat an empty set as "no diff information available"
+    and run the full library, not as "nothing changed."
+    """
+    import subprocess
+    if not repo_dir.is_dir() or not (repo_dir / ".git").exists():
+        return set()
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo_dir), "diff", "--name-only",
+             f"{prev_sha}..{new_sha}"],
+            capture_output=True, text=True, timeout=30, check=True,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        return set()
+    return {line.strip() for line in r.stdout.splitlines() if line.strip()}
+
+
+def filter_hypotheses_by_diff(
+    hyps: list[dict[str, Any]],
+    changed_files: set[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Filter hypotheses to those whose target_file intersects `changed_files`.
+
+    Hyps WITHOUT a `target_file` field are conservatively kept (returned in
+    the kept list) — these are typically whole-protocol invariants that
+    don't bind to a single file (Layer-0 spec drift, cross-cutting math).
+    Hyps WITH a `target_file` are kept only if that file (or a prefix) is
+    in `changed_files`. Hyps that match a `target_file_glob` extension
+    are also kept.
+
+    Returns (kept, skipped). The skipped list is useful for logging /
+    transparency on what got filtered out.
+    """
+    if not changed_files:
+        # No diff info — be conservative, run everything.
+        return hyps, []
+    kept: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    # Normalize changed paths
+    norm = {p.replace("\\", "/").lstrip("./") for p in changed_files}
+    for h in hyps:
+        tf = h.get("target_file")
+        if not tf:
+            kept.append(h)
+            continue
+        tf_norm = str(tf).replace("\\", "/").lstrip("./")
+        # Exact match OR diff path startswith hyp's target_file (for
+        # directory-like target paths) OR vice versa
+        hit = (
+            tf_norm in norm
+            or any(p == tf_norm or p.startswith(tf_norm + "/") for p in norm)
+            or any(tf_norm.startswith(p + "/") for p in norm)
+        )
+        if hit:
+            kept.append(h)
+        else:
+            skipped.append(h)
+    return kept, skipped
+
+
+def list_classes() -> list[dict[str, Any]]:
+    """Return the catalog of known protocol classes (label + protocols)."""
+    return [
+        {"id": cid, **{k: v for k, v in cdef.items() if k != "globs"}}
+        for cid, cdef in PROTOCOL_CLASSES.items()
+    ]
+
+
+def hypotheses_dir() -> Path:
+    """Return the bundled hypothesis-templates directory."""
+    return Path(__file__).resolve().parent / "templates" / "hypotheses"
+
+
+def load_class_library(
+    class_name: str,
+    extra_dirs: list[Path] | None = None,
+) -> tuple[list[dict[str, Any]], list[Path]]:
+    """Load every hypothesis yaml file relevant to a protocol class.
+
+    Resolution order:
+      1. Bundled templates dir (src/audit_pipeline/templates/hypotheses/)
+      2. Each path in `extra_dirs`, in order (typically the workspace dir)
+
+    For class `perp_dex`, this loads `perp_dex_*.yaml` AND
+    `percolator*.yaml` (because Percolator-specific hyps are still
+    cluster-applicable via their `applies_to`). For other classes the glob
+    is just `<class>_*.yaml`.
+
+    Returns (merged_hypotheses, source_paths). Raises
+    HypothesisValidationError on cross-file id collision.
+
+    Args:
+        class_name: One of the keys in PROTOCOL_CLASSES (case-insensitive).
+        extra_dirs: Additional directories to scan for matching yaml files.
+                    Workspace-local override files live here.
+    """
+    cname = class_name.strip().lower()
+    if cname not in PROTOCOL_CLASSES:
+        raise HypothesisValidationError(
+            f"unknown protocol class {cname!r} — known: {sorted(PROTOCOL_CLASSES.keys())}"
+        )
+    cdef = PROTOCOL_CLASSES[cname]
+    globs: list[str] = cdef["globs"]
+
+    search_dirs: list[Path] = [hypotheses_dir()]
+    if extra_dirs:
+        search_dirs.extend(extra_dirs)
+
+    seen_paths: set[Path] = set()
+    files: list[Path] = []
+    for d in search_dirs:
+        if not d.is_dir():
+            continue
+        for g in globs:
+            for p in sorted(d.glob(g)):
+                rp = p.resolve()
+                if rp in seen_paths:
+                    continue
+                seen_paths.add(rp)
+                files.append(p)
+
+    merged: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for f in files:
+        for h in load_hypotheses(f):
+            if h["id"] in seen_ids:
+                raise HypothesisValidationError(
+                    f"class-library load: duplicate id {h['id']!r} "
+                    f"(file: {f})"
+                )
+            seen_ids.add(h["id"])
+            merged.append(h)
+    return merged, files
 
 
 def load_hypotheses(yaml_path: Path) -> list[dict[str, Any]]:

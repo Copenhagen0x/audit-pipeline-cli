@@ -269,6 +269,48 @@ the .rs file contents (no markdown fences). The test name should be
     if no_run:
         return
 
+    # ─── PoC cache lookup (Tier 2 #10) ────────────────────────────────────
+    # Cache key: (engine_sha, hyp_id, hash_of_test_bytes). cargo test on
+    # a fixed engine SHA + identical test bytes is deterministic, so a hit
+    # lets us short-circuit the 20-60s cargo run.
+    import hashlib
+    from audit_pipeline.db import FindingsDB
+    poc_hash = hashlib.sha256(test_code.encode("utf-8")).hexdigest()
+    engine_sha = (config.get("engine") or {}).get("sha") or ""
+    cached = None
+    if engine_sha:
+        try:
+            db = FindingsDB(workspace / "findings.db")
+            cached = db.get_poc_cache(engine_sha, hyp_id, poc_hash)
+        except Exception:
+            cached = None
+    if cached:
+        outcome = cached["outcome"]
+        rc = cached.get("cargo_rc") or 0
+        elapsed = cached.get("elapsed_s") or 0.0
+        console.print(
+            f"  [cyan]PoC cache HIT[/cyan] (sha={engine_sha[:7]}, "
+            f"poc_hash={poc_hash[:8]}…) — outcome={outcome}, skipping cargo test"
+        )
+        summary = {
+            "hyp_id": hyp_id,
+            "test_name": test_name,
+            "test_path": str(saved_path),
+            "outcome": outcome,
+            "cargo_rc": rc,
+            "cargo_elapsed_s": elapsed,
+            "cargo_log": cached.get("log_path"),
+            "cache_hit": True,
+            "cache_n_hits": cached.get("n_hits"),
+            "input_tokens": resp.input_tokens,
+            "output_tokens": resp.output_tokens,
+        }
+        (output_dir / f"{test_name}.summary.json").write_text(
+            json.dumps(summary, indent=2)
+        )
+        console.print(f"  Summary: {output_dir / f'{test_name}.summary.json'}")
+        return
+
     # Copy into engine tests/ and compile
     test_dest = engine_dir / "tests" / f"{test_name}.rs"
     try:
@@ -340,6 +382,7 @@ the .rs file contents (no markdown fences). The test name should be
         "cargo_rc": rc,
         "cargo_elapsed_s": round(elapsed, 1),
         "cargo_log": str(log),
+        "cache_hit": False,
         "input_tokens": resp.input_tokens,
         "output_tokens": resp.output_tokens,
     }
@@ -347,6 +390,22 @@ the .rs file contents (no markdown fences). The test name should be
         json.dumps(summary, indent=2)
     )
     console.print(f"  Summary: {output_dir / f'{test_name}.summary.json'}")
+
+    # PoC cache write (Tier 2 #10) — store the outcome so subsequent runs
+    # of identical test bytes on the same engine SHA can short-circuit.
+    if engine_sha:
+        try:
+            db.put_poc_cache(
+                engine_sha=engine_sha,
+                hypothesis_id=hyp_id,
+                poc_hash=poc_hash,
+                outcome=outcome,
+                cargo_rc=rc,
+                elapsed_s=round(elapsed, 1),
+                log_path=str(log),
+            )
+        except Exception:
+            pass
 
 
 def _slug(text: str) -> str:

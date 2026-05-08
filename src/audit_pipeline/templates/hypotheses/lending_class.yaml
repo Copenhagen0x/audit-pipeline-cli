@@ -1,0 +1,984 @@
+# Class library: lending markets
+#
+# Loads when target.protocol_class == "lending" (Marginfi, Kamino Lend,
+# Solend, Save Finance).
+#
+# Schema: docs/HYPOTHESIS_SCHEMA.md
+
+hypotheses:
+
+  # ─────────────────────────── 1. RESERVE STATE ──────────────────────────────
+
+  - id: LEND1-reserve-state-conservation
+    class: invariant_property
+    severity: Critical
+    claim: >
+      For every state-mutating instruction (deposit, borrow, repay,
+      withdraw, liquidate), the change in available_liquidity equals
+      the net token transfer in/out, after fees.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: reserve-balance-divergence
+
+  - id: LEND2-borrowed-amount-monotone-with-borrow
+    class: invariant_property
+    severity: High
+    claim: >
+      reserve.borrowed_amount strictly increases on a successful borrow
+      and strictly decreases on a successful repay; no path inverts.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: borrowed-amount-direction
+
+  - id: LEND3-deposit-cap-circumvention
+    class: authorization
+    severity: High
+    claim: >
+      A reserve's deposit cap is enforced atomically across multi-step
+      paths (split deposits, CPI deposits, leverage-loop deposits).
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: deposit-cap-circumvention
+
+  - id: LEND4-borrow-cap-circumvention
+    class: authorization
+    severity: High
+    claim: >
+      A reserve's borrow cap is enforced atomically across multi-step
+      paths; no sequence pushes total borrowed past the cap.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: borrow-cap-circumvention
+
+  - id: LEND5-reserve-collateral-decimal-pinned
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Collateral-token decimals are fixed at reserve init; no path
+      mutates decimals after deployment.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: reserve-decimals-mutation
+
+  - id: LEND6-reserve-init-once
+    class: authorization
+    severity: High
+    claim: >
+      A reserve account cannot be initialized twice; second init reverts.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: reserve-double-init
+
+  - id: LEND7-reserve-mint-binding
+    class: authorization
+    severity: High
+    claim: >
+      Reserve token-vault and supply-mint accounts are validated to
+      match the reserve's configured liquidity mint; spoofing rejected.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: reserve-mint-spoofing
+
+  - id: LEND8-supply-mint-bound
+    class: invariant_property
+    severity: High
+    claim: >
+      Total supply-token (cToken / shares) outstanding fits in u64; mint
+      operations cannot overflow.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: supply-token-overflow
+
+  - id: LEND9-vault-balance-matches-bookkeeping
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Reserve token-vault SPL balance equals available_liquidity +
+      collected_fees - amounts already paid out per book-keeping.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: vault-balance-divergence-bookkeeping
+
+  - id: LEND10-reserve-version-pinned
+    class: authorization
+    severity: High
+    claim: >
+      Reserve account version matches program version; stale-version
+      reserves are rejected.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: reserve-version-mismatch
+
+  - id: LEND11-reserve-paused-blocks-mutations
+    class: authorization
+    severity: High
+    claim: >
+      A paused reserve blocks deposit, borrow, repay, withdraw; only
+      liquidation may proceed (depending on policy).
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: pause-bypass-on-reserve
+
+  - id: LEND12-reserve-frozen-blocks-borrow
+    class: authorization
+    severity: High
+    claim: >
+      A reserve in frozen-borrow state blocks new borrows but allows
+      repay; no path lets a frozen reserve issue new debt.
+    applies_to: [kamino-lend, solend]
+    scope_conditions: []
+    bug_class: frozen-borrow-bypass
+
+  - id: LEND13-reserve-no-spurious-collateral-credit
+    class: invariant_property
+    severity: Critical
+    claim: >
+      A deposit credits the obligation with collateral cToken / shares
+      proportional to actual deposit amount × reserve exchange rate;
+      no path credits extra.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: collateral-credit-overpayment
+
+  - id: LEND14-zero-deposit-rejected
+    class: authorization
+    severity: Low
+    claim: >
+      Zero-amount deposit is rejected at instruction entry.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: zero-deposit
+
+  - id: LEND15-zero-borrow-rejected
+    class: authorization
+    severity: Low
+    claim: >
+      Zero-amount borrow is rejected at instruction entry.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: zero-borrow
+
+  # ─────────────────────────── 2. INTEREST RATE ──────────────────────────────
+
+  - id: LEND20-interest-accrual-monotone
+    class: invariant_property
+    severity: High
+    claim: >
+      The cumulative borrow_rate index only ever increases. Refresh
+      operations cannot reset, decrement, or duplicate an accrual window.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: interest-accrual-regression
+
+  - id: LEND21-refresh-idempotent-same-slot
+    class: state_transition
+    severity: High
+    claim: >
+      Two refreshes on the same slot are idempotent — the second is a
+      no-op. No double-accrue path.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: refresh-double-accrue
+
+  - id: LEND22-utilization-rate-bounded
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Utilization (borrowed / available) is computed in u128; no overflow
+      at maximum reserve sizes.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: utilization-overflow
+
+  - id: LEND23-rate-curve-at-utilization-1-defined
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      The rate curve at utilization == 1.0 returns a defined, bounded
+      value; no division-by-zero or unbounded edge.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: rate-curve-edge-undef
+
+  - id: LEND24-rate-curve-monotone-with-utilization
+    class: invariant_property
+    severity: Medium
+    claim: >
+      The rate curve is monotone-non-decreasing in utilization; no
+      non-monotone region creates an arbitrage incentive.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: rate-curve-non-monotone
+
+  - id: LEND25-borrow-rate-respects-kink
+    class: state_transition
+    severity: Medium
+    claim: >
+      The kinked rate curve respects the configured optimal-utilization
+      kink; below kink uses base curve, above uses high-utilization
+      curve.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: rate-curve-kink-error
+
+  - id: LEND26-supply-rate-bounded-by-borrow-rate
+    class: invariant_property
+    severity: High
+    claim: >
+      Supply-rate is always strictly less than borrow-rate (modulo
+      protocol-fee share); no path inverts.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: supply-rate-exceeds-borrow
+
+  - id: LEND27-protocol-fee-deducted-from-interest
+    class: state_transition
+    severity: High
+    claim: >
+      Protocol fee share is deducted from gross interest before LP-share
+      growth; no double-count path.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: protocol-fee-double-count
+
+  - id: LEND28-accrual-elapsed-positive
+    class: state_transition
+    severity: Medium
+    claim: >
+      Accrual elapsed is computed as max(0, current_slot - last_slot);
+      negative-elapsed (clock regression) does not subtract from accrued.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: accrual-clock-regression
+
+  - id: LEND29-accrual-overflow-saturated
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Cumulative borrow_rate × elapsed_slots fits in u128; no path
+      triggers wrapping.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: accrual-overflow
+
+  # ─────────────────────────── 3. OBLIGATION ─────────────────────────────────
+
+  - id: LEND40-obligation-health-monotone
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Obligation health is monotone-decreasing under: oracle price
+      worsening for collateral, oracle price improving for borrow.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: obligation-health-monotonicity
+
+  - id: LEND41-obligation-collateral-sum-correct
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Obligation total deposited value equals sum of (collateral_amount
+      × reserve exchange rate × oracle price) across all deposit slots.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: obligation-collateral-sum-divergence
+
+  - id: LEND42-obligation-borrow-sum-correct
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Obligation total borrowed value equals sum of (borrowed_amount ×
+      cumulative_rate × oracle price) across all borrow slots.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: obligation-borrow-sum-divergence
+
+  - id: LEND43-obligation-borrow-blocked-when-unhealthy
+    class: authorization
+    severity: Critical
+    claim: >
+      An obligation cannot borrow if the post-borrow state would make
+      it liquidatable. Borrow refresh checks health post-mutation.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: borrow-into-liquidation
+
+  - id: LEND44-obligation-withdraw-blocked-when-unhealthy
+    class: authorization
+    severity: Critical
+    claim: >
+      An obligation cannot withdraw collateral if the post-withdraw
+      state would make it liquidatable.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: withdraw-into-liquidation
+
+  - id: LEND45-obligation-cap-on-deposits-and-borrows
+    class: authorization
+    severity: Medium
+    claim: >
+      An obligation has a hard cap on the number of deposit and borrow
+      slots; new deposits / borrows past the cap are rejected.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: obligation-slot-overflow
+
+  - id: LEND46-obligation-deposit-slot-correct-binding
+    class: authorization
+    severity: High
+    claim: >
+      Each deposit slot binds to exactly one reserve; no path lets a
+      single slot accumulate collateral from two different reserves.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: obligation-slot-reserve-confusion
+
+  - id: LEND47-obligation-stale-rejected-on-mutation
+    class: authorization
+    severity: Critical
+    claim: >
+      Mutating obligation operations (borrow, withdraw, repay,
+      liquidate) require a refresh in the same tx; stale obligation
+      reads are rejected.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: obligation-stale-mutation
+
+  - id: LEND48-obligation-refresh-includes-all-reserves
+    class: state_transition
+    severity: High
+    claim: >
+      A refresh-obligation instruction passes refreshed accounts for
+      every reserve referenced by the obligation; missing reserves
+      cause refresh to revert.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: refresh-missing-reserve
+
+  - id: LEND49-obligation-empty-cleanup
+    class: state_transition
+    severity: Low
+    claim: >
+      An obligation with zero deposits and zero borrows can be closed
+      and refunded for rent; no path forces it to remain open.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: obligation-empty-not-closeable
+
+  # ─────────────────────────── 4. LIQUIDATION ────────────────────────────────
+
+  - id: LEND60-liquidation-discount-bounded
+    class: state_transition
+    severity: Critical
+    claim: >
+      A liquidator cannot purchase collateral at a discount greater than
+      the configured max_liquidation_bonus relative to oracle.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: liquidation-discount-stacking
+
+  - id: LEND61-liquidation-only-when-unhealthy
+    class: authorization
+    severity: Critical
+    claim: >
+      Liquidation is rejected if obligation is healthy (LTV below
+      liquidation threshold). No path lets a healthy obligation be
+      liquidated.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: liquidation-healthy-obligation
+
+  - id: LEND62-liquidation-respects-close-factor
+    class: state_transition
+    severity: High
+    claim: >
+      A single liquidation instruction cannot repay more than the
+      configured close-factor share of the obligation's debt; partial
+      liquidation respects the cap.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: liquidation-close-factor-bypass
+
+  - id: LEND63-liquidation-bad-debt-write-off
+    class: state_transition
+    severity: High
+    claim: >
+      When a liquidation cannot fully cover an obligation (collateral <
+      debt × bonus), residual debt is explicitly written off as bad
+      debt, not silently absorbed.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [liquidation_engine]
+    bug_class: bad-debt-stealth-socialization
+
+  - id: LEND64-liquidation-bonus-respects-min
+    class: state_transition
+    severity: Medium
+    claim: >
+      Liquidator gets at least min_liquidation_bonus on a healthy
+      liquidation; the floor is enforced atomically.
+    applies_to: [kamino-lend, solend]
+    scope_conditions: []
+    bug_class: liquidation-bonus-floor
+
+  - id: LEND65-liquidation-self-rejected
+    class: authorization
+    severity: Medium
+    claim: >
+      Self-liquidation (caller == obligation owner) is rejected OR
+      explicitly handled with no bonus; no path lets an owner profit
+      from liquidating themselves.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: self-liquidation-profit
+
+  - id: LEND66-liquidation-fee-collected
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Liquidation fees (if any) are collected to the configured fee
+      destination; no path bypasses the fee.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: [liquidation_engine]
+    bug_class: liquidation-fee-bypass
+
+  - id: LEND67-liquidation-receives-collateral-pro-rata
+    class: state_transition
+    severity: High
+    claim: >
+      Liquidator receives collateral proportional to repaid debt × bonus
+      at oracle prices; no over-credit path.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [uses_pyth_oracle, liquidation_engine]
+    bug_class: liquidation-over-credit
+
+  - id: LEND68-liquidation-during-pause
+    class: authorization
+    severity: Medium
+    claim: >
+      Liquidation behavior during a reserve pause matches policy: either
+      always allowed (fast-exit safety) or always blocked. Behavior is
+      deterministic.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: liquidation-pause-policy
+
+  - id: LEND69-bad-debt-socialization-pro-rata
+    class: invariant_property
+    severity: High
+    claim: >
+      When socialization kicks in (bad debt > insurance), each
+      depositor's share of the loss is pro-rata; no depositor escapes
+      a higher-than-pro-rata share.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: bad-debt-socialization-fairness
+
+  - id: LEND70-liquidation-min-amount
+    class: authorization
+    severity: Low
+    claim: >
+      Liquidation rejects micro-liquidation amounts below a configured
+      minimum (rent-attack protection).
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: micro-liquidation-attack
+
+  # ─────────────────────────── 5. FLASH LOAN ─────────────────────────────────
+
+  - id: LEND80-flash-borrow-atomic-repay
+    class: state_transition
+    severity: Critical
+    claim: >
+      Flash borrow + repay must complete atomically within one tx. The
+      borrow check at end-of-tx fails if repay didn't execute.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: [flash_loan]
+    bug_class: flash-loan-non-atomic
+
+  - id: LEND81-flash-fee-collected
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Flash-loan fee is collected to the reserve / protocol fee bucket;
+      no path skips the fee.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: [flash_loan]
+    bug_class: flash-fee-bypass
+
+  - id: LEND82-flash-no-reentrancy
+    class: authorization
+    severity: Critical
+    claim: >
+      During a flash loan, no inner CPI can re-enter the lending
+      program and modify reserve / obligation state.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: [flash_loan]
+    bug_class: flash-reentrancy
+
+  - id: LEND83-flash-respects-borrow-cap
+    class: authorization
+    severity: High
+    claim: >
+      Flash borrow respects the reserve's borrow cap and available-
+      liquidity bound; no path lets a flash loan drain more than
+      available.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: [flash_loan]
+    bug_class: flash-borrow-cap-bypass
+
+  - id: LEND84-flash-callback-program-validated
+    class: authorization
+    severity: High
+    claim: >
+      The callback program ID for a flash loan is validated against an
+      allow-list or signed by the borrower; no rogue callback path.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: [flash_loan]
+    bug_class: flash-callback-rogue
+
+  # ─────────────────────────── 6. E-MODE / ISOLATED ──────────────────────────
+
+  - id: LEND100-emode-correlation-respected
+    class: authorization
+    severity: High
+    claim: >
+      eMode (correlated-asset mode) only applies the boosted LTV when
+      every collateral and every borrow is in the same eMode category.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: emode-correlation-bypass
+
+  - id: LEND101-emode-transition-checks-health
+    class: state_transition
+    severity: High
+    claim: >
+      Switching obligation eMode is only permitted if the post-switch
+      state is healthy under new eMode params; switching out of unhealthy
+      is rejected.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: emode-switch-unhealthy
+
+  - id: LEND102-isolated-mode-contamination
+    class: authorization
+    severity: High
+    claim: >
+      Borrows in isolated mode cannot mix with non-isolated collateral
+      in the same obligation. No path lets isolated debt accrue against
+      general collateral.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: isolated-mode-contamination
+
+  - id: LEND103-isolated-debt-ceiling
+    class: authorization
+    severity: High
+    claim: >
+      Isolated-asset debt across the protocol cannot exceed the asset's
+      configured debt ceiling; new borrows past the ceiling are rejected.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: isolated-debt-ceiling-bypass
+
+  - id: LEND104-isolated-mode-default-ltv
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Isolated-mode LTV defaults are conservatively below normal-mode
+      LTV; no path lets isolated mode have a higher LTV than non-isolated.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: isolated-ltv-inversion
+
+  - id: LEND105-emode-config-bounded
+    class: authorization
+    severity: Medium
+    claim: >
+      eMode LTV / liquidation-threshold configs are bounded; admin
+      cannot set values that would make any eMode obligation
+      retroactively liquidatable.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: emode-config-out-of-bounds
+
+  # ─────────────────────────── 7. ORACLE ─────────────────────────────────────
+
+  - id: LEND130-oracle-staleness-rejection
+    class: authorization
+    severity: Critical
+    claim: >
+      Every oracle-price read for risk decisions rejects stale prices
+      (slot age > configured floor). No fallback path lets a stale
+      price drive a state mutation.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: oracle-staleness-bypass
+
+  - id: LEND131-oracle-confidence-respected
+    class: authorization
+    severity: High
+    claim: >
+      Pyth confidence-interval is checked: prices with confidence
+      ratio above the configured floor are rejected for liquidation /
+      borrow decisions.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: oracle-confidence-bypass
+
+  - id: LEND132-oracle-mint-binding
+    class: authorization
+    severity: High
+    claim: >
+      The oracle account passed in is validated against the reserve's
+      configured oracle pubkey; substituted oracles are rejected.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: oracle-substitution
+
+  - id: LEND133-oracle-twap-fallback
+    class: state_transition
+    severity: Medium
+    claim: >
+      When primary oracle is stale or rejected, fallback to TWAP / EMA
+      oracle is gated by an explicit policy and logged; no silent fallback.
+    applies_to: [kamino-lend, solend]
+    scope_conditions: [uses_pyth_oracle]
+    bug_class: oracle-silent-fallback
+
+  - id: LEND134-oracle-update-monotone-clock
+    class: invariant_property
+    severity: Low
+    claim: >
+      Oracle TWAP / EMA accumulator updates only forward in time; no
+      regression path.
+    applies_to: [kamino-lend]
+    scope_conditions: []
+    bug_class: oracle-twap-clock-regression
+
+  # ─────────────────────────── 8. AUTHORIZATION ──────────────────────────────
+
+  - id: LEND150-admin-instructions-gated
+    class: authorization
+    severity: Critical
+    claim: >
+      Every admin instruction (set fee, set rate curve, pause, set LTV)
+      checks the signer against the configured admin pubkey.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: admin-gate-bypass
+
+  - id: LEND151-rate-curve-update-bounded
+    class: authorization
+    severity: High
+    claim: >
+      Admin rate-curve updates are bounded by configured min/max rates;
+      no path lets admin set a 100% / 0% rate by mistake.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: rate-curve-out-of-bound
+
+  - id: LEND152-ltv-update-deferred
+    class: state_transition
+    severity: High
+    claim: >
+      LTV / liquidation-threshold updates take effect after a delay (or
+      epoch boundary) and only AFTER a grace period — preventing
+      sudden mass-liquidation attacks.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: ltv-instant-update
+
+  - id: LEND153-admin-handover-two-step
+    class: authorization
+    severity: Medium
+    claim: >
+      Admin handover is two-step (propose then accept).
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: admin-handover-single-step
+
+  - id: LEND154-fee-config-bound
+    class: authorization
+    severity: Medium
+    claim: >
+      Protocol-fee share is bounded by a max (e.g. 50%); admin cannot
+      set fee share above the cap.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: protocol-fee-overcap
+
+  - id: LEND155-pause-only-by-pause-authority
+    class: authorization
+    severity: Medium
+    claim: >
+      Pause requires the configured pause-authority signer; admin
+      cannot pause unless they ARE the pause authority.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: pause-authority-confusion
+
+  - id: LEND156-multisig-threshold-respected
+    class: authorization
+    severity: High
+    claim: >
+      Multisig-gated admin actions require the configured threshold of
+      signers.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: multisig-threshold-bypass
+
+  # ─────────────────────────── 9. MATH / OVERFLOW ────────────────────────────
+
+  - id: LEND180-share-conversion-rounding
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Liquidity → cToken conversion rounds DOWN on mint (favoring pool);
+      cToken → liquidity rounds DOWN on redeem (favoring pool).
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: share-conversion-rounding
+
+  - id: LEND181-borrow-shares-rounding
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Borrow-shares allocation rounds UP on borrow (favoring pool);
+      repay rounds UP shares (favoring pool).
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: borrow-share-rounding-favors-borrower
+
+  - id: LEND182-precision-loss-not-compounding
+    class: arithmetic_overflow
+    severity: High
+    claim: >
+      Precision loss across an operation is bounded by 1 lamport per
+      token; no compounding-loss path lets repeated tiny operations
+      drain the pool.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: precision-loss-compounding
+
+  - id: LEND183-exchange-rate-cannot-zero
+    class: invariant_property
+    severity: Critical
+    claim: >
+      Reserve exchange rate (liquidity_per_share) is never zero — no
+      path lets a reserve with depositors have zero liquidity.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: zero-exchange-rate
+
+  - id: LEND184-overflow-on-large-deposits
+    class: arithmetic_overflow
+    severity: Medium
+    claim: >
+      Deposits up to deposit-cap fit in u128 reserve-state arithmetic;
+      no overflow at max reserve size.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: deposit-arithmetic-overflow
+
+  - id: LEND185-saturate-on-repay-overpay
+    class: state_transition
+    severity: Medium
+    claim: >
+      Repaying more than outstanding debt either reverts OR clamps to
+      outstanding; no path credits the obligation.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: repay-overpay-credit
+
+  # ─────────────────────────── 10. REBASE / SPECIAL ──────────────────────────
+
+  - id: LEND200-rebase-token-handling
+    class: state_transition
+    severity: High
+    claim: >
+      Rebasing collateral tokens (LSTs that auto-grow balance) either
+      update the obligation's collateral on every refresh OR are
+      rejected at deposit. No path lets rebase growth bypass health.
+    applies_to: [kamino-lend, solend]
+    scope_conditions: []
+    bug_class: rebase-token-bypass
+
+  - id: LEND201-leverage-loop-atomicity
+    class: state_transition
+    severity: Critical
+    claim: >
+      Leveraged-loop products (Kamino Multiply) atomically: deposit,
+      flash-borrow, swap, redeposit, accrue debt. Partial-state mid-loop
+      is unreachable from external instructions.
+    applies_to: [kamino-lend]
+    scope_conditions: [flash_loan]
+    bug_class: leverage-loop-atomicity
+
+  - id: LEND202-leverage-loop-respects-deposit-cap
+    class: authorization
+    severity: High
+    claim: >
+      Leverage loops respect deposit / borrow caps at every step,
+      including the temporary mid-loop state.
+    applies_to: [kamino-lend]
+    scope_conditions: [flash_loan]
+    bug_class: leverage-cap-bypass-mid-loop
+
+  - id: LEND203-leverage-product-collateral-singleton
+    class: invariant_property
+    severity: Medium
+    claim: >
+      Each leverage product has one designated collateral mint; no
+      path lets the product accept a different collateral.
+    applies_to: [kamino-lend]
+    scope_conditions: []
+    bug_class: leverage-collateral-substitution
+
+  - id: LEND204-leverage-debt-bound-by-ltv
+    class: invariant_property
+    severity: High
+    claim: >
+      Leverage product final-state LTV is bounded by configured max;
+      no over-leverage path.
+    applies_to: [kamino-lend]
+    scope_conditions: []
+    bug_class: leverage-over-ltv
+
+  - id: LEND205-isolated-asset-deposit-blocked-on-mixed
+    class: authorization
+    severity: High
+    claim: >
+      Depositing an isolated asset into a non-isolated obligation OR an
+      obligation with non-isolated assets is rejected.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: isolated-deposit-mixed
+
+  - id: LEND206-fee-receiver-validation
+    class: authorization
+    severity: Medium
+    claim: >
+      The fee-receiver token account passed to admin instructions
+      matches the configured fee-receiver pubkey; no redirect path.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: fee-receiver-redirect
+
+  - id: LEND207-token-program-pinned
+    class: authorization
+    severity: High
+    claim: >
+      Token-program account passed to CPI is canonical SPL Token /
+      Token-2022; substitution rejected.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: token-program-substitution
+
+  - id: LEND208-token-vault-not-attacker-owned
+    class: authorization
+    severity: Critical
+    claim: >
+      Reserve token-vault is owned by the program-derived authority,
+      never an attacker-owned PDA.
+    applies_to: [marginfi, kamino-lend, solend, save-finance]
+    scope_conditions: []
+    bug_class: token-vault-ownership
+
+  - id: LEND209-cpi-account-discriminator
+    class: authorization
+    severity: High
+    claim: >
+      Every Anchor-style account read validates the discriminator;
+      mistyped accounts rejected.
+    applies_to: [marginfi, kamino-lend]
+    scope_conditions: []
+    bug_class: account-discriminator-bypass
+
+  - id: LEND210-account-bump-seed-validated
+    class: authorization
+    severity: High
+    claim: >
+      All program-PDAs validate their bump seed against the canonical
+      bump; no malleability path.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: pda-bump-malleability
+
+  - id: LEND211-rent-exemption-on-pda
+    class: authorization
+    severity: Low
+    claim: >
+      All program-owned PDAs are rent-exempt at creation.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: pda-rent-exemption
+
+  - id: LEND212-marginfi-account-isolation
+    class: invariant_property
+    severity: High
+    claim: >
+      Marginfi user-account state is isolated by the marginfi-group
+      binding; no cross-group account read.
+    applies_to: [marginfi]
+    scope_conditions: []
+    bug_class: marginfi-group-confusion
+
+  - id: LEND213-marginfi-bank-config-versioned
+    class: authorization
+    severity: Medium
+    claim: >
+      Marginfi bank config-update is versioned; old versions don't
+      retroactively re-apply.
+    applies_to: [marginfi]
+    scope_conditions: []
+    bug_class: marginfi-config-version
+
+  - id: LEND214-kamino-multiply-flash-no-double-borrow
+    class: state_transition
+    severity: High
+    claim: >
+      Kamino Multiply flash-borrow inside the loop cannot be re-entered
+      to double-borrow within the same tx.
+    applies_to: [kamino-lend]
+    scope_conditions: [flash_loan]
+    bug_class: multiply-flash-double-borrow
+
+  - id: LEND215-solend-permissioned-market-allowlist
+    class: authorization
+    severity: High
+    claim: >
+      Solend permissioned markets enforce allowlists at obligation
+      open / first deposit; no path bypasses the allowlist.
+    applies_to: [solend]
+    scope_conditions: []
+    bug_class: permissioned-market-bypass
+
+  - id: LEND216-save-finance-isolated-bins-non-cross
+    class: authorization
+    severity: High
+    claim: >
+      Save Finance isolated-bin design prevents cross-bin contamination;
+      bin1 collateral cannot back bin2 borrow.
+    applies_to: [save-finance]
+    scope_conditions: []
+    bug_class: save-bin-cross-contamination
+
+  - id: LEND217-account-close-zeroes-data
+    class: state_transition
+    severity: High
+    claim: >
+      Closing an obligation / reserve account zeros the data buffer
+      before refund; no shadow-state leak.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: account-close-state-leak
+
+  - id: LEND218-obligation-deposit-removal-cleanup
+    class: state_transition
+    severity: Medium
+    claim: >
+      Removing a deposit slot from an obligation zero-fills the slot;
+      no orphaned reserve binding.
+    applies_to: [marginfi, kamino-lend, solend]
+    scope_conditions: []
+    bug_class: deposit-slot-orphan
