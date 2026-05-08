@@ -40,6 +40,29 @@ def _propagate_target(workspace: Path, finding_id: int) -> None:
     from audit_pipeline.commands.propagate import propagate_from_finding_async
     propagate_from_finding_async(workspace, finding_id)
 
+
+def open_findings_db(workspace_path: Path) -> Any:
+    """Factory: pick SQLite or Postgres backend based on JELLEO_DB_URL.
+
+    Wave 8c. If the env var is set to a postgres:// URL, use the Postgres
+    backend (PostgresFindingsDB). Otherwise SQLite at <workspace>/findings.db
+    — the long-standing default. The returned object exposes the same
+    public API regardless of backend.
+
+    Why this lives in db.py rather than a separate factory module:
+    callers already import FindingsDB; making the factory available
+    alongside it preserves muscle memory and avoids touching every
+    call site.
+    """
+    import os
+    url = os.environ.get("JELLEO_DB_URL", "").strip()
+    if url.startswith(("postgres://", "postgresql://", "postgresql+psycopg://")):
+        # Lazy-import so the SQLite-only dev path doesn't pay the import
+        # cost (and doesn't crash if psycopg isn't installed)
+        from audit_pipeline.db_postgres import PostgresFindingsDB
+        return PostgresFindingsDB(url)
+    return FindingsDB(workspace_path / "findings.db")
+
 SCHEMA = [
     """
     CREATE TABLE IF NOT EXISTS targets (

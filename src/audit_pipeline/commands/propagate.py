@@ -142,6 +142,19 @@ def propagate_cmd() -> None:
     """Cross-protocol pattern propagation (init-corpus + search)."""
 
 
+def _register_chain_subcommand() -> None:
+    """Register the chain subcommand from the sibling module.
+
+    Lazy import avoids circular dependency — propagate_chain imports
+    from db, which imports propagate via _propagate_target wrapper.
+    """
+    from audit_pipeline.commands.propagate_chain import chain_cmd
+    propagate_cmd.add_command(chain_cmd)
+
+
+_register_chain_subcommand()
+
+
 @propagate_cmd.command(name="init-corpus")
 @click.option(
     "--corpus",
@@ -769,8 +782,8 @@ def propagate_from_finding_async(workspace: Path, finding_id: int) -> None:
         if marker.is_file():
             return  # already fired
 
-        from audit_pipeline.db import FindingsDB
-        db = FindingsDB(workspace / "findings.db")
+        from audit_pipeline.db import open_findings_db
+        db = open_findings_db(workspace)
         corpus = workspace / "recon" / "propagate" / "corpus"
         output_dir = workspace / "recon" / "propagate" / "auto-fire"
         result = run_for_finding(db, finding_id, corpus, output_dir)
@@ -955,6 +968,45 @@ def run_for_finding(
     report_path = output_dir / f"{report_name}.md"
     _write_report(ranked, report_path, tuple(sigs), files_scanned, len(repos))
 
+    # Wave 8a — AST scanner runs alongside regex when tree-sitter is available
+    # and the bug_class has registered AST patterns. Results are appended to
+    # the same Markdown report (separate section) and surfaced in the
+    # returned summary so callers can union the two scanners' candidate sets.
+    ast_summary: dict | None = None
+    try:
+        from audit_pipeline.commands.propagate_ast import (
+            BUG_CLASS_AST_PATTERNS,
+            is_ast_available,
+            scan_corpus_for_ast_patterns,
+        )
+        if is_ast_available() and bug_class in BUG_CLASS_AST_PATTERNS:
+            ast_matches = scan_corpus_for_ast_patterns(corpus_path, bug_class)
+            if ast_matches:
+                _append_ast_section_to_report(report_path, bug_class, ast_matches)
+            ast_summary = {
+                "available": True,
+                "n_patterns":  len(BUG_CLASS_AST_PATTERNS[bug_class]),
+                "n_matches":   len(ast_matches),
+                "top_matches": [
+                    {"repo": m.repo, "file": m.file, "line": m.line,
+                     "pattern": m.pattern_name}
+                    for m in ast_matches[:10]
+                ],
+            }
+        else:
+            ast_summary = {
+                "available": is_ast_available(),
+                "n_patterns": 0,
+                "n_matches":  0,
+                "reason": (
+                    "tree-sitter not installed" if not is_ast_available()
+                    else f"no AST patterns registered for {bug_class}"
+                ),
+            }
+    except Exception:
+        ast_summary = {"available": False, "n_patterns": 0, "n_matches": 0,
+                        "reason": "scanner_error"}
+
     return {
         "ok": True,
         "finding_id": finding_id,
@@ -968,7 +1020,38 @@ def run_for_finding(
             for m in ranked[:10]
         ],
         "report_path": str(report_path),
+        "ast": ast_summary,
     }
+
+
+def _append_ast_section_to_report(
+    report_path: Path,
+    bug_class: str,
+    ast_matches: list,
+) -> None:
+    """Append a tree-sitter section to an existing propagation report (Wave 8a)."""
+    try:
+        lines = ["", "", "## AST scanner matches (tree-sitter)", ""]
+        lines.append(
+            f"_Structural matches found by tree-sitter-rust queries on "
+            f"`{bug_class}`'s registered AST patterns. These complement the "
+            f"regex matches above; they tend to have lower false-positive "
+            f"rates because they ignore matches inside comments, strings, "
+            f"and unrelated type signatures._"
+        )
+        lines.append("")
+        for m in ast_matches:
+            lines.append(f"### {m.repo} / `{m.file}` (pattern `{m.pattern_name}`)")
+            lines.append(f"Anchor: line {m.line}")
+            lines.append("")
+            lines.append("```rust")
+            lines.append(m.snippet)
+            lines.append("```")
+            lines.append("")
+        with report_path.open("a", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+    except OSError:
+        pass
 
 
 # CLI subcommand for auto-fire
@@ -1009,10 +1092,10 @@ def propagate_auto_fire(
     hook (Sprint 3.1+) calls automatically when a finding moves to
     status=confirmed.
     """
-    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.db import open_findings_db
 
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     output_dir = output or (workspace / "recon" / "propagate" / "auto-fire")
 
     result = run_for_finding(db, finding_id, corpus, output_dir, min_score=min_score)
@@ -1120,8 +1203,8 @@ def status_cmd(ctx: click.Context, finding_id: int) -> None:
               if auto_fire_dir.is_dir() else []
 
     # Sibling derivations (slug-based filename)
-    from audit_pipeline.db import FindingsDB
-    db = FindingsDB(workspace / "findings.db")
+    from audit_pipeline.db import open_findings_db
+    db = open_findings_db(workspace)
     finding = db.get_finding(finding_id)
     siblings: list[Path] = []
     if finding and derived_dir.is_dir():

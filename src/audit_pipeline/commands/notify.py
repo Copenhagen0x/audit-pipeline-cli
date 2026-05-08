@@ -37,7 +37,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import open_findings_db
 from audit_pipeline.notifier import (
     NotifierError,
     NotifierSettings,
@@ -79,7 +79,7 @@ def notify_critical(
 ) -> None:
     """Send the immediate Critical/High alert for a confirmed finding."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     finding = db.get_finding(finding_id)
     if not finding:
         raise click.ClickException(f"Finding {finding_id} not found in DB")

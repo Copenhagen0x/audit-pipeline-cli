@@ -36,7 +36,7 @@ from typing import Any
 import click
 from rich.console import Console
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import FindingsDB, open_findings_db
 from audit_pipeline.notifier import NotifierError, NotifierSettings, send_cadence_report
 from audit_pipeline.severity import Severity
 
@@ -90,7 +90,7 @@ def scheduler_tick(
         )
         return
 
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     targets = db.list_targets()
     if not targets:
         console.print(f"[yellow]scheduler tick[/yellow] {cadence}: no targets in DB.")

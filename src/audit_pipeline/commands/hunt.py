@@ -40,7 +40,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import open_findings_db
 from audit_pipeline.lifecycle import from_hunt_outcome
 from audit_pipeline.severity import derive_severity
 from audit_pipeline.severity import emoji as sev_emoji
@@ -377,7 +377,7 @@ def _hunt_run(
         )
 
     # ---------- DB setup ----------
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     target_id = db.upsert_target(
         name=target,
         github_url=config.get("engine", {}).get("repo"),

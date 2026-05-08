@@ -38,7 +38,7 @@ import click
 import yaml
 from rich.console import Console
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import FindingsDB, open_findings_db
 from audit_pipeline.utils import LLMUnavailable, complete, is_available
 
 console = Console()
@@ -138,7 +138,7 @@ def derive_siblings_cmd(
 ) -> None:
     """Derive structural sibling hypotheses from a confirmed finding."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
 
     finding = _get_finding(db, finding_id)
     if not finding:
@@ -241,7 +241,7 @@ def derive_siblings_async(
     Default $5/day cap = ~10 derivations/day; tune per workspace.
     """
     try:
-        db = FindingsDB(workspace / "findings.db")
+        db = open_findings_db(workspace)
         finding = _get_finding(db, finding_id)
         if not finding:
             return

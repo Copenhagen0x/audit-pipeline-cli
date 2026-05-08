@@ -32,7 +32,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import open_findings_db
 
 console = Console()
 
@@ -67,7 +67,7 @@ def metrics_cmd(ctx: click.Context, output: Path | None) -> None:
 
     # ---- Findings + cycle counts from DB ----
     try:
-        db = FindingsDB(workspace / "findings.db")
+        db = open_findings_db(workspace)
         with db._conn() as c:
             n_findings = int(c.execute("SELECT COUNT(*) AS n FROM findings").fetchone()["n"] or 0)
             n_with_bug_class = int(c.execute(

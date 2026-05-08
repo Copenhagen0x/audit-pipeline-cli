@@ -20,7 +20,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import open_findings_db
 
 console = Console()
 
@@ -36,7 +36,7 @@ def cache_group() -> None:
 def cache_list(ctx: click.Context, limit: int) -> None:
     """Show recent cache entries (most recently touched first)."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     rows = db.list_poc_cache(limit=limit)
     if not rows:
         console.print("[dim]cache is empty[/dim]")
@@ -80,7 +80,7 @@ def cache_flush(
             "Specify --engine-sha, --hyp, or --all. Refusing to flush without scope."
         )
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     deleted = db.flush_poc_cache(
         engine_sha=engine_sha,
         hypothesis_id=hypothesis_id,
@@ -93,7 +93,7 @@ def cache_flush(
 def cache_stats(ctx: click.Context) -> None:
     """Show cache hit/miss summary."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     rows = db.list_poc_cache(limit=10_000)
     if not rows:
         console.print("[dim]cache is empty[/dim]")

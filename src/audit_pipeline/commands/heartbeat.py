@@ -183,12 +183,14 @@ def _pubkey_fingerprint(pubkey_path: Path) -> str:
 
 def _cycle_stats(workspace: Path, now: datetime) -> tuple[int, int, str | None]:
     """Read cycles from the findings DB (best-effort, tolerant of missing)."""
+    import os as _os
+    pg_url = _os.environ.get("JELLEO_DB_URL", "").strip()
     db_path = workspace / "findings.db"
-    if not db_path.exists():
+    if not pg_url and not db_path.exists():
         return (0, 0, None)
     try:
-        from audit_pipeline.db import FindingsDB
-        db = FindingsDB(db_path)
+        from audit_pipeline.db import open_findings_db
+        db = open_findings_db(workspace)
     except Exception:
         return (0, 0, None)
 

@@ -26,7 +26,7 @@ import click
 from rich.console import Console
 
 from audit_pipeline.branding import CSS, footer_html, topbar_html
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import FindingsDB, open_findings_db
 from audit_pipeline.severity import Severity
 
 console = Console()
@@ -71,7 +71,7 @@ def dashboard_cmd(
     import json
 
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
 
     out = output or (workspace / "dashboard.html")
     out.parent.mkdir(parents=True, exist_ok=True)

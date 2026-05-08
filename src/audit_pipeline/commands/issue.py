@@ -18,7 +18,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import FindingsDB, open_findings_db
 from audit_pipeline.lifecycle import Status
 from audit_pipeline.severity import DEFINITIONS, Severity
 from audit_pipeline.severity import emoji as sev_emoji
@@ -39,7 +39,7 @@ def issue_cmd() -> None:
 def draft_cmd(ctx: click.Context, finding_id: int, output: Path | None) -> None:
     """Print a Markdown issue body for a finding (no GitHub call)."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     finding = db.get_finding(finding_id)
     if not finding:
         raise click.ClickException(f"Finding {finding_id} not found")
@@ -75,7 +75,7 @@ def file_cmd(
 ) -> None:
     """Open a GitHub issue (or post a comment) from a finding via `gh`."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     finding = db.get_finding(finding_id)
     if not finding:
         raise click.ClickException(f"Finding {finding_id} not found")
@@ -145,7 +145,7 @@ def auto_file_cmd(
 ) -> None:
     """Auto-file all confirmed findings from a cycle that meet the severity floor."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
 
     floor = Severity(severity_floor)
     floor_rank = list(Severity).index(floor)

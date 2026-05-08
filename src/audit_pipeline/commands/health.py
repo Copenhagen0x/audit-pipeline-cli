@@ -21,7 +21,7 @@ import requests
 from rich.console import Console
 from rich.table import Table
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import open_findings_db
 
 console = Console()
 
@@ -55,10 +55,13 @@ def health_cmd(
 
     checks: list[dict] = []
 
+    # Postgres URL bypasses the file-existence shortcut.
+    import os as _os
+    pg_url = _os.environ.get("JELLEO_DB_URL", "").strip()
     db_path = workspace / "findings.db"
-    if db_path.exists():
+    if pg_url or db_path.exists():
         try:
-            db = FindingsDB(db_path)
+            db = open_findings_db(workspace)
             stats = db.stats()
             checks.append({
                 "name": "findings_db",

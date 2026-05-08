@@ -27,7 +27,7 @@ from audit_pipeline.branding import (
     topbar_html,
 )
 from audit_pipeline.commands.sign import SignError, default_key_path, sign_file
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import open_findings_db
 from audit_pipeline.severity import DEFINITIONS, Severity
 
 console = Console()
@@ -128,7 +128,7 @@ def cycle_report(
 ) -> None:
     """Generate an HTML report for a single hunt cycle."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
 
     all_findings = [f for f in db.list_findings(limit=1000) if f.get("cycle_id") == cycle_id]
     if not all_findings:
@@ -179,7 +179,7 @@ def weekly_report(
 ) -> None:
     """Rolling N-day summary across all cycles for one target."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     t = db.get_target(target)
     if not t:
         raise click.ClickException(f"Target '{target}' not found in DB")

@@ -31,7 +31,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import FindingsDB, open_findings_db
 from audit_pipeline.lifecycle import Status
 
 console = Console()
@@ -283,7 +283,7 @@ def triage_cmd(
 ) -> None:
     """Walk through the `new` findings backlog one at a time in a browser UI."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
 
     # Resolve target_id once if filter passed
     target_id_filter = None

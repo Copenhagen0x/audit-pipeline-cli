@@ -275,13 +275,13 @@ the .rs file contents (no markdown fences). The test name should be
     # lets us short-circuit the 20-60s cargo run.
     import hashlib
 
-    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.db import open_findings_db
     poc_hash = hashlib.sha256(test_code.encode("utf-8")).hexdigest()
     engine_sha = (config.get("engine") or {}).get("sha") or ""
     cached = None
     if engine_sha:
         try:
-            db = FindingsDB(workspace / "findings.db")
+            db = open_findings_db(workspace)
             cached = db.get_poc_cache(engine_sha, hyp_id, poc_hash)
         except Exception:
             cached = None

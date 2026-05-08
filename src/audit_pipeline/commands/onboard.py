@@ -25,7 +25,7 @@ import yaml
 from rich.console import Console
 from rich.panel import Panel
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import open_findings_db
 
 console = Console()
 
@@ -103,7 +103,7 @@ def onboard_cmd(
         hyp_path.write_text(_stub_hypotheses(target_name, hypotheses_template))
 
     # 5. Register in DB
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     target_id = db.upsert_target(
         name=target_name,
         github_url=github_url,

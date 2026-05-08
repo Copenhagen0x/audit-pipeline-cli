@@ -20,7 +20,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from audit_pipeline.db import FindingsDB
+from audit_pipeline.db import FindingsDB, open_findings_db
 from audit_pipeline.severity import DEFINITIONS, Severity
 from audit_pipeline.utils import complete, is_available
 
@@ -43,7 +43,7 @@ def generate_cmd(
 ) -> None:
     """Generate a detailed narrative writeup for a single finding."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     finding = db.get_finding(finding_id)
     if not finding:
         raise click.ClickException(f"Finding {finding_id} not found")
@@ -71,7 +71,7 @@ def bulk_cmd(
 ) -> None:
     """Generate writeups for every finding meeting severity-floor (and cycle, if given)."""
     workspace = Path(ctx.obj["workspace"])
-    db = FindingsDB(workspace / "findings.db")
+    db = open_findings_db(workspace)
     if not is_available():
         raise click.ClickException("ANTHROPIC_API_KEY required.")
 
