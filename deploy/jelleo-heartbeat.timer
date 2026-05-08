@@ -1,0 +1,16 @@
+[Unit]
+Description=Jelleo - hourly signed heartbeat
+Documentation=https://jelleo.com/methodology.html#attestation
+
+[Timer]
+# Hourly at 12 minutes past the hour. Off-cycle from the 24h scheduler
+# (which runs at 00:00 UTC) so the heartbeat is never rate-limited by
+# concurrent cycle work.
+OnBootSec=2min
+OnCalendar=*:12
+AccuracySec=15s
+Persistent=true
+Unit=jelleo-heartbeat.service
+
+[Install]
+WantedBy=timers.target

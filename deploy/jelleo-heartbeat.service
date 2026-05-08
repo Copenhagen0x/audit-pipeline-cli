@@ -1,0 +1,22 @@
+[Unit]
+Description=Jelleo - hourly signed proof-of-running heartbeat (Tier 5 #29)
+Documentation=https://jelleo.com/methodology.html#attestation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=/root/audit_runs/percolator-live
+# Emits <HEARTBEAT_PATH> + <HEARTBEAT_PATH>.sig. The path defaults to the
+# Netlify-served docroot so api.jelleo.com/heartbeat.json picks it up. The
+# signature is over the canonical bytes of the JSON (re-rendering breaks
+# verification, which is the point — signed bytes are the source of truth).
+ExecStart=/bin/bash -c 'source /root/.audit-env && HEARTBEAT_PATH="${JELLEO_HEARTBEAT_PATH:-/var/www/jelleo.com/heartbeat.json}" && exec /root/.local/bin/audit-pipeline --workspace /root/audit_runs/percolator-live heartbeat --out "$HEARTBEAT_PATH" --repo-dir /root/repos/audit-pipeline-cli'
+StandardOutput=append:/root/audit_runs/percolator-live/scheduler/heartbeat.log
+StandardError=append:/root/audit_runs/percolator-live/scheduler/heartbeat.log
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

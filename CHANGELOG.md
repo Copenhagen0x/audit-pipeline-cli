@@ -15,6 +15,31 @@ The "live state" section of [`README.md`](README.md#platform--live-state) is the
 
 ---
 
+## [v0.3] · 2026-05-07 — Tier 5 architecture ship
+
+### Added
+- **Multi-tenant customer registry** (Tier 5 #26 + #27)
+  - `<workspace>/customers.json` declarative registry (id, name, protocol_name, tier, since, target_match, contact_email)
+  - `<workspace>/customers/<id>/` per-customer directory (keys + future per-customer overrides)
+  - `audit-pipeline customer {add,remove,list,show,rotate-key,pubkey}` operator surface
+- **Per-customer derived signing keys** (Tier 5 #28)
+  - HKDF-SHA256 derives a 32-byte Ed25519 seed from platform private key + customer id
+  - Deterministic (same id → same key), distinct (different ids → different keys), salt-isolated (rotate-key generates fresh salt)
+  - `audit-pipeline sign sign <file> --customer <id>` signs with the derived key
+  - Operator still only custodies the platform key — customer keys are reproducible from it
+- **Public proof-of-running heartbeat** (Tier 5 #29)
+  - `audit-pipeline heartbeat` emits a signed `heartbeat.json` covering schema version, generated_at, hostname, engine SHA, cycles_total, cycles_last_24h, last_cycle_ts, signing-pubkey fingerprint, registered customer count, systemd service summary
+  - Hourly cadence via new `deploy/jelleo-heartbeat.{service,timer}` (off-cycle from 24h scheduler at minute :12)
+  - Different from a finding: a finding is a security claim about the target; a heartbeat is a security claim about the platform — quiet weeks stay verifiable
+- **Full OpenAPI 3.1 spec** of the public api.jelleo.com surface (Tier 5 #30) at `docs/api/openapi.yaml` covering `/snapshot.json`, `/customer/{token}/manifest.json`, `/cycles/{id}/cycle.{html,pdf}{,sig}`, `/keys/jelleo.ed25519.pub`, `/heartbeat.json{,sig}`
+- Tests: `tests/test_customers.py` (29 cases — registry, validation, paths, derived keys, persistence) + `tests/test_heartbeat.py` (12 cases — payload shape, fingerprint, customer count, 24h window)
+
+### Changed
+- `deploy/install_systemd.sh` installs `jelleo-heartbeat.{service,timer}` alongside the existing units
+- `audit_pipeline.cli` registers `customer` and `heartbeat` subcommands
+
+---
+
 ## [v0.2] · 2026-05-07 — Tier 2 + Tier 3 capability ship
 
 ### Added

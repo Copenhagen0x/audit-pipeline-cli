@@ -1,0 +1,329 @@
+openapi: 3.1.0
+info:
+  title: Jelleo public API
+  version: "1.0.0"
+  summary: Public + token-gated data feeds and signed artefacts produced by the Jelleo continuous-audit loop.
+  description: |
+    `api.jelleo.com` is the read-only public surface of the Jelleo platform. Every endpoint
+    here is consumed by either the marketing site (`jelleo.com`), the per-customer dashboards
+    (`jelleo.com/customer/<token>/`), or third-party verifiers who pin the platform's Ed25519
+    signing key.
+
+    All endpoints are CORS-locked to `https://jelleo.com` (no wildcard). Cycle artefacts
+    have a 5-minute Cache-Control window; the rolling JSON feeds (`snapshot.json`,
+    `customer/<token>/manifest.json`, `heartbeat.json`) are `Cache-Control: no-store` so
+    consumers always see fresh state.
+
+    **No mutating endpoints exist.** This is a publish surface — writes happen on the
+    platform host via the `audit-pipeline` CLI. If you're integrating, you read; the
+    operator publishes.
+
+    **Trust model.** Every signed artefact is verifiable independently against the platform
+    public key at [`/keys/jelleo.ed25519.pub`](https://api.jelleo.com/keys/jelleo.ed25519.pub).
+    See [`docs/methodology/07-attestation.md`](../methodology/07-attestation.md) for the
+    full attestation protocol.
+  contact:
+    name: Jelleo
+    url: https://jelleo.com
+    email: kirill@jelleo.com
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: https://api.jelleo.com
+    description: Production
+tags:
+  - name: snapshot
+    description: Public aggregate state of the platform.
+  - name: customer
+    description: Per-customer data behind a token gate.
+  - name: cycles
+    description: Per-cycle signed reports (HTML + PDF + signature).
+  - name: keys
+    description: Platform Ed25519 keys for verifying signed artefacts.
+  - name: heartbeat
+    description: Proof-of-running attestation (hourly signed).
+paths:
+  /snapshot.json:
+    get:
+      tags: [snapshot]
+      summary: Public aggregate snapshot (homepage feed).
+      description: |
+        Driven by `audit-pipeline dashboard` running every 5 minutes on the platform host.
+        Returns aggregated stats, target rollups, recent cycles, the receipts-signed count,
+        service health probe results, and **disclosed** findings only (with title +
+        hyp_id + disclosure URL — disclosed = public). Confirmed in-progress findings are
+        excluded; those live behind the per-customer manifest gate.
+      responses:
+        "200":
+          description: Snapshot payload
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Snapshot"}
+              example:
+                generated_at: "2026-05-07T19:14:02+00:00"
+                cycles_total: 142
+                receipts_signed: 142
+                public_findings:
+                  - hyp_id: "F7"
+                    title: "Insurance-residual drain via self-trade"
+                    severity: "Critical"
+                    disclosure_url: "https://github.com/aeyakovenko/percolator-prog/pull/39"
+                services:
+                  - name: "jelleo-shadow.service"
+                    state: "active"
+        "503":
+          description: Snapshot unavailable (publisher hasn't run yet, or filesystem error).
+  /customer/{token}/manifest.json:
+    get:
+      tags: [customer]
+      summary: Per-customer manifest (token-gated).
+      description: |
+        Same JSON shape as `/snapshot.json`, scoped to the customer's owned target(s).
+        Includes the customer's **confirmed (in-progress)** findings — those are private
+        to the customer behind the token. The hard-coded demo customer (`token=demo`)
+        always exists; further customers come from `<workspace>/customers.json` populated
+        via `audit-pipeline customer add`.
+      parameters:
+        - in: path
+          name: token
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$'
+          required: true
+          description: Customer token (typically equals the customer id).
+      responses:
+        "200":
+          description: Customer manifest
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/CustomerManifest"}
+        "404":
+          description: Token not registered.
+  /cycles/{cycle_id}/cycle.html:
+    get:
+      tags: [cycles]
+      summary: Per-cycle HTML report.
+      parameters:
+        - $ref: "#/components/parameters/CycleId"
+      responses:
+        "200":
+          description: HTML report
+          content:
+            text/html: {schema: {type: string}}
+        "404":
+          description: Cycle not published.
+  /cycles/{cycle_id}/cycle.html.sig:
+    get:
+      tags: [cycles]
+      summary: Ed25519 signature over cycle.html (base64 in armoured wrapper).
+      parameters:
+        - $ref: "#/components/parameters/CycleId"
+      responses:
+        "200":
+          description: Signature file
+          content:
+            text/plain: {schema: {type: string, example: "-----BEGIN JELLEO SIGNATURE-----\\nAlgorithm: Ed25519\\n…"}}
+  /cycles/{cycle_id}/cycle.pdf:
+    get:
+      tags: [cycles]
+      summary: Per-cycle PDF report.
+      parameters:
+        - $ref: "#/components/parameters/CycleId"
+      responses:
+        "200":
+          description: PDF report
+          content:
+            application/pdf: {schema: {type: string, format: binary}}
+  /cycles/{cycle_id}/cycle.pdf.sig:
+    get:
+      tags: [cycles]
+      summary: Ed25519 signature over cycle.pdf.
+      parameters:
+        - $ref: "#/components/parameters/CycleId"
+      responses:
+        "200":
+          description: Signature file
+          content:
+            text/plain: {schema: {type: string}}
+  /keys/jelleo.ed25519.pub:
+    get:
+      tags: [keys]
+      summary: Platform Ed25519 public key (PEM).
+      description: |
+        Pin this key. Every signed artefact (cycle reports, heartbeats, per-finding
+        disclosure packages) verifies against it. Per-customer derived public keys
+        are NOT served from this surface — they're delivered to the customer out of
+        band, since they encode the customer-platform relationship.
+      responses:
+        "200":
+          description: PEM-encoded SubjectPublicKeyInfo
+          content:
+            application/x-pem-file:
+              schema: {type: string}
+              example: |
+                -----BEGIN PUBLIC KEY-----
+                MCowBQYDK2VwAyEAvCFSLBecPuNClei48PWjHuelHlBX9uYZo4wELbQ7b+k=
+                -----END PUBLIC KEY-----
+  /heartbeat.json:
+    get:
+      tags: [heartbeat]
+      summary: Hourly signed proof-of-running.
+      description: |
+        Different from a finding: a finding is a security claim about the target;
+        a heartbeat is a security claim about *the platform*. Quiet weeks (no Critical
+        disclosures) stay verifiable because the heartbeat keeps ticking. Generated
+        hourly by `audit-pipeline heartbeat` (Tier 5 #29).
+      responses:
+        "200":
+          description: Heartbeat payload
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Heartbeat"}
+              example:
+                schema: "jelleo-heartbeat-v1"
+                generated_at: "2026-05-07T19:00:00+00:00"
+                hostname: "jelleo-prod-01"
+                engine_sha: "dee2224e8a7c..."
+                implementation: "Copenhagen0x/audit-pipeline-cli@dee2224e8a7c"
+                cycles_total: 142
+                cycles_last_24h: 7
+                last_cycle_ts: "2026-05-07T17:42:11+00:00"
+                signing_pubkey_fingerprint: "3a:c1:8e:42:7f:11:b9:dd"
+                registered_customers: 1
+                service_summary:
+                  jelleo-shadow.service: "active"
+                  jelleo-watch.service: "active"
+                  jelleo-snapshot.timer: "active"
+  /heartbeat.json.sig:
+    get:
+      tags: [heartbeat]
+      summary: Ed25519 signature over heartbeat.json.
+      responses:
+        "200":
+          description: Signature file
+          content:
+            text/plain: {schema: {type: string}}
+components:
+  parameters:
+    CycleId:
+      in: path
+      name: cycle_id
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._-]+$'
+      required: true
+      description: Cycle identifier, e.g. `20260507-1340-percolator`.
+  schemas:
+    Snapshot:
+      type: object
+      required: [generated_at, cycles_total, receipts_signed, public_findings, services]
+      properties:
+        generated_at:    {type: string, format: date-time}
+        cycles_total:    {type: integer, minimum: 0}
+        receipts_signed: {type: integer, minimum: 0}
+        loop_uptime_h:   {type: number, minimum: 0}
+        public_findings:
+          type: array
+          items: {$ref: "#/components/schemas/PublicFinding"}
+        services:
+          type: array
+          items: {$ref: "#/components/schemas/ServiceState"}
+        recent_cycles:
+          type: array
+          items: {$ref: "#/components/schemas/CycleRollup"}
+    CustomerManifest:
+      type: object
+      required: [customer, generated_at, stats, findings]
+      properties:
+        customer:
+          type: object
+          required: [id, name, tier]
+          properties:
+            id:            {type: string}
+            name:          {type: string}
+            protocol_name: {type: string}
+            tier:          {type: string, enum: [Foundation, Production, Ceiling]}
+            since:         {type: string, format: date}
+        generated_at: {type: string, format: date-time}
+        stats:
+          type: object
+          properties:
+            findings_total:      {type: integer, minimum: 0}
+            critical_open:       {type: integer, minimum: 0}
+            high_open:           {type: integer, minimum: 0}
+            cycles_last_30d:     {type: integer, minimum: 0}
+        findings:
+          type: array
+          items: {$ref: "#/components/schemas/CustomerFinding"}
+    PublicFinding:
+      type: object
+      required: [hyp_id, title, severity]
+      properties:
+        hyp_id:        {type: string}
+        title:         {type: string}
+        severity:      {type: string, enum: [Critical, High, Medium, Low, Info]}
+        bug_class:     {type: string}
+        target:        {type: string}
+        disclosure_url: {type: string, format: uri}
+        disclosed_at:  {type: string, format: date-time}
+        status:        {type: string, enum: [disclosed, fixed, verified]}
+    CustomerFinding:
+      allOf:
+        - $ref: "#/components/schemas/PublicFinding"
+        - type: object
+          properties:
+            description:    {type: string}
+            target_file:    {type: string}
+            cycle_id:       {type: string}
+            status:         {type: string, enum: [triaged, confirmed, disclosed, fixed, verified]}
+    CycleRollup:
+      type: object
+      required: [cycle_id, target, severity_counts]
+      properties:
+        cycle_id:    {type: string}
+        target:      {type: string}
+        engine_sha:  {type: string}
+        signed:      {type: boolean}
+        receipt_fingerprint: {type: string}
+        severity_counts:
+          type: object
+          properties:
+            critical: {type: integer, minimum: 0}
+            high:     {type: integer, minimum: 0}
+            medium:   {type: integer, minimum: 0}
+            low:      {type: integer, minimum: 0}
+            info:     {type: integer, minimum: 0}
+    ServiceState:
+      type: object
+      required: [name, state]
+      properties:
+        name:  {type: string, example: "jelleo-shadow.service"}
+        state: {type: string, enum: [active, inactive, failed, unknown]}
+    Heartbeat:
+      type: object
+      required:
+        - schema
+        - generated_at
+        - hostname
+        - cycles_total
+        - cycles_last_24h
+        - signing_pubkey_fingerprint
+        - registered_customers
+        - service_summary
+      properties:
+        schema:                      {type: string, const: "jelleo-heartbeat-v1"}
+        generated_at:                {type: string, format: date-time}
+        hostname:                    {type: string}
+        engine_sha:                  {type: string}
+        implementation:              {type: string, example: "Copenhagen0x/audit-pipeline-cli@dee2224e8a7c"}
+        cycles_total:                {type: integer, minimum: 0}
+        cycles_last_24h:             {type: integer, minimum: 0}
+        last_cycle_ts:               {type: [string, "null"], format: date-time}
+        signing_pubkey_fingerprint:  {type: string, example: "3a:c1:8e:42:7f:11:b9:dd"}
+        registered_customers:        {type: integer, minimum: 0}
+        service_summary:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [active, inactive, failed, unknown]

@@ -153,20 +153,40 @@ def keygen_cmd(ctx: click.Context, key_dir: Path | None, force: bool) -> None:
 @click.argument("file_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--key", type=click.Path(exists=True, dir_okay=False, path_type=Path),
               default=None, help="Private key path (default: <workspace>/keys/jelleo.ed25519)")
+@click.option("--customer", "customer_id", default=None,
+              help="Sign with the per-customer derived key under "
+                   "<workspace>/customers/<id>/keys/<id>.ed25519 (Tier 5 #28). "
+                   "Mutually exclusive with --key.")
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None,
               help="Signature output path (default: <file_path>.sig)")
 @click.pass_context
 def sign_file_cmd(
-    ctx: click.Context, file_path: Path, key: Path | None, output: Path | None,
+    ctx: click.Context, file_path: Path, key: Path | None, customer_id: str | None,
+    output: Path | None,
 ) -> None:
-    """Sign a file with the Jelleo Ed25519 key."""
+    """Sign a file with the Jelleo Ed25519 key (platform or per-customer)."""
+    if key and customer_id:
+        raise click.ClickException("--key and --customer are mutually exclusive")
+
     workspace = Path(ctx.obj["workspace"])
-    priv_path = key or default_key_path(workspace)
+    if customer_id:
+        from audit_pipeline import customers as customers_mod
+        priv_path = customers_mod.customer_priv_key_path(workspace, customer_id)
+        if not priv_path.exists():
+            raise click.ClickException(
+                f"no per-customer key at {priv_path}; "
+                f"run `audit-pipeline customer add {customer_id}` first"
+            )
+    else:
+        priv_path = key or default_key_path(workspace)
+
     try:
         out_path = sign_file(file_path, priv_path, output)
     except SignError as e:
         raise click.ClickException(str(e))
     console.print(f"[green]Signed[/green] {file_path}")
+    if customer_id:
+        console.print(f"  [dim]signing key: customer '{customer_id}'[/dim]")
     console.print(f"[green]Signature[/green] {out_path}")
 
 

@@ -26,7 +26,9 @@ A1-class regression coverage on `main` at commit
 
 **Recent capability uplift (2026-04-28):** Tool-using deep-audit mode (`hunt-deep`) — agents have `read_file`, `grep`, `find_function` and iteratively explore source code to render line-cited verdicts. Disclosure-pattern miner (`learn-from-disclosures`) auto-generates sibling hypotheses from public bug reports. Custom PoC writer (`confirm`) generates Rust tests targeting specific finding claims and runs them under `cargo test`. See [OUTREACH/jelleo-one-pager.md](OUTREACH/jelleo-one-pager.md) and [examples/](examples/) for sample outputs.
 
-**Recent capability uplift (2026-05-07):** Hypothesis-library expansion to **508 distinct invariants across 5 protocol classes** (`perp_dex`, `amm_cp`, `clmm`, `lending`, `lst`). Auto-derivation (`derive-siblings`) emits structural siblings of every confirmed finding. Lifecycle hooks now auto-fire sibling-derivation + cross-protocol propagation in daemon threads when a finding crosses to `confirmed` — the catalog compounds without manual work. PoC test cache (SHA256-keyed) skips redundant `cargo test` runs across cycles. Diff-aware hunting (`--protocol-class`, `--diff-since-sha`) loads only hyps whose `target_file` lives in a commit's diff. Local triage UI (`audit-pipeline triage --port 8080`) for fast confirm/reject pass over `new` findings. CI on every push (matrix Python 3.10/3.11/3.12, ruff lint + library validation + pytest). See [docs/methodology/03-hypothesis-schema.md](docs/methodology/03-hypothesis-schema.md) for the schema, [docs/methodology/04-propagation.md](docs/methodology/04-propagation.md) for the propagation loop, and [tests/](tests/) for the suite.
+**Recent capability uplift (2026-05-07 — Tier 2 + Tier 3):** Hypothesis-library expansion to **508 distinct invariants across 5 protocol classes** (`perp_dex`, `amm_cp`, `clmm`, `lending`, `lst`). Auto-derivation (`derive-siblings`) emits structural siblings of every confirmed finding. Lifecycle hooks now auto-fire sibling-derivation + cross-protocol propagation in daemon threads when a finding crosses to `confirmed` — the catalog compounds without manual work. PoC test cache (SHA256-keyed) skips redundant `cargo test` runs across cycles. Diff-aware hunting (`--protocol-class`, `--diff-since-sha`) loads only hyps whose `target_file` lives in a commit's diff. Local triage UI (`audit-pipeline triage --port 8080`) for fast confirm/reject pass over `new` findings. CI on every push (matrix Python 3.10/3.11/3.12, ruff lint + library validation + pytest). See [docs/methodology/03-hypothesis-schema.md](docs/methodology/03-hypothesis-schema.md) for the schema, [docs/methodology/04-propagation.md](docs/methodology/04-propagation.md) for the propagation loop, and [tests/](tests/) for the suite.
+
+**Recent capability uplift (2026-05-07 — Tier 5 architecture):** Multi-tenant customer registry under `<workspace>/customers.json` + per-customer dirs at `<workspace>/customers/<id>/`. New `audit-pipeline customer {add,remove,list,show,rotate-key,pubkey}` subcommand for the operator surface. Per-customer Ed25519 keypairs **derived deterministically** from the platform key via HKDF-SHA256 — each customer signs with their own key, but the operator only custodies one secret. `audit-pipeline sign sign --customer <id>` signs with the derived key. New `audit-pipeline heartbeat` emits a public, signed proof-of-running JSON (engine SHA, hostname, cycle counts, service-status summary, signing-key fingerprint) — quiet weeks (no Critical disclosures) stay verifiable because the heartbeat keeps ticking; hourly via `jelleo-heartbeat.{service,timer}`. Full OpenAPI 3.1 spec for the public surface lives at [docs/api/openapi.yaml](docs/api/openapi.yaml).
 
 ---
 
@@ -260,6 +262,17 @@ audit-pipeline cache flush         # selective or full flush
 audit-pipeline hunt --protocol-class clmm --diff-since-sha <sha>
                               # load only the named class library, then filter to
                               # hyps whose target_file is in <sha>..HEAD diff
+
+─── Multi-tenant + proof-of-running (Tier 5) ─────
+audit-pipeline customer add <id> --name <…> --protocol <…> --tier <…>
+                              # register a customer, create per-customer dir,
+                              # derive per-customer Ed25519 keypair from platform key
+audit-pipeline customer list / show <id> / pubkey <id>   # introspection
+audit-pipeline customer rotate-key <id>   # re-derive under fresh salt
+audit-pipeline customer remove <id> [--purge]   # registry pop (--purge wipes dir)
+audit-pipeline sign sign <file> --customer <id>   # sign with derived per-customer key
+audit-pipeline heartbeat       # public signed proof-of-running JSON
+                              # (hourly via deploy/jelleo-heartbeat.{service,timer})
 ```
 
 ---
