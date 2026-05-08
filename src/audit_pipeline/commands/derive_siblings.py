@@ -221,12 +221,24 @@ def derive_siblings_cmd(
         )
 
 
-def derive_siblings_async(workspace: Path, finding_id: int, num: int = 6) -> None:
+def derive_siblings_async(
+    workspace: Path,
+    finding_id: int,
+    num: int = 6,
+    daily_budget_usd: float = 5.0,
+) -> None:
     """Fire-and-forget hook target. Used by lifecycle.transition().
 
-    Never raises. Logs failures to stderr and returns. The finding's
-    lifecycle transition is independent — sibling derivation is a
-    best-effort augmentation.
+    Never raises. The finding's lifecycle transition is independent —
+    sibling derivation is a best-effort augmentation.
+
+    D14 (idempotency): writes a marker file on first run. Subsequent
+    invocations for the same finding_id no-op until the marker is deleted.
+    Marker location: <workspace>/derived/markers/<finding_id>.derived
+
+    D15 (cost cap): tracks daily LLM spend in a per-day file. If today's
+    cumulative cost is at or above ``daily_budget_usd``, the call no-ops.
+    Default $5/day cap = ~10 derivations/day; tune per workspace.
     """
     try:
         db = FindingsDB(workspace / "findings.db")
@@ -235,6 +247,19 @@ def derive_siblings_async(workspace: Path, finding_id: int, num: int = 6) -> Non
             return
         if not is_available():
             return
+
+        # D14: idempotency check
+        derived_dir = workspace / "derived"
+        markers_dir = derived_dir / "markers"
+        markers_dir.mkdir(parents=True, exist_ok=True)
+        marker = markers_dir / f"{finding_id}.derived"
+        if marker.is_file():
+            return  # already derived
+
+        # D15: daily budget check (best-effort)
+        if not _has_budget_remaining(workspace, daily_budget_usd):
+            return
+
         inferred_class = _infer_protocol_class(db, finding) or "perp_dex"
         prompt = SIBLING_PROMPT.format(
             protocol_class=inferred_class,
@@ -250,6 +275,10 @@ def derive_siblings_async(workspace: Path, finding_id: int, num: int = 6) -> Non
             response = complete(prompt)
         except LLMUnavailable:
             return
+
+        # D15: account the call cost
+        _record_spend(workspace, getattr(response, "cost_usd", 0.30) or 0.30)
+
         raw = _strip_md_fence(response.text)
         try:
             parsed = yaml.safe_load(raw) or {}
@@ -261,7 +290,7 @@ def derive_siblings_async(workspace: Path, finding_id: int, num: int = 6) -> Non
         for s in siblings:
             if isinstance(s, dict):
                 s.setdefault("derived_from", finding.get("hypothesis_id") or f"finding-{finding_id}")
-        derived_dir = workspace / "derived"
+
         derived_dir.mkdir(parents=True, exist_ok=True)
         slug = (finding.get("hypothesis_id") or f"finding-{finding_id}").replace("/", "-")
         out_path = derived_dir / f"{slug}-siblings.yaml"
@@ -269,9 +298,55 @@ def derive_siblings_async(workspace: Path, finding_id: int, num: int = 6) -> Non
             yaml.safe_dump({"hypotheses": siblings}, sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
+
+        # D14: write marker so re-fire is a no-op
+        from datetime import datetime, timezone
+        marker.write_text(
+            f"{datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+            f"finding_id={finding_id}\n"
+            f"siblings={len(siblings)}\n"
+            f"output={out_path}\n",
+            encoding="utf-8",
+        )
     except Exception:
         # Never block the lifecycle transition on derivation failure
         return
+
+
+# ---------------------------------------------------------------------------
+# D15 — Daily budget cap helpers
+# ---------------------------------------------------------------------------
+
+
+def _budget_file(workspace: Path) -> Path:
+    """Per-day spend ledger. New file each UTC day."""
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    d = workspace / "derived" / "budget"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{today}.usd"
+
+
+def _has_budget_remaining(workspace: Path, cap_usd: float) -> bool:
+    """Return True if today's cumulative derive spend is below the cap."""
+    p = _budget_file(workspace)
+    if not p.is_file():
+        return True
+    try:
+        spent = float(p.read_text(encoding="utf-8").strip() or "0")
+    except (OSError, ValueError):
+        return True  # if we can't read it, fail open
+    return spent < cap_usd
+
+
+def _record_spend(workspace: Path, amount_usd: float) -> None:
+    """Add to today's spend ledger. Best-effort, swallows errors."""
+    p = _budget_file(workspace)
+    try:
+        existing = float(p.read_text(encoding="utf-8").strip() or "0") if p.is_file() else 0.0
+        p.write_text(f"{existing + amount_usd:.4f}\n", encoding="utf-8")
+    except (OSError, ValueError):
+        pass
 
 
 # ─────────────────────────── Internal helpers ──────────────────────────────
