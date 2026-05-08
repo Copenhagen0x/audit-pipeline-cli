@@ -17,7 +17,8 @@ import random
 import threading
 import time
 from collections import deque
-from typing import Any, Callable, Iterable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 import requests
 

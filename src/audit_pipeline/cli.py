@@ -13,6 +13,7 @@ from audit_pipeline.commands import (
     cache,
     confirm,
     cross_check,
+    customer,
     dashboard,
     debate,
     derive_siblings,
@@ -20,6 +21,7 @@ from audit_pipeline.commands import (
     expand_coverage,
     freshness,
     health,
+    heartbeat,
     hunt,
     hunt_deep,
     init,
@@ -141,6 +143,10 @@ main.add_command(sign.sign_cmd)                    # Ed25519-signed disclosures
 # Subcommands — customer-facing notifications + cadence dispatch (Sprint 3.3)
 main.add_command(notify.notify_cmd)                # email: test/critical/cadence
 main.add_command(scheduler.scheduler_cmd)          # cadence daemon: tick/run/status
+
+# Subcommands — multi-tenant + proof-of-running (Tier 5)
+main.add_command(customer.customer_cmd)            # Tier 5 #26 + #27 + #28: customer registry + derived keys
+main.add_command(heartbeat.heartbeat_cmd)          # Tier 5 #29: signed proof-of-running heartbeat
 
 
 if __name__ == "__main__":

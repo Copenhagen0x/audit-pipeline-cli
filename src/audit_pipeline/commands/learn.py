@@ -19,7 +19,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 from pathlib import Path
@@ -127,7 +126,7 @@ def learn_cmd(
         console.print(f"  fetched {len(body):,} chars")
 
         prompt = EXTRACTION_PROMPT.replace("<DISCLOSURE_BODY>", body[:15000])
-        console.print(f"  extracting structural pattern...")
+        console.print("  extracting structural pattern...")
         try:
             resp = complete(prompt, max_tokens=max_tokens)
         except Exception as e:  # noqa: BLE001

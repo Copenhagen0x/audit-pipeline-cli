@@ -108,6 +108,6 @@ def cache_stats(ctx: click.Context) -> None:
     console.print(f"Cache entries:     {total_entries:,}")
     console.print(f"Total hits:        {total_hits:,}")
     console.print(f"Estimated time saved: ~{saved_seconds:.0f}s ({saved_seconds/60:.1f} min)")
-    console.print(f"By outcome:")
+    console.print("By outcome:")
     for o, n in sorted(by_outcome.items()):
         console.print(f"  {o:25s}: {n}")

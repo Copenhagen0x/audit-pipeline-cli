@@ -20,7 +20,8 @@ from rich.console import Console
 
 from audit_pipeline.db import FindingsDB
 from audit_pipeline.lifecycle import Status
-from audit_pipeline.severity import Severity, DEFINITIONS, emoji as sev_emoji
+from audit_pipeline.severity import DEFINITIONS, Severity
+from audit_pipeline.severity import emoji as sev_emoji
 
 console = Console()
 
@@ -214,7 +215,7 @@ def _render_issue_body(finding: dict, db: FindingsDB) -> str:
 
     if finding.get("poc_fired"):
         lines += [
-            f"- ✅ **PoC fired** (`cargo test` exit code non-zero on a state-conservation invariant)",
+            "- ✅ **PoC fired** (`cargo test` exit code non-zero on a state-conservation invariant)",
             f"- PoC scaffold: `{finding.get('poc_path')}`",
         ]
     elif finding.get("poc_path"):

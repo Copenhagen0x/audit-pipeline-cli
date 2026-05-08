@@ -201,7 +201,7 @@ def expand_coverage_cmd(
                     all_hyps.append(h)
                 console.print(f"  [green]✓[/green] {len(parsed['hypotheses'])} spec-derived hypotheses")
             else:
-                console.print(f"  [red]✗[/red] no hypotheses parsed from spec")
+                console.print("  [red]✗[/red] no hypotheses parsed from spec")
         except Exception as e:  # noqa: BLE001
             console.print(f"  [red]✗[/red] {e}")
 
@@ -225,7 +225,7 @@ def expand_coverage_cmd(
                     all_hyps.append(h)
                 console.print(f"  [green]✓[/green] {len(parsed['hypotheses'])} Kani-gap hypotheses")
             else:
-                console.print(f"  [red]✗[/red] no hypotheses parsed")
+                console.print("  [red]✗[/red] no hypotheses parsed")
         except Exception as e:  # noqa: BLE001
             console.print(f"  [red]✗[/red] {e}")
 
@@ -242,7 +242,7 @@ def expand_coverage_cmd(
                     all_hyps.append(h)
                 console.print(f"  [green]✓[/green] {len(parsed['hypotheses'])} wrapper-derived hypotheses")
             else:
-                console.print(f"  [red]✗[/red] no hypotheses parsed")
+                console.print("  [red]✗[/red] no hypotheses parsed")
         except Exception as e:  # noqa: BLE001
             console.print(f"  [red]✗[/red] {e}")
 

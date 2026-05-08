@@ -172,6 +172,6 @@ def freshness_cmd(
     new_config["last_freshness_update"] = datetime.now(timezone.utc).isoformat()
     config_path.write_text(json.dumps(new_config, indent=2))
     console.print(
-        f"\n[bold green]workspace.json updated.[/bold green] "
-        f"Subsequent commands will run against the new SHAs."
+        "\n[bold green]workspace.json updated.[/bold green] "
+        "Subsequent commands will run against the new SHAs."
     )

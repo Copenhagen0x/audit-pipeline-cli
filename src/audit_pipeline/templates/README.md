@@ -94,6 +94,7 @@ Offsets are BPF-target-specific. If a `read_*` function returns garbage, your of
 
 ## See also
 
-- [`../docs/`](../docs/) for layer-by-layer methodology
 - [`../scripts/`](../scripts/) for orchestration helpers (VPS dispatch, cross-platform compare)
-- [`../examples/percolator-audit/`](../examples/percolator-audit/) for fully worked examples of these templates in production use
+- [`../../examples/`](../../../examples/) (repo-root `examples/`) for fully worked sample outputs
+- The methodology spec at [`docs/methodology/`](../../../docs/methodology/) for the four-pillar architecture, hypothesis schema, and F7 case study; layer-by-layer implementation notes live in [`docs/methodology/layers/`](../../../docs/methodology/layers/)
+- The companion case-study repo [`Copenhagen0x/percolator-audit-2026-04`](https://github.com/Copenhagen0x/percolator-audit-2026-04) for a fully worked Percolator audit using these templates

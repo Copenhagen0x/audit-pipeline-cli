@@ -1,6 +1,5 @@
 """`audit-pipeline poc` — instantiate a Layer-2 PoC test scaffold."""
 
-import json
 from pathlib import Path
 
 import click

@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-
 DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_MAX_TOKENS = 8192
 DEFAULT_TIMEOUT_SECONDS = 600

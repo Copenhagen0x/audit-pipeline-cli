@@ -30,7 +30,7 @@ import ssl
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.message import EmailMessage
-from email.utils import formataddr, formatdate, make_msgid
+from email.utils import formatdate, make_msgid
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +50,7 @@ class SmtpConfig:
     timeout_sec: int = 30
 
     @classmethod
-    def from_env(cls) -> "SmtpConfig":
+    def from_env(cls) -> SmtpConfig:
         host = os.environ.get("JELLEO_SMTP_HOST")
         if not host:
             raise NotifierError(
@@ -84,7 +84,7 @@ class NotifierSettings:
     dry_run: bool = False
 
     @classmethod
-    def load(cls, workspace: Path, dry_run: bool = False) -> "NotifierSettings":
+    def load(cls, workspace: Path, dry_run: bool = False) -> NotifierSettings:
         path = workspace / "notifier.json"
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))

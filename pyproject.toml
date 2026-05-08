@@ -48,7 +48,7 @@ audit-pipeline = "audit_pipeline.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Copenhagen0x/audit-pipeline-cli"
-Methodology = "https://github.com/Copenhagen0x/solana-audit-pipeline"
+Methodology = "https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology"
 Example = "https://github.com/Copenhagen0x/percolator-audit-2026-04"
 
 [tool.setuptools.packages.find]
@@ -68,7 +68,24 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "RET", "SIM"]
-ignore = ["E501"]  # line length handled by formatter
+# Pragmatic ignores: rules that flag stylistic preferences rather than bugs.
+# CI gates on bugs (F8xx undefined names, F4xx unused imports, etc.), not on
+# naming conventions or refactor suggestions.
+ignore = [
+    "E501",   # line length — formatter's job
+    "B904",   # raise X from Y — adds noise without changing behavior
+    "B007",   # unused loop control var — common in for-counter idioms
+    "N806",   # non-lowercase var inside function — UPPER for module-style locals
+    "N814",   # camelCase imported as constant — yaml as Y, etc.
+    "N818",   # Exception names ending in Error — legacy classes already shipped
+    "SIM102", # collapsible if — readability call, not always cleaner
+    "SIM103", # needless bool — sometimes the explicit return is clearer
+    "SIM105", # contextlib.suppress — try/except is more debuggable
+    "SIM108", # ternary instead of if/else — readability call
+    "SIM115", # context manager for open — fine when paired with explicit close
+    "E741",   # ambiguous variable name (single-char l/I/O) — limited surface
+    "F841",   # unused variable — sometimes intentional for typing/destructure
+]
 
 [tool.mypy]
 python_version = "3.10"

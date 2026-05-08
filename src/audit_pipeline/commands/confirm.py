@@ -274,6 +274,7 @@ the .rs file contents (no markdown fences). The test name should be
     # a fixed engine SHA + identical test bytes is deterministic, so a hit
     # lets us short-circuit the 20-60s cargo run.
     import hashlib
+
     from audit_pipeline.db import FindingsDB
     poc_hash = hashlib.sha256(test_code.encode("utf-8")).hexdigest()
     engine_sha = (config.get("engine") or {}).get("sha") or ""
@@ -342,7 +343,7 @@ the .rs file contents (no markdown fences). The test name should be
             capture_output=True, text=True, timeout=timeout, env=cargo_env,
         )
     except subprocess.TimeoutExpired:
-        console.print(f"  [red]✗ timeout[/red]")
+        console.print("  [red]✗ timeout[/red]")
         return
     except FileNotFoundError as e:
         console.print(f"  [red]✗ cargo not found:[/red] {e}")
@@ -424,7 +425,7 @@ def _strip_code_fences(text: str) -> str:
       3. Leading prose preface ("Looking at what I've found...", "From my tool reads
          I have confirmed...") emitted by the tool-using agent before the actual
          `#![cfg(feature = "test")]` line — also kills the Rust parser with
-         `error: prefix \`I\` is unknown` / `error: prefix \`finding\` is unknown`
+         `error: prefix \\`I\\` is unknown` / `error: prefix \\`finding\\` is unknown`
       4. CANNOT_TEST text with leading prose ("The finding's premise...") — the
          downstream classifier requires the file to start with `// CANNOT_TEST`
     """

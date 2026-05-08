@@ -1,9 +1,15 @@
 # audit-pipeline-cli
 
+[![CI](https://github.com/Copenhagen0x/audit-pipeline-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/Copenhagen0x/audit-pipeline-cli/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776ab.svg)](https://www.python.org/downloads/)
+
 > **What this is:** the Python CLI that runs Jelleo's continuous Solana security hunt loop.
 > Reads protocol source, dispatches multi-agent recon, drives empirical PoCs to compile +
 > pass under `cargo test`, synthesises Kani harnesses, and writes signed disclosures into a
 > SQLite findings DB. Inaugural deployment: Anatoly Yakovenko's Percolator perpetual DEX.
+
+> **Methodology spec:** [`docs/methodology/`](docs/methodology/) — eleven §01–§10 sections covering pillars, hypothesis schema, propagation, severity rubric, lifecycle, attestation, reporting, the F7 case study, and engagement tiers. Layer-by-layer implementation notes under [`docs/methodology/layers/`](docs/methodology/layers/).
 
 > **30-second pitch:** Jelleo is the underwriting layer for Solana DeFi — continuous,
 > commit-anchored, on-chain-signed attestations of code-level invariant integrity, designed
@@ -19,6 +25,10 @@ A1-class regression coverage on `main` at commit
 `main`, not a structural patch.
 
 **Recent capability uplift (2026-04-28):** Tool-using deep-audit mode (`hunt-deep`) — agents have `read_file`, `grep`, `find_function` and iteratively explore source code to render line-cited verdicts. Disclosure-pattern miner (`learn-from-disclosures`) auto-generates sibling hypotheses from public bug reports. Custom PoC writer (`confirm`) generates Rust tests targeting specific finding claims and runs them under `cargo test`. See [OUTREACH/jelleo-one-pager.md](OUTREACH/jelleo-one-pager.md) and [examples/](examples/) for sample outputs.
+
+**Recent capability uplift (2026-05-07 — Tier 2 + Tier 3):** Hypothesis-library expansion to **508 distinct invariants across 5 protocol classes** (`perp_dex`, `amm_cp`, `clmm`, `lending`, `lst`). Auto-derivation (`derive-siblings`) emits structural siblings of every confirmed finding. Lifecycle hooks now auto-fire sibling-derivation + cross-protocol propagation in daemon threads when a finding crosses to `confirmed` — the catalog compounds without manual work. PoC test cache (SHA256-keyed) skips redundant `cargo test` runs across cycles. Diff-aware hunting (`--protocol-class`, `--diff-since-sha`) loads only hyps whose `target_file` lives in a commit's diff. Local triage UI (`audit-pipeline triage --port 8080`) for fast confirm/reject pass over `new` findings. CI on every push (matrix Python 3.10/3.11/3.12, ruff lint + library validation + pytest). See [docs/methodology/03-hypothesis-schema.md](docs/methodology/03-hypothesis-schema.md) for the schema, [docs/methodology/04-propagation.md](docs/methodology/04-propagation.md) for the propagation loop, and [tests/](tests/) for the suite.
+
+**Recent capability uplift (2026-05-07 — Tier 5 architecture):** Multi-tenant customer registry under `<workspace>/customers.json` + per-customer dirs at `<workspace>/customers/<id>/`. New `audit-pipeline customer {add,remove,list,show,rotate-key,pubkey}` subcommand for the operator surface. Per-customer Ed25519 keypairs **derived deterministically** from the platform key via HKDF-SHA256 — each customer signs with their own key, but the operator only custodies one secret. `audit-pipeline sign sign --customer <id>` signs with the derived key. New `audit-pipeline heartbeat` emits a public, signed proof-of-running JSON (engine SHA, hostname, cycle counts, service-status summary, signing-key fingerprint) — quiet weeks (no Critical disclosures) stay verifiable because the heartbeat keeps ticking; hourly via `jelleo-heartbeat.{service,timer}`. Full OpenAPI 3.1 spec for the public surface lives at [docs/api/openapi.yaml](docs/api/openapi.yaml).
 
 ---
 
@@ -65,7 +75,7 @@ Every verdict — confirmed, refuted, or escalated — is written to a SQLite fi
 | **GitHub Issue auto-filing** | Confirmed findings above a configurable severity floor are auto-drafted (or auto-filed) against the target repository. Lifecycle transitions to `disclosed`. |
 | **HTML dashboard** | Self-contained HTML dashboard with KPIs, severity breakdown, target cards, recent findings, refreshing daemon status. Can be served from the deployment host or attached to email. |
 | **Per-cycle + weekly HTML reports** | Branded executive reports with severity rubric, finding details, audit trail. |
-| **Target onboarding** | Single command — `audit-pipeline onboard <github-url>` — clones, pins, scaffolds, and registers a new target. Baseline hypothesis libraries available for `perp_dex` (Percolator-tailored, 125 hyps), with `lending` / `amm` corpora as Year 2+ multi-protocol scaffolding. |
+| **Target onboarding** | Single command — `audit-pipeline onboard <github-url>` — clones, pins, scaffolds, and registers a new target. Class libraries shipped: `perp_dex` (43), `amm_cp` (58), `clmm` (102), `lending` (94), `lst` (68), plus 143 Percolator-specific hyps — **508 total**. Loader picks libraries via `--protocol-class <name>`. |
 | **Multi-target capable** | Architecture supports N programs in parallel with full per-target isolation. Inaugural deployment is Percolator-only; multi-protocol scaling is the Year 2+ path. |
 
 ---
@@ -90,7 +100,7 @@ Every verdict — confirmed, refuted, or escalated — is written to a SQLite fi
 |---|---|
 | **F7 — Percolator residual-conservation** | [aeyakovenko/percolator-prog#39](https://github.com/aeyakovenko/percolator-prog/pull/39). Disclosed April 2026 — identified a self-dealing insurance-siphon attack class. Maintainer closed the PR without merging the proposed vault-debit fix; chose the engine's existing protections (bounded dt, bounded price movement, solvency-envelope validation, A1 regression suite) as the defense path. Disclosure formally mapped to A1 regression coverage labeled "PR39/F7" on `main` ([commit `a1afd2e`](https://github.com/aeyakovenko/percolator-prog/commit/a1afd2e)). |
 | **Continuous Percolator coverage** | Jelleo runs against the Percolator engine + wrapper repos 24/7. Every commit triggers a full hunt cycle. |
-| **Hypothesis library** | 125 hand-curated invariants on disk: 12 baseline (`percolator.yaml`), 101 deep-protocol (`percolator_deep.yaml`), 12 sibling-derived from F7 (`percolator_strict_helper_class.yaml`). |
+| **Hypothesis library** | **508 distinct invariants** across 5 protocol classes plus 143 Percolator-specific entries. Class libraries: `perp_dex_class.yaml` (43), `amm_cp_class.yaml` (58), `clmm_class.yaml` (102), `lending_class.yaml` (94), `lst_class.yaml` (68). Percolator-specific: 12 baseline (`percolator.yaml`), 101 deep-protocol (`percolator_deep.yaml`), 12 F7-sibling (`percolator_strict_helper_class.yaml`), 18 bounty regression (`percolator_bounty_regression.yaml`). Auto-derivation (`derive-siblings`) compounds the catalog on every confirmed finding. |
 | **Empirical confirmation samples** | Three Rust integration tests autonomously generated by `confirm` and passing under `cargo test` against the real engine. Public in [examples/confirmed-tests/](examples/confirmed-tests/). |
 
 ---
@@ -240,7 +250,42 @@ audit-pipeline learn-from-disclosures  # extract attack patterns from public GH 
                               # generate sibling hypotheses
 audit-pipeline expand-coverage         # generate hyps from spec.md, Kani-coverage gaps,
                               # and wrapper public instruction handlers
+audit-pipeline derive-siblings <id>    # LLM-emit N structural siblings of a confirmed
+                              # finding into <workspace>/derived/<id>-siblings.yaml
+                              # (also auto-fires on `confirmed` lifecycle transition)
+
+─── Triage + cache + diff-aware ───────────────────
+audit-pipeline triage --port 8080  # local single-page UI to confirm/reject `new` findings
+audit-pipeline cache list          # PoC test cache (SHA256-keyed across cycles)
+audit-pipeline cache stats         # hit-rate + saved cargo-test minutes
+audit-pipeline cache flush         # selective or full flush
+audit-pipeline hunt --protocol-class clmm --diff-since-sha <sha>
+                              # load only the named class library, then filter to
+                              # hyps whose target_file is in <sha>..HEAD diff
+
+─── Multi-tenant + proof-of-running (Tier 5) ─────
+audit-pipeline customer add <id> --name <…> --protocol <…> --tier <…>
+                              # register a customer, create per-customer dir,
+                              # derive per-customer Ed25519 keypair from platform key
+audit-pipeline customer list / show <id> / pubkey <id>   # introspection
+audit-pipeline customer rotate-key <id>   # re-derive under fresh salt
+audit-pipeline customer remove <id> [--purge]   # registry pop (--purge wipes dir)
+audit-pipeline sign sign <file> --customer <id>   # sign with derived per-customer key
+audit-pipeline heartbeat       # public signed proof-of-running JSON
+                              # (hourly via deploy/jelleo-heartbeat.{service,timer})
 ```
+
+---
+
+## Tests + CI
+
+```bash
+pip install -e ".[dev]"     # install dev deps (pytest, ruff, mypy)
+pytest tests/ -v            # run the suite (lifecycle hooks, cache, scoping, derive)
+ruff check src/ tests/      # lint with stylistic rules pragmatically ignored
+```
+
+GitHub Actions runs lint → smoke → library validation → pytest on Python 3.10 / 3.11 / 3.12 for every push and PR. Class-library YAMLs are parsed + validated as part of CI so a malformed hypothesis fails the build, not the next hunt cycle.
 
 ---
 
@@ -272,6 +317,6 @@ This installs `jelleo-{shadow,watch,health,backup}.{service,timer}`, tears down 
 
 ## License
 
-Apache-2.0. See `LICENSE`.
+Apache-2.0 for the runtime implementation. See [`LICENSE`](LICENSE).
 
-Methodology repository: [Copenhagen0x/solana-audit-pipeline](https://github.com/Copenhagen0x/solana-audit-pipeline)
+The methodology spec under [`docs/methodology/`](docs/methodology/) is offered under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) so it can be cited and adapted with attribution by academic / formal-verification / STRIDE assessors.

@@ -32,7 +32,8 @@ cp "$DEPLOY_DIR/jelleo-watch.service"  "$UNIT_DIR/"
 [[ -f "$DEPLOY_DIR/jelleo-backup.timer"   ]] && cp "$DEPLOY_DIR/jelleo-backup.timer"   "$UNIT_DIR/"
 chmod +x "$DEPLOY_DIR/backup_findings_db.sh"
 # Sprint 3: cadence scheduler + dashboard snapshot
-for u in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot; do
+# Tier 5 #29: hourly proof-of-running heartbeat (jelleo-heartbeat)
+for u in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot jelleo-heartbeat; do
     [[ -f "$DEPLOY_DIR/${u}.service" ]] && cp "$DEPLOY_DIR/${u}.service" "$UNIT_DIR/"
     [[ -f "$DEPLOY_DIR/${u}.timer"   ]] && cp "$DEPLOY_DIR/${u}.timer"   "$UNIT_DIR/"
 done
@@ -91,8 +92,8 @@ if [[ -f "$UNIT_DIR/jelleo-backup.timer" ]]; then
     systemctl restart jelleo-backup.timer
 fi
 
-# Sprint 3 timers — scheduler + snapshot
-for t in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot; do
+# Sprint 3 + Tier 5 timers — scheduler, snapshot, hourly heartbeat
+for t in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot jelleo-heartbeat; do
     if [[ -f "$UNIT_DIR/${t}.timer" ]]; then
         systemctl enable "${t}.timer"
         systemctl restart "${t}.timer"

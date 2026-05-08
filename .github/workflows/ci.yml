@@ -1,0 +1,92 @@
+# Continuous integration for audit-pipeline-cli.
+#
+# Tier 3 #15 — runs on every push to main and every pull request:
+#   1. Lint with ruff (fast — catches syntax + obvious issues first)
+#   2. Smoke-import the CLI module (catches import-time errors before pytest)
+#   3. Validate every bundled hypothesis library yaml (loader regex + schema)
+#   4. pytest the full suite
+#
+# Each step fails fast — no point running pytest if ruff is angry.
+#
+# Python matrix: 3.10, 3.11, 3.12. The project's `requires-python = ">=3.10"`
+# in pyproject.toml is the contract; CI enforces it.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Allow manually re-running CI from the Actions tab.
+  workflow_dispatch:
+
+# Cancel any in-flight CI run for the same branch when a new push arrives.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: |
+          ruff check src/ tests/
+
+      - name: CLI smoke-import
+        # The module's __init__ wires up every command on every import. If
+        # any command file has a syntax error / bad import, this fails
+        # before pytest even starts (cleaner error messages).
+        run: |
+          python -c "from audit_pipeline.cli import main; print(f'cli OK with {len(main.commands)} commands')"
+
+      - name: Validate hypothesis libraries
+        # Every bundled .yaml file must pass the loader (regex + schema).
+        # This is the same check the test suite does, but fails earlier
+        # with a clearer error message than a parametrized pytest failure.
+        run: |
+          python -c "
+          from pathlib import Path
+          from audit_pipeline.scoping import load_hypotheses, load_class_library, list_classes
+          d = Path('src/audit_pipeline/templates/hypotheses')
+          total = 0
+          for f in sorted(d.glob('*.yaml')):
+              hyps = load_hypotheses(f)
+              total += len(hyps)
+              print(f'  {f.name}: {len(hyps)} hyps')
+          print(f'TOTAL distinct hyps: {total}')
+          assert total >= 500, f'library shrank below 500 hyps (got {total})'
+          for c in list_classes():
+              load_class_library(c['id'])
+          print('all classes load cleanly')
+          "
+
+      - name: Run pytest
+        run: |
+          pytest tests/ -v --tb=short
+
+      - name: Coverage report (informational)
+        # Coverage is reported but does not fail the build today. Once the
+        # numbers stabilize we can add `--cov-fail-under=N`.
+        continue-on-error: true
+        run: |
+          pytest tests/ --cov=audit_pipeline --cov-report=term-missing -q

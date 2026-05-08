@@ -27,8 +27,6 @@ from rich.console import Console
 from rich.table import Table
 
 from audit_pipeline.utils import (
-    LLMResponse,
-    LLMUnavailable,
     complete,
     is_available,
     render_placeholders,

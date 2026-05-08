@@ -19,7 +19,7 @@ from __future__ import annotations
 import html
 import http.server
 import socketserver
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -256,7 +256,8 @@ def _probe_services() -> list[dict]:
     """
     import shutil
     import subprocess
-    from datetime import datetime, timezone as _tz
+    from datetime import datetime
+    from datetime import timezone as _tz
 
     KNOWN = [
         ("shadow",            "jelleo-shadow.service"),
@@ -484,10 +485,12 @@ def _build_customer_manifest(db: FindingsDB, customer: dict) -> dict:
 def _read_receipt_fingerprint(cycle_id: str | None) -> str | None:
     """Read a short fingerprint of the Ed25519 cycle receipt for display.
 
-    The signing pipeline writes <cycle>/cycle.html.sig — a base64 signature
-    blob. We turn the first 8 bytes into a colon-separated hex string so the
-    customer portal can show "3a:c1:8e:42:7f:11:b9:dd…" the way SSH host
-    fingerprints are presented. Returns None on missing files / non-VPS hosts.
+    The signing pipeline writes <cycle>/cycle.html.sig — a PEM-armoured file
+    with a base64 signature line between BEGIN/END markers. We extract the
+    base64 payload, decode it, and turn the first 8 bytes of the actual
+    signature into a colon-separated hex string so the customer portal can
+    show "3a:c1:8e:42:7f:11:b9:dd…" the way SSH host fingerprints are
+    presented. Returns None on missing files / non-VPS hosts.
     """
     if not cycle_id:
         return None
@@ -497,16 +500,31 @@ def _read_receipt_fingerprint(cycle_id: str | None) -> str | None:
         return None
     try:
         import base64
-        raw = sig_path.read_text(encoding="utf-8").strip()
-        # Files we ship are typically a base64 line; tolerate raw bytes too.
+        raw = sig_path.read_text(encoding="utf-8")
+        sig_b64 = ""
+        in_block = False
+        for line in raw.splitlines():
+            if line.startswith("-----BEGIN JELLEO"):
+                in_block = True
+                continue
+            if line.startswith("-----END JELLEO"):
+                break
+            if in_block:
+                stripped = line.strip()
+                # Skip header lines like "Algorithm: Ed25519" (contain ':')
+                # and blank separator lines. The base64 payload follows.
+                if stripped and ":" not in stripped:
+                    sig_b64 += stripped
+        if not sig_b64:
+            # Tolerate a raw-base64 file (no PEM armour) too.
+            sig_b64 = raw.strip()
         try:
-            sig_bytes = base64.b64decode(raw, validate=False)
+            sig_bytes = base64.b64decode(sig_b64, validate=False)
         except Exception:
-            sig_bytes = raw.encode("utf-8", "ignore")
+            return None
         if len(sig_bytes) < 4:
             return None
-        head = sig_bytes[:8]
-        return ":".join(f"{b:02x}" for b in head) + "…"
+        return ":".join(f"{b:02x}" for b in sig_bytes[:8]) + "…"
     except Exception:
         return None
 
@@ -518,7 +536,8 @@ def _loop_uptime_human() -> str:
     """
     import shutil
     import subprocess
-    from datetime import datetime, timezone as _tz
+    from datetime import datetime
+    from datetime import timezone as _tz
 
     if not shutil.which("systemctl"):
         return "—"

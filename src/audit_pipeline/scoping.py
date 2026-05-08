@@ -29,7 +29,6 @@ import yaml
 
 from audit_pipeline.severity import Severity
 
-
 # Vocabulary of known scope predicates. Hypotheses may declare predicates
 # outside this set — the loader records a warning but still allows them
 # to run, so the schema stays additive as new protocol shapes onboard.

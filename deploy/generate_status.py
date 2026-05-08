@@ -71,7 +71,7 @@ def main() -> None:
     lines.append("# Jelleo — Live operational status")
     lines.append("")
     lines.append("**Pipeline:** [Jelleo audit-pipeline](https://github.com/Copenhagen0x/audit-pipeline-cli)")
-    lines.append("**Methodology:** [solana-audit-pipeline](https://github.com/Copenhagen0x/solana-audit-pipeline)")
+    lines.append("**Methodology:** [`docs/methodology/`](https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology)")
     lines.append("")
     lines.append(f"**Target:** {config.get('target_name', 'unknown')}")
     lines.append(f"**Mainnet program:** `6qWZvUtfyShbxTQkwjCayk3LuGqTGJwBo2QfkePK5jdJ`")

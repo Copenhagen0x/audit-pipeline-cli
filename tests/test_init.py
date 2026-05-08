@@ -1,7 +1,6 @@
 """Tests for `audit-pipeline init`."""
 
 import json
-from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
