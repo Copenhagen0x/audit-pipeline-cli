@@ -241,7 +241,7 @@ This document maps every component of the proposal vision against today's realit
 | GitHub releases / tags | ❌ | |
 | CONTRIBUTING.md | ❌ | |
 | CODEOWNERS | ❌ | |
-| Public methodology repo (`Copenhagen0x/solana-audit-methodology` standalone) | ❌ | Tier 3 #20 — 4h |
+| Public methodology spec (`docs/methodology/` inside this repo) | ✅ | 11-section §01–§10 spec + `layers/` subfolder (Tier 3 #20, consolidated 2026-05-07 — single repo over standalone) |
 
 ---
 

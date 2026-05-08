@@ -96,5 +96,5 @@ The scripts assume the standard `/tmp/audit/{engine,wrapper,results}` layout. If
 
 ## See also
 
-- [`../docs/layer5-cross-platform-reproduction.md`](../docs/layer5-cross-platform-reproduction.md) for the conceptual layer that these scripts implement
-- [`../docs/lessons-learned.md`](../docs/lessons-learned.md) for operational gotchas accumulated from Percolator
+- The methodology spec at [`docs/methodology/`](../../../docs/methodology/) for the four-pillar architecture, hypothesis schema, severity rubric, F7 case study, and engagement tiers; layer-by-layer implementation notes live in [`docs/methodology/layers/`](../../../docs/methodology/layers/)
+- [`../templates/`](../templates/) for the Rust scaffolds these scripts dispatch

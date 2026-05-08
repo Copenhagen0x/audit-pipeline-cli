@@ -1,6 +1,6 @@
-"""audit-pipeline — CLI orchestrator for the Solana Audit Pipeline.
+"""audit-pipeline — CLI orchestrator for the Jelleo Solana audit loop.
 
-For methodology details see https://github.com/Copenhagen0x/solana-audit-pipeline.
+For methodology details see ``docs/methodology/`` in this repo.
 For a worked example see https://github.com/Copenhagen0x/percolator-audit-2026-04.
 """
 

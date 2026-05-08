@@ -48,7 +48,7 @@ audit-pipeline = "audit_pipeline.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Copenhagen0x/audit-pipeline-cli"
-Methodology = "https://github.com/Copenhagen0x/solana-audit-pipeline"
+Methodology = "https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology"
 Example = "https://github.com/Copenhagen0x/percolator-audit-2026-04"
 
 [tool.setuptools.packages.find]

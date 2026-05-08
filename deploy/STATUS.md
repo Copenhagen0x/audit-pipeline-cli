@@ -1,7 +1,7 @@
 # Jelleo — Live operational status
 
 **Pipeline:** [Jelleo audit-pipeline](https://github.com/Copenhagen0x/audit-pipeline-cli)
-**Methodology:** [solana-audit-pipeline](https://github.com/Copenhagen0x/solana-audit-pipeline)
+**Methodology:** [`docs/methodology/`](https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology)
 
 **Target:** percolator-live
 **Mainnet program:** `6qWZvUtfyShbxTQkwjCayk3LuGqTGJwBo2QfkePK5jdJ`
