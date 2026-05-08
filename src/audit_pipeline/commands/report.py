@@ -115,17 +115,29 @@ def report_cmd() -> None:
               help="Auto-sign the generated report with the workspace's Ed25519 key.")
 @click.option("--pdf/--no-pdf", default=False, show_default=True,
               help="Also render the HTML to PDF via chromium-headless and sign the PDF.")
+@click.option("--public/--full", "public", default=True, show_default=True,
+              help="Filter findings to disclosed/fixed/verified/rejected only "
+                   "(default: --public). Confirmed-but-not-disclosed findings are "
+                   "EXCLUDED from --public reports — they're a pre-disclosure leak. "
+                   "Use --full for customer-private cycle reports that include "
+                   "in-progress findings (the manifest gate handles those separately).")
 @click.pass_context
 def cycle_report(
     ctx: click.Context, cycle_id: str, output: Path | None, sign: bool, pdf: bool,
+    public: bool,
 ) -> None:
     """Generate an HTML report for a single hunt cycle."""
     workspace = Path(ctx.obj["workspace"])
     db = FindingsDB(workspace / "findings.db")
 
-    findings = [f for f in db.list_findings(limit=1000) if f.get("cycle_id") == cycle_id]
-    if not findings:
+    all_findings = [f for f in db.list_findings(limit=1000) if f.get("cycle_id") == cycle_id]
+    if not all_findings:
         raise click.ClickException(f"No findings for cycle {cycle_id}")
+
+    if public:
+        findings = [f for f in all_findings if (f.get("status") or "") in PUBLIC_STATUSES]
+    else:
+        findings = all_findings
 
     cycles = db.list_cycles()
     cycle = next((c for c in cycles if c["cycle_id"] == cycle_id), None)
@@ -156,9 +168,14 @@ def cycle_report(
               help="Auto-sign the generated report with the workspace's Ed25519 key.")
 @click.option("--pdf/--no-pdf", default=False, show_default=True,
               help="Also render the HTML to PDF via chromium-headless and sign the PDF.")
+@click.option("--public/--full", "public", default=True, show_default=True,
+              help="Filter findings to disclosed/fixed/verified/rejected only "
+                   "(default: --public). Use --full for customer-private weekly "
+                   "digests that include in-progress findings.")
 @click.pass_context
 def weekly_report(
     ctx: click.Context, target: str, output: Path | None, days: int, sign: bool, pdf: bool,
+    public: bool,
 ) -> None:
     """Rolling N-day summary across all cycles for one target."""
     workspace = Path(ctx.obj["workspace"])
@@ -172,6 +189,8 @@ def weekly_report(
               if (c.get("started_at") or "") >= cutoff]
     findings = [f for f in db.list_findings(target_id=t["id"], limit=1000)
                 if (f.get("created_at") or "") >= cutoff]
+    if public:
+        findings = [f for f in findings if (f.get("status") or "") in PUBLIC_STATUSES]
 
     out = output or (workspace / "reports" / f"{target}_weekly_{datetime.now(timezone.utc):%Y%m%d}.html")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -209,6 +228,16 @@ def _sev_counts(findings: list[dict]) -> dict[str, int]:
 # promotion, or human review behind it. Cover-page headline numbers
 # show the real bucket only — full counts go in a separate breakdown.
 REAL_STATUSES = {"confirmed", "disclosed", "fixed", "verified"}
+
+# Statuses safe to expose on the *public* cycle archive
+# (api.jelleo.com/cycles/<id>/cycle.html). `confirmed` is intentionally
+# EXCLUDED — a confirmed finding has fired a PoC against the live target
+# but the disclosure PR may not yet be filed; publishing it before
+# disclosure is a pre-disclosure leak. `rejected` is fine to include
+# (the engine itself decided the verdict was a false positive).
+# Customer-private cycle reports (--full) include everything so the
+# customer behind the token gate sees their in-progress state.
+PUBLIC_STATUSES = {"disclosed", "fixed", "verified", "rejected"}
 
 
 def _real_severity_counts(findings: list[dict]) -> dict[str, int]:
