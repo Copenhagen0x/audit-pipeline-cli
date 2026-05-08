@@ -742,6 +742,8 @@ def cover_page_html(
     status_breakdown: dict[str, int] | None = None,
     pubkey_fingerprint: str = "",
     generated_at: str = "",
+    auditor_name: str = "Kirill Sakharuk",
+    auditor_email: str = "kirill@jelleo.com",
 ) -> str:
     """Render a customer-facing PDF cover page.
 
@@ -751,6 +753,7 @@ def cover_page_html(
       │                                   │
       │ ─ <eyebrow>                       │
       │ <Big report title>                │
+      │ Auditor · email                   │
       │ Customer · Cycle · Window         │
       │ [5-cell severity strip]           │
       │                                   │
@@ -792,6 +795,7 @@ def cover_page_html(
         <h1 class="cover-title">{report_title} <span class="accent">{target_name}.</span></h1>
 
         <div class="cover-meta-grid">
+          <div class="label">Auditor</div><div class="value">{auditor_name} &middot; <a href="mailto:{auditor_email}">{auditor_email}</a></div>
           <div class="label">Customer</div><div class="value">{target_name}</div>
           <div class="label">Window</div><div class="value">{window_label}</div>
           {cycle_row}

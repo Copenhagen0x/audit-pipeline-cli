@@ -377,6 +377,8 @@ def _render_cycle_html(
     wrapper <code>{wrapper_sha}</code>
   </p>
 
+  <h2>01 &mdash; Cycle summary</h2>
+
   <div class="kpi-grid">
     <div class="kpi {'danger' if counts['Critical'] else 'ok'}">
       <div class="label">Critical</div><div class="value">{counts['Critical']}</div></div>
@@ -389,10 +391,10 @@ def _render_cycle_html(
 
   {_sev_bar(counts)}
 
-  <h2>Findings</h2>
+  <h2>02 &mdash; Findings</h2>
   {_findings_table(findings)}
 
-  <h2>Severity rubric</h2>
+  <h2>A &mdash; Severity rubric</h2>
   <table>
     <thead><tr><th style="width:120px">Tier</th><th>Definition</th></tr></thead>
     <tbody>{''.join(
@@ -401,6 +403,25 @@ def _render_cycle_html(
         for s in Severity
     )}</tbody>
   </table>
+
+  <h2>B &mdash; Methodology</h2>
+  <p style="color:var(--text-2)">
+    This cycle was produced by Jelleo's continuous, hypothesis-driven Solana audit loop.
+    Every finding originates as a falsifiable invariant claim from a per-protocol
+    hypothesis library, dispatched to multi-agent recon (Layer 1), promoted on
+    contested verdicts via adversarial debate (Layer 1.5), and confirmed empirically
+    via a <code>cargo test</code> proof-of-concept (Layer 2) before transitioning to
+    <code>confirmed</code>. Confirmed findings auto-fire structural sibling derivation
+    and cross-protocol propagation hooks, then move through a restricted lifecycle
+    (<code>new &rarr; triaged &rarr; confirmed &rarr; disclosed &rarr; fixed &rarr; verified</code>).
+    Every cycle is signed Ed25519 against the platform key — see the cover-page receipt.
+  </p>
+  <p style="color:var(--text-2)">
+    Full spec: <a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology">docs/methodology/</a>
+    (eleven sections, &sect;01&ndash;&sect;10) &middot;
+    Live reference: <a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a> &middot;
+    Inaugural disclosure: <a href="https://github.com/aeyakovenko/percolator-prog/pull/39">aeyakovenko/percolator-prog#39</a> (F7, 2026-04)
+  </p>
 
   {footer_html(extra=f"Cycle {cycle_id}")}
 
