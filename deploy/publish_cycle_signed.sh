@@ -155,7 +155,16 @@ mv "$STAGING" "$DEST"
 echo "publish_cycle_signed: published $CYCLE_ID -> $DEST"
 ls -la "$DEST"
 
-# 5. Trigger snapshot rebuild so receipts_signed updates within seconds
+# 5. Regenerate the cycle archive landing page at <docroot>/cycles/index.html
+# so the bare URL api.jelleo.com/cycles/ lists every signed cycle (newest
+# first). Without this, the bare URL 404s — only per-cycle subdirs serve.
+REGEN_SCRIPT="$(dirname "$0")/regen_cycles_index.py"
+if [ -f "$REGEN_SCRIPT" ]; then
+    python3 "$REGEN_SCRIPT" --docroot "$(dirname "$DOCROOT")" 2>&1 | tail -1 || true
+    chown www-data:www-data "$DOCROOT/index.html" 2>/dev/null || true
+fi
+
+# 6. Trigger snapshot rebuild so receipts_signed updates within seconds
 if systemctl list-units --no-legend --all 'jelleo-snapshot.service' >/dev/null 2>&1; then
     systemctl start jelleo-snapshot.service 2>/dev/null || true
 fi
