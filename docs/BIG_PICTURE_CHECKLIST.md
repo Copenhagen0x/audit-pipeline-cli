@@ -1,7 +1,7 @@
 # Jelleo · Big-Picture Checklist
 
 **Source of truth for "what state is Jelleo in right now."**
-Updated: 2026-05-07
+Updated: 2026-05-07 (end of 16-hour build session)
 
 This document maps every component of the proposal vision against today's reality. Every line is one of:
 
@@ -9,6 +9,25 @@ This document maps every component of the proposal vision against today's realit
 - 🟡 **Partial / WIP** — scaffolding exists, needs filling out
 - ❌ **Pre-seed buildable** — can ship without funding, just time/effort
 - 🔒 **Funded-build only** — requires Toly's seed money to deliver
+
+---
+
+## What shipped today — 2026-05-07 marathon (16h)
+
+8 commits landed on `main`:
+
+| Commit | What |
+|---|---|
+| `dee2224` | Methodology spec consolidated into `docs/methodology/` (replaces standalone repo) · CHANGELOG + CONTRIBUTING + CI badge |
+| `b67ef63` | **Tier 5 ship**: multi-tenant customer registry + per-customer derived Ed25519 keys + signed proof-of-running heartbeat + OpenAPI 3.1 spec |
+| `c603e85` | **B3 fix**: signed cycle receipt publish path + `_read_receipt_fingerprint` PEM-armour parsing bug · 7 tests added |
+| `7194d94` | Per-cycle landing pages (`/cycles/<id>/index.html`) + nginx index directive |
+| `53b25a7` | PDF cover-page overlap fix (Chromium `100vh` + grid `1fr` collapse in print mode) |
+| `05fcc19` | Cycle-archive index page (`api.jelleo.com/cycles/` was 404, now lists all 16) |
+| `22e8b8b` | Website nav: `/status/` + `/cycles/` linked from top nav + footer (were orphan) — needs Netlify redeploy |
+| `2e2da69` | **🚨 Pre-disclosure leak fix**: 2 cycles publicly leaked 13 confirmed-but-not-disclosed Critical/High findings against percolator-live. Pulled the leaky dirs, added `--public/--full` filter, default `--public`, re-rendered all 16 remaining cycles |
+
+Plus: ran one fresh hunt cycle ($3.02, 101 agents) to validate end-to-end. Manually reviewed 5 hypotheses (B58/62/67/69/72) — all false positives or already-mitigated, $0 spent on validation.
 
 ---
 
@@ -34,7 +53,7 @@ This document maps every component of the proposal vision against today's realit
 |---|---|---|
 | `shadow` CLI command | ✅ | Layer 6 |
 | Commit-triggered shadow (via `jelleo-watch.service`) | ✅ | Active since 2026-04-28 |
-| Live mainnet shadow service (`jelleo-shadow.service`) | 🟡 | Unit file installed, service NOT enabled. Tier 1 #1 — 1h to enable |
+| Live mainnet shadow service (`jelleo-shadow.service`) | ✅ | Active 2026-05-07 (was dead 30h before today's restart) |
 | Sub-slot replay | 🔒 | Funded-state P1 delta |
 | On-call routing (PagerDuty/Opsgenie integration) | 🔒 | Funded-state P1 delta |
 
@@ -45,8 +64,8 @@ This document maps every component of the proposal vision against today's realit
 | `propagate` CLI (`init-corpus`, `search`, `auto-fire`) | ✅ | All 3 subcommands |
 | 15-protocol corpus (Drift, Mango, Marginfi, Kamino, Phoenix, OpenBook, Orca, Meteora, Raydium, Marinade, Anchor, SPL + 3 more) | ✅ | Default in `propagate.py` |
 | 17 bug-class signatures registered (`BUG_CLASS_SIGNATURES`) | ✅ | `propagate.py` |
-| Propagation auto-fire on confirmed-transition | 🟡 | Wired in `publish_cycle.sh` for emails — propagation auto-trigger TBD. Tier 2 #9 — 3h |
-| Auto-bug-class sibling derivation | ❌ | Tier 2 #8 — 4-6h |
+| Propagation auto-fire on confirmed-transition | ✅ | Tier 2 #9 shipped 2026-05-07 — `propagate_from_finding_async` daemon-thread hook on `Status.CONFIRMED` |
+| Auto-bug-class sibling derivation | ✅ | Tier 2 #8 shipped 2026-05-07 — `audit-pipeline derive-siblings <id>` + `derive_siblings_async` daemon hook |
 | Multi-protocol indexing service | 🔒 | Funded-state P2 delta |
 | Disclosure-feed integrations (Sherlock / Code4rena / GHSA) | 🔒 | Funded-state P2 delta |
 
@@ -70,7 +89,7 @@ This document maps every component of the proposal vision against today's realit
 | Public key published at `jelleo.com/keys/jelleo.ed25519.pub` | ✅ | Also at api.jelleo.com mirror |
 | Per-cycle Merkle root | ❌ | Could build pre-seed (~6h) but only useful with on-chain |
 | ~500-LOC Anchor program for on-chain registry | 🔒 | Funded P4 deliverable, devnet day 90, mainnet day 180 |
-| Public proof-of-running attestations (hourly heartbeat) | ❌ | Tier 5 #29 — 3h |
+| Public proof-of-running attestations (hourly heartbeat) | 🟡 | Tier 5 #29 code shipped 2026-05-07 (`audit-pipeline heartbeat` + `jelleo-heartbeat.{service,timer}`); not yet deployed to VPS — needs `bash deploy/install_systemd.sh` |
 
 ---
 
@@ -157,7 +176,7 @@ This document maps every component of the proposal vision against today's realit
 | Public dashboard with live numbers | ✅ | `dashboard.html` + `/snapshot.json` every 60s |
 | Public cycle reports at `api.jelleo.com/cycles/<id>/` | ✅ | Wired in `publish_cycle.sh` (today) |
 | Auth'd customer portal with full findings | ❌ | Tier 1 #4 |
-| Web triage UI | ❌ | Tier 2 #12 — 8h |
+| Web triage UI | ✅ | Tier 2 #12 shipped — `audit-pipeline triage --port 8080`, single-page SPA, keyboard shortcuts |
 | Customer-specific recipient routing | ✅ | `notifier.json` with 5 channels |
 | SMTP transport (Gmail) | ✅ | `security@jelleo.com` |
 | SPF + DKIM (so emails don't land in spam) | ❌ | Tier 3 #14 — 15min |
@@ -170,8 +189,8 @@ This document maps every component of the proposal vision against today's realit
 |---|---|---|
 | Python package (`audit_pipeline`) | ✅ | 13,320 LoC, 7 top-level modules, 32 CLI subcommands |
 | `cli.py` with `--workspace` global flag | ✅ | |
-| Hypothesis library (143 hyps in 4 files) | ✅ | percolator + bounty regression + deep + strict-helper |
-| Hypothesis library expansion (143 → 500+) | ❌ | Tier 2 #7 — 8-12h pure writing |
+| Hypothesis library (143 Percolator-specific in 4 files) | ✅ | percolator + bounty regression + deep + strict-helper |
+| Hypothesis library expansion (143 → 500+) | ✅ | Tier 2 #7 shipped 2026-05-07 — **508 hyps total** across 5 protocol classes (`perp_dex` 43, `amm_cp` 58, `clmm` 102, `lending` 94, `lst` 68) + 143 Percolator-specific |
 | Hypothesis JSON Schema validator | ✅ | `schemas/hypothesis.schema.json` |
 | Scoping module (loader filter) | ✅ | `scoping.py` with 12 known predicates |
 | Severity rubric module | ✅ | `severity.py` |
@@ -179,11 +198,14 @@ This document maps every component of the proposal vision against today's realit
 | Findings DB (SQLite) | ✅ | `db.py`, 4 tables, idempotent migrations |
 | Branding / design system | ✅ | `branding.py` matches jelleo.com aesthetic |
 | Notifier (SMTP) | ✅ | `notifier.py` |
-| Diff-aware hunting | ❌ | Tier 2 #11 — 6h, ~5× cheaper per cycle |
-| PoC test cache | ❌ | Tier 2 #10 — 4h, $2-3 saved per cycle |
-| Test suite (pytest) | ❌ | Tier 3 #16 — 8-12h (currently zero tests) |
-| `audit-pipeline customer` subcommand | ❌ | Tier 5 #27 — 4-6h |
-| OpenAPI spec for `api.jelleo.com` | ❌ | Tier 5 #30 — 4-5h |
+| Diff-aware hunting | ✅ | Tier 2 #11 shipped — `--protocol-class <name> --diff-since-sha <sha>` flags |
+| PoC test cache | ✅ | Tier 2 #10 shipped — SHA256(test_code)+engine_sha key, `audit-pipeline cache {list,stats,flush}` |
+| Test suite (pytest) | ✅ | Tier 3 #16 shipped — 196 tests, ruff-clean, 3 green CI runs |
+| `audit-pipeline customer` subcommand | ✅ | Tier 5 #27 shipped — `add/remove/list/show/rotate-key/pubkey` |
+| Multi-tenant workspace isolation | ✅ | Tier 5 #26 shipped — `<workspace>/customers.json` + `<workspace>/customers/<id>/` |
+| Per-customer derived signing keys | ✅ | Tier 5 #28 shipped — HKDF-SHA256(platform_priv, customer_id) → Ed25519 |
+| OpenAPI spec for `api.jelleo.com` | ✅ | Tier 5 #30 shipped at `docs/api/openapi.yaml` |
+| Pre-disclosure leak filter (`--public/--full` on cycle reports) | ✅ | 2026-05-07 — `report cycle` and `report weekly` default to `--public`; confirmed-but-not-disclosed findings excluded from public archive |
 
 ---
 
@@ -237,9 +259,9 @@ This document maps every component of the proposal vision against today's realit
 | README + SECURITY.md | ✅ | |
 | `docs/HYPOTHESIS_SCHEMA.md` | ✅ | |
 | Auto-publish recent cycles to `examples/recent-hunts/` | ✅ | 4 cycles published, more incoming |
-| GitHub Actions CI | ❌ | Tier 3 #15 — 3-4h |
+| GitHub Actions CI | ✅ | Tier 3 #15 shipped — matrix Python 3.10/3.11/3.12, lint + library-validation + pytest, badge in README |
 | GitHub releases / tags | ❌ | |
-| CONTRIBUTING.md | ❌ | |
+| CONTRIBUTING.md | ✅ | Shipped 2026-05-07 with `dee2224` |
 | CODEOWNERS | ❌ | |
 | Public methodology spec (`docs/methodology/` inside this repo) | ✅ | 11-section §01–§10 spec + `layers/` subfolder (Tier 3 #20, consolidated 2026-05-07 — single repo over standalone) |
 
