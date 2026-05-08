@@ -33,10 +33,12 @@ cp "$DEPLOY_DIR/jelleo-watch.service"  "$UNIT_DIR/"
 chmod +x "$DEPLOY_DIR/backup_findings_db.sh"
 # Sprint 3: cadence scheduler + dashboard snapshot
 # Tier 5 #29: hourly proof-of-running heartbeat (jelleo-heartbeat)
-for u in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot jelleo-heartbeat; do
+# P2 #B6: daily corpus refresh (jelleo-corpus-refresh)
+for u in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot jelleo-heartbeat jelleo-corpus-refresh; do
     [[ -f "$DEPLOY_DIR/${u}.service" ]] && cp "$DEPLOY_DIR/${u}.service" "$UNIT_DIR/"
     [[ -f "$DEPLOY_DIR/${u}.timer"   ]] && cp "$DEPLOY_DIR/${u}.timer"   "$UNIT_DIR/"
 done
+chmod +x "$DEPLOY_DIR/refresh_corpus.sh" 2>/dev/null || true
 
 # Workspace dirs the new units need (idempotent — won't error if exist)
 mkdir -p /root/audit_runs/percolator-live/scheduler
@@ -92,8 +94,8 @@ if [[ -f "$UNIT_DIR/jelleo-backup.timer" ]]; then
     systemctl restart jelleo-backup.timer
 fi
 
-# Sprint 3 + Tier 5 timers — scheduler, snapshot, hourly heartbeat
-for t in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot jelleo-heartbeat; do
+# Sprint 3 + Tier 5 + P2 timers — scheduler, snapshot, heartbeat, corpus refresh
+for t in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot jelleo-heartbeat jelleo-corpus-refresh; do
     if [[ -f "$UNIT_DIR/${t}.timer" ]]; then
         systemctl enable "${t}.timer"
         systemctl restart "${t}.timer"

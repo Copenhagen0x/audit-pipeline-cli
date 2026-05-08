@@ -61,13 +61,31 @@ Plus: ran one fresh hunt cycle ($3.02, 101 agents) to validate end-to-end. Manua
 
 | Item | Status | Notes |
 |---|---|---|
-| `propagate` CLI (`init-corpus`, `search`, `auto-fire`) | ✅ | All 3 subcommands |
-| 15-protocol corpus (Drift, Mango, Marginfi, Kamino, Phoenix, OpenBook, Orca, Meteora, Raydium, Marinade, Anchor, SPL + 3 more) | ✅ | Default in `propagate.py` |
-| 17 bug-class signatures registered (`BUG_CLASS_SIGNATURES`) | ✅ | `propagate.py` |
-| Propagation auto-fire on confirmed-transition | ✅ | Tier 2 #9 shipped 2026-05-07 — `propagate_from_finding_async` daemon-thread hook on `Status.CONFIRMED` |
-| Auto-bug-class sibling derivation | ✅ | Tier 2 #8 shipped 2026-05-07 — `audit-pipeline derive-siblings <id>` + `derive_siblings_async` daemon hook |
-| Multi-protocol indexing service | 🔒 | Funded-state P2 delta |
+| `propagate` CLI (`init-corpus`, `search`, `auto-fire`, `status`, `dispatch-pending`, `add-target`) | ✅ | All 6 subcommands |
+| Indexed corpus on VPS | ✅ | 3 perp-DEX peers cloned 2026-05-08 (Drift, Mango, Jupiter Perps); add-target CLI for dynamic expansion as customers sign up |
+| 19 bug-class signatures registered (`BUG_CLASS_SIGNATURES`) | ✅ | `propagate.py` — includes 2 F7-derived classes added 2026-05-08 (`accrual-helper-asymmetry`, `k-walk-accumulation`) |
+| `bug_class` taxonomy backfilled | ✅ | 639/639 YAML hyps tagged + 690/728 DB findings backfilled 2026-05-08 (P2 A1/A2) |
+| Bug-class catalog doc + customer how-to + operator runbook | ✅ | `docs/methodology/bug-class-catalog.md` + `propagation-howto.md` + `propagation-runbook.md` |
+| Propagation auto-fire on confirmed-transition | ✅ | Tier 2 #9 shipped 2026-05-07 — `propagate_from_finding_async` daemon-thread hook on `Status.CONFIRMED`; **first live run vs F7 on 2026-05-08** (517 files / 3 repos / 4 sigs / 0 hits — legitimate result for F7's class) |
+| Auto-bug-class sibling derivation | ✅ | Tier 2 #8 shipped 2026-05-07 — `audit-pipeline derive-siblings <id>` + `derive_siblings_async` daemon hook; **first live run vs F7 on 2026-05-08** (6 siblings generated, ~$0.30 spend) |
+| Layer-1 dispatch queue on top hits | ✅ | P2 E17 shipped 2026-05-08 — propagation top candidates queued at `<workspace>/recon/propagate/scheduled/`; `propagate dispatch-pending` operator-gated CLI fires the actual hunts |
+| Hook execution log (per-invocation JSON) | ✅ | P2 F21 shipped 2026-05-08 — `<workspace>/hooks/<id>-<hook>-<ts>.log` records started/completed/failed with traceback |
+| Hook idempotency markers | ✅ | P2 F23/D14 shipped 2026-05-08 — propagation + sibling derivation each maintain a marker file; re-fire requires explicit deletion |
+| Daily LLM budget cap on sibling derivation | ✅ | P2 D15 shipped 2026-05-08 — default `$5/day` per workspace; ledger at `<workspace>/derived/budget/<YYYYMMDD>.usd` |
+| Submodule init in corpus clone path | ✅ | P2 B7 shipped 2026-05-08 (caught during F7 regression cycle B62 UNKNOWN diagnosis) |
+| Daily corpus refresh cron | ✅ | P2 B6 shipped 2026-05-08 — `jelleo-corpus-refresh.{service,timer}` runs daily 03:30 UTC |
+| Public propagation stats on snapshot.json | ✅ | P2 G27 shipped 2026-05-08 — `propagation_stats` block: bug_classes_catalogued / findings_with_bug_class / sibling_files / propagation_reports / dispatches_queued+pending |
+| Per-customer propagation slice in manifest.json | ✅ | P2 G28 shipped 2026-05-08 — `propagation_stats` scoped to customer's owned targets |
+| `propagate status <finding-id>` query CLI | ✅ | P2 F22 shipped 2026-05-08 — reports sibling/propagation/marker/queue state for a finding |
+| CI rule rejecting hyps without `bug_class` | ✅ | P2 A3 shipped 2026-05-08 — `tests/test_class_libraries.py:test_every_hypothesis_has_bug_class` |
+| Multi-protocol indexing service (continuous, real-time) | 🔒 | Funded-state P2 delta |
 | Disclosure-feed integrations (Sherlock / Code4rena / GHSA) | 🔒 | Funded-state P2 delta |
+| Customer-facing propagation chain visualization (tree view) | ❌ | P2 G26 deferred — large UI work, not critical for P2 functional |
+| Sibling review-then-merge UI in triage | ❌ | P2 D13 deferred — operator can `cat <workspace>/derived/*.yaml` for now |
+| Public bug-class catalog page on jelleo.com | ❌ | P2 H31 deferred — content lives at `docs/methodology/bug-class-catalog.md`; lifting to public site is Tier 4 polish |
+| Cycle report HTML mentions propagation activity | ❌ | P2 H29 deferred — counters are in snapshot.json, not yet inlined per-cycle |
+| Weekly/monthly digest propagation sections | ❌ | P2 H30 deferred — same shape as H29 |
+| F7 propagation case study extension | ❌ | P2 J36 deferred — F7's existing `/case-studies/f7-percolator/` page stands; propagation chain extension is post-OtterSec-pilot work |
 
 ### P3 · Closed-loop fix bundle
 

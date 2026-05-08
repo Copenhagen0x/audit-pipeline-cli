@@ -1,0 +1,15 @@
+[Unit]
+Description=Jelleo - daily corpus refresh
+Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/methodology/04-propagation.md
+
+[Timer]
+# Daily at 03:30 UTC, off-cycle from snapshot (60s) and 24h scheduler (00:00).
+# RandomizedDelaySec=300 spreads load if multiple Jelleo VPSs eventually
+# share a corpus mirror.
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=300
+Persistent=true
+Unit=jelleo-corpus-refresh.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=Jelleo - daily corpus refresh (P2 corpus freshness)
+Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/methodology/04-propagation.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=/root/audit-pipeline-cli
+ExecStart=/bin/bash /root/audit-pipeline-cli/deploy/refresh_corpus.sh
+StandardOutput=append:/root/audit_runs/percolator-live/recon/propagate/refresh.log
+StandardError=append:/root/audit_runs/percolator-live/recon/propagate/refresh.log
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
