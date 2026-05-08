@@ -1,0 +1,4 @@
+{"ts": "2026-05-08T02:50:38+00:00", "event": "hunt_start", "engine_sha": "3c9c84908b7b28b041c9dbf56ea16c480ab8e7ce", "wrapper_sha": "04b854e5718112f42ebba9c208335a22132075ad", "target": "percolator-live", "source_mode": "local", "source_repo": null, "daily_remaining_usd": 50.0}
+{"ts": "2026-05-08T03:05:24+00:00", "event": "layer1_done", "returncode": 0}
+{"ts": "2026-05-08T03:05:24+00:00", "event": "layer1_summary", "n_total": 101, "n_true": 19, "n_needs_l2": 47, "n_false_high": 18, "cost_layer1": 3.0173}
+{"ts": "2026-05-08T03:05:25+00:00", "event": "hunt_done", "elapsed": 885.8843364715576, "n_confirmed": 0, "cost": 3.0173}

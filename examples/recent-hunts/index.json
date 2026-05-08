@@ -1,8 +1,26 @@
 {
   "schema": "jelleo.recent-hunts.manifest.v1",
   "description": "Manifest of recent autonomous hunt cycles published to this repo. Sorted most-recent-first. Updated automatically by the VPS post-cycle hook (deploy/post_cycle_publish.sh).",
-  "updated_at": "2026-05-08T02:50:00Z",
+  "updated_at": "2026-05-08T03:05:25Z",
   "cycles": [
+    {
+      "id": "20260508-025038",
+      "dir": "20260508-025038",
+      "target": "percolator-live",
+      "source_repo": "aeyakovenko/percolator",
+      "engine_sha": "3c9c84908b7b28b041c9dbf56ea16c480ab8e7ce",
+      "started_at": "2026-05-08T02:50:38+00:00",
+      "elapsed_seconds": 885.9,
+      "total_cost_usd": 3.0173,
+      "n_hypotheses": 101,
+      "n_candidates": 66,
+      "n_confirmed": 0,
+      "verdict_true": 19,
+      "verdict_layer2": 47,
+      "verdict_unknown": 35,
+      "summary_url": "https://raw.githubusercontent.com/Copenhagen0x/audit-pipeline-cli/main/examples/recent-hunts/20260508-025038/hunt_summary.json",
+      "browse_url": "https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/examples/recent-hunts/20260508-025038"
+    },
     {
       "id": "20260507-004922-5059332",
       "dir": "20260507-004922-5059332",
