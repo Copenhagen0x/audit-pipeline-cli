@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Bug-class catalog</title>
+<meta name="description" content="The structural bug-class taxonomy Jelleo uses to propagate every confirmed finding across the indexed corpus. Insurance-counter divergence, clock-advance races, funding-rate self-bias, constant-product violations — kebab-case classes registered in the propagation engine.">
+<meta name="theme-color" content="#050504">
+<link rel="canonical" href="https://jelleo.com/bug-classes.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Jelleo">
+<meta property="og:url" content="https://jelleo.com/bug-classes.html">
+<meta property="og:title" content="Jelleo · Bug-class catalog">
+<meta property="og:description" content="Structural bug-class taxonomy. Every confirmed finding pivots on bug_class for cross-protocol propagation.">
+<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:title" content="Jelleo · Bug-class catalog">
+<meta name="twitter:description" content="Structural bug-class taxonomy — public reference for the propagation engine.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+section.doc h3 {
+  font-size: clamp(20px, 2vw, 26px); line-height: 1.25; font-weight: 600;
+  margin: 56px 0 18px; color: var(--ink); letter-spacing: -0.01em;
+}
+section.doc h4 { font-size: 16px; font-weight: 600; margin: 24px 0 8px; color: var(--ink); }
+section.doc p { color: var(--ink-2); margin-bottom: 16px; max-width: 80ch; line-height: 1.65; }
+section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; max-width: 70ch; }
+section.doc ul, section.doc ol { color: var(--ink-2); margin: 0 0 16px 24px; max-width: 80ch; line-height: 1.7; }
+section.doc li { margin-bottom: 6px; }
+section.doc strong { color: var(--ink); }
+section.doc a { color: var(--amber); border-bottom: 1px solid rgba(245,184,0,0.3); transition: border-color .15s ease; }
+section.doc a:hover { border-bottom-color: var(--amber); }
+
+.toc { margin-top: 48px; background: var(--surface); border: 1px solid var(--rule);
+       border-radius: 10px; padding: 28px 32px; max-width: 880px; }
+.toc-head { font-family: var(--mono); font-size: 11px; letter-spacing: 0.22em;
+            text-transform: uppercase; color: var(--ink-3); margin-bottom: 18px; }
+.toc ol { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 40px; }
+@media (max-width: 720px) { .toc ol { columns: 1; } }
+.toc li { margin-bottom: 10px; font-size: 14px; break-inside: avoid; }
+.toc a { color: var(--ink-2); border-bottom: 1px dashed transparent;
+         transition: color .15s ease, border-color .15s ease; }
+.toc a:hover { color: var(--amber); border-bottom-color: var(--amber); }
+.toc .toc-num { font-family: var(--mono); color: var(--amber); font-size: 11px;
+                margin-right: 10px; letter-spacing: 0.06em; }
+
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 32px 0; max-width: 880px; }
+@media (max-width: 720px) { .kpi-strip { grid-template-columns: 1fr 1fr; } }
+.kpi-cell { background: var(--surface); border: 1px solid var(--rule);
+            border-radius: 8px; padding: 18px 22px; }
+.kpi-cell .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
+                   text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px; }
+.kpi-cell .value { font-size: 28px; font-weight: 600; color: var(--amber);
+                   font-feature-settings: "tnum"; }
+
+.classes-grid { display: grid; grid-template-columns: 1fr; gap: 20px; max-width: 980px; margin-top: 24px; }
+.class-card { background: var(--surface); border: 1px solid var(--rule);
+              border-radius: 8px; padding: 22px 26px; transition: border-color .15s ease, transform .15s ease; }
+.class-card:hover { border-color: var(--rule-2); transform: translateY(-1px); }
+.class-id { font-family: var(--mono); font-size: 13px; color: var(--amber);
+            font-weight: 600; margin-bottom: 8px; word-break: break-all; }
+.class-card p { margin: 0 0 6px 0; font-size: 14px; line-height: 1.65; max-width: 78ch; }
+.class-card .flag { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
+                    text-transform: uppercase; color: var(--ink-3); margin-top: 10px;
+                    display: inline-block; }
+.class-card .flag.flagship { color: var(--amber); }
+
+.callout { background: rgba(245,184,0,0.05); border-left: 3px solid var(--amber);
+           padding: 18px 22px; margin: 28px 0; font-size: 14px; color: var(--ink-2);
+           border-radius: 0 6px 6px 0; max-width: 80ch; line-height: 1.65; }
+.callout strong { color: var(--ink); }
+
+code { font-family: var(--mono); font-size: 0.92em; }
+</style>
+</head>
+<body>
+
+<!-- BACKGROUND -->
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+<div class="scroll-progress" id="progress"></div>
+
+<!-- NAV -->
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/#coverage">Coverage</a>
+    <a href="/#product">Product</a>
+    <a href="/#live-ops">Live ops</a>
+    <a href="/#dashboard-preview">Dashboard</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html">Security</a>
+  </div>
+  <div class="nav-right">
+    <span class="nav-status">
+      <span class="live-dot"></span>
+      Catalog · v1 · public
+    </span>
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/bug-classes.html" role="menuitem">Bug-class catalog</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
+</div>
+
+<!-- HERO -->
+<section class="hero">
+  <span class="hero-bracket tl"></span>
+  <span class="hero-bracket br"></span>
+  <div class="container">
+    <div data-reveal>
+      <div class="hero-eyebrow">Bug-class catalog · public reference</div>
+      <h1 class="hero-title">The structural taxonomy <span class="accent">behind cross-protocol propagation.</span></h1>
+      <p class="hero-lede">Every hypothesis Jelleo dispatches and every finding it confirms carries a <code>bug_class</code> drawn from this catalog. When a finding confirms in one protocol, the propagation engine pivots on its <code>bug_class</code> — running a regex + AST corpus sweep across every other indexed program for the same structural pattern. This page is the source of truth for that taxonomy.</p>
+      <div class="hero-meta">
+        <span><strong>48</strong> classes with signatures</span>
+        <span><strong>200+</strong> declared in libraries</span>
+        <span><strong>F7</strong> · <code>insurance-counter-vault-divergence</code></span>
+        <span><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/methodology/bug-class-catalog.md">Source on GitHub →</a></span>
+      </div>
+    </div>
+
+    <div class="toc" data-reveal data-delay="1">
+      <div class="toc-head">Sections</div>
+      <ol>
+        <li><span class="toc-num">01</span><a href="#convention">Naming convention</a></li>
+        <li><span class="toc-num">02</span><a href="#operational">Operational invariants</a></li>
+        <li><span class="toc-num">03</span><a href="#cross-instruction">Cross-instruction state</a></li>
+        <li><span class="toc-num">04</span><a href="#pnl">PnL · funding · mark</a></li>
+        <li><span class="toc-num">05</span><a href="#authz">Authorization</a></li>
+        <li><span class="toc-num">06</span><a href="#lifecycle">State / lifecycle</a></li>
+        <li><span class="toc-num">07</span><a href="#token-math">Token math</a></li>
+        <li><span class="toc-num">08</span><a href="#f7-derived">F7-derived classes</a></li>
+        <li><span class="toc-num">09</span><a href="#how-to-add">How to add a class</a></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- 01 — NAMING -->
+<section class="doc" id="convention">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">01 · Convention</div>
+      <h2 class="section-title">Naming · kebab-case · structural · protocol-agnostic</h2>
+      <p class="lede">A bug-class identifier describes a <strong>structural pattern</strong> that can appear across protocols, not a specific finding ID.</p>
+      <p>F7's class is <code>insurance-counter-vault-divergence</code>, not <code>F7-class</code>. That makes propagation meaningful: when F7 confirms in Percolator, the engine searches every indexed protocol for the same <em>pattern</em>, not the same protocol's bug.</p>
+
+      <div class="kpi-strip">
+        <div class="kpi-cell"><div class="label">Format</div><div class="value" style="font-size:18px;color:var(--ink)"><code>noun-mode</code></div></div>
+        <div class="kpi-cell"><div class="label">Case</div><div class="value" style="font-size:18px;color:var(--ink)">kebab</div></div>
+        <div class="kpi-cell"><div class="label">Scope</div><div class="value" style="font-size:18px;color:var(--ink)">structural</div></div>
+        <div class="kpi-cell"><div class="label">Acronyms</div><div class="value" style="font-size:18px;color:var(--ink)">universal only</div></div>
+      </div>
+
+      <p>Universal acronyms allowed: <code>pnl</code>, <code>pda</code>, <code>cpi</code>, <code>oi</code>, <code>mm</code>, <code>tvl</code>, <code>bps</code>.</p>
+
+      <ul>
+        <li><strong>Good</strong> · <code>insurance-counter-vault-divergence</code></li>
+        <li><strong>Good</strong> · <code>funding-rate-self-bias</code></li>
+        <li><strong>Bad</strong> · <code>INSURANCE_COUNTER_VAULT_DIV</code> &mdash; uppercase + underscore</li>
+        <li><strong>Bad</strong> · <code>f7-class</code> &mdash; project-specific, not portable across protocols</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 02 — OPERATIONAL INVARIANTS -->
+<section class="doc" id="operational">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">02 · Catalog</div>
+      <h2 class="section-title">Operational invariants</h2>
+      <p class="lede">Counters, vaults, residuals — anything where the protocol's accounting must reconcile across instructions.</p>
+
+      <div class="classes-grid">
+        <div class="class-card">
+          <div class="class-id">insurance-counter-vault-divergence</div>
+          <p>The insurance-fund counter and the underlying vault counter become decoupled. The bug shows up as a haircut residual that grows on absorption: when insurance pays out, the vault is left intact, so a formula computing <code>vault − c_tot − insurance</code> <em>grows</em> by the absorbed amount.</p>
+          <span class="flag flagship">★ Flagship · F7 disclosure · <a href="https://github.com/aeyakovenko/percolator-prog/pull/39">PR #39</a></span>
+        </div>
+        <div class="class-card">
+          <div class="class-id">vault-balance-divergence</div>
+          <p>General vault-counter mismatches: deposits/withdrawals not perfectly mirrored in the vault accumulator. Less specific than the insurance-counter case; covers any mutation that updates user-visible state without a paired vault update.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">haircut-direction-violation</div>
+          <p>The haircut formula is supposed to cap a side's claim at the residual. If the cap is implemented in the wrong direction (e.g., applying the ceiling to the loser instead of the winner), the invariant is violated.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 03 — CROSS-INSTRUCTION -->
+<section class="doc" id="cross-instruction">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">03 · Catalog</div>
+      <h2 class="section-title">Cross-instruction state</h2>
+      <p class="lede">Bugs where two instructions, in some order, leave engine state in a place neither alone would have reached.</p>
+
+      <div class="classes-grid">
+        <div class="class-card">
+          <div class="class-id">clock-advance-without-touch</div>
+          <p>Market clock advances (via <code>accrue_market_to</code>, <code>catchup_accrue</code>, etc.) without first touching all open accounts whose lazy MTM the advancement is about to materialize. Reaching the new state without per-account touch creates a window where risk gates fire on stale balances. Class behind the disclosed cascade-bypass bugs.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">keeper-cursor-budget-bypass</div>
+          <p>Round-robin cursor in <code>KeeperCrank</code> either advances when it shouldn't (missing accounts) or fails to advance when it should (DOS via stuck candidate). Includes the "reward zero on populated buffer" failure mode.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">account-gc-state-leak</div>
+          <p>Account marked free / reclaimable while still holding live state (non-zero position, pending fees, etc.). Subsequent reuse aliases old state into new account.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">resolved-state-pnl-leak</div>
+          <p>Findings reachable only when a market is in <code>Resolved</code> state. Settlement / matured-claim paths that should have been gated by mode remain reachable, leaking PnL.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 04 — PNL / FUNDING / MARK -->
+<section class="doc" id="pnl">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">04 · Catalog</div>
+      <h2 class="section-title">PnL · funding · mark</h2>
+      <p class="lede">Bugs in the price-to-PnL pipeline. Inputs the engine treats as ground truth that an attacker can in fact move.</p>
+
+      <div class="classes-grid">
+        <div class="class-card">
+          <div class="class-id">funding-rate-self-bias</div>
+          <p>Funding rate is computed off <code>mark_ewma</code> which itself can be moved by attacker-controlled trades. The attacker pays themselves funding via their own mark divergence.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">arithmetic-overflow-pnl-mark</div>
+          <p>Integer overflow on <code>i128</code> PnL accumulators or mark prices. Includes saturating-vs-wrapping arithmetic correctness, square-root bounds, checked vs unchecked.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">self-trade-cash-flow-violation</div>
+          <p>Self-matched trade primitive (one operator controlling both sides) that bypasses the PnL zero-sum invariant. F7 was a special case of this combined with the residual class.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">liquidation-incentive-overpayment</div>
+          <p>Liquidation discount / bonus exceeds the configured cap, or stacks across cascade rounds to overpay the liquidator.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 05 — AUTHZ -->
+<section class="doc" id="authz">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">05 · Catalog</div>
+      <h2 class="section-title">Authorization</h2>
+      <p class="lede">Privileged paths reachable without the privilege; signer expectations weakened or bypassed.</p>
+
+      <div class="classes-grid">
+        <div class="class-card">
+          <div class="class-id">authorization-bypass</div>
+          <p>Permissionless instruction reaches a privileged path; signer check missing or weakened; admin authority delegated incorrectly; PDA authority bypass.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 06 — LIFECYCLE -->
+<section class="doc" id="lifecycle">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">06 · Catalog</div>
+      <h2 class="section-title">State · lifecycle</h2>
+      <p class="lede">Bugs in account creation, initialization, and teardown — the boundary cases where state has not yet existed or no longer should.</p>
+
+      <div class="classes-grid">
+        <div class="class-card">
+          <div class="class-id">init-state-invariant-violation</div>
+          <p>A market / account / pool can be initialized in a state that violates a documented invariant: zero reserves, mismatched discriminator, missing authority binding, etc. Includes replay protection failures.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">account-close-state-leak</div>
+          <p>Closing path doesn't fully zero state before reclaiming the account slot. Subsequent re-init can read residual bytes.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 07 — TOKEN MATH -->
+<section class="doc" id="token-math">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">07 · Catalog</div>
+      <h2 class="section-title">Token math</h2>
+      <p class="lede">SPL-token-level invariants: supply conservation, AMM constants, fee asymmetry, flash-loan repayment.</p>
+
+      <div class="classes-grid">
+        <div class="class-card">
+          <div class="class-id">token-balance-conservation-violation</div>
+          <p>SPL-token transfers don't conserve total supply across protocol-internal state — money created or destroyed somewhere.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">constant-product-invariant-violation</div>
+          <p>For AMMs: <code>x*y = k</code> violated by a swap or liquidity event. Includes rounding-direction bugs that let the invariant strictly decrease.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">fee-accounting-rounding-asymmetry</div>
+          <p>Fees rounded asymmetrically vs the trade direction — attacker can extract micro-margin via repeated calls in the favorable direction.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">flash-loan-repayment-bypass</div>
+          <p>Flash-borrow path can complete without a paired repayment, or the repayment check is loose enough to permit short-rebay attacks.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 08 — F7-DERIVED -->
+<section class="doc" id="f7-derived">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">08 · Catalog</div>
+      <h2 class="section-title">F7-derived classes</h2>
+      <p class="lede">Adjacent structural patterns surfaced by analyzing F7's sibling library — the propagation engine emits these as auto-derived hypotheses on confirmed-finding transition.</p>
+
+      <div class="classes-grid">
+        <div class="class-card">
+          <div class="class-id">accrual-helper-asymmetry</div>
+          <p>Wrapper exposes two accrual helpers — one weak (no per-account-touch gate), one strict (calls <code>reject_account_limited_market_progress</code>). Bug: a permissionless instruction handler routes through the weak helper when it should route through the strict one. SH1, SH2 in the strict-helper sibling library.</p>
+        </div>
+        <div class="class-card">
+          <div class="class-id">k-walk-accumulation</div>
+          <p>Multi-step state advancement (oracle observations, funding rate integration, etc.) that accumulates into engine state without per-step account-touch gating. SH3, SH4 cover this class.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 09 — HOW TO ADD -->
+<section class="doc" id="how-to-add">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">09 · Process</div>
+      <h2 class="section-title">How a new class enters the catalog</h2>
+      <p class="lede">The catalog grows but does not regress. CI guards against accidental signature removal.</p>
+
+      <ol>
+        <li><strong>Pick a name</strong> · <code>&lt;noun&gt;-&lt;mode&gt;</code>, kebab-case, protocol-agnostic.</li>
+        <li><strong>Add YAML hypotheses</strong> declaring <code>bug_class: &lt;new&gt;</code> in the appropriate class library.</li>
+        <li><strong>Register signatures</strong> in <code>BUG_CLASS_SIGNATURES</code> &mdash; 2&ndash;4 regex patterns identifying candidate code in any protocol.</li>
+        <li><strong>(Optional)</strong> Add a tree-sitter AST query in <code>BUG_CLASS_AST_PATTERNS</code> for structural matching that ignores comments and strings.</li>
+        <li><strong>Document here</strong> with a 2&ndash;3 sentence definition.</li>
+        <li><strong>Add a fixture-based unit test</strong> &mdash; signature must match a known-vulnerable file and not match a patched version.</li>
+      </ol>
+
+      <div class="callout">
+        <strong>CI guarantee</strong> &mdash; <code>tests/test_class_libraries.py::test_signature_catalog_no_regression</code> prevents accidental removal of registered signatures. The catalog can grow but cannot regress.
+      </div>
+
+      <p>Today: ~200 distinct <code>bug_class</code> values declared across the five protocol-class libraries (<code>perp_dex</code>, <code>amm_cp</code>, <code>clmm</code>, <code>lending</code>, <code>lst</code>). Adding signatures is incremental: when a class confirms for the first time, write its signatures, add the entry, and the next propagation cycle picks it up.</p>
+
+      <p style="margin-top: 32px"><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/methodology/bug-class-catalog.md">Read the operator-facing source on GitHub →</a></p>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER (matches site shell) -->
+<footer style="border-top: 1px solid var(--rule); padding: 48px 0; margin-top: 80px">
+  <div class="container" style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 24px; font-family: var(--mono); font-size: 12px; color: var(--ink-3)">
+    <div>jelleo · continuous Solana audit</div>
+    <div><a href="/methodology.html" style="color: var(--ink-3); border: none">methodology</a> · <a href="/security.html" style="color: var(--ink-3); border: none">security</a> · <a href="/bug-classes.html" style="color: var(--amber); border: none">bug classes</a> · <a href="/customer/" style="color: var(--ink-3); border: none">customer portal</a></div>
+  </div>
+</footer>
+
+<script>
+  // Reveal-on-scroll (matches methodology.html behavior)
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('revealed');
+        observer.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
+
+  // Mobile menu toggle
+  const tog = document.getElementById('nav-toggle'), menu = document.getElementById('mobile-menu');
+  if (tog && menu) {
+    tog.addEventListener('click', () => {
+      const open = menu.classList.toggle('open');
+      tog.setAttribute('aria-expanded', String(open));
+    });
+  }
+</script>
+</body>
+</html>

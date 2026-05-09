@@ -147,7 +147,11 @@ def cycle_report(
     out = output or (workspace / "hunts" / cycle_id / "hunt_report.html")
     out.parent.mkdir(parents=True, exist_ok=True)
     pubkey = read_pubkey_fingerprint(workspace)
-    out.write_text(_render_cycle_html(target, cycle, findings, pubkey), encoding="utf-8")
+    out.write_text(
+        _render_cycle_html(target, cycle, findings, pubkey,
+                           workspace=workspace, public=public),
+        encoding="utf-8",
+    )
     console.print(f"[green]wrote[/green] {out}")
     _auto_sign(workspace, out, sign)
 
@@ -195,7 +199,11 @@ def weekly_report(
     out = output or (workspace / "reports" / f"{target}_weekly_{datetime.now(timezone.utc):%Y%m%d}.html")
     out.parent.mkdir(parents=True, exist_ok=True)
     pubkey = read_pubkey_fingerprint(workspace)
-    out.write_text(_render_weekly_html(t, cycles, findings, days, pubkey), encoding="utf-8")
+    out.write_text(
+        _render_weekly_html(t, cycles, findings, days, pubkey,
+                            workspace=workspace, public=public),
+        encoding="utf-8",
+    )
     console.print(f"[green]wrote[/green] {out}")
     _auto_sign(workspace, out, sign)
 
@@ -313,11 +321,151 @@ def _findings_table(findings: list[dict]) -> str:
     </table>"""
 
 
+def _propagation_section(
+    workspace: Path,
+    findings: list[dict],
+    public: bool,
+) -> str:
+    """P2 H29: cycle-scoped propagation activity block.
+
+    Counts what propagation work fired for findings in *this* cycle:
+      * sibling YAMLs derived (one per confirmed finding)
+      * cross-protocol propagation reports written
+      * Layer-1 dispatches queued
+      * chain pages rendered
+
+    --public mode shows counters only (no finding IDs / titles, since
+    confirmed-but-not-disclosed leakage is forbidden in public reports).
+    --full mode lists each finding with its propagation footprint.
+    """
+    finding_ids = {f.get("id") for f in findings if f.get("id") is not None}
+    if not finding_ids:
+        return ""
+
+    derived_dir = workspace / "derived"
+    autofire_dir = workspace / "recon" / "propagate" / "auto-fire"
+    chains_dir = workspace / "recon" / "propagate" / "chains"
+    queue_dir = workspace / "recon" / "propagate" / "scheduled"
+
+    # Map finding_id → propagation activity
+    per_finding: dict[int, dict] = {}
+    for f in findings:
+        fid = f.get("id")
+        if fid is None:
+            continue
+        slug = (f.get("hypothesis_id") or f"finding-{fid}").replace("/", "-")
+        sib_count = 0
+        if derived_dir.is_dir():
+            sib_path = derived_dir / f"{slug}-siblings.yaml"
+            if sib_path.is_file():
+                try:
+                    import yaml as _y
+                    doc = _y.safe_load(sib_path.read_text(encoding="utf-8")) or {}
+                    sib_count = len(doc.get("hypotheses") or [])
+                except Exception:
+                    sib_count = 0
+        report_count = 0
+        if autofire_dir.is_dir():
+            report_count = len(list(autofire_dir.glob(f"propagation_finding_{fid}_*.md")))
+        chain_present = chains_dir.is_dir() and (chains_dir / f"{fid}.html").is_file()
+        queue_count = 0
+        if queue_dir.is_dir():
+            queue_count = len(list(queue_dir.glob(f"{fid}-*.json")))
+        if sib_count or report_count or chain_present or queue_count:
+            per_finding[fid] = {
+                "siblings": sib_count, "reports": report_count,
+                "chain": chain_present, "queue": queue_count,
+            }
+
+    if not per_finding:
+        return ""
+
+    total_sibs = sum(v["siblings"] for v in per_finding.values())
+    total_reports = sum(v["reports"] for v in per_finding.values())
+    total_chains = sum(1 for v in per_finding.values() if v["chain"])
+    total_queue = sum(v["queue"] for v in per_finding.values())
+
+    counters_html = (
+        '<div class="kpi-grid">'
+        f'<div class="kpi"><div class="label">Findings with propagation</div>'
+        f'<div class="value">{len(per_finding)}</div></div>'
+        f'<div class="kpi"><div class="label">Siblings derived</div>'
+        f'<div class="value">{total_sibs}</div></div>'
+        f'<div class="kpi"><div class="label">Propagation reports</div>'
+        f'<div class="value">{total_reports}</div></div>'
+        f'<div class="kpi"><div class="label">Chain pages</div>'
+        f'<div class="value">{total_chains}</div></div>'
+        f'<div class="kpi"><div class="label">Layer-1 queued</div>'
+        f'<div class="value">{total_queue}</div></div>'
+        '</div>'
+    )
+
+    if public:
+        # Public mode: counters only — naming a finding's propagation
+        # activity reveals it's confirmed even if it's not disclosed yet.
+        return f"""
+  <h2>03 &mdash; Propagation activity</h2>
+  <p style="color:var(--text-2)">
+    Confirmed findings auto-fire two follow-on stages: structural sibling
+    derivation (LLM-emitted hypotheses about adjacent invariants) and a
+    cross-protocol corpus sweep using regex + AST signatures. Counters below
+    are cycle-scoped; per-finding detail is suppressed in public reports
+    (pre-disclosure rule).
+  </p>
+  {counters_html}
+"""
+
+    # Full mode: per-finding rows for the customer-private report.
+    rows: list[str] = []
+    for f in findings:
+        fid = f.get("id")
+        if fid not in per_finding:
+            continue
+        v = per_finding[fid]
+        title = html.escape((f.get("title") or "")[:90])
+        hyp = html.escape(f.get("hypothesis_id") or "")
+        rows.append(
+            f"<tr>"
+            f"<td><code>{fid}</code></td>"
+            f"<td><code>{hyp}</code></td>"
+            f"<td style=\"color:var(--text-2)\">{title}</td>"
+            f"<td style=\"text-align:right\">{v['siblings']}</td>"
+            f"<td style=\"text-align:right\">{v['reports']}</td>"
+            f"<td style=\"text-align:center\">{'✓' if v['chain'] else ''}</td>"
+            f"<td style=\"text-align:right\">{v['queue']}</td>"
+            f"</tr>"
+        )
+    table = (
+        '<table><thead><tr>'
+        '<th>id</th><th>hypothesis</th><th>title</th>'
+        '<th style="text-align:right">siblings</th>'
+        '<th style="text-align:right">reports</th>'
+        '<th style="text-align:center">chain</th>'
+        '<th style="text-align:right">queued</th>'
+        '</tr></thead><tbody>'
+        + "".join(rows) +
+        '</tbody></table>'
+    )
+
+    return f"""
+  <h2>03 &mdash; Propagation activity</h2>
+  <p style="color:var(--text-2)">
+    Per-finding propagation footprint for this cycle. Each confirmed finding
+    auto-fires sibling derivation + cross-protocol corpus sweep + chain page.
+  </p>
+  {counters_html}
+  {table}
+"""
+
+
 def _render_cycle_html(
     target: dict,
     cycle: dict | None,
     findings: list[dict],
     pubkey_fingerprint: str = "",
+    *,
+    workspace: Path | None = None,
+    public: bool = True,
 ) -> str:
     target_name = html.escape(target.get("name", "?"))
     cycle_id = html.escape(cycle.get("cycle_id", "?") if cycle else "?")
@@ -394,6 +542,8 @@ def _render_cycle_html(
   <h2>02 &mdash; Findings</h2>
   {_findings_table(findings)}
 
+  {_propagation_section(workspace, findings, public) if workspace else ""}
+
   <h2>A &mdash; Severity rubric</h2>
   <table>
     <thead><tr><th style="width:120px">Tier</th><th>Definition</th></tr></thead>
@@ -432,6 +582,9 @@ def _render_cycle_html(
 def _render_weekly_html(
     target: dict, cycles: list[dict], findings: list[dict], days: int,
     pubkey_fingerprint: str = "",
+    *,
+    workspace: Path | None = None,
+    public: bool = True,
 ) -> str:
     target_name = html.escape(target.get("name", "?"))
     counts = _sev_counts(findings)              # full counts (all statuses)
@@ -516,6 +669,8 @@ def _render_weekly_html(
   </div>
 
   {_sev_bar(counts)}
+
+  {_propagation_section(workspace, findings, public) if workspace else ""}
 
   <h2>Severity rubric</h2>
   <table>

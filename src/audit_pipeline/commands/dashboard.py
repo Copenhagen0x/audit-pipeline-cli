@@ -82,7 +82,7 @@ def dashboard_cmd(
         snapshot_path = Path(snapshot_json)
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         snapshot_path.write_text(
-            json.dumps(_build_snapshot(db), indent=2, sort_keys=True),
+            json.dumps(_build_snapshot(db, workspace), indent=2, sort_keys=True),
             encoding="utf-8",
         )
         console.print(f"[green]wrote[/green] {snapshot_path}")
@@ -93,7 +93,7 @@ def dashboard_cmd(
             mpath = cdir / cust["id"] / "manifest.json"
             mpath.parent.mkdir(parents=True, exist_ok=True)
             mpath.write_text(
-                json.dumps(_build_customer_manifest(db, cust), indent=2, sort_keys=True),
+                json.dumps(_build_customer_manifest(db, cust, workspace), indent=2, sort_keys=True),
                 encoding="utf-8",
             )
             console.print(f"[green]wrote[/green] {mpath}")
@@ -102,7 +102,7 @@ def dashboard_cmd(
         _serve(out.parent, out.name, port)
 
 
-def _build_snapshot(db: FindingsDB) -> dict:
+def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
     """Serialize the DB state into a stable, public-safe JSON shape.
 
     What goes IN: aggregated counts, target names, recent cycles, and ONLY
@@ -228,7 +228,13 @@ def _build_snapshot(db: FindingsDB) -> dict:
     }
 
     now = datetime.now(timezone.utc)
-    workspace = db.path.parent
+    # Workspace was historically derived from db.path.parent (SQLite-only).
+    # Postgres backend has no .path; callers must pass workspace explicitly.
+    if workspace is None:
+        # Best-effort fallback for the SQLite path.
+        workspace = getattr(db, "path", None)
+        if workspace is not None:
+            workspace = workspace.parent
     return {
         "generated_at": now.isoformat(timespec="seconds"),
         "generated_at_ms": int(now.timestamp() * 1000),
@@ -245,7 +251,7 @@ def _build_snapshot(db: FindingsDB) -> dict:
         # G27: P2 propagation surface — what's been tagged, derived, swept,
         # queued. None of these expose customer-private data; everything
         # is cumulative-platform stats. Drives the /status/ counter row.
-        "propagation_stats": _propagation_stats(workspace, db),
+        "propagation_stats": _propagation_stats(workspace, db) if workspace else {},
     }
 
 
@@ -451,7 +457,7 @@ def _customers_to_publish(workspace: Path) -> list[dict]:
     return customers
 
 
-def _build_customer_manifest(db: FindingsDB, customer: dict) -> dict:
+def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | None = None) -> dict:
     """Build the per-customer manifest the gated portal renders.
 
     Same shape as the public snapshot, but scoped to this customer's owned
@@ -546,8 +552,12 @@ def _build_customer_manifest(db: FindingsDB, customer: dict) -> dict:
     # whose hypothesis_id (or derived siblings) belong to this customer's
     # owned targets. Today the customer can see their own in-progress
     # confirmed findings — propagation hits associated with those go here.
-    customer_propagation = _customer_propagation_slice(
-        db.path.parent, customer_findings, owned_target_ids,
+    if workspace is None:
+        workspace = getattr(db, "path", None)
+        workspace = workspace.parent if workspace is not None else None
+    customer_propagation = (
+        _customer_propagation_slice(workspace, customer_findings, owned_target_ids)
+        if workspace else {}
     )
 
     now = datetime.now(timezone.utc)
@@ -642,11 +652,35 @@ def _customer_propagation_slice(
             except (IndexError, ValueError):
                 continue
 
+    # G26: per-finding chain links. For each customer finding that has
+    # a rendered chain.html in <workspace>/recon/propagate/chains/, expose
+    # the relative path so the gated portal can link directly to it.
+    chains_dir = workspace / "recon" / "propagate" / "chains"
+    chain_links: list[dict] = []
+    if chains_dir.is_dir():
+        for f in customer_findings:
+            fid = f.get("id")
+            if fid is None:
+                continue
+            cpath = chains_dir / f"{fid}.html"
+            if cpath.is_file():
+                chain_links.append({
+                    "finding_id":      fid,
+                    "hypothesis_id":   f.get("hypothesis_id"),
+                    "title":           (f.get("title") or "")[:120],
+                    "severity":        f.get("severity"),
+                    "bug_class":       f.get("bug_class"),
+                    # Path relative to the customer's manifest dir; the
+                    # portal joins it with the workspace public-cycles base.
+                    "chain_html_path": f"recon/propagate/chains/{fid}.html",
+                })
+
     return {
         "bug_classes_seen":         len(customer_bug_classes),
         "findings_with_bug_class":  findings_with_bug_class,
         "sibling_files":            sibling_files,
         "propagation_reports":      propagation_reports,
+        "chain_links":              chain_links,
     }
 
 

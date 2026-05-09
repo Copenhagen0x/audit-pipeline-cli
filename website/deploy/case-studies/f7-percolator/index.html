@@ -300,6 +300,7 @@ pre .fail   { color: var(--alert); }
           <li><span class="num">06</span><a href="#sizing">Exploit sizing</a></li>
           <li><span class="num">07</span><a href="#fix">Recommended fixes</a></li>
           <li><span class="num">08</span><a href="#timeline">Disclosure timeline</a></li>
+          <li><span class="num">08.5</span><a href="#propagation">Cross-protocol propagation</a></li>
           <li><span class="num">09</span><a href="#takeaway">What this proves about the methodology</a></li>
         </ol>
       </div>
@@ -513,6 +514,53 @@ Insurance loss = (ΔK − 0.2)·N.
           <div class="when">Ongoing</div>
           <div class="what">Sibling-class hypotheses in the same bug class ("insurance-residual coupling") are queued for cross-protocol propagation against any other Solana protocol that maintains a vault counter and an out-of-vault insurance counter. Today: zero confirmed siblings.</div>
         </div>
+      </div>
+    </div>
+
+    <!-- ============== 08.5 PROPAGATION ============== -->
+    <div data-reveal id="propagation">
+      <div class="section-label">08.5 · Cross-protocol propagation</div>
+      <h2 class="section-title">F7's structural pattern, swept across the cluster.</h2>
+      <p>Once F7 transitioned to <code>confirmed</code>, the propagation hook fired automatically &mdash; LLM-emitted six structural sibling hypotheses, then the propagation engine ran a regex + tree-sitter AST sweep across the cross-protocol corpus (Drift, Mango, Marginfi, Kamino-lend, Jupiter swap, OpenBook v2, Orca whirlpools, Phoenix). The pattern: any protocol that maintains a vault counter and an out-of-vault insurance counter is a structural sibling of Percolator's F7.</p>
+
+      <div class="kpi-strip" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 28px 0; max-width: 760px;">
+        <div style="background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 20px;">
+          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;">Siblings derived</div>
+          <div style="font-size: 26px; font-weight: 600; color: var(--amber); font-feature-settings: 'tnum';">6</div>
+        </div>
+        <div style="background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 20px;">
+          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;">Files swept</div>
+          <div style="font-size: 26px; font-weight: 600; color: var(--amber); font-feature-settings: 'tnum';">517</div>
+        </div>
+        <div style="background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 20px;">
+          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;">Protocols indexed</div>
+          <div style="font-size: 26px; font-weight: 600; color: var(--amber); font-feature-settings: 'tnum';">8</div>
+        </div>
+        <div style="background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 20px;">
+          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;">Confirmed siblings</div>
+          <div style="font-size: 26px; font-weight: 600; color: var(--ink); font-feature-settings: 'tnum';">0</div>
+        </div>
+      </div>
+
+      <h3 style="margin-top: 40px;">The six derived siblings</h3>
+      <p>Each sibling is a falsifiable claim about an invariant adjacent to F7's root cause. Together they form the structural perimeter of the <code><a href="/bug-classes.html#f7-derived">insurance-counter-vault-divergence</a></code> class.</p>
+
+      <ul>
+        <li><strong>SIB-V7-1</strong> · <code>insurance-counter-vault-divergence-on-liquidation</code> &mdash; during a liquidation absorbing a shortfall, the corresponding vault debit must occur atomically and match the absorbed amount exactly. <span class="sev sev-critical">Critical</span></li>
+        <li><strong>SIB-V7-2</strong> · <code>insurance-counter-vault-divergence-on-settle</code> &mdash; on settle-PnL where a deficit is socialized, the net change in <code>insurance_fund.balance</code> plus the net change in vault token balance must sum to zero. <span class="sev sev-critical">Critical</span></li>
+        <li><strong>SIB-V7-3</strong> · <code>insurance-counter-vault-divergence-on-withdraw</code> &mdash; any authorized withdrawal from the insurance fund must emit a corresponding SPL token transfer out of the protocol vault of identical magnitude. <span class="sev sev-critical">Critical</span></li>
+        <li><strong>SIB-V7-4</strong> · <code>insurance-counter-vault-divergence-on-deposit</code> &mdash; deposits into the insurance fund must increase the counter by exactly the amount transferred into the vault, no double-credit, no over-counting. <span class="sev sev-high">High</span></li>
+        <li><strong>SIB-V7-5</strong> · <code>cross-market-insurance-vault-aliasing</code> &mdash; markets that share an insurance fund must not allow one market's vault delta to be credited against another market's insurance counter. <span class="sev sev-critical">Critical</span></li>
+        <li><strong>SIB-V7-6</strong> · <code>self-trade-residual-skew-cross-protocol</code> &mdash; any protocol whose residual formula composes vault, insurance, and per-side counters must not allow a self-trade primitive to widen the residual asymmetrically. <span class="sev sev-critical">Critical</span></li>
+      </ul>
+
+      <h3 style="margin-top: 40px;">What "0 confirmed siblings" means</h3>
+      <p>Zero is a feature, not a hole. The corpus sweep ran every regex signature for the F7 class plus the <code>insurance_balance_mutation</code> AST query against every <code>.rs</code> file in the indexed corpus. None of the matches survived manual triage as a true sibling &mdash; meaning the eight indexed protocols today don't replicate Percolator's residual-formula coupling. That's a result you can publish.</p>
+
+      <p>For protocols where a sibling does eventually confirm, the hook fires the same disclosure pipeline F7 went through: <a href="/methodology.html#propagation">propagation methodology</a> &middot; <a href="/bug-classes.html">full bug-class catalog</a>.</p>
+
+      <div class="callout">
+        <strong>Operator note</strong> &mdash; the per-finding chain page (parent &rarr; siblings &rarr; corpus sweep &rarr; queued L1 dispatches) is generated automatically via <code>audit-pipeline propagate chain &lt;finding-id&gt;</code> and surfaces in the customer dashboard manifest.
       </div>
     </div>
 
