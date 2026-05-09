@@ -7,6 +7,20 @@
 <meta name="description" content="Jelleo platform status — live service health, last cycle, last hunt, signed-receipt count.">
 <meta name="theme-color" content="#050504">
 <link rel="canonical" href="https://jelleo.com/status/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Jelleo">
+<meta property="og:url" content="https://jelleo.com/status/">
+<meta property="og:title" content="Jelleo · Live status">
+<meta property="og:description" content="Live health of the Jelleo loop — shadow service, watch service, scheduler timers, snapshot publication, signed receipts, P2 propagation + P3 fix bundles + P4 attestation.">
+<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Jelleo — The Underwriting Layer for Solana DeFi">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:title" content="Jelleo · Live status">
+<meta name="twitter:description" content="Live health of every Jelleo service — public dashboard.">
+
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -133,7 +147,8 @@ section.doc { padding: 100px 0; }
 .service-state.up       { color: var(--ok);    background: rgba(74,222,128,0.06);  border: 1px solid rgba(74,222,128,0.3); }
 .service-state.degraded { color: var(--warn);  background: rgba(251,191,36,0.06);  border: 1px solid rgba(251,191,36,0.3); }
 .service-state.down     { color: var(--alert); background: rgba(239,68,68,0.06);   border: 1px solid rgba(239,68,68,0.3); }
-.service-state.unknown  { color: var(--ink-3); border: 1px solid var(--rule); }
+.service-state.zero { color: var(--ink-2); border-color: var(--rule-2); background: rgba(96,165,250,0.06); }
+        .service-state.unknown  { color: var(--ink-3); border: 1px solid var(--rule); }
 .col-cadence, .col-last {
   font-family: var(--mono); font-size: 12px;
   color: var(--ink-3);
@@ -550,7 +565,7 @@ section.doc { padding: 100px 0; }
     } else {
       // Zero = neutral (e.g., "0 PRs merged" is healthy), use a third state
       // so it doesn't collapse into the same pill style as "fetch failed".
-      setPillState(el, 'unknown', '0');
+      setPillState(el, 'zero', '0');
     }
   }
 

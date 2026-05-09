@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<link rel="canonical" href="https://jelleo.com/customer/demo/">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jelleo · Percolator dashboard</title>
 <meta name="description" content="Embedded customer dashboard — what a Jelleo-monitored Solana DeFi protocol sees. Live findings feed, on-chain attestation registry, cluster activity, alert routing.">
@@ -309,14 +311,32 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   .panel-head { padding: 12px 14px; }
   .feed-toolbar { padding: 10px 12px; }
   .footer-bar { padding: 14px 16px; flex-direction: column; gap: 6px; align-items: flex-start; }
-  /* Demo banner: long content + tiny screen = 5-line wrap. Truncate to first
-     fragment so it stays on one line and doesn't push the topnav offscreen. */
+  /* Demo banner on phones: hide all the original content (spans + loose
+     text nodes) and replace with a single short label via ::before.
+     Using `color: transparent` + `text-indent: 100%` + `overflow: hidden`
+     to neutralise the loose text nodes that display: none on spans
+     can't reach. */
   .demo-banner {
-    font-size: 9px; padding: 6px 10px; line-height: 1.4;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: transparent !important;
+    padding: 7px 10px; line-height: 1.2;
+    overflow: hidden; white-space: nowrap;
+    text-overflow: clip;
+    height: 28px;
+    position: relative;
   }
-  .demo-banner > *:not(.badge) { display: inline; }
-  .demo-banner .badge { font-size: 9px; padding: 1px 6px; }
+  .demo-banner * { display: none !important; }
+  .demo-banner::before {
+    content: "LIVE";
+    display: inline-block;
+    background: var(--amber); color: var(--bg);
+    font-size: 9px; font-weight: 700; padding: 2px 6px;
+    border-radius: 3px; margin-right: 8px;
+  }
+  .demo-banner::after {
+    content: "demo · public snapshot";
+    color: var(--ink-3); font-size: 10px; font-family: var(--mono);
+    letter-spacing: 0.04em;
+  }
 }
 @media (max-width: 480px) {
   .id-grid { grid-template-columns: 1fr; gap: 10px; }
@@ -439,21 +459,6 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   cursor: pointer;
   position: relative;
 }
-/* Mobile: collapse to single column at 1100px (iPad portrait + below) so the
-   3-col 110+1fr+110 layout doesn't overflow in the narrow available width.
-   !important because the demo page's grid-auto-flow + many sibling rules
-   make plain cascade unreliable here; we'd rather guarantee the collapse. */
-@media (max-width: 1100px) {
-  .finding-row {
-    grid-template-columns: 1fr !important;
-    grid-template-rows: auto auto auto !important;
-    padding: 12px 14px !important;
-  }
-  .fr-id { grid-column: 1; grid-row: 1; }
-  .fr-class { grid-column: 1; grid-row: 2; }
-  .fr-age { grid-column: 1; grid-row: 1; justify-self: end; }
-  .fr-meta { grid-column: 1; grid-row: 3; }
-}
 .finding-row:last-child { border-bottom: none; }
 .finding-row:hover { background: rgba(245,184,0,0.025); }
 
@@ -547,6 +552,25 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
 }
 .finding-row.expanded { background: rgba(245,184,0,0.04); }
 .finding-row.expanded .fr-preview { display: block; }
+
+/* Mobile finding-row collapse — placed AFTER base fr-id/fr-class/fr-age
+   rules above so the cascade order picks up these grid-area overrides
+   on viewport match (the source-order tie-breaker is what matters here). */
+@media (max-width: 1100px) {
+  .finding-row {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto auto auto !important;
+    padding: 12px 14px !important;
+    gap: 4px 12px !important;
+  }
+  .finding-row .fr-id    { grid-column: 1 !important; grid-row: 1 !important; }
+  .finding-row .fr-class { grid-column: 1 !important; grid-row: 2 !important; }
+  .finding-row .fr-age   { grid-column: 1 !important; grid-row: 1 !important;
+                           justify-self: end !important; text-align: right; }
+  .finding-row .fr-meta  { grid-column: 1 !important; grid-row: 3 !important;
+                           flex-wrap: wrap; }
+  .finding-row .fr-class { white-space: normal; word-break: break-word; }
+}
 
 .fr-preview .verdict-line {
   display: flex;
@@ -869,12 +893,12 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       <div class="findings" id="findings">
 
         <!-- F7 — the headline -->
-        <div class="finding-row high">
+        <div class="finding-row crit">
           <span class="fr-id">F7</span>
           <span class="fr-class">Residual-conservation / insurance-siphon (self-dealing attack class)</span>
           <span class="fr-age">12 mo</span>
           <span class="fr-meta">
-            <span class="severity-badge high">HIGH</span>
+            <span class="severity-badge crit"> CRITICAL</span>
             <span class="status-pill locked">regression-locked · #39</span>
             <span class="fr-cite">engine/src/lib.rs:4250–4260 · use_insurance_buffer</span>
           </span>

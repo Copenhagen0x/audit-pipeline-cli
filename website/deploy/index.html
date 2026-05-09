@@ -1255,7 +1255,7 @@ section {
   background: var(--amber);
   box-shadow: 0 0 12px var(--amber-glow);
 }
-.method-cta-text { flex: 1 1 480px; min-width: 280px; }
+.method-cta-text { flex: 1 1 480px; min-width: 0; }
 .method-cta-eyebrow {
   font-family: var(--mono); font-size: 11px;
   letter-spacing: 0.32em; text-transform: uppercase;
@@ -1506,7 +1506,9 @@ section {
 .lf-row:last-child { border-bottom: none; }
 
 .lf-time {
-  color: var(--ink-4);
+  /* WCAG bump: --ink-4 (0.28 alpha) was below 4.5:1 on dark bg.
+     --ink-3 (0.46) gets to ~4.6:1. */
+  color: var(--ink-3);
   font-size: 11px;
 }
 .lf-proto {
@@ -1880,6 +1882,13 @@ section {
   .dpc-row { grid-template-columns: auto 1fr; grid-template-rows: auto auto; }
   .dpc-class { grid-column: 1 / -1; grid-row: 2; }
   .dpc-tag { display: none; }
+  /* CTA must collapse full-width on phone so it doesn't overflow the foot row */
+  .dash-preview-foot { flex-direction: column; align-items: stretch; gap: 14px; }
+  .dash-preview-foot > span { min-width: 0 !important; }
+  .dpc-cta { width: 100%; justify-content: center; padding: 14px 22px; }
+}
+@media (hover: none) {
+  .dpc-cta:hover { transform: none; box-shadow: none; }
 }
 
 /* ========== DISCLOSURES ========== */
@@ -2711,7 +2720,19 @@ section {
 }
 .audio-toggle svg { width: 16px; height: 16px; }
 @media (max-width: 768px) {
-  .audio-toggle { bottom: 16px; right: 16px; }
+  /* WCAG 44px tap target + iPhone safe-area-inset so the button doesn't
+     sit on the home-indicator bar. */
+  .audio-toggle {
+    bottom: max(16px, env(safe-area-inset-bottom, 16px));
+    right:  max(16px, env(safe-area-inset-right, 16px));
+    width: 44px; height: 44px;
+  }
+}
+@media (hover: none) {
+  /* Touch devices: drop the cursor: none + sticky :hover styles */
+  .audio-toggle { cursor: auto; }
+  .audio-toggle:hover { transform: none; border-color: var(--rule-2); color: var(--ink-3); }
+  .audio-toggle.on:hover { color: var(--amber); border-color: rgba(245,184,0,0.4); }
 }
 
 /* ========== EASTER EGG / DEV MODE OVERLAY ========== */
@@ -4551,7 +4572,7 @@ body.preloading { overflow: hidden; }
           <li><a href="#dashboard-preview">Live demo</a></li>
           <li><a href="#case-study">F7 case study</a></li>
           <li><a href="/status/">Live status</a></li>
-          <li><a href="https://api.jelleo.com/cycles/">Cycle archive</a></li>
+          <li><a href="https://api.jelleo.com/cycles/" target="_blank" rel="noopener">Cycle archive ↗</a></li>
         </ul>
       </div>
       <div class="footer-col">

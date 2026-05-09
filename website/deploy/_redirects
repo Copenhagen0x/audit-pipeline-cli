@@ -1,0 +1,11 @@
+# Netlify _redirects
+
+# Canonical host: www.jelleo.com → jelleo.com (force apex)
+https://www.jelleo.com/*    https://jelleo.com/:splat    301!
+
+# Old dashboard route → customer portal (keeps any existing bookmarks alive)
+/dashboard.html    /customer/    301
+/dashboard         /customer/    301
+
+# Catch-all 404
+/*    /404.html    404

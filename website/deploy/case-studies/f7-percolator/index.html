@@ -72,6 +72,7 @@ section.doc code {
   gap: 24px 40px;
 }
 @media (max-width: 720px) { .receipt-strip { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .receipt-strip { grid-template-columns: 1fr; } }
 .receipt-strip .field .lbl {
   font-family: var(--mono); font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.18em;
@@ -230,10 +231,10 @@ pre .fail   { color: var(--alert); }
   letter-spacing: 0.14em; text-transform: uppercase;
   vertical-align: 1px;
 }
-.sev-critical { background: rgba(239,68,68,0.12);  color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
-.sev-high     { background: rgba(249,115,22,0.12); color: #f97316; border: 1px solid rgba(249,115,22,0.3); }
-.sev-medium   { background: rgba(234,179,8,0.12);  color: #eab308; border: 1px solid rgba(234,179,8,0.3); }
-.sev-low      { background: rgba(96,165,250,0.12); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3); }
+.sev-critical { background: rgba(239,68,68,0.12);  color: var(--critical); border: 1px solid rgba(239,68,68,0.3); }
+.sev-high     { background: rgba(249,115,22,0.12); color: var(--high); border: 1px solid rgba(249,115,22,0.3); }
+.sev-medium   { background: rgba(234,179,8,0.12);  color: var(--medium); border: 1px solid rgba(234,179,8,0.3); }
+.sev-low      { background: rgba(96,165,250,0.12); color: var(--low); border: 1px solid rgba(96,165,250,0.3); }
 
 /* Long inline <code> in body lists must wrap on phones */
 section.doc li code { word-break: break-word; overflow-wrap: anywhere; }
@@ -274,6 +275,7 @@ section.doc li { line-height: 1.65; }
   <div class="nav-center">
     <a href="/protocols/">Protocols</a>
     <a href="/methodology.html">Methodology</a>
+    <a href="/status/">Status</a>
     <a href="/security.html">Security</a>
     <a href="/case-studies/f7-percolator/" class="active">Case study</a>
   </div>

@@ -8,6 +8,11 @@
 (function() {
   'use strict';
 
+  // Flag the document as JS-enabled so the no-JS [data-reveal] fallback in
+  // shared.css gives way. Without this class, [data-reveal] elements stay
+  // visible (graceful for NoScript / corp-proxy users).
+  document.documentElement.classList.add('js');
+
   // ============== MOBILE NAV TOGGLE ==============
   // Tolerant lookup: pages may use either id="nav-toggle" or class="nav-toggle".
   const navToggle = document.getElementById('nav-toggle')

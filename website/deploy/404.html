@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo &middot; Page not found</title>
+<meta name="description" content="The page you were looking for doesn't exist. Try the homepage, methodology, or status page.">
+<meta name="theme-color" content="#050504">
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/shared.css">
+<style>
+.notfound {
+  min-height: calc(100svh - 80px);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 80px var(--pad);
+  text-align: center;
+}
+.notfound .code {
+  font-family: var(--mono); font-size: clamp(56px, 14vw, 96px);
+  color: var(--amber); font-weight: 600; letter-spacing: -0.02em;
+  margin-bottom: 24px;
+}
+.notfound h1 {
+  font-size: clamp(28px, 5vw, 44px); font-weight: 600;
+  letter-spacing: -0.01em; margin-bottom: 18px; color: var(--ink);
+  max-width: 22ch;
+}
+.notfound p {
+  color: var(--ink-2); max-width: 56ch;
+  margin-bottom: 32px; line-height: 1.65;
+}
+.notfound .link-row {
+  display: flex; flex-wrap: wrap; gap: 14px; justify-content: center;
+  margin-top: 8px;
+}
+.notfound .link-row a {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
+  text-transform: uppercase; padding: 12px 18px;
+  border: 1px solid var(--rule-2); border-radius: 6px;
+  color: var(--ink-2); text-decoration: none;
+  transition: border-color .2s, color .2s, background .2s;
+  min-height: 44px; display: inline-flex; align-items: center;
+}
+.notfound .link-row a:hover {
+  border-color: var(--amber); color: var(--amber);
+  background: rgba(245,184,0,0.04);
+}
+.notfound .link-row a.primary {
+  background: var(--amber); color: var(--bg); border-color: var(--amber);
+}
+.notfound .link-row a.primary:hover {
+  background: var(--amber-2); border-color: var(--amber-2);
+}
+</style>
+</head>
+<body>
+<div class="bg-aurora"></div>
+<div class="bg-blobs"><div class="blob blob-1"></div><div class="blob blob-2"></div><div class="blob blob-3"></div></div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-noise"></div>
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+<div class="scroll-progress" id="progress"></div>
+
+<a href="#main" class="skip-link">Skip to main content</a>
+
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/#coverage">Coverage</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/bug-classes.html">Catalog</a>
+    <a href="/security.html">Security</a>
+    <a href="/status/">Status</a>
+  </div>
+  <div class="nav-right">
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/bug-classes.html" role="menuitem">Bug-class catalog</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/status/" role="menuitem">Status</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration &rarr;</a>
+</div>
+
+<main id="main" class="notfound">
+  <div class="code">404</div>
+  <h1>This page hasn't been audited.</h1>
+  <p>The URL you typed doesn't match anything we serve. The most useful destinations are below.</p>
+  <div class="link-row">
+    <a href="/" class="primary">Home &rarr;</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/bug-classes.html">Bug-class catalog</a>
+    <a href="/status/">Live status</a>
+    <a href="/case-studies/f7-percolator/">F7 case study</a>
+  </div>
+</main>
+
+<script src="/shared.js"></script>
+</body>
+</html>

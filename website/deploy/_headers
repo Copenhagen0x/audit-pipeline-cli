@@ -1,0 +1,30 @@
+# Netlify _headers — security defaults for the whole site
+
+/*
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()
+
+# Public Ed25519 pubkey: serve as inline text so curl/browser display it
+# instead of triggering a download dialog. This is the file auditors verify
+# our cycle signatures against.
+/keys/*
+  Content-Type: text/plain; charset=utf-8
+  Content-Disposition: inline
+  Cache-Control: public, max-age=3600
+  Access-Control-Allow-Origin: *
+
+# Customer manifest endpoints are token-gated client-side; never index them
+/customer/*
+  X-Robots-Tag: noindex, nofollow
+  Cache-Control: no-store, no-cache, must-revalidate
+
+# Status / dashboard pages: short cache so live data isn't pinned
+/status/*
+  Cache-Control: public, max-age=60, must-revalidate
+
+# OG image — long cache, immutable per filename
+/og.png
+  Cache-Control: public, max-age=2592000, immutable

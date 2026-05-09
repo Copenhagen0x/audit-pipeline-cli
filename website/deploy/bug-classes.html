@@ -36,7 +36,8 @@ section.doc h3 {
 }
 section.doc h4 { font-size: 16px; font-weight: 600; margin: 24px 0 8px; color: var(--ink); }
 section.doc p { color: var(--ink-2); margin-bottom: 16px; max-width: 80ch; line-height: 1.65; }
-section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; max-width: 70ch; }
+/* section.doc p.lede was used by 9 lede paragraphs that we've now switched
+   to class="section-lede" (defined in shared.css). Rule removed. */
 section.doc ul, section.doc ol { color: var(--ink-2); margin: 0 0 16px 24px; max-width: 80ch; line-height: 1.7; }
 section.doc li { margin-bottom: 6px; }
 section.doc strong { color: var(--ink); }
@@ -65,6 +66,9 @@ section.doc a:hover { border-bottom-color: var(--amber); }
                    text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px; }
 .kpi-cell .value { font-size: 28px; font-weight: 600; color: var(--amber);
                    font-feature-settings: "tnum"; }
+/* Text-mode KPI cells (e.g. "noun-mode" / "kebab" labels in section 01) need
+   smaller, white text instead of the big amber number look. */
+.kpi-cell.text .value { font-size: 18px; color: var(--ink); font-weight: 500; }
 .kpi-cell .value code { background: none; border: none; padding: 0; font-size: 16px; word-break: break-word; }
 @media (max-width: 720px) {
   .kpi-cell { padding: 14px 16px; }
@@ -122,6 +126,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <a href="/#live-ops">Live ops</a>
     <a href="/#dashboard-preview">Dashboard</a>
     <a href="/methodology.html">Methodology</a>
+    <a href="/status/">Status</a>
     <a href="/security.html">Security</a>
   </div>
   <div class="nav-right">
@@ -159,7 +164,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
         <span><strong>48</strong> classes with signatures</span>
         <span><strong>200+</strong> declared in libraries</span>
         <span><strong>F7</strong> · <code>insurance-counter-vault-divergence</code></span>
-        <span><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/methodology/bug-class-catalog.md">Source on GitHub →</a></span>
+        <span><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/methodology/bug-class-catalog.md" target="_blank" rel="noopener">Source on GitHub →</a></span>
       </div>
     </div>
 
@@ -186,14 +191,14 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">01 · Convention</div>
       <h2 class="section-title">Naming · kebab-case · structural · protocol-agnostic</h2>
-      <p class="lede">A bug-class identifier describes a <strong>structural pattern</strong> that can appear across protocols, not a specific finding ID.</p>
+      <p class="section-lede">A bug-class identifier describes a <strong>structural pattern</strong> that can appear across protocols, not a specific finding ID.</p>
       <p>F7's class is <code>insurance-counter-vault-divergence</code>, not <code>F7-class</code>. That makes propagation meaningful: when F7 confirms in Percolator, the engine searches every indexed protocol for the same <em>pattern</em>, not the same protocol's bug.</p>
 
       <div class="kpi-strip">
-        <div class="kpi-cell"><div class="label">Format</div><div class="value" style="font-size:18px;color:var(--ink)"><code>noun-mode</code></div></div>
-        <div class="kpi-cell"><div class="label">Case</div><div class="value" style="font-size:18px;color:var(--ink)">kebab</div></div>
-        <div class="kpi-cell"><div class="label">Scope</div><div class="value" style="font-size:18px;color:var(--ink)">structural</div></div>
-        <div class="kpi-cell"><div class="label">Acronyms</div><div class="value" style="font-size:18px;color:var(--ink)">universal only</div></div>
+        <div class="kpi-cell"><div class="label">Format</div><div class="value"><code>noun-mode</code></div></div>
+        <div class="kpi-cell"><div class="label">Case</div><div class="value">kebab</div></div>
+        <div class="kpi-cell"><div class="label">Scope</div><div class="value">structural</div></div>
+        <div class="kpi-cell"><div class="label">Acronyms</div><div class="value">universal only</div></div>
       </div>
 
       <p>Universal acronyms allowed: <code>pnl</code>, <code>pda</code>, <code>cpi</code>, <code>oi</code>, <code>mm</code>, <code>tvl</code>, <code>bps</code>.</p>
@@ -214,13 +219,13 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">02 · Catalog</div>
       <h2 class="section-title">Operational invariants</h2>
-      <p class="lede">Counters, vaults, residuals — anything where the protocol's accounting must reconcile across instructions.</p>
+      <p class="section-lede">Counters, vaults, residuals — anything where the protocol's accounting must reconcile across instructions.</p>
 
       <div class="classes-grid">
         <div class="class-card">
           <div class="class-id">insurance-counter-vault-divergence</div>
           <p>The insurance-fund counter and the underlying vault counter become decoupled. The bug shows up as a haircut residual that grows on absorption: when insurance pays out, the vault is left intact, so a formula computing <code>vault − c_tot − insurance</code> <em>grows</em> by the absorbed amount.</p>
-          <span class="flag flagship">★ Flagship · F7 disclosure · <a href="https://github.com/aeyakovenko/percolator-prog/pull/39">PR #39</a></span>
+          <span class="flag flagship">★ Flagship · F7 disclosure · <a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">PR #39</a></span>
         </div>
         <div class="class-card">
           <div class="class-id">vault-balance-divergence</div>
@@ -241,7 +246,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">03 · Catalog</div>
       <h2 class="section-title">Cross-instruction state</h2>
-      <p class="lede">Bugs where two instructions, in some order, leave engine state in a place neither alone would have reached.</p>
+      <p class="section-lede">Bugs where two instructions, in some order, leave engine state in a place neither alone would have reached.</p>
 
       <div class="classes-grid">
         <div class="class-card">
@@ -271,7 +276,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">04 · Catalog</div>
       <h2 class="section-title">PnL · funding · mark</h2>
-      <p class="lede">Bugs in the price-to-PnL pipeline. Inputs the engine treats as ground truth that an attacker can in fact move.</p>
+      <p class="section-lede">Bugs in the price-to-PnL pipeline. Inputs the engine treats as ground truth that an attacker can in fact move.</p>
 
       <div class="classes-grid">
         <div class="class-card">
@@ -301,7 +306,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">05 · Catalog</div>
       <h2 class="section-title">Authorization</h2>
-      <p class="lede">Privileged paths reachable without the privilege; signer expectations weakened or bypassed.</p>
+      <p class="section-lede">Privileged paths reachable without the privilege; signer expectations weakened or bypassed.</p>
 
       <div class="classes-grid">
         <div class="class-card">
@@ -319,7 +324,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">06 · Catalog</div>
       <h2 class="section-title">State · lifecycle</h2>
-      <p class="lede">Bugs in account creation, initialization, and teardown — the boundary cases where state has not yet existed or no longer should.</p>
+      <p class="section-lede">Bugs in account creation, initialization, and teardown — the boundary cases where state has not yet existed or no longer should.</p>
 
       <div class="classes-grid">
         <div class="class-card">
@@ -341,7 +346,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">07 · Catalog</div>
       <h2 class="section-title">Token math</h2>
-      <p class="lede">SPL-token-level invariants: supply conservation, AMM constants, fee asymmetry, flash-loan repayment.</p>
+      <p class="section-lede">SPL-token-level invariants: supply conservation, AMM constants, fee asymmetry, flash-loan repayment.</p>
 
       <div class="classes-grid">
         <div class="class-card">
@@ -371,7 +376,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">08 · Catalog</div>
       <h2 class="section-title">F7-derived classes</h2>
-      <p class="lede">Adjacent structural patterns surfaced by analyzing F7's sibling library — the propagation engine emits these as auto-derived hypotheses on confirmed-finding transition.</p>
+      <p class="section-lede">Adjacent structural patterns surfaced by analyzing F7's sibling library — the propagation engine emits these as auto-derived hypotheses on confirmed-finding transition.</p>
 
       <div class="classes-grid">
         <div class="class-card">
@@ -393,7 +398,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">09 · Process</div>
       <h2 class="section-title">How a new class enters the catalog</h2>
-      <p class="lede">The catalog grows but does not regress. CI guards against accidental signature removal.</p>
+      <p class="section-lede">The catalog grows but does not regress. CI guards against accidental signature removal.</p>
 
       <ol>
         <li><strong>Pick a name</strong> · <code>&lt;noun&gt;-&lt;mode&gt;</code>, kebab-case, protocol-agnostic.</li>
@@ -410,7 +415,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
       <p>Today: ~200 distinct <code>bug_class</code> values declared across the five protocol-class libraries (<code>perp_dex</code>, <code>amm_cp</code>, <code>clmm</code>, <code>lending</code>, <code>lst</code>). Adding signatures is incremental: when a class confirms for the first time, write its signatures, add the entry, and the next propagation cycle picks it up.</p>
 
-      <p style="margin-top: 32px"><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/methodology/bug-class-catalog.md">Read the operator-facing source on GitHub →</a></p>
+      <p style="margin-top: 32px"><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/methodology/bug-class-catalog.md" target="_blank" rel="noopener">Read the operator-facing source on GitHub →</a></p>
     </div>
   </div>
 </section>
@@ -454,7 +459,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     </div>
     <div class="footer-bottom">
       <span>© 2026 Jelleo · Apache-2.0</span>
-      <span>v0.1 · Catalog v1 · 2026-05-09</span>
+      <span>v0.1 · Catalog v1 · 2026-05-08</span>
     </div>
   </div>
 </footer>

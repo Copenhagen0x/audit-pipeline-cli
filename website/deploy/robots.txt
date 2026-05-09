@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /customer/
+Disallow: /dashboard.html
+Disallow: /og-design.html
+
+Sitemap: https://jelleo.com/sitemap.xml
