@@ -121,7 +121,9 @@ def test_merge_skips_duplicate_ids(tmp_path: Path) -> None:
 
     r = _invoke(tmp_path, "merge", str(fid), "--target", str(target))
     assert r.exit_code == 0, r.output
-    assert "skipped 1 dup" in r.output
+    # Rich console can soft-wrap; collapse whitespace before checking
+    flat = " ".join(r.output.split())
+    assert "skipped 1 dup" in flat
     doc = yaml.safe_load(target.read_text(encoding="utf-8"))
     ids = [h["id"] for h in doc["hypotheses"]]
     # Old one preserved (not overwritten), only SIB-V7-2 added
