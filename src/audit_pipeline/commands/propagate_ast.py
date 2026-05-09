@@ -223,16 +223,33 @@ def scan_file_for_ast_patterns(
     if not patterns:
         return []
     try:
+        import tree_sitter as _ts
         src_bytes = src_text.encode("utf-8", errors="replace")
         tree = _TS_PARSER.parse(src_bytes)
         hits: list[tuple[str, int, str]] = []
         for name, query_str in patterns:
             try:
-                query = _TS_LANGUAGE.query(query_str)
-                for node, _capture_name in query.captures(tree.root_node):
-                    line_no = node.start_point[0] + 1  # 1-indexed
-                    snippet = src_text.splitlines()[max(0, line_no - 2):line_no + 1]
-                    hits.append((name, line_no, "\n".join(snippet)))
+                # New tree-sitter API (0.22+): construct Query(Language, source),
+                # then run via QueryCursor(query).captures(node).
+                # Fall back to legacy Language.query() / Query.captures() for
+                # older tree-sitter versions.
+                if hasattr(_ts, "Query") and hasattr(_ts, "QueryCursor"):
+                    query = _ts.Query(_TS_LANGUAGE, query_str)
+                    cursor = _ts.QueryCursor(query)
+                    captures = cursor.captures(tree.root_node)
+                    # captures is dict[capture_name, list[Node]] in new API
+                    for _cap_name, nodes in captures.items():
+                        for node in nodes:
+                            line_no = node.start_point[0] + 1  # 1-indexed
+                            lines = src_text.splitlines()
+                            snippet = lines[max(0, line_no - 2):line_no + 1]
+                            hits.append((name, line_no, "\n".join(snippet)))
+                elif hasattr(_TS_LANGUAGE, "query"):
+                    query = _TS_LANGUAGE.query(query_str)
+                    for node, _capture_name in query.captures(tree.root_node):
+                        line_no = node.start_point[0] + 1
+                        snippet = src_text.splitlines()[max(0, line_no - 2):line_no + 1]
+                        hits.append((name, line_no, "\n".join(snippet)))
             except Exception:
                 # Bad query string or ts API mismatch — skip this pattern
                 continue
