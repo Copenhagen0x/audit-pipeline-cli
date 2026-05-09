@@ -478,7 +478,7 @@ section.doc { padding: 100px 0; }
         <ul>
           <li><a href="/status/">Service health</a></li>
           <li><a href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">Raw snapshot ↗</a></li>
-          <li><a href="https://api.jelleo.com/cycles/" target="_blank" rel="noopener">Cycle archive ↗</a></li>
+          <li><a href="/cycles/">Cycle archive</a></li>
         </ul>
       </div>
       <div class="footer-col">
@@ -640,7 +640,7 @@ section.doc { padding: 100px 0; }
       // P4 cycle merkle roots count + state pill
       const merkleRoots = snap.cycle_merkle_roots || [];
       const mc = document.getElementById('merkle-count');
-      if (mc) mc.innerHTML = '<a href="https://api.jelleo.com/cycles/" target="_blank" rel="noopener noreferrer" style="color: var(--ink); border-bottom: 1px dashed rgba(245,184,0,0.4);">' + merkleRoots.length + ' cycle' + (merkleRoots.length === 1 ? '' : 's') + ' ↗</a>';
+      if (mc) mc.innerHTML = '<a href="/cycles/" style="color: var(--ink); border-bottom: 1px dashed rgba(245,184,0,0.4);">' + merkleRoots.length + ' cycle' + (merkleRoots.length === 1 ? '' : 's') + ' ↗</a>';
       const ms = document.getElementById('merkle-state');
       if (merkleRoots.length > 0) setPillState(ms, 'up', 'Live');
       else                         setPillState(ms, 'unknown', '—');

@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Cycle archive</title>
+<meta name="description" content="Jelleo cycle archive — every audit cycle the engine has produced, with its Merkle root, signed and independently verifiable.">
+<meta name="theme-color" content="#050504">
+<link rel="canonical" href="https://jelleo.com/cycles/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Jelleo">
+<meta property="og:url" content="https://jelleo.com/cycles/">
+<meta property="og:title" content="Jelleo · Cycle archive">
+<meta property="og:description" content="Public archive of every Jelleo audit cycle. Each cycle has a Merkle root over its findings — signed, traceable, verifiable offline.">
+<meta property="og:image" content="https://jelleo.com/og.jpg?v=2">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Jelleo — The Underwriting Layer for Solana DeFi">
+<meta property="og:image:type" content="image/jpeg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jelleo.com/og.jpg?v=2">
+<meta name="twitter:title" content="Jelleo · Cycle archive">
+<meta name="twitter:description" content="Every audit cycle, every Merkle root — public, signed, verifiable.">
+
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+
+.status-banner {
+  margin: 32px 0 56px;
+  padding: 24px 28px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--ok);
+  display: flex; align-items: center; gap: 18px;
+}
+.status-banner.degraded { border-left-color: var(--warn); }
+.status-banner.down     { border-left-color: var(--alert); }
+.status-banner .pulse {
+  width: 14px; height: 14px;
+  background: var(--ok); border-radius: 50%;
+  box-shadow: 0 0 12px rgba(74,222,128,0.6);
+  animation: pulse-grow 2s ease-out infinite;
+  flex-shrink: 0;
+}
+.status-banner.degraded .pulse { background: var(--warn); box-shadow: 0 0 12px rgba(251,191,36,0.6); }
+.status-banner.down     .pulse { background: var(--alert); box-shadow: 0 0 12px rgba(239,68,68,0.6); }
+@keyframes pulse-grow {
+  0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.5); }
+  100% { box-shadow: 0 0 0 14px rgba(74,222,128,0); }
+}
+.status-banner .text .head {
+  font-size: 18px; font-weight: 600;
+  color: var(--ink); letter-spacing: -0.012em;
+}
+.status-banner .text .sub {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--ink-3); margin-top: 4px;
+  letter-spacing: 0.04em;
+}
+
+/* KPI counters reused */
+.counter-row {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px;
+  margin-bottom: 40px;
+}
+@media (max-width: 720px) {
+  .counter-row { grid-template-columns: repeat(2, 1fr); }
+}
+.counter-cell {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 10px; padding: 20px 22px;
+}
+.counter-num {
+  font-family: var(--mono); font-size: 28px; font-weight: 600;
+  color: var(--ink); letter-spacing: -0.02em; line-height: 1;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+.counter-num.ok    { color: var(--ok); }
+.counter-num.amber { color: var(--amber); }
+.counter-num.small { font-size: 16px; }
+.counter-label {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.14em;
+}
+
+/* Cycle archive table */
+.cycles-table {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+.cycle-row {
+  display: grid;
+  grid-template-columns: 70px 1fr auto auto;
+  gap: 22px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--rule);
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  transition: background 0.15s ease;
+}
+.cycle-row:last-child { border-bottom: none; }
+.cycle-row:hover { background: rgba(245,184,0,0.025); }
+.cycle-head {
+  background: rgba(245,184,0,0.04);
+  color: var(--ink-3);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 700;
+}
+.cycle-row .idx { color: var(--amber); font-weight: 600; }
+.cycle-row .root {
+  color: var(--ink-2);
+  word-break: break-all;
+  font-size: 12px;
+}
+.cycle-row .age {
+  color: var(--ink-3);
+  font-size: 11px;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+}
+.cycle-row .links a {
+  color: var(--amber);
+  text-decoration: none;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  border-bottom: 1px dashed rgba(245,184,0,0.4);
+  padding-bottom: 1px;
+  transition: border-color 0.15s ease;
+}
+.cycle-row .links a:hover { border-bottom-color: var(--amber); }
+@media (max-width: 720px) {
+  .cycle-row { grid-template-columns: 1fr; gap: 6px; padding: 14px 18px; }
+  .cycle-head { display: none; }
+  .cycle-row .root { font-size: 11px; }
+  .cycle-row .age, .cycle-row .links { font-size: 10px; }
+  .cycle-row .age::before { content: 'Age · '; color: var(--ink-4); }
+  .cycle-row .links::before { content: 'Verify · '; color: var(--ink-4); }
+}
+
+.empty-state {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.verify-block {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  border-radius: 8px;
+  padding: 22px 26px;
+  margin: 32px 0;
+}
+.verify-block h3 {
+  font-size: 14px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  margin: 0 0 12px; color: var(--ink);
+  font-family: var(--font);
+}
+.verify-block p {
+  font-size: 14px; color: var(--ink-2);
+  margin: 0 0 12px; line-height: 1.6;
+}
+.verify-block pre {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-x: auto;
+  margin: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.timestamp-line {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-4); margin-top: 24px;
+  letter-spacing: 0.04em;
+}
+</style>
+</head>
+<body>
+
+<a href="#main" class="skip-link">Skip to main content</a>
+
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/protocols/">Protocols</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html">Security</a>
+    <a href="/status/">Status</a>
+  </div>
+  <div class="nav-right">
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/protocols/" role="menuitem">Protocols</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/bug-classes.html" role="menuitem">Bug-class catalog</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="/status/" role="menuitem">Status</a>
+  <a href="/cycles/" role="menuitem" aria-current="page">Cycle archive</a>
+  <a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener" role="menuitem">Source</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
+</div>
+<div class="scroll-progress" id="progress"></div>
+
+<main id="main">
+<section class="hero">
+  <span class="hero-bracket tl"></span>
+  <span class="hero-bracket br"></span>
+  <div class="container">
+    <div data-reveal>
+      <div class="hero-eyebrow">Cycle archive · signed receipts</div>
+      <h1 class="hero-title">Every cycle, every <span class="accent">Merkle root.</span></h1>
+      <p class="hero-lede">Public archive of every audit cycle the Jelleo engine has produced. Each cycle commits to a Merkle root over its findings — signed with the platform Ed25519 key, traceable, and verifiable offline. Driven by <code>https://api.jelleo.com/snapshot.json</code>, refreshed every 60 seconds.</p>
+    </div>
+  </div>
+</section>
+
+<section class="doc">
+  <div class="container">
+    <div data-reveal>
+
+      <div id="status-banner" class="status-banner">
+        <div class="pulse"></div>
+        <div class="text">
+          <div class="head" id="banner-head">Loading archive…</div>
+          <div class="sub" id="banner-sub">Fetching snapshot from api.jelleo.com</div>
+        </div>
+      </div>
+
+      <div class="counter-row" aria-live="polite" aria-atomic="true">
+        <div class="counter-cell">
+          <div class="counter-num amber" id="ct-cycles">—</div>
+          <div class="counter-label">Total cycles</div>
+        </div>
+        <div class="counter-cell">
+          <div class="counter-num" id="ct-receipts">—</div>
+          <div class="counter-label">Signed receipts</div>
+        </div>
+        <div class="counter-cell">
+          <div class="counter-num small" id="ct-latest">—</div>
+          <div class="counter-label">Latest root</div>
+        </div>
+        <div class="counter-cell">
+          <div class="counter-num small" id="ct-engine">—</div>
+          <div class="counter-label">Engine SHA</div>
+        </div>
+      </div>
+
+      <h3 style="font-size: clamp(20px, 2vw, 26px); font-weight: 600; margin: 16px 0 18px; color: var(--ink); letter-spacing: -0.01em;">Archive</h3>
+
+      <div class="cycles-table" id="cycles-table">
+        <div class="cycle-row cycle-head">
+          <div>#</div>
+          <div>Merkle root</div>
+          <div>Age</div>
+          <div>Verify</div>
+        </div>
+        <div class="empty-state" id="empty-state">Loading cycles…</div>
+      </div>
+
+      <div class="verify-block">
+        <h3>Verify a cycle offline</h3>
+        <p>Each cycle's <code>merkle.json</code> sidecar contains the leaves, the tree, and the signed root. Anyone can recompute the root from the leaves and check the signature against the platform pubkey — no Jelleo service required.</p>
+        <pre># 1. Fetch the cycle's merkle sidecar
+curl -s https://api.jelleo.com/cycles/&lt;root&gt;.merkle.json &gt; cycle.json
+
+# 2. Recompute the root from leaves and verify the signature
+audit-pipeline merkle verify --file cycle.json \
+  --pubkey https://jelleo.com/keys/jelleo.ed25519.pub</pre>
+      </div>
+
+      <div class="verify-block">
+        <h3>What's inside a Merkle root</h3>
+        <p>Each leaf is a SHA-256 hash of one finding's normalized fields — including <code>finding_id</code>, <code>severity</code>, <code>protocol</code>, <code>poc_fired</code>, <code>engine_sha</code>, and <code>wrapper_sha</code>. The schema is versioned (<code>v2</code>) so a future change to the leaf format can't silently mutate historical roots.</p>
+      </div>
+
+      <div class="timestamp-line" id="last-fetch">Last fetched: never</div>
+
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">jelleo</a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Status</h5>
+        <ul>
+          <li><a href="/status/">Service health</a></li>
+          <li><a href="/cycles/">Cycle archive</a></li>
+          <li><a href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">Raw snapshot ↗</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Reference</h5>
+        <ul>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/security.html">Security model</a></li>
+          <li><a href="/protocols/">Protocols</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Provenance</h5>
+        <ul>
+          <li><a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Platform pubkey ↗</a></li>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">Source ↗</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span>v0.1 · Cycle archive · Live signal</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/shared.js"></script>
+<script>
+(function() {
+  const SNAPSHOT_URL = 'https://api.jelleo.com/snapshot.json';
+  const REFRESH_MS = 60_000;
+  const STALE_AFTER_MS = 30 * 60_000;
+
+  const banner = document.getElementById('status-banner');
+  const head   = document.getElementById('banner-head');
+  const sub    = document.getElementById('banner-sub');
+  const lastFetch = document.getElementById('last-fetch');
+  const ctCycles  = document.getElementById('ct-cycles');
+  const ctReceipts = document.getElementById('ct-receipts');
+  const ctLatest  = document.getElementById('ct-latest');
+  const ctEngine  = document.getElementById('ct-engine');
+  const tableEl   = document.getElementById('cycles-table');
+  const emptyEl   = document.getElementById('empty-state');
+
+  function setBanner(state, headText, subText) {
+    banner.classList.remove('degraded', 'down');
+    if (state !== 'up') banner.classList.add(state);
+    head.textContent = headText;
+    sub.textContent  = subText;
+  }
+
+  function relTime(ms) {
+    if (ms == null) return '—';
+    const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+    if (sec < 60)    return `${sec}s ago`;
+    if (sec < 3600)  return `${Math.floor(sec/60)} min ago`;
+    if (sec < 86400) return `${Math.floor(sec/3600)} hr ago`;
+    return `${Math.floor(sec/86400)} d ago`;
+  }
+
+  // Defensive parser — cycle_merkle_roots entries can be:
+  //   - string (just the root hash)
+  //   - { root, ... } / { merkle_root, ... } / { hash, ... }
+  //   - { ..., cycle_id, ts / timestamp / generated_at, n_findings }
+  function normalizeEntry(e, idx) {
+    if (typeof e === 'string') {
+      return { root: e, cycle_id: null, ts: null, n_findings: null };
+    }
+    if (e && typeof e === 'object') {
+      const root = e.root || e.merkle_root || e.hash || e.merkleRoot || '';
+      const cycle_id = e.cycle_id || e.id || e.cycle || null;
+      const tsRaw = e.ts || e.timestamp || e.generated_at || e.completed_at || null;
+      const ts = tsRaw ? (typeof tsRaw === 'number' ? tsRaw : Date.parse(tsRaw)) : null;
+      const n_findings = e.n_findings || e.findings_count || e.findings || null;
+      return { root, cycle_id, ts, n_findings };
+    }
+    return { root: '', cycle_id: null, ts: null, n_findings: null };
+  }
+
+  function shortRoot(r) {
+    if (!r) return '—';
+    if (r.length <= 22) return r;
+    return r.slice(0, 14) + '…' + r.slice(-6);
+  }
+
+  function renderCycles(roots) {
+    // Remove any prior data rows + empty-state
+    Array.from(tableEl.querySelectorAll('.cycle-row:not(.cycle-head)')).forEach(n => n.remove());
+    if (emptyEl) emptyEl.remove();
+
+    if (!roots || roots.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'No cycles published yet.';
+      tableEl.appendChild(empty);
+      return;
+    }
+
+    // Newest first if any timestamps available — else preserve order
+    const normalized = roots.map((e, i) => ({ ...normalizeEntry(e, i), originalIndex: i }));
+    const anyTs = normalized.some(n => n.ts != null);
+    if (anyTs) normalized.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    else normalized.reverse(); // assume the API publishes oldest-first; show newest at top
+
+    normalized.forEach((n, i) => {
+      const row = document.createElement('div');
+      row.className = 'cycle-row';
+      const idx = n.cycle_id != null ? `#${n.cycle_id}` : `#${normalized.length - i}`;
+      const ageStr = n.ts != null ? relTime(n.ts) : '—';
+      const rootHref = n.root
+        ? `https://api.jelleo.com/cycles/${encodeURIComponent(n.root)}.merkle.json`
+        : 'https://api.jelleo.com/cycles/';
+      row.innerHTML =
+        `<div class="idx">${idx}</div>` +
+        `<div class="root" title="${n.root || ''}">${shortRoot(n.root)}</div>` +
+        `<div class="age">${ageStr}</div>` +
+        `<div class="links"><a href="${rootHref}" target="_blank" rel="noopener noreferrer">merkle.json ↗</a></div>`;
+      tableEl.appendChild(row);
+    });
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch(SNAPSHOT_URL, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const snap = await r.json();
+      const generatedAt = snap.generated_at_ms || Date.parse(snap.generated_at || '') || null;
+
+      if (generatedAt && (Date.now() - generatedAt) > STALE_AFTER_MS) {
+        setBanner('degraded', 'Stale snapshot', `Last published ${relTime(generatedAt)} — archive may be lagging.`);
+      } else {
+        setBanner('up', 'Archive live', `Last update ${relTime(generatedAt)} · ${(snap.cycle_merkle_roots||[]).length} cycles indexed`);
+      }
+
+      const merkleRoots = snap.cycle_merkle_roots || [];
+      ctCycles.textContent   = merkleRoots.length;
+      ctReceipts.textContent = (snap.receipts_signed || merkleRoots.length || 0);
+
+      // Latest root preview
+      const latest = merkleRoots.length ? normalizeEntry(merkleRoots[merkleRoots.length - 1]) : null;
+      ctLatest.textContent = latest && latest.root ? shortRoot(latest.root) : '—';
+
+      // Engine SHA (mirror status page)
+      try {
+        const hbR = await fetch('https://api.jelleo.com/heartbeat.json', { cache: 'no-store' });
+        if (hbR.ok) {
+          const hb = await hbR.json();
+          ctEngine.textContent = (hb.engine_sha || '').slice(0, 12) || '—';
+        } else {
+          ctEngine.textContent = '—';
+        }
+      } catch (_e) { ctEngine.textContent = '—'; }
+
+      renderCycles(merkleRoots);
+
+      lastFetch.textContent = `Last fetched: ${new Date().toISOString()}`;
+    } catch (err) {
+      setBanner('down', 'Archive feed unreachable', `Cannot reach api.jelleo.com — error: ${err.message || err}`);
+      lastFetch.textContent = `Last fetched: error at ${new Date().toISOString()}`;
+      // Replace empty-state with an error message so the table isn't blank
+      Array.from(tableEl.querySelectorAll('.cycle-row:not(.cycle-head), .empty-state')).forEach(n => n.remove());
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'Could not load archive. Try refreshing.';
+      tableEl.appendChild(empty);
+    }
+  }
+
+  let refreshHandle = null;
+  function startPolling() { refresh(); refreshHandle = setInterval(refresh, REFRESH_MS); }
+  function stopPolling()  { if (refreshHandle) { clearInterval(refreshHandle); refreshHandle = null; } }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopPolling();
+    else if (!refreshHandle) startPolling();
+  });
+  startPolling();
+})();
+</script>
+
+</body>
+</html>

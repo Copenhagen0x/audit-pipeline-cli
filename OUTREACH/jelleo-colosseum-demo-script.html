@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Jelleo · Colosseum Demo Video Script · 3 minutes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0a0a0a; --ink-2: #2d2d2d; --ink-3: #595959; --ink-4: #8a8a8a;
+    --rule: #d4d4d4; --rule-2: #e8e8e8;
+    --bg: #ffffff; --bg-2: #fafafa;
+    --accent: #b45309; --accent-2: #f59e0b; --accent-soft: #fef3c7; --accent-tint: #fffbeb;
+    --green: #166534; --red: #b91c1c; --blue: #1d4ed8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 11pt; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  code, .mono { font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+    font-size: .9em; background: var(--bg-2); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--rule-2); }
+  @page { size: letter; margin: 0.6in; }
+  @media print {
+    section, .act { page-break-inside: auto; }
+    h2, h3 { page-break-after: avoid; break-after: avoid; }
+    .say-box, .click-box, .stage-box { page-break-inside: avoid; }
+    .act { page-break-before: always; }
+    .act.cover, .act.no-break { page-break-before: auto; }
+  }
+  .shell { max-width: 8.5in; margin: 0 auto; padding: 0.4in 0.7in; }
+
+  /* Cover */
+  .cover { padding: 0.5in 0.7in 0.4in; border-bottom: 2px solid var(--accent); margin-bottom: 0.3in; }
+  .cover .wordmark {
+    display: inline-block; font-weight: 700; letter-spacing: .26em;
+    font-size: 13px; padding: 5px 11px; border: 1.5px solid var(--ink); position: relative; line-height: 1; margin-bottom: 0.25in;
+  }
+  .cover h1 { font-size: 26pt; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 0.08in; }
+  .cover h2 { font-size: 13pt; font-weight: 500; color: var(--ink-2); letter-spacing: -0.01em; margin: 0; line-height: 1.4; }
+  .cover .lede { font-size: 10.5pt; color: var(--ink-2); margin-top: 0.18in; max-width: 6in; line-height: 1.6; }
+
+  /* Section heads */
+  h2.act-head {
+    font-size: 14pt; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 0.16in;
+    padding: 0.08in 0.14in; background: var(--accent-tint); border-left: 4px solid var(--accent);
+  }
+  h2.act-head .time { font-family: 'JetBrains Mono', monospace; color: var(--accent); margin-right: 0.12in; font-size: 11.5pt; }
+  h2.act-head .duration { float: right; font-size: 10pt; color: var(--ink-3); font-weight: 500; letter-spacing: .04em; }
+  h3.sub-head {
+    font-size: 11pt; font-weight: 700; margin: 0.2in 0 0.06in; color: var(--ink);
+    text-transform: uppercase; letter-spacing: .08em; font-size: 9.5pt;
+  }
+  h3.sub-head.click { color: var(--accent); }
+  h3.sub-head.say { color: var(--green); }
+  h3.sub-head.tactical { color: var(--ink-3); }
+
+  /* Boxes */
+  .click-box, .say-box, .tactical-box, .warn-box, .star-box, .honest-box {
+    padding: 0.13in 0.18in; border-radius: 4px; margin: 0.05in 0 0.15in;
+    font-size: 10.5pt; line-height: 1.6;
+  }
+  .click-box { background: #fff7ed; border-left: 3px solid var(--accent); }
+  .say-box { background: #f0fdf4; border-left: 3px solid var(--green); font-style: italic; }
+  .say-box em { font-style: normal; font-weight: 600; }
+  .say-box strong { font-weight: 700; color: var(--ink); }
+  .tactical-box { background: var(--bg-2); border-left: 3px solid var(--ink-3); font-size: 10pt; color: var(--ink-2); }
+  .warn-box { background: #fef2f2; border-left: 3px solid var(--red); color: var(--ink); }
+  .star-box { background: var(--accent-tint); border: 1px solid var(--accent); color: var(--ink); padding: 0.18in; }
+  .honest-box { background: #fffbeb; border: 2px solid var(--accent); padding: 0.16in; font-weight: 500; }
+
+  /* Stage box — what window/URL is open + what to click */
+  .stage-box {
+    background: #eff6ff; border-left: 3px solid var(--blue);
+    padding: 0.07in 0.14in; margin: 0.18in 0 0.04in;
+    font-size: 9.5pt; line-height: 1.5;
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  }
+  .stage-box .stage-row { display: flex; align-items: baseline; }
+  .stage-box .stage-label { font-weight: 700; color: var(--blue); min-width: 64px; letter-spacing: .06em; font-size: 9pt; }
+  .stage-box .stage-val { color: var(--ink); flex: 1; }
+  .stage-box .stage-val code { font-size: .92em; }
+  .stage-box .stage-val .dim { color: var(--ink-3); }
+
+  ol.click-list, ul.click-list { margin: 0.04in 0 0.08in 0; padding-left: 0.28in; }
+  ol.click-list li, ul.click-list li { margin: 0.04in 0; }
+
+  /* Timeline table */
+  table.timeline { width: 100%; border-collapse: collapse; margin: 0.15in 0; font-size: 10pt; }
+  table.timeline th { text-align: left; font-weight: 700; padding: 0.06in 0.1in;
+    background: var(--accent-tint); border-bottom: 1px solid var(--accent); font-size: 9.5pt;
+    text-transform: uppercase; letter-spacing: .06em; }
+  table.timeline td { padding: 0.07in 0.1in; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
+  table.timeline td.time-col { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--accent); white-space: nowrap; }
+  table.timeline td.act-col { font-weight: 600; }
+
+  /* Footer */
+  .footer { margin-top: 0.4in; padding-top: 0.15in; border-top: 1px solid var(--rule);
+    color: var(--ink-3); font-size: 9pt; display: flex; justify-content: space-between; }
+
+  .checklist { list-style: none; padding-left: 0; margin: 0.1in 0; font-size: 10.5pt; }
+  .checklist li { padding: 0.04in 0 0.04in 0.32in; position: relative; }
+  .checklist li::before { content: '☐'; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+  .checklist li.done::before { content: '✓'; color: var(--green); }
+
+  .print-bar { position: fixed; top: 12px; right: 12px; padding: 8px 14px;
+    background: var(--ink); color: white; border-radius: 4px;
+    font-size: 11pt; cursor: pointer; border: none; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  @media print { .print-bar { display: none; } }
+
+  hr.divider { border: 0; border-top: 1px solid var(--rule); margin: 0.25in 0; }
+  .duration-tag { font-family: 'JetBrains Mono', monospace; font-size: 9.5pt;
+    color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<button class="print-bar" onclick="window.print()">Print to PDF →</button>
+
+<div class="shell">
+
+<!-- COVER -->
+<div class="act cover">
+  <span class="wordmark">JELLEO</span>
+  <h1>Colosseum Demo Video Script</h1>
+  <h2>3 minutes max · live product walkthrough · no slides · no code · screen + voiceover</h2>
+  <p class="lede">Click-by-click, word-by-word recording script. Practice each section out loud twice before the take. Goal isn't to recite — it's to internalize so the language is yours when the recorder is rolling. Six segments, ~30 seconds each, 3:00 total.</p>
+  <p class="lede"><strong>Single most important rule:</strong> Don't pitch — demonstrate. Every claim is backed by something visible on screen at the moment you say it.</p>
+</div>
+
+<!-- PRE-RECORDING SETUP -->
+<div class="act">
+<h2 class="act-head"><span class="time">PRE</span> 10 minutes before recording <span class="duration">setup</span></h2>
+
+<h3 class="sub-head click">Browser setup:</h3>
+<ul class="checklist">
+  <li>Chrome (clean window, all extensions disabled or hidden, no other tabs)</li>
+  <li>Bookmarks bar hidden (View → Always show bookmarks bar OFF)</li>
+  <li>Browser zoom 100%</li>
+  <li>Window maximized to full screen at 1920×1080 minimum</li>
+  <li>Open <code>jelleo.com</code> in the only tab</li>
+  <li>Hard refresh once (Cmd/Ctrl+Shift+R) so animations start fresh</li>
+</ul>
+
+<h3 class="sub-head click">System setup:</h3>
+<ul class="checklist">
+  <li>External mic if available (USB or XLR — laptop mic OK as fallback)</li>
+  <li>Mac/Windows menu bar hidden if possible (or auto-hide)</li>
+  <li>Phone on Do Not Disturb · Slack / Discord / Mail closed</li>
+  <li>Notifications disabled at OS level</li>
+  <li>Cursor highlight ON (System settings → Accessibility → Cursor size, or use a tool like Mouseposé)</li>
+</ul>
+
+<h3 class="sub-head click">Recording tool:</h3>
+<ul class="checklist">
+  <li>OBS, QuickTime, Loom, or Riverside — any will work</li>
+  <li>Recording resolution: 1920×1080 minimum, 60fps preferred</li>
+  <li>Capture system audio: OFF (avoid YouTube ads / browser sounds bleeding in)</li>
+  <li>Capture mic: ON</li>
+</ul>
+
+<div class="tactical-box">
+<strong>Test recording:</strong> Do one 30-second test. Play it back. Check audio levels (peak around -6dB), check cursor visible, check no notifications visible. Fix any issue before the real take.
+</div>
+</div>
+
+<!-- TIMELINE -->
+<div class="act">
+<h2 class="act-head"><span class="time">MAP</span> Timeline at a glance <span class="duration">3:00 total</span></h2>
+
+<table class="timeline">
+  <thead>
+    <tr><th style="width:18%">Time</th><th style="width:24%">Segment</th><th>What happens</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="time-col">0:00 — 0:25</td><td class="act-col">Open</td><td>Homepage hero · what Jelleo is in one breath · "everything you'll see is live data"</td></tr>
+    <tr><td class="time-col">0:25 — 0:55</td><td class="act-col">Status</td><td>Live VPS service health · heartbeat · proof the engine runs <em>right now</em></td></tr>
+    <tr><td class="time-col">0:55 — 1:30</td><td class="act-col">Cycles</td><td>Public archive of signed receipts · open one cycle · show a finding</td></tr>
+    <tr><td class="time-col">1:30 — 2:10</td><td class="act-col">Customer dashboard</td><td>Embedded buyer view · findings table · propagation · attestations</td></tr>
+    <tr><td class="time-col">2:10 — 2:45</td><td class="act-col">F7 case study</td><td>The first disclosure shipped by the engine · timeline · receipts</td></tr>
+    <tr><td class="time-col">2:45 — 3:00</td><td class="act-col">Close</td><td>One-line wrap · back to homepage</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- SEGMENT 1 — OPEN -->
+<div class="act">
+<h2 class="act-head"><span class="time">0:00</span> Open — what Jelleo is <span class="duration">25 seconds</span></h2>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com</code> · homepage hero in viewport · animation running</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">camera holds on hero · slow scroll-down ~1 line at the very end of the segment to reveal "Live ops" section preview</span></div>
+</div>
+
+<div class="say-box">
+"This is Jelleo — the on-chain underwriting layer for Solana DeFi.<br><br>
+A continuous audit pipeline that runs against live programs in production. It surfaces bugs, propagates each one across protocols built on similar architecture, ships a closed-loop fix bundle for every disclosure, and writes a signed receipt to chain.<br><br>
+Everything I'm about to show you is live data."
+</div>
+
+<div class="tactical-box">
+<strong>Pacing:</strong> ~58 words. Speak deliberately, don't rush. The hero animation does the work — let it breathe under your voice. Don't move the cursor in this segment. Keep it parked.
+</div>
+</div>
+
+<!-- SEGMENT 2 — STATUS -->
+<div class="act">
+<h2 class="act-head"><span class="time">0:25</span> Status — proof the engine runs right now <span class="duration">30 seconds</span></h2>
+
+<h3 class="sub-head click">What you click:</h3>
+<ol class="click-list">
+  <li>Click <strong>"Status"</strong> in the top nav → loads <code>/status/</code></li>
+  <li>Slow scroll through the services panel · pause briefly on each row</li>
+  <li>Hover over the heartbeat freshness widget for ~2 seconds</li>
+</ol>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/status/</code></span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll slowly through services panel · hover heartbeat · let live counters tick</span></div>
+</div>
+
+<div class="say-box">
+"Live status of the production pipeline. Every service you see is running on the engine right now — detection, propagation, fix bundles, attestation, scheduler, heartbeat. The numbers refresh from the production VPS in real time.<br><br>
+The heartbeat is signed with our Ed25519 key and fires every hour. Cycle counts, Merkle roots — anyone can verify them independently."
+</div>
+
+<div class="tactical-box">
+<strong>Pacing:</strong> ~62 words. Most important: let the live counters tick on screen for 2-3 seconds before you stop talking. The viewer needs to <em>see</em> the freshness, not just hear about it.
+</div>
+</div>
+
+<!-- SEGMENT 3 — CYCLES -->
+<div class="act">
+<h2 class="act-head"><span class="time">0:55</span> Cycles — the public receipts <span class="duration">35 seconds</span></h2>
+
+<h3 class="sub-head click">What you click:</h3>
+<ol class="click-list">
+  <li>Type <code>jelleo.com/cycles/</code> in the URL bar &middot; press Enter (cleanest move &mdash; desktop nav doesn't carry this link)</li>
+  <li>Pause on the counter row for ~2 seconds (Total cycles, Latest root, Engine SHA visible)</li>
+  <li>Slow scroll through the archive table · let the viewer see multiple Merkle roots</li>
+  <li>Pause briefly on the "Verify a cycle offline" code block</li>
+</ol>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/cycles/</code></span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">land on hero · scroll past counters · scroll through archive table · stop on verify-block</span></div>
+</div>
+
+<div class="say-box">
+"Public archive of every audit cycle the engine has produced. Each one has a Merkle root over its findings. Every finding inside is signed and traceable.<br><br>
+The whole chain is verifiable offline — there's nothing to trust.<br><br>
+This is what 'underwriting' actually means in our model. It's not a quarterly report. It's a continuous stream of cryptographically signed receipts."
+</div>
+
+<div class="tactical-box">
+<strong>Pacing:</strong> ~70 words. The "nothing to trust" line is the punch — pause for half a beat after it. The viewer should mentally connect <em>verifiable</em> to <em>infrastructure</em>, not to <em>vendor</em>. The on-screen <code>curl ... merkle verify</code> snippet does the visual work — let it sit on screen for the punch line.
+</div>
+</div>
+
+<!-- SEGMENT 4 — CUSTOMER DASHBOARD -->
+<div class="act">
+<h2 class="act-head"><span class="time">1:30</span> Customer dashboard — the buyer's view <span class="duration">40 seconds</span></h2>
+
+<h3 class="sub-head click">What you click:</h3>
+<ol class="click-list">
+  <li>Navigate directly to <code>jelleo.com/customer/demo/full/</code> (type in URL bar OR click a nav shortcut if present)</li>
+  <li>Pause on the identity strip / KPI cells for ~2 seconds</li>
+  <li>Slow scroll through the findings table</li>
+  <li>Continue scrolling to the cluster activity / propagation graph</li>
+  <li>Continue to the on-chain attestations panel</li>
+  <li>End on the alert routing / reports section</li>
+</ol>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/customer/demo/full/</code></span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">slow continuous scroll top-to-bottom · cursor at right edge · don't click into anything</span></div>
+</div>
+
+<div class="say-box">
+"This is what a paying protocol sees. A continuous view of their codebase: open findings, severity, lifecycle state, the engine's confidence per finding, the propagation tree showing which sibling protocols have been swept for the same bug class.<br><br>
+Every disclosure ships with a closed-loop fix bundle — the patch, the test, the verification artifact. That's the structural difference from an audit firm. They drop a PDF and leave."
+</div>
+
+<div class="tactical-box">
+<strong>Pacing:</strong> ~75 words. Scroll speed should match narration speed — ~1 panel per 5-6 seconds. The "drop a PDF and leave" line lands hardest if you say it as the on-chain attestations panel is on screen — the visual contrast does the work.
+</div>
+</div>
+
+<!-- SEGMENT 5 — F7 CASE STUDY -->
+<div class="act">
+<h2 class="act-head"><span class="time">2:10</span> F7 case study — the proof point <span class="duration">35 seconds</span></h2>
+
+<h3 class="sub-head click">What you click:</h3>
+<ol class="click-list">
+  <li>Navigate to <code>jelleo.com/case-studies/f7-percolator/</code></li>
+  <li>Pause on the hero / 08.5 KPI strip for ~2 seconds</li>
+  <li>Scroll to the timeline section · pause on the disclosure event</li>
+  <li>Scroll to the receipt strip showing engine SHA + wrapper SHA</li>
+</ol>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/case-studies/f7-percolator/</code></span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">land on hero · scroll to timeline · scroll to receipt strip · stop</span></div>
+</div>
+
+<div class="say-box">
+"Proof the model works. F7 is the first public disclosure shipped by the Jelleo engine — a one-shot insurance-drain bug in a deployed Solana perpetual DEX.<br><br>
+Full timeline, the LiteSVM proof-of-concept test, the upstream pull request — all of it verifiable.<br><br>
+The same engine you saw on the status page is what produced this. It's running right now against the rest of the protocols in our coverage queue."
+</div>
+
+<div class="tactical-box">
+<strong>Pacing:</strong> ~75 words. Don't name Anatoly or Percolator on camera — say "deployed Solana perpetual DEX." The timeline page itself names the protocol; let the viewer connect the dots without you making a name-drop.
+</div>
+</div>
+
+<!-- SEGMENT 6 — CLOSE -->
+<div class="act">
+<h2 class="act-head"><span class="time">2:45</span> Close — wrap <span class="duration">15 seconds</span></h2>
+
+<h3 class="sub-head click">What you click:</h3>
+<ol class="click-list">
+  <li>Click home (top nav logo) → return to <code>jelleo.com</code> homepage</li>
+  <li>Land on the hero · let it sit for the final beat</li>
+</ol>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com</code> · homepage hero</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">no scroll · let the animation play under the voiceover · cursor parked off to the side</span></div>
+</div>
+
+<div class="say-box">
+"That's Jelleo. Continuous, signed, on-chain.<br><br>
+One disclosure already shipped. The infrastructure to underwrite Solana DeFi is open and waiting to be occupied."
+</div>
+
+<div class="tactical-box">
+<strong>Pacing:</strong> ~32 words. Let the last sentence land. After "occupied," wait one full second of silence before stopping the recording. That second of silence is what makes the close feel deliberate, not rushed.
+</div>
+</div>
+
+<!-- POST-PRODUCTION NOTES -->
+<div class="act">
+<h2 class="act-head"><span class="time">POST</span> Editing notes <span class="duration">edits</span></h2>
+
+<h3 class="sub-head tactical">Cuts to make:</h3>
+<ul class="click-list">
+  <li>Trim leading silence to 0.5 seconds before "This is Jelleo"</li>
+  <li>Trim trailing silence to 1.0 seconds after "occupied"</li>
+  <li>Tighten any pauses longer than 0.7 seconds (except the deliberate ones noted in tactical boxes)</li>
+  <li>Cut any "um", "uh", "you know", repeated words</li>
+  <li>If a section drifts over budget, trim mid-sentence rather than cutting whole lines — keep the structure intact</li>
+</ul>
+
+<h3 class="sub-head tactical">What NOT to add:</h3>
+<ul class="click-list">
+  <li>No background music (would compete with the technical content)</li>
+  <li>No intro card / title screen (you have 3 minutes — every second on the product, not on a logo bumper)</li>
+  <li>No outro card / "thanks for watching"</li>
+  <li>No subtitles burned in (Colosseum's player will auto-caption)</li>
+</ul>
+
+<h3 class="sub-head tactical">Final check before upload:</h3>
+<ul class="checklist">
+  <li>Total duration ≤ 3:00</li>
+  <li>Audio peaks at -6dB, no clipping</li>
+  <li>Every URL bar visible matches what you announce</li>
+  <li>No personal info / customer names visible in any frame</li>
+  <li>No browser notification, popup, or extension chrome visible</li>
+  <li>Export at 1080p, MP4, H.264</li>
+  <li>Upload to YouTube as <strong>Unlisted</strong> · paste link into Colosseum form</li>
+</ul>
+</div>
+
+<div class="footer">
+  <span>Jelleo · Colosseum demo script · v1</span>
+  <span>Print → PDF → record · 3:00 max</span>
+</div>
+
+</div>
+</body>
+</html>
