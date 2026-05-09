@@ -30,6 +30,7 @@ from audit_pipeline.commands import (
     kani,
     learn,
     litesvm,
+    merkle,
     metrics,
     narrative,
     notify,
@@ -128,6 +129,7 @@ main.add_command(cache.cache_group)                # PoC test cache (Tier 2 #10)
 main.add_command(triage.triage_cmd)                # Triage UI (Tier 2 #12): local web UI for new-findings backlog
 main.add_command(triage_siblings.triage_siblings_cmd)  # P2 D13: review/approve/reject/merge LLM-derived siblings
 main.add_command(bundle.bundle_cmd)                # P3: closed-loop fix bundle (draft/verify/review/open-pr/status/list/override)
+main.add_command(merkle.merkle_cmd)                # P4: per-cycle Merkle root (compute/verify/list/rebuild-all)
 main.add_command(confirm.confirm_cmd)              # empirical PoC: write custom test, cargo test, report
 
 # Subcommands — commercial layer (T1: severity + lifecycle + reports + issues)

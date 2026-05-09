@@ -674,6 +674,21 @@ class FindingsDB:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def list_findings_by_cycle(self, cycle_id: str) -> list[dict]:
+        """Return every finding belonging to a single cycle.
+
+        Avoids `list_findings(limit=N)` truncation when a cycle has
+        more findings than the global default limit. Used by the
+        Merkle root computation, which must hash the COMPLETE finding
+        set or the root is silently wrong.
+        """
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT * FROM findings WHERE cycle_id = ? ORDER BY id ASC",
+                (cycle_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def list_confirmed_findings_by_bug_class(
         self,
         bug_class: str,

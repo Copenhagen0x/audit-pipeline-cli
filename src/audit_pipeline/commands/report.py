@@ -596,6 +596,24 @@ def _render_cycle_html(
     sb = _status_breakdown(findings)
     n_confirmed = sum(1 for f in findings if f.get("status") == "confirmed")
 
+    # P4 Y0 — load the cycle's Merkle root if a sidecar exists. Surfaced
+    # in the cover-page meta and in section A so any reader can recompute
+    # against the published DB rows and detect tampering.
+    # Defensive: validate the sidecar's cycle_id matches THIS cycle so an
+    # accidentally-misplaced merkle.json (operator copy/paste error) doesn't
+    # produce a confidently-wrong displayed hash.
+    cycle_merkle_root_hex = ""
+    if workspace and cycle and cycle.get("cycle_id"):
+        try:
+            import json as _json
+            mp = workspace / "hunts" / cycle["cycle_id"] / "merkle.json"
+            if mp.is_file():
+                parsed = _json.loads(mp.read_text(encoding="utf-8"))
+                if parsed.get("cycle_id") == cycle["cycle_id"]:
+                    cycle_merkle_root_hex = parsed.get("merkle_root", "")
+        except Exception:
+            cycle_merkle_root_hex = ""
+
     # Status banner reflects real findings only — 50 'new' verdicts
     # shouldn't trigger a "Critical" red status when 0 of them are confirmed.
     if real_counts["Critical"] > 0:
@@ -641,6 +659,7 @@ def _render_cycle_html(
     started {started} &middot;
     engine <code>{engine_sha}</code> &middot;
     wrapper <code>{wrapper_sha}</code>
+    {("&middot; merkle <code>" + html.escape(cycle_merkle_root_hex[:16]) + "&hellip;</code>") if cycle_merkle_root_hex else ""}
   </p>
 
   <h2>01 &mdash; Cycle summary</h2>

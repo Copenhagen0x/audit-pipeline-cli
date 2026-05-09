@@ -255,7 +255,44 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
         # P3 Item 16: cumulative fix-bundle counters for the public snapshot.
         # Counts only — no per-finding leak (matches pre-disclosure rule).
         "fix_bundle_stats":  _fix_bundle_stats(workspace) if workspace else {},
+        # P4 Y0: per-cycle Merkle roots for recent cycles. The root is
+        # tamper-evident (modifies → root changes), reproducible from DB
+        # rows, and on-chain ready (single 32-byte digest per cycle).
+        "cycle_merkle_roots": _recent_cycle_merkle_roots(workspace) if workspace else [],
     }
+
+
+def _recent_cycle_merkle_roots(workspace: Path, limit: int = 30) -> list[dict]:
+    """P4 Y0: surface the most recent cycles' Merkle roots on snapshot.json.
+
+    Reads merkle.json sidecars under <workspace>/hunts/<cycle-id>/.
+    Public-safe: contains cycle_id + root + n_findings + engine_sha only.
+    Never includes per-finding identifiers.
+    """
+    import json as _json
+    out: list[dict] = []
+    hunts = workspace / "hunts"
+    if not hunts.is_dir():
+        return out
+    pairs: list[tuple[float, dict]] = []
+    for cycle_dir in hunts.iterdir():
+        sidecar = cycle_dir / "merkle.json"
+        if not sidecar.is_file():
+            continue
+        try:
+            d = _json.loads(sidecar.read_text(encoding="utf-8"))
+            mtime = sidecar.stat().st_mtime
+            pairs.append((mtime, {
+                "cycle_id":    d.get("cycle_id"),
+                "engine_sha":  d.get("engine_sha"),
+                "merkle_root": d.get("merkle_root"),
+                "n_findings":  d.get("n_findings"),
+                "schema":      d.get("schema"),
+            }))
+        except Exception:
+            continue
+    pairs.sort(key=lambda x: x[0], reverse=True)
+    return [p[1] for p in pairs[:limit]]
 
 
 def _fix_bundle_stats(workspace: Path) -> dict:

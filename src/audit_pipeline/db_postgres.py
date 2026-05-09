@@ -422,6 +422,21 @@ class PostgresFindingsDB:
             )
             return [dict(r) for r in cur.fetchall()]
 
+    def list_findings_by_cycle(self, cycle_id: str) -> list[dict]:
+        """Return every finding belonging to a single cycle.
+
+        Mirror of FindingsDB.list_findings_by_cycle — used by Merkle
+        root computation to avoid silent truncation under list_findings's
+        default limit.
+        """
+        with self._conn() as c:
+            cur = c.cursor()
+            cur.execute(
+                "SELECT * FROM findings WHERE cycle_id = %s ORDER BY id ASC",
+                (cycle_id,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
     def list_confirmed_findings_by_bug_class(self, bug_class: str) -> list[dict]:
         with self._conn() as c:
             cur = c.cursor()
