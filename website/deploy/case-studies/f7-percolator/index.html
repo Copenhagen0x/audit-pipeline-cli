@@ -201,6 +201,55 @@ pre .fail   { color: var(--alert); }
   text-transform: uppercase; letter-spacing: 0.22em;
   color: var(--amber); margin-bottom: 10px;
 }
+
+/* Section 08.5 — propagation chain block (added 2026-05-09) */
+.kpi-strip {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 14px; margin: 28px 0; max-width: 760px;
+}
+@media (max-width: 720px) { .kpi-strip { grid-template-columns: 1fr 1fr; gap: 12px; } }
+@media (max-width: 380px) { .kpi-strip { grid-template-columns: 1fr; } }
+.kpi-cell { background: var(--surface); border: 1px solid var(--rule);
+            border-radius: 8px; padding: 16px 20px; }
+.kpi-cell .label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;
+}
+.kpi-cell .value {
+  font-size: 26px; font-weight: 600; color: var(--amber);
+  font-feature-settings: "tnum";
+}
+.kpi-cell .value.muted { color: var(--ink); }
+
+/* Severity pills used inside the sibling list — these classes were referenced
+   but never defined, so pills used to render as plain text. */
+.sev {
+  display: inline-block; margin-left: 6px;
+  padding: 2px 10px; border-radius: 4px;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  vertical-align: 1px;
+}
+.sev-critical { background: rgba(239,68,68,0.12);  color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+.sev-high     { background: rgba(249,115,22,0.12); color: #f97316; border: 1px solid rgba(249,115,22,0.3); }
+.sev-medium   { background: rgba(234,179,8,0.12);  color: #eab308; border: 1px solid rgba(234,179,8,0.3); }
+.sev-low      { background: rgba(96,165,250,0.12); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3); }
+
+/* Long inline <code> in body lists must wrap on phones */
+section.doc li code { word-break: break-word; overflow-wrap: anywhere; }
+section.doc li { line-height: 1.65; }
+
+/* Tables in case study must scroll horizontally on phones, not overflow page */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 24px 0; }
+.proto-table, .history-table { min-width: 600px; }
+
+/* Mobile: smaller hero title, kill pillar hover stick */
+@media (max-width: 768px) {
+  section.doc h2.section-title { max-width: 100%; }
+}
+@media (hover: none) {
+  .pillar:hover { transform: none; }
+}
 </style>
 </head>
 <body>
@@ -244,8 +293,10 @@ pre .fail   { color: var(--alert); }
   <a href="/" role="menuitem">Home</a>
   <a href="/protocols/" role="menuitem">Protocols</a>
   <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/bug-classes.html" role="menuitem">Bug-class catalog</a>
   <a href="/security.html" role="menuitem">Security</a>
   <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener" role="menuitem">Source</a>
   <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
 </div>
 
@@ -372,6 +423,7 @@ if is_whole {
       <div class="section-label">04 · Why Toly's listed protections didn't catch it</div>
       <h2 class="section-title">Each invariant is correct. <span class="accent">In isolation.</span></h2>
 
+      <div class="table-wrap">
       <table class="proto-table">
         <thead>
           <tr>
@@ -398,6 +450,7 @@ if is_whole {
           </tr>
         </tbody>
       </table>
+      </div>
 
       <p>The third row is F7. It's not a missing check — the cap is enforced exactly as documented. The structural property is that the cap doesn't <em>oppose</em> the attacker's profit; the attacker's profit shows up <em>as</em> residual growth, which the cap unconditionally permits.</p>
     </div>
@@ -523,22 +576,22 @@ Insurance loss = (ΔK − 0.2)·N.
       <h2 class="section-title">F7's structural pattern, swept across the cluster.</h2>
       <p>Once F7 transitioned to <code>confirmed</code>, the propagation hook fired automatically &mdash; LLM-emitted six structural sibling hypotheses, then the propagation engine ran a regex + tree-sitter AST sweep across the cross-protocol corpus (Drift, Mango, Marginfi, Kamino-lend, Jupiter swap, OpenBook v2, Orca whirlpools, Phoenix). The pattern: any protocol that maintains a vault counter and an out-of-vault insurance counter is a structural sibling of Percolator's F7.</p>
 
-      <div class="kpi-strip" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 28px 0; max-width: 760px;">
-        <div style="background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 20px;">
-          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;">Siblings derived</div>
-          <div style="font-size: 26px; font-weight: 600; color: var(--amber); font-feature-settings: 'tnum';">6</div>
+      <div class="kpi-strip">
+        <div class="kpi-cell">
+          <div class="label">Siblings derived</div>
+          <div class="value">6</div>
         </div>
-        <div style="background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 20px;">
-          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;">Files swept</div>
-          <div style="font-size: 26px; font-weight: 600; color: var(--amber); font-feature-settings: 'tnum';">517</div>
+        <div class="kpi-cell">
+          <div class="label">Files swept</div>
+          <div class="value">517</div>
         </div>
-        <div style="background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 20px;">
-          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;">Protocols indexed</div>
-          <div style="font-size: 26px; font-weight: 600; color: var(--amber); font-feature-settings: 'tnum';">8</div>
+        <div class="kpi-cell">
+          <div class="label">Protocols indexed</div>
+          <div class="value">8</div>
         </div>
-        <div style="background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 20px;">
-          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;">Confirmed siblings</div>
-          <div style="font-size: 26px; font-weight: 600; color: var(--ink); font-feature-settings: 'tnum';">0</div>
+        <div class="kpi-cell">
+          <div class="label">Confirmed siblings</div>
+          <div class="value muted">0</div>
         </div>
       </div>
 

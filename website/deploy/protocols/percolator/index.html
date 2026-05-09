@@ -64,12 +64,15 @@ section.doc li { margin-bottom: 6px; }
 .id-cell .id-value {
   font-size: 14px; color: var(--ink);
   font-family: var(--mono);
-  word-break: break-all;
+  /* break-all was mangling URLs mid-character; break-word breaks at hyphens
+     and word boundaries first, only falling back to mid-word when forced */
+  word-break: break-word; overflow-wrap: anywhere;
 }
 .id-cell .id-value.dim { color: var(--ink-2); font-family: var(--font); }
 .id-cell .id-value a {
   color: var(--amber);
   border-bottom: 1px dashed rgba(245,184,0,0.3);
+  word-break: break-word; overflow-wrap: anywhere;
 }
 .id-cell .id-value a:hover { border-bottom-color: var(--amber); }
 
@@ -269,7 +272,8 @@ section.doc li { margin-bottom: 6px; }
       <div class="section-label">02 · Severity history</div>
       <h2 class="section-title">Findings to date.</h2>
       <p class="lede">All findings published with full lifecycle state, severity rubric application, and a cryptographic receipt. Critical and High disclosures are linked to their public PR or GitHub issue.</p>
-      <table class="history-table">
+      <div style="overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 24px 0;">
+      <table class="history-table" style="min-width: 600px;">
 <thead><tr><th>ID</th><th>Title</th><th>Severity</th><th>State</th><th>Date</th></tr></thead>
 <tbody>
 <tr>
@@ -281,6 +285,7 @@ section.doc li { margin-bottom: 6px; }
 </tr>
 </tbody>
 </table>
+      </div>
     </div>
   </div>
 </section>

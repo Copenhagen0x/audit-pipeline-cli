@@ -315,10 +315,12 @@ canvas#particles {
   .nav-toggle[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
   .nav-toggle[aria-expanded="true"] span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
   .mobile-menu {
-    position: fixed; top: 60px; left: 0; right: 0;
+    position: fixed; top: 64px; left: 0; right: 0;
     background: var(--bg); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
     padding: 8px 22px 22px; display: none; flex-direction: column;
-    z-index: 95; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    z-index: 110; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    max-height: calc(100vh - 64px); overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .mobile-menu.open { display: flex; }
   .mobile-menu a {
@@ -329,6 +331,12 @@ canvas#particles {
     min-height: 48px; display: flex; align-items: center;
   }
   .mobile-menu a:last-child { border-bottom: none; }
+  /* Backdrop behind the open menu — taps outside the menu close it via JS */
+  .mobile-menu-backdrop {
+    position: fixed; inset: 64px 0 0 0; background: rgba(5,5,4,0.6);
+    z-index: 105; display: none;
+  }
+  .mobile-menu-backdrop.open { display: block; }
 }
 .nav-toggle { display: none; }
 .mobile-menu { display: none; }
@@ -748,11 +756,75 @@ pre code { background: none; border: none; padding: 0; color: inherit; font-size
 /* ============================== ANCHOR OFFSET ==================== */
 :target { scroll-margin-top: 96px; }
 
-/* ============================== MOBILE OVERRIDES ================= */
+/* ============================== TABLET OVERRIDES (1024px) ============= */
+/* Below the laptop nav threshold but above phone — needs targeted tablet rules
+   so 768-1023px viewports (iPad portrait) don't inherit desktop 4-col footers. */
+@media (max-width: 1024px) {
+  .footer-grid { grid-template-columns: 1fr 1fr 1fr; gap: 32px; }
+  .footer-grid .footer-brand { grid-column: 1 / -1; }
+}
+
+/* ============================== MOBILE OVERRIDES (768px) ========= */
 @media (max-width: 768px) {
   section { padding: 80px 0; }
   .section-title { font-size: clamp(26px, 8vw, 34px); }
-  .hero-title { font-size: clamp(36px, 9vw, 48px); }
+  .hero-title { font-size: clamp(28px, 9vw, 48px); }
   .hero { padding: 120px 0 60px; min-height: auto; }
   [data-reveal] { transition-duration: 0.5s; transform: translateY(20px); }
+  /* Hero brackets safer offsets so they don't collide with the title */
+  .hero-bracket.tl { top: 96px; left: 12px; }
+  .hero-bracket.br { bottom: 60px; right: 12px; }
+  /* Mobile blob shrink (was duplicated in index.html only — promoted here) */
+  .blob-1 { width: 380px; height: 380px; left: -100px; top: -80px; }
+  .blob-2 { width: 320px; height: 320px; right: -80px; }
+  .blob-3 { width: 280px; height: 280px; }
+  /* Long inline code in body text breaks at sensible boundaries on phones */
+  p code, li code, dd code { word-break: break-word; overflow-wrap: anywhere; }
+  /* Hero meta is dense — tighten gap so it doesn't stack 4 lines */
+  .hero-meta { gap: 14px 20px; font-size: 11px; }
+  /* TOC links: meet 44px tap target on phones */
+  .toc li { margin-bottom: 14px; }
+  .toc a { display: inline-block; padding: 6px 0; min-height: 44px; line-height: 1.4; }
+  .toc { padding: 22px 22px; }
+  .footer-col ul { gap: 16px; }
+  .footer-col a { display: block; padding: 4px 0; min-height: 32px; }
+}
+
+/* ============================== SMALL PHONE (480px) ============== */
+/* Sub-breakpoint for 320-480px viewports (iPhone SE, small Androids) where
+   the 768px tier is still too generous on padding/font-sizes. */
+@media (max-width: 480px) {
+  :root { --pad: 18px; }
+  section { padding: 56px 0; }
+  .hero { padding: 96px 0 40px; }
+  .hero-title { font-size: clamp(26px, 8vw, 38px); }
+  .section-title { font-size: clamp(22px, 7vw, 30px); }
+  .footer-grid { grid-template-columns: 1fr; gap: 28px; }
+  .footer-grid .footer-brand { grid-column: 1; }
+}
+
+/* ============================== HOVER-CAPABLE GUARDS ============= */
+/* Hover effects only fire on devices with a real cursor — prevents sticky
+   tap-state on mobile (where :hover stays applied until next tap elsewhere). */
+@media (hover: none) {
+  body, button, a, .btn { cursor: auto; }
+  /* Force-remove any cursor:none from interactive elements on touch devices */
+  * { cursor: auto !important; }
+  /* Custom cursor decorations — keep hidden on touch */
+  .cursor-dot, .cursor-ring { display: none !important; }
+  /* Kill canvas particles + blobs on touch devices regardless of width */
+  canvas#particles { display: none !important; }
+  .blob { display: none !important; }
+}
+
+/* ============================== REDUCED MOTION ==================== */
+/* Respect users who set prefers-reduced-motion (vestibular disorders, etc) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .blob, canvas#particles, .cursor-dot, .cursor-ring { display: none !important; }
 }

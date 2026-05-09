@@ -421,7 +421,8 @@ section.dash { padding: 100px 0 60px; }
     <h2 class="dash-section-title">Open and disclosed findings</h2>
     <div class="dash-section-sub">Lifecycle states: new → triaged → confirmed → disclosed → fixed → verified.</div>
 
-    <table class="findings-table">
+    <div style="overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 32px;">
+    <table class="findings-table" style="min-width: 720px;">
       <thead>
         <tr>
           <th>Hypothesis</th>
@@ -435,6 +436,7 @@ section.dash { padding: 100px 0 60px; }
         <tr><td colspan="5" class="loading-row">Loading findings…</td></tr>
       </tbody>
     </table>
+    </div>
 
     <!-- Cycle receipts -->
     <div class="dash-section-label">02 · Recent signed cycle receipts</div>

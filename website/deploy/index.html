@@ -81,6 +81,14 @@
   --alert:        #ef4444;
   --info:         #60a5fa;
 
+  /* Severity color tokens — referenced by .dpc-high left-border + .dpc-embargo
+     before the audit revealed they were undefined. Keep aligned with shared.css. */
+  --critical:     #ef4444;
+  --high:         #f97316;
+  --medium:       #eab308;
+  --low:          #60a5fa;
+  --info-c:       #6b7280;
+
   --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
   --ease-snap:    cubic-bezier(0.6, -0.05, 0.01, 1);
 
@@ -482,11 +490,13 @@ canvas#particles {
   .nav-toggle[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
   .nav-toggle[aria-expanded="true"] span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
   .mobile-menu {
-    position: fixed; top: 60px; left: 0; right: 0;
+    position: fixed; top: 71px; left: 0; right: 0;
     background: var(--bg); border-top: 1px solid var(--rule);
     border-bottom: 1px solid var(--rule);
     padding: 8px 22px 22px; display: none; flex-direction: column;
-    z-index: 95; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    z-index: 110; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    max-height: calc(100vh - 71px); overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .mobile-menu.open { display: flex; }
   .mobile-menu a {
@@ -497,6 +507,11 @@ canvas#particles {
     min-height: 48px; display: flex; align-items: center;
   }
   .mobile-menu a:last-child { border-bottom: none; }
+  .mobile-menu-backdrop {
+    position: fixed; inset: 71px 0 0 0; background: rgba(5,5,4,0.6);
+    z-index: 105; display: none;
+  }
+  .mobile-menu-backdrop.open { display: block; }
 }
 .nav-toggle { display: none; }
 .mobile-menu { display: none; }
@@ -1668,7 +1683,9 @@ section {
   border-radius: 50%;
   background: var(--ok);
   box-shadow: 0 0 12px rgba(74,222,128,0.6);
-  animation: pulse 1.6s ease-in-out infinite;
+  /* Was `animation: pulse ...` referencing an undefined keyframe — dot was
+     static. Use the existing pulse-glow keyframe (matches .live-pulse). */
+  animation: pulse-glow 2s ease-out infinite;
 }
 .dpc-name {
   font-size: 22px;
@@ -3325,7 +3342,9 @@ body.preloading { overflow: hidden; }
   .stats-section { padding: 48px 0 !important; }
   .toolchain { padding: 56px 0 !important; }
   .footer { padding: 56px 0 32px !important; }
-  .hero { padding: 0 !important; }
+  /* Hero MUST clear the fixed nav (~71px on mobile) — was 0 which let the
+     eyebrow render UNDER the jelleo logo. */
+  .hero { padding: 96px 0 40px !important; }
 
   /* --- 2. Hero title was capped at 50vw (half the screen). Removed. --- */
   .hero-title {
@@ -4301,7 +4320,7 @@ body.preloading { overflow: hidden; }
         <div class="tower-stage">
           <button class="tower-zoom-back" id="tower-back">← back</button>
           <canvas id="tower-canvas"></canvas>
-          <div class="tower-readout">
+          <div class="tower-readout" id="tower-readout">
             <span class="tr-label">slot</span>             <span class="tr-val amber" id="tr-slot">312,847,219</span>
             <span class="tr-label">target</span>           <span class="tr-val" id="tr-target">mango-v4 @ 7a3fef2</span>
             <span class="tr-label">invariants verified</span><span class="tr-val" id="tr-inv">31 / 31 PASS</span>
@@ -4569,25 +4588,36 @@ body.preloading { overflow: hidden; }
   const navToggle = document.getElementById('nav-toggle');
   const mobileMenu = document.getElementById('mobile-menu');
   if (navToggle && mobileMenu) {
+    // Inject backdrop so taps outside the menu close it (matches shared.js)
+    let backdrop = document.querySelector('.mobile-menu-backdrop');
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.className = 'mobile-menu-backdrop';
+      document.body.appendChild(backdrop);
+    }
+    function closeMenu() {
+      navToggle.setAttribute('aria-expanded', 'false');
+      mobileMenu.classList.remove('open');
+      backdrop.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+    function openMenu() {
+      navToggle.setAttribute('aria-expanded', 'true');
+      mobileMenu.classList.add('open');
+      backdrop.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
     navToggle.addEventListener('click', () => {
-      const expanded = navToggle.getAttribute('aria-expanded') === 'true';
-      navToggle.setAttribute('aria-expanded', String(!expanded));
-      mobileMenu.classList.toggle('open');
-      document.body.style.overflow = !expanded ? 'hidden' : '';
+      if (navToggle.getAttribute('aria-expanded') === 'true') closeMenu();
+      else openMenu();
     });
-    mobileMenu.querySelectorAll('a').forEach((a) => {
-      a.addEventListener('click', () => {
-        navToggle.setAttribute('aria-expanded', 'false');
-        mobileMenu.classList.remove('open');
-        document.body.style.overflow = '';
-      });
-    });
+    mobileMenu.querySelectorAll('a').forEach((a) => a.addEventListener('click', closeMenu));
+    backdrop.addEventListener('click', closeMenu);
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && mobileMenu.classList.contains('open')) {
-        navToggle.setAttribute('aria-expanded', 'false');
-        mobileMenu.classList.remove('open');
-        document.body.style.overflow = '';
-      }
+      if (e.key === 'Escape' && mobileMenu.classList.contains('open')) closeMenu();
+    });
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 1024 && mobileMenu.classList.contains('open')) closeMenu();
     });
   }
 

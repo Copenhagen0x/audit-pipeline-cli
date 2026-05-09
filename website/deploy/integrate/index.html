@@ -44,13 +44,15 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
   border: 1px solid var(--rule);
   border-radius: 12px;
   padding: 28px 28px 24px;
-  cursor: pointer;
   transition: border-color .25s ease, transform .25s var(--ease-out), background .25s ease;
   display: flex; flex-direction: column;
 }
-.tier-card:hover {
-  background: var(--surface-2);
-  transform: translateY(-2px);
+@media (hover: hover) {
+  .tier-card { cursor: pointer; }
+  .tier-card:hover {
+    background: var(--surface-2);
+    transform: translateY(-2px);
+  }
 }
 .tier-card.selected {
   border-color: var(--amber);
@@ -162,7 +164,13 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
   color: var(--ink);
   letter-spacing: 0.02em;
   transition: border-color .2s ease, box-shadow .2s ease;
-  cursor: text;
+}
+/* iOS Safari triggers forced viewport zoom on focused inputs <16px font.
+   Bump to 16px on mobile so the form stays usable. */
+@media (max-width: 768px) {
+  .field input,
+  .field textarea,
+  .field select { font-size: 16px; padding: 14px 14px; }
 }
 .field textarea {
   resize: vertical;

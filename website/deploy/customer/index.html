@@ -66,11 +66,11 @@ input.portal-input {
   border: 1px solid var(--rule);
   border-radius: 6px;
   padding: 14px 16px;
-  font-family: var(--mono); font-size: 14px;
+  /* iOS auto-zooms inputs <16px font; force 16px to keep mobile usable */
+  font-family: var(--mono); font-size: 16px;
   color: var(--ink);
   letter-spacing: 0.02em;
   transition: border-color .2s ease;
-  cursor: text;
 }
 input.portal-input:focus {
   outline: none;
@@ -186,6 +186,7 @@ button.portal-submit:hover {
         placeholder="cus_..."
         spellcheck="false"
         autocapitalize="off"
+        autocomplete="off"
         required>
       <button type="submit" class="portal-submit">Open portal →</button>
       <div id="portal-error" class="portal-error">Token not recognized. If you've been onboarded, contact <a href="mailto:kirill@jelleo.com">kirill@jelleo.com</a>.</div>
@@ -212,10 +213,11 @@ button.portal-submit:hover {
     e.preventDefault();
     const token = input.value.trim();
     if (!token) return;
-    if (KNOWN.has(token) || /^[a-z0-9_-]{8,64}$/i.test(token)) {
-      // For the prototype: navigate to /customer/<token>/. If the dir
-      // doesn't exist on the static side, the customer gets a 404.
-      // Real implementation: API check first, then redirect.
+    if (KNOWN.has(token)) {
+      // Tighter validation than before: only navigate for known tokens.
+      // Previously any 8+ char alphanumeric routed to a hard 404 (no Jelleo
+      // chrome) which broke the "professional product" feel. Real per-customer
+      // tokens come from `audit-pipeline customer add` server-side.
       window.location.href = `/customer/${encodeURIComponent(token)}/`;
     } else {
       error.classList.add('shown');

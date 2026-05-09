@@ -57,25 +57,35 @@ section.doc a:hover { border-bottom-color: var(--amber); }
                 margin-right: 10px; letter-spacing: 0.06em; }
 
 .kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 32px 0; max-width: 880px; }
-@media (max-width: 720px) { .kpi-strip { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 720px) { .kpi-strip { grid-template-columns: 1fr 1fr; gap: 12px; } }
+@media (max-width: 380px) { .kpi-strip { grid-template-columns: 1fr; } }
 .kpi-cell { background: var(--surface); border: 1px solid var(--rule);
             border-radius: 8px; padding: 18px 22px; }
 .kpi-cell .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
                    text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px; }
 .kpi-cell .value { font-size: 28px; font-weight: 600; color: var(--amber);
                    font-feature-settings: "tnum"; }
+.kpi-cell .value code { background: none; border: none; padding: 0; font-size: 16px; word-break: break-word; }
+@media (max-width: 720px) {
+  .kpi-cell { padding: 14px 16px; }
+  .kpi-cell .value { font-size: 22px; }
+  .kpi-cell .value code { font-size: 13px; }
+}
 
 .classes-grid { display: grid; grid-template-columns: 1fr; gap: 20px; max-width: 980px; margin-top: 24px; }
+@media (min-width: 880px) { .classes-grid { grid-template-columns: 1fr 1fr; } }
 .class-card { background: var(--surface); border: 1px solid var(--rule);
               border-radius: 8px; padding: 22px 26px; transition: border-color .15s ease, transform .15s ease; }
-.class-card:hover { border-color: var(--rule-2); transform: translateY(-1px); }
+@media (hover: hover) { .class-card:hover { border-color: var(--rule-2); transform: translateY(-1px); } }
 .class-id { font-family: var(--mono); font-size: 13px; color: var(--amber);
-            font-weight: 600; margin-bottom: 8px; word-break: break-all; }
+            font-weight: 600; margin-bottom: 8px; word-break: break-word; overflow-wrap: anywhere; }
 .class-card p { margin: 0 0 6px 0; font-size: 14px; line-height: 1.65; max-width: 78ch; }
 .class-card .flag { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
                     text-transform: uppercase; color: var(--ink-3); margin-top: 10px;
                     display: inline-block; }
 .class-card .flag.flagship { color: var(--amber); }
+.hero-meta a { color: var(--amber); border-bottom: 1px solid rgba(245,184,0,0.3); }
+.hero-meta a:hover { border-bottom-color: var(--amber); }
 
 .callout { background: rgba(245,184,0,0.05); border-left: 3px solid var(--amber);
            padding: 18px 22px; margin: 28px 0; font-size: 14px; color: var(--ink-2);
@@ -129,9 +139,10 @@ code { font-family: var(--mono); font-size: 0.92em; }
 <div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
   <a href="/" role="menuitem">Home</a>
   <a href="/methodology.html" role="menuitem">Methodology</a>
-  <a href="/security.html" role="menuitem">Security</a>
   <a href="/bug-classes.html" role="menuitem">Bug-class catalog</a>
+  <a href="/security.html" role="menuitem">Security</a>
   <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener" role="menuitem">Source</a>
   <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
 </div>
 
@@ -404,34 +415,50 @@ code { font-family: var(--mono); font-size: 0.92em; }
   </div>
 </section>
 
-<!-- FOOTER (matches site shell) -->
-<footer style="border-top: 1px solid var(--rule); padding: 48px 0; margin-top: 80px">
-  <div class="container" style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 24px; font-family: var(--mono); font-size: 12px; color: var(--ink-3)">
-    <div>jelleo · continuous Solana audit</div>
-    <div><a href="/methodology.html" style="color: var(--ink-3); border: none">methodology</a> · <a href="/security.html" style="color: var(--ink-3); border: none">security</a> · <a href="/bug-classes.html" style="color: var(--amber); border: none">bug classes</a> · <a href="/customer/" style="color: var(--ink-3); border: none">customer portal</a></div>
+<!-- ============== FOOTER (standard 4-col, matches methodology.html) ============== -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">jelleo</a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="/#product">The four pillars</a></li>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/bug-classes.html" class="active" style="color: var(--amber);">Bug-class catalog</a></li>
+          <li><a href="/security.html">Security &amp; disclosure</a></li>
+          <li><a href="/customer/">Customer portal</a></li>
+          <li><a href="/#case-study">F7 case study</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Open source</h5>
+        <ul>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">Platform</a></li>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/methodology/bug-class-catalog.md" target="_blank" rel="noopener">Catalog source</a></li>
+          <li><a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">F7 disclosure</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Contact</h5>
+        <ul>
+          <li><a href="mailto:security@jelleo.com">security@jelleo.com</a></li>
+          <li><a href="mailto:kirill@jelleo.com">kirill@jelleo.com</a></li>
+          <li><a href="mailto:info@jelleo.com">info@jelleo.com</a></li>
+          <li><a href="https://jelleo.com">jelleo.com</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span>v0.1 · Catalog v1 · 2026-05-09</span>
+    </div>
   </div>
 </footer>
 
-<script>
-  // Reveal-on-scroll (matches methodology.html behavior)
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => {
-      if (e.isIntersecting) {
-        e.target.classList.add('revealed');
-        observer.unobserve(e.target);
-      }
-    });
-  }, { threshold: 0.1 });
-  document.querySelectorAll('[data-reveal]').forEach(el => observer.observe(el));
-
-  // Mobile menu toggle
-  const tog = document.getElementById('nav-toggle'), menu = document.getElementById('mobile-menu');
-  if (tog && menu) {
-    tog.addEventListener('click', () => {
-      const open = menu.classList.toggle('open');
-      tog.setAttribute('aria-expanded', String(open));
-    });
-  }
-</script>
+<script src="/shared.js"></script>
 </body>
 </html>

@@ -78,7 +78,34 @@ section.doc { padding: 100px 0; }
 }
 @media (max-width: 720px) {
   .service-row { grid-template-columns: 1fr auto; gap: 12px; }
-  .service-row .col-cadence, .service-row .col-last { display: none; }
+  /* Original "service health" grid uses cadence/last as secondary metadata
+     that's safe to hide on phones. The new P2/P3/P4 attestation grids
+     instead use .col-cadence to carry the actual KPI value (e.g., "21 cycles",
+     hb engine SHA), so we have to keep them visible there. Scope the hide
+     rule to the original services grid only. */
+  #services-grid .service-row .col-cadence,
+  #services-grid .service-row .col-last { display: none; }
+  /* For attestation/propagation/bundle grids: stack the secondary cells
+     as a wrapped second row instead of a 4-col line that overflows. */
+  #attestation-grid .service-row,
+  #propagation-grid .service-row,
+  #bundle-grid .service-row {
+    grid-template-columns: 1fr auto; gap: 8px 12px;
+  }
+  /* Heartbeat row is the one place that uses cadence/last for real data
+     (engine SHA + age) — keep visible there. Everywhere else the cells are
+     "—" placeholders that just eat vertical space, so hide them. */
+  #attestation-grid #hb-engine,
+  #attestation-grid #hb-age {
+    grid-column: 1 / -1; font-size: 12px; color: var(--ink-3);
+    font-family: var(--mono);
+  }
+  #attestation-grid .service-row:not(:first-child) .col-cadence,
+  #attestation-grid .service-row:not(:first-child) .col-last,
+  #propagation-grid .col-cadence,
+  #propagation-grid .col-last,
+  #bundle-grid .col-cadence,
+  #bundle-grid .col-last { display: none; }
 }
 .service-row:last-child { border-bottom: none; }
 .service-name {
@@ -208,11 +235,14 @@ section.doc { padding: 100px 0; }
   <a href="/" role="menuitem">Home</a>
   <a href="/protocols/" role="menuitem">Protocols</a>
   <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/bug-classes.html" role="menuitem">Bug-class catalog</a>
   <a href="/security.html" role="menuitem">Security</a>
   <a href="/customer/" role="menuitem">Customer portal</a>
   <a href="/status/" role="menuitem">Status</a>
+  <a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener" role="menuitem">Source</a>
   <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
 </div>
+<div class="scroll-progress" id="progress"></div>
 
 <section class="hero">
   <span class="hero-bracket tl"></span>
@@ -336,7 +366,7 @@ section.doc { padding: 100px 0; }
           <div class="service-name">Per-cycle Merkle roots<div class="desc">SHA-256 over canonical finding+cycle fields, tamper-evident</div></div>
           <div class="col-cadence" id="merkle-count">—</div>
           <div class="col-last">—</div>
-          <div class="service-state up" id="merkle-state"><span class="dot"></span>Live</div>
+          <div class="service-state unknown" id="merkle-state"><span class="dot"></span>—</div>
         </div>
       </div>
 
@@ -500,17 +530,34 @@ section.doc { padding: 100px 0; }
     }
   }
 
+  function setPillState(el, stateClass, text) {
+    if (!el) return;
+    el.classList.remove('up', 'degraded', 'down', 'unknown');
+    el.classList.add(stateClass);
+    // Reconstruct innerHTML rather than assuming child-node order — the
+    // previous lastChild.textContent pattern was brittle if anything ever
+    // changed the markup ordering.
+    el.innerHTML = '<span class="dot"></span>' + text;
+  }
+
   function setSquare(id, value) {
     const el = document.getElementById(id);
     if (!el) return;
-    const dot = el.querySelector('.dot');
-    el.lastChild.textContent = (value === undefined || value === null) ? ' —' : ` ${value}`;
-    // Color treatment: zero = neutral, anything > 0 = active
-    el.classList.remove('up', 'degraded', 'down', 'unknown');
-    el.classList.add(value && value > 0 ? 'up' : 'unknown');
+    if (value == null) {
+      setPillState(el, 'unknown', '—');
+    } else if (value > 0) {
+      setPillState(el, 'up', String(value));
+    } else {
+      // Zero = neutral (e.g., "0 PRs merged" is healthy), use a third state
+      // so it doesn't collapse into the same pill style as "fetch failed".
+      setPillState(el, 'unknown', '0');
+    }
   }
 
   async function refreshHeartbeat() {
+    const hbAge = document.getElementById('hb-age');
+    const hbState = document.getElementById('hb-state');
+    const hbEng = document.getElementById('hb-engine');
     try {
       const r = await fetch('https://api.jelleo.com/heartbeat.json', { cache: 'no-store' });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -518,24 +565,13 @@ section.doc { padding: 100px 0; }
       const generated = Date.parse(hb.generated_at || '');
       const ageMs = Date.now() - generated;
       const ageMin = Math.floor(ageMs / 60_000);
-      const hbAge = document.getElementById('hb-age');
-      const hbState = document.getElementById('hb-state');
-      const hbEng = document.getElementById('hb-engine');
       if (hbAge) hbAge.textContent = `${ageMin} min ago`;
       if (hbEng) hbEng.textContent = (hb.engine_sha || '').slice(0, 12) || '—';
-      if (hbState) {
-        hbState.classList.remove('up', 'degraded', 'down', 'unknown');
-        if (ageMs < 90 * 60_000)        { hbState.classList.add('up');       hbState.lastChild.textContent = ' Live'; }
-        else if (ageMs < 240 * 60_000)  { hbState.classList.add('degraded'); hbState.lastChild.textContent = ' Lagging'; }
-        else                             { hbState.classList.add('down');     hbState.lastChild.textContent = ' Stale'; }
-      }
+      if (ageMs < 90 * 60_000)       setPillState(hbState, 'up',       'Live');
+      else if (ageMs < 240 * 60_000) setPillState(hbState, 'degraded', 'Lagging');
+      else                            setPillState(hbState, 'down',     'Stale');
     } catch (err) {
-      const hbState = document.getElementById('hb-state');
-      if (hbState) {
-        hbState.classList.remove('up', 'degraded', 'down', 'unknown');
-        hbState.classList.add('down');
-        hbState.lastChild.textContent = ' Unreachable';
-      }
+      setPillState(hbState, 'down', 'Unreachable');
     }
   }
 
@@ -581,10 +617,13 @@ section.doc { padding: 100px 0; }
       setSquare('bundle-pr-opened',  fb.prs_opened);
       setSquare('bundle-pr-merged',  fb.prs_merged);
 
-      // P4 cycle merkle roots count
+      // P4 cycle merkle roots count + state pill
       const merkleRoots = snap.cycle_merkle_roots || [];
       const mc = document.getElementById('merkle-count');
       if (mc) mc.textContent = `${merkleRoots.length} cycle${merkleRoots.length === 1 ? '' : 's'}`;
+      const ms = document.getElementById('merkle-state');
+      if (merkleRoots.length > 0) setPillState(ms, 'up', 'Live');
+      else                         setPillState(ms, 'unknown', '—');
 
       lastFetch.textContent = `Last fetched: ${new Date().toISOString()}`;
     } catch (err) {
@@ -593,8 +632,21 @@ section.doc { padding: 100px 0; }
     }
   }
 
-  refresh();
-  setInterval(refresh, REFRESH_MS);
+  // Refresh on load + every REFRESH_MS, but pause when tab is hidden so a
+  // backgrounded tab doesn't burn fetches all day.
+  let refreshHandle = null;
+  function startPolling() {
+    refresh();
+    refreshHandle = setInterval(refresh, REFRESH_MS);
+  }
+  function stopPolling() {
+    if (refreshHandle) { clearInterval(refreshHandle); refreshHandle = null; }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopPolling();
+    else if (!refreshHandle) startPolling();
+  });
+  startPolling();
 })();
 </script>
 

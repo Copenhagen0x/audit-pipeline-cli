@@ -47,7 +47,9 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 14px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+/* html font-size MUST be 16px so iOS doesn't auto-zoom on inputs and so
+   browser-zoom users get the same scale as the rest of the site. */
+html { font-size: 16px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 body {
   background: var(--bg);
   color: var(--ink);
@@ -306,12 +308,18 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   .main { padding: 16px 12px 40px; gap: 16px; }
   .panel-head { padding: 12px 14px; }
   .feed-toolbar { padding: 10px 12px; }
-  .finding-row { grid-template-columns: 1fr; grid-template-rows: auto auto auto; padding: 12px 14px; }
-  .fr-id { grid-column: 1; grid-row: 1; }
-  .fr-class { grid-column: 1; grid-row: 2; }
-  .fr-age { grid-column: 1; grid-row: 1; justify-self: end; }
-  .fr-meta { grid-column: 1; grid-row: 3; }
   .footer-bar { padding: 14px 16px; flex-direction: column; gap: 6px; align-items: flex-start; }
+  /* Demo banner: long content + tiny screen = 5-line wrap. Truncate to first
+     fragment so it stays on one line and doesn't push the topnav offscreen. */
+  .demo-banner {
+    font-size: 9px; padding: 6px 10px; line-height: 1.4;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .demo-banner > *:not(.badge) { display: inline; }
+  .demo-banner .badge { font-size: 9px; padding: 1px 6px; }
+}
+@media (max-width: 480px) {
+  .id-grid { grid-template-columns: 1fr; gap: 10px; }
 }
 
 /* ======== PANELS (shared) ======== */
@@ -430,6 +438,21 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   transition: background .15s, border-left-color .15s;
   cursor: pointer;
   position: relative;
+}
+/* Mobile: collapse to single column at 1100px (iPad portrait + below) so the
+   3-col 110+1fr+110 layout doesn't overflow in the narrow available width.
+   !important because the demo page's grid-auto-flow + many sibling rules
+   make plain cascade unreliable here; we'd rather guarantee the collapse. */
+@media (max-width: 1100px) {
+  .finding-row {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto auto auto !important;
+    padding: 12px 14px !important;
+  }
+  .fr-id { grid-column: 1; grid-row: 1; }
+  .fr-class { grid-column: 1; grid-row: 2; }
+  .fr-age { grid-column: 1; grid-row: 1; justify-self: end; }
+  .fr-meta { grid-column: 1; grid-row: 3; }
 }
 .finding-row:last-child { border-bottom: none; }
 .finding-row:hover { background: rgba(245,184,0,0.025); }

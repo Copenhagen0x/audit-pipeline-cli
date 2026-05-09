@@ -129,6 +129,12 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
   padding-top: 20px;
   border-top: 1px solid var(--rule);
 }
+@media (max-width: 600px) {
+  .protocol-meta { grid-template-columns: 1fr 1fr; gap: 16px; }
+}
+@media (max-width: 380px) {
+  .protocol-meta { grid-template-columns: 1fr; }
+}
 .meta-cell .meta-label {
   font-family: var(--mono); font-size: 9px;
   text-transform: uppercase; letter-spacing: 0.18em;

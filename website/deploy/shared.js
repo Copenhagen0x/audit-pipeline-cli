@@ -9,28 +9,48 @@
   'use strict';
 
   // ============== MOBILE NAV TOGGLE ==============
-  const navToggle = document.getElementById('nav-toggle');
-  const mobileMenu = document.getElementById('mobile-menu');
+  // Tolerant lookup: pages may use either id="nav-toggle" or class="nav-toggle".
+  const navToggle = document.getElementById('nav-toggle')
+                  || document.querySelector('.nav-toggle');
+  const mobileMenu = document.getElementById('mobile-menu')
+                    || document.querySelector('.mobile-menu');
+
   if (navToggle && mobileMenu) {
+    // Inject a backdrop element behind the open menu so taps outside close it.
+    let backdrop = document.querySelector('.mobile-menu-backdrop');
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.className = 'mobile-menu-backdrop';
+      document.body.appendChild(backdrop);
+    }
+
+    function closeMenu() {
+      navToggle.setAttribute('aria-expanded', 'false');
+      mobileMenu.classList.remove('open');
+      backdrop.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+    function openMenu() {
+      navToggle.setAttribute('aria-expanded', 'true');
+      mobileMenu.classList.add('open');
+      backdrop.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
     navToggle.addEventListener('click', () => {
       const expanded = navToggle.getAttribute('aria-expanded') === 'true';
-      navToggle.setAttribute('aria-expanded', String(!expanded));
-      mobileMenu.classList.toggle('open');
-      document.body.style.overflow = !expanded ? 'hidden' : '';
+      if (expanded) closeMenu(); else openMenu();
     });
     mobileMenu.querySelectorAll('a').forEach((a) => {
-      a.addEventListener('click', () => {
-        navToggle.setAttribute('aria-expanded', 'false');
-        mobileMenu.classList.remove('open');
-        document.body.style.overflow = '';
-      });
+      a.addEventListener('click', closeMenu);
     });
+    backdrop.addEventListener('click', closeMenu);
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && mobileMenu.classList.contains('open')) {
-        navToggle.setAttribute('aria-expanded', 'false');
-        mobileMenu.classList.remove('open');
-        document.body.style.overflow = '';
-      }
+      if (e.key === 'Escape' && mobileMenu.classList.contains('open')) closeMenu();
+    });
+    // Close menu if user resizes back to desktop with menu open
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 1024 && mobileMenu.classList.contains('open')) closeMenu();
     });
   }
 
@@ -165,8 +185,15 @@
   // ============== PARTICLE NETWORK (drifting dots + connecting lines) ==============
   // Mirrors the canvas#particles animation on index.html so every page in the
   // site has the same animated background.
+  // SKIP entirely on touch devices, narrow viewports, and reduced-motion users
+  // — the O(N²) line-distance check + 60fps redraw drains battery on mobile
+  // and is invisible behind the CSS `display: none` rule we apply there.
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const skipParticles = reduceMotion
+                     || window.matchMedia('(hover: none)').matches
+                     || window.innerWidth < 1024;
   const canvas = document.getElementById('particles');
-  if (canvas && canvas.getContext) {
+  if (canvas && canvas.getContext && !skipParticles) {
     const ctx = canvas.getContext('2d');
     let dpr = window.devicePixelRatio || 1;
     let W = window.innerWidth;
