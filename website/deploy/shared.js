@@ -57,54 +57,92 @@
     window.addEventListener('resize', () => {
       if (window.innerWidth > 1024 && mobileMenu.classList.contains('open')) closeMenu();
     });
+    // Close menu on bfcache restore + hashchange (browser back / in-page link)
+    window.addEventListener('pageshow', closeMenu);
+    window.addEventListener('hashchange', closeMenu);
   }
+
+  // Mark active nav link with aria-current="page" so screen readers announce it.
+  // Matches by pathname; ignores query/hash. Same logic as the visual `.active`
+  // class but adds the a11y attribute that visual styling alone misses.
+  (function markActiveNav() {
+    const path = location.pathname.replace(/index\.html$/, '') || '/';
+    document.querySelectorAll('.nav-center a, .mobile-menu a, .footer-col a').forEach((a) => {
+      try {
+        const u = new URL(a.href, location.origin);
+        const ap = u.pathname.replace(/index\.html$/, '') || '/';
+        if (ap === path && u.host === location.host) {
+          a.setAttribute('aria-current', 'page');
+        }
+      } catch (e) { /* skip malformed */ }
+    });
+  })();
 
   // ============== CURSOR (snappy lerp) ==============
   const dot = document.getElementById('dot');
   const ring = document.getElementById('ring');
-  const isCoarse = window.matchMedia('(hover: none)').matches || window.innerWidth < 1024;
+  const _reduceMotionCursor = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const isCoarse = window.matchMedia('(hover: none)').matches
+                || window.innerWidth < 1024
+                || _reduceMotionCursor;
 
   if (dot && ring && !isCoarse) {
     let mx = window.innerWidth / 2, my = window.innerHeight / 2;
     let rx = mx, ry = my;
+    let rafId = null;
+    let active = false;
 
     document.addEventListener('mousemove', (e) => {
       mx = e.clientX;
       my = e.clientY;
       dot.style.transform = `translate(${mx}px, ${my}px) translate(-50%, -50%)`;
-    });
+      if (!active) { active = true; loop(); }
+    }, { passive: true });
 
     function loop() {
       rx += (mx - rx) * 0.85;
       ry += (my - ry) * 0.85;
       ring.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%)`;
-      requestAnimationFrame(loop);
+      // Idle stop — when ring is within 0.1px of target, stop the RAF loop.
+      // Restart on next mousemove. Saves ~5% CPU on idle desktop sessions.
+      if (Math.abs(mx - rx) < 0.1 && Math.abs(my - ry) < 0.1) {
+        active = false; rafId = null; return;
+      }
+      rafId = requestAnimationFrame(loop);
     }
-    loop();
 
-    document.querySelectorAll('a, button, .pillar, .stat-cell, .toc a, .nav-cta').forEach((el) => {
-      el.addEventListener('mouseenter', () => {
-        ring.classList.add('hover');
-        dot.classList.add('hover');
-      });
-      el.addEventListener('mouseleave', () => {
-        ring.classList.remove('hover');
-        dot.classList.remove('hover');
-      });
-    });
+    // Single delegated mouseover/mouseout listener (was 200+ per-element
+    // listeners). Catches dynamic content too.
+    const HOVER_SEL = 'a, button, .pillar, .stat-cell, .toc a, .nav-cta, [role="button"]';
+    document.addEventListener('mouseover', (e) => {
+      if (e.target.closest && e.target.closest(HOVER_SEL)) {
+        ring.classList.add('hover'); dot.classList.add('hover');
+      }
+    }, { passive: true });
+    document.addEventListener('mouseout', (e) => {
+      if (e.target.closest && e.target.closest(HOVER_SEL)) {
+        // Only remove if relatedTarget isn't also a hover-target (avoids flicker).
+        const next = e.relatedTarget;
+        if (!next || !next.closest || !next.closest(HOVER_SEL)) {
+          ring.classList.remove('hover'); dot.classList.remove('hover');
+        }
+      }
+    }, { passive: true });
   }
 
   // ============== SCROLL PROGRESS + NAV CONDENSE ==============
   const progress = document.getElementById('progress');
   const nav = document.getElementById('nav');
+  let isScrolled = false;
   const onScroll = () => {
     const scrolled = window.scrollY;
     const total = document.documentElement.scrollHeight - window.innerHeight;
     const pct = total > 0 ? (scrolled / total) * 100 : 0;
     if (progress) progress.style.width = pct + '%';
     if (nav) {
-      if (scrolled > 40) nav.classList.add('scrolled');
-      else nav.classList.remove('scrolled');
+      // Only toggle on threshold cross — was firing classList.add 60+ times/sec
+      const should = scrolled > 40;
+      if (should !== isScrolled) { isScrolled = should; nav.classList.toggle('scrolled', should); }
     }
   };
   window.addEventListener('scroll', onScroll, { passive: true });
@@ -220,15 +258,27 @@
       resize();
     });
 
-    const COUNT = window.innerWidth < 768 ? 35 : 100;
-    const particles = Array.from({ length: COUNT }, () => ({
-      x: Math.random() * W,
-      y: Math.random() * H,
-      vx: (Math.random() - 0.5) * 0.25,
-      vy: (Math.random() - 0.5) * 0.25,
-      r: Math.random() * 1.4 + 0.6,
-      base: Math.random() * 0.5 + 0.3,
-    }));
+    function particleCount() { return window.innerWidth < 768 ? 35 : 100; }
+    function makeParticle() {
+      return {
+        x: Math.random() * W, y: Math.random() * H,
+        vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25,
+        r: Math.random() * 1.4 + 0.6, base: Math.random() * 0.5 + 0.3,
+      };
+    }
+    let particles = Array.from({ length: particleCount() }, makeParticle);
+    // Recompute COUNT on resize (was set once at load — desktop->mobile resize
+    // kept 100 particles on a small viewport; mobile->desktop never expanded)
+    window.addEventListener('resize', () => {
+      const target = particleCount();
+      while (particles.length < target) particles.push(makeParticle());
+      if (particles.length > target) particles.length = target;
+      // Clamp positions to new W/H (avoid stranded particles in old gutter)
+      for (const p of particles) {
+        if (p.x > W) p.x = W;
+        if (p.y > H) p.y = H;
+      }
+    });
 
     let mouseX = -9999;
     let mouseY = -9999;
@@ -278,9 +328,18 @@
         }
       }
 
-      requestAnimationFrame(tick);
+      if (!document.hidden) tickRaf = requestAnimationFrame(tick);
     }
-    tick();
+    let tickRaf = requestAnimationFrame(tick);
+    // Pause when tab hides; resume on visible. Browsers throttle rAF on
+    // hidden tabs but don't always halt; explicit cancel guarantees zero work.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (tickRaf) { cancelAnimationFrame(tickRaf); tickRaf = null; }
+      } else if (!tickRaf) {
+        tickRaf = requestAnimationFrame(tick);
+      }
+    });
   }
 
 })();

@@ -12,11 +12,13 @@
 <meta property="og:url" content="https://jelleo.com/integrate/">
 <meta property="og:title" content="Jelleo · Request integration">
 <meta property="og:description" content="Get Jelleo onto your Solana protocol. Choose a tier, share your scope, request an estimate.">
-<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:image" content="https://jelleo.com/og.jpg?v=2">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Jelleo — The Underwriting Layer for Solana DeFi">
+<meta property="og:image:type" content="image/jpeg">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:image" content="https://jelleo.com/og.jpg?v=2">
 <meta name="twitter:title" content="Jelleo · Request integration">
 <meta name="twitter:description" content="Scope a Jelleo continuous audit for your Solana protocol.">
 
@@ -155,11 +157,14 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
   color: var(--ink-3);
   margin-bottom: 8px;
 }
-.field label .opt { color: var(--ink-4); margin-left: 8px; font-size: 10px; }
+.field label .opt { color: var(--ink-3); /* was --ink-4, too low contrast */ color: var(--ink-4); margin-left: 8px; font-size: 10px; }
 
 .field input,
 .field textarea,
 .field select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
   width: 100%;
   background: var(--bg-2);
   border: 1px solid var(--rule);
@@ -189,7 +194,16 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
   border-color: var(--amber);
   box-shadow: 0 0 0 3px rgba(245,184,0,0.12);
 }
+.field--error input,
+.field--error textarea,
+.field--error select { border-color: var(--alert); box-shadow: 0 0 0 2px rgba(239,68,68,0.18); }
 .field input::placeholder, .field textarea::placeholder { color: var(--ink-4); }
+.field select {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%23f5b800' stroke-width='1.5' fill='none'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
 
 .submit-row {
   display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
@@ -262,6 +276,7 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
 </style>
 </head>
 <body>
+<a href="#main" class="skip-link">Skip to main content</a>
 
 <div class="bg-aurora"></div>
 <div class="bg-blobs">
@@ -304,6 +319,7 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
   <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
 </div>
 
+<main id="main">
 <section class="hero">
   <span class="hero-bracket tl"></span>
   <span class="hero-bracket br"></span>
@@ -503,7 +519,14 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
       </div>
 
       <div id="form-error" class="field-error">Please fill in the required fields (marked above) before sending.</div>
-    </form>
+    
+    <div id="mailto-fallback" style="display:none; margin-top: 18px; padding: 18px 22px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;">
+      <div style="font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--amber); margin-bottom: 12px;">Mail composer didn't open?</div>
+      <p style="font-size: 14px; color: var(--ink-2); margin-bottom: 14px;">Copy the request below and email it to <a href="mailto:kirill@jelleo.com" style="color: var(--amber);">kirill@jelleo.com</a>.</p>
+      <textarea id="mailto-body-copy" readonly style="width: 100%; min-height: 200px; background: var(--bg-2); border: 1px solid var(--rule); border-radius: 6px; padding: 14px; font-family: var(--mono); font-size: 13px; color: var(--ink); resize: vertical;"></textarea>
+      <button type="button" id="copy-body-btn" style="margin-top: 10px; padding: 10px 16px; background: var(--amber); color: var(--bg); border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">Copy to clipboard</button>
+    </div>
+</form>
 
     <div class="alt-strip" data-reveal data-delay="2">
       <div class="alt-item">
@@ -521,6 +544,8 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
     </div>
   </div>
 </section>
+
+</main>
 
 <footer class="footer">
   <div class="container">
@@ -625,6 +650,23 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
 
     const url = 'mailto:kirill@jelleo.com?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
     window.location.href = url;
+      // Show fallback after 1.5s if user is still on page (mail client failed to open)
+      const fb = document.getElementById('mailto-fallback');
+      const txt = document.getElementById('mailto-body-copy');
+      const btn = document.getElementById('copy-body-btn');
+      if (fb && txt) {
+        // Decode mailto body for display
+        const body = decodeURIComponent(url.split('body=')[1] || '');
+        const subj = decodeURIComponent((url.match(/subject=([^&]+)/) || ['',''])[1]);
+        txt.value = 'To: kirill@jelleo.com\nSubject: ' + subj + '\n\n' + body;
+        setTimeout(() => { fb.style.display = 'block'; }, 1500);
+        if (btn) btn.addEventListener('click', () => {
+          txt.select();
+          navigator.clipboard && navigator.clipboard.writeText(txt.value);
+          btn.textContent = 'Copied!';
+          setTimeout(() => { btn.textContent = 'Copy to clipboard'; }, 2000);
+        }, { once: true });
+      }
   });
 
   // Clear error on input

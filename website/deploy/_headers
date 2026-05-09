@@ -26,5 +26,5 @@
   Cache-Control: public, max-age=60, must-revalidate
 
 # OG image — long cache, immutable per filename
-/og.png
+/og.jpg
   Cache-Control: public, max-age=2592000, immutable

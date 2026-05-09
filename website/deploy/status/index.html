@@ -12,12 +12,13 @@
 <meta property="og:url" content="https://jelleo.com/status/">
 <meta property="og:title" content="Jelleo · Live status">
 <meta property="og:description" content="Live health of the Jelleo loop — shadow service, watch service, scheduler timers, snapshot publication, signed receipts, P2 propagation + P3 fix bundles + P4 attestation.">
-<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:image" content="https://jelleo.com/og.jpg?v=2">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Jelleo — The Underwriting Layer for Solana DeFi">
+<meta property="og:image:type" content="image/jpeg">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:image" content="https://jelleo.com/og.jpg?v=2">
 <meta name="twitter:title" content="Jelleo · Live status">
 <meta name="twitter:description" content="Live health of every Jelleo service — public dashboard.">
 
@@ -211,6 +212,7 @@ section.doc { padding: 100px 0; }
 </style>
 </head>
 <body>
+<a href="#main" class="skip-link">Skip to main content</a>
 
 <div class="bg-aurora"></div>
 <div class="bg-blobs">
@@ -259,6 +261,7 @@ section.doc { padding: 100px 0; }
 </div>
 <div class="scroll-progress" id="progress"></div>
 
+<main id="main">
 <section class="hero">
   <span class="hero-bracket tl"></span>
   <span class="hero-bracket br"></span>
@@ -282,7 +285,7 @@ section.doc { padding: 100px 0; }
         </div>
       </div>
 
-      <div class="counter-row">
+      <div class="counter-row" aria-live="polite" aria-atomic="true">
         <div class="counter-cell">
           <div class="counter-num ok" id="ct-services">—</div>
           <div class="counter-label">Services up</div>
@@ -461,6 +464,8 @@ section.doc { padding: 100px 0; }
   </div>
 </section>
 
+</main>
+
 <footer class="footer">
   <div class="container">
     <div class="footer-grid">
@@ -635,7 +640,7 @@ section.doc { padding: 100px 0; }
       // P4 cycle merkle roots count + state pill
       const merkleRoots = snap.cycle_merkle_roots || [];
       const mc = document.getElementById('merkle-count');
-      if (mc) mc.textContent = `${merkleRoots.length} cycle${merkleRoots.length === 1 ? '' : 's'}`;
+      if (mc) mc.innerHTML = '<a href="https://api.jelleo.com/cycles/" target="_blank" rel="noopener noreferrer" style="color: var(--ink); border-bottom: 1px dashed rgba(245,184,0,0.4);">' + merkleRoots.length + ' cycle' + (merkleRoots.length === 1 ? '' : 's') + ' ↗</a>';
       const ms = document.getElementById('merkle-state');
       if (merkleRoots.length > 0) setPillState(ms, 'up', 'Live');
       else                         setPillState(ms, 'unknown', '—');

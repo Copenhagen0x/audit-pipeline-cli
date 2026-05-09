@@ -4,19 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jelleo · F7 — Insurance-residual drain on Percolator</title>
-<meta name="description" content="F7 case study — how the Jelleo loop found the insurance-residual drain on Anatoly Yakovenko's Percolator perpetual DEX. End-to-end walkthrough: hypothesis dispatch, root cause, balance proof, disclosure (PR #39), and the fix.">
+<meta name="description" content="How the Jelleo loop discovered the F7 insurance-residual drain on Anatoly Yakovenko's Percolator perpetual DEX. End-to-end walkthrough.">
 <meta name="theme-color" content="#050504">
 <link rel="canonical" href="https://jelleo.com/case-studies/f7-percolator/">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Jelleo">
 <meta property="og:url" content="https://jelleo.com/case-studies/f7-percolator/">
 <meta property="og:title" content="F7 — Insurance-residual drain on Percolator">
-<meta property="og:description" content="How the Jelleo loop produced its first Critical disclosure: a structural drain primitive on Anatoly Yakovenko's perpetual DEX. End-to-end walkthrough.">
-<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:description" content="How the Jelleo loop discovered the F7 insurance-residual drain on Anatoly Yakovenko's Percolator perpetual DEX. End-to-end walkthrough.">
+<meta property="og:image" content="https://jelleo.com/og.jpg?v=2">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Jelleo — The Underwriting Layer for Solana DeFi">
+<meta property="og:image:type" content="image/jpeg">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:image" content="https://jelleo.com/og.jpg?v=2">
 <meta name="twitter:title" content="F7 — Insurance-residual drain on Percolator">
 <meta name="twitter:description" content="How the Jelleo loop produced its first Critical disclosure. Worked example.">
 
@@ -254,6 +256,7 @@ section.doc li { line-height: 1.65; }
 </style>
 </head>
 <body>
+<a href="#main" class="skip-link">Skip to main content</a>
 
 <div class="bg-aurora"></div>
 <div class="bg-blobs">
@@ -302,6 +305,7 @@ section.doc li { line-height: 1.65; }
   <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
 </div>
 
+<main id="main">
 <section class="hero">
   <span class="hero-bracket tl"></span>
   <span class="hero-bracket br"></span>
@@ -565,8 +569,8 @@ Insurance loss = (ΔK − 0.2)·N.
           <div class="when">2026-05-04</div>
           <div class="what">Validation comment posted under the PR with the worked balance proof and the patched-vs-unpatched test diff. Vault-debit fix verified locally — zero regressions across 277 tests.</div>
         </div>
-        <div class="event">
-          <div class="when">Ongoing</div>
+        <div class="event ongoing">
+          <div class="when">Ongoing &middot; <span style="color: var(--amber); font-size: 11px;">in progress</span></div>
           <div class="what">Sibling-class hypotheses in the same bug class ("insurance-residual coupling") are queued for cross-protocol propagation against any other Solana protocol that maintains a vault counter and an out-of-vault insurance counter. Today: zero confirmed siblings.</div>
         </div>
       </div>
@@ -643,6 +647,8 @@ Insurance loss = (ΔK − 0.2)·N.
     </div>
   </div>
 </section>
+
+</main>
 
 <footer class="footer">
   <div class="container">

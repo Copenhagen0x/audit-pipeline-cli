@@ -4,19 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jelleo · Methodology</title>
-<meta name="description" content="Jelleo methodology — four-pillar autonomous Solana audit architecture: counterfactual mainnet detection, cross-protocol bug-class propagation, closed-loop fix bundle, on-chain attestation registry. Hypothesis scoping schema, severity rubric, lifecycle state machine, Ed25519 attestation, report cadence.">
+<meta name="description" content="Four-pillar autonomous Solana audit architecture: counterfactual detection, cross-protocol propagation, closed-loop fix bundle, on-chain attestation. Public technical reference.">
 <meta name="theme-color" content="#050504">
 <link rel="canonical" href="https://jelleo.com/methodology.html">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Jelleo">
 <meta property="og:url" content="https://jelleo.com/methodology.html">
 <meta property="og:title" content="Jelleo · Methodology">
-<meta property="og:description" content="Four-pillar autonomous Solana audit architecture. Hypothesis scoping schema, severity rubric, cross-protocol propagation, signed attestations, report cadence — the full technical reference.">
-<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:description" content="Four-pillar autonomous Solana audit architecture: counterfactual detection, cross-protocol propagation, closed-loop fix bundle, on-chain attestation. Public technical reference.">
+<meta property="og:image" content="https://jelleo.com/og.jpg?v=2">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Jelleo — The Underwriting Layer for Solana DeFi">
+<meta property="og:image:type" content="image/jpeg">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:image" content="https://jelleo.com/og.jpg?v=2">
 <meta name="twitter:title" content="Jelleo · Methodology">
 <meta name="twitter:description" content="Four-pillar autonomous Solana audit architecture — public technical reference.">
 
@@ -108,7 +110,7 @@ section.doc a:hover { border-bottom-color: var(--amber); }
   letter-spacing: 0.22em; text-transform: uppercase;
   margin-bottom: 10px;
 }
-.pillar h4 { font-size: 18px; font-weight: 600; margin-bottom: 10px; color: var(--ink); }
+.pillar h3 { font-size: 18px; font-weight: 600; margin-bottom: 10px; color: var(--ink); }
 .pillar p { font-size: 14px; color: var(--ink-2); margin: 0 0 10px; line-height: 1.6; }
 .pillar .v01 {
   font-size: 12px; color: var(--ink-3);
@@ -193,6 +195,7 @@ small, .small { font-size: 12px; color: var(--ink-3); }
 </style>
 </head>
 <body>
+<a href="#main" class="skip-link">Skip to main content</a>
 
 <!-- ============== BACKGROUND LAYERS ============== -->
 <div class="bg-aurora"></div>
@@ -250,6 +253,7 @@ small, .small { font-size: 12px; color: var(--ink-3); }
 </div>
 
 <!-- ============== HERO ============== -->
+<main id="main">
 <section class="hero">
   <span class="hero-bracket tl"></span>
   <span class="hero-bracket br"></span>
@@ -296,25 +300,25 @@ small, .small { font-size: 12px; color: var(--ink-3); }
     <div class="pillar-grid" data-reveal data-delay="1">
       <div class="pillar">
         <div class="pillar-num">P1 · detection</div>
-        <h4>Counterfactual mainnet detection</h4>
+        <h3>Counterfactual mainnet detection</h3>
         <p>Per-tx parallel simulation. State divergence between simulated and observed mainnet flags the tx within seconds of slot finality.</p>
         <div class="v01"><strong>v0.1:</strong> <code>shadow</code> (commit-triggered). <strong>Funded:</strong> live mainnet ingestion + sub-slot replay + on-call routing.</div>
       </div>
       <div class="pillar">
         <div class="pillar-num">P2 · propagation</div>
-        <h4>Cross-protocol bug-class propagation</h4>
+        <h3>Cross-protocol bug-class propagation</h3>
         <p>When a bug confirms anywhere, Jelleo extracts the structural pattern and searches every indexed protocol — vulnerable instances flagged in minutes.</p>
         <div class="v01"><strong>v0.1:</strong> <code>propagate</code> (15-protocol corpus). <strong>Funded:</strong> multi-protocol indexing + disclosure-feed integrations.</div>
       </div>
       <div class="pillar">
         <div class="pillar-num">P3 · fix bundle</div>
-        <h4>Closed-loop fix bundle</h4>
+        <h3>Closed-loop fix bundle</h3>
         <p>Confirmed bug → agent-generated fix → Kani proves preservation in the bug's neighborhood → tests → opened as a single PR.</p>
         <div class="v01"><strong>v0.1:</strong> <code>confirm</code> + <code>synth-kani</code> scaffold. <strong>Funded:</strong> end-to-end MVP at the 90-day Tranche 2 trigger.</div>
       </div>
       <div class="pillar">
         <div class="pillar-num">P4 · attestation</div>
-        <h4>On-chain attestation registry</h4>
+        <h3>On-chain attestation registry</h3>
         <p>Every cycle publishes a signed Merkle root: which invariants were verified at which commit SHA — on-chain, queryable, composable.</p>
         <div class="v01"><strong>v0.1:</strong> Ed25519 signing off-chain. <strong>Funded:</strong> Anchor program on devnet day 90, mainnet day 180 post-audit.</div>
       </div>
@@ -850,6 +854,8 @@ Signed-Bytes: 142853
 </section>
 
 <!-- ============== FOOTER ============== -->
+</main>
+
 <footer class="footer">
   <div class="container">
     <div class="footer-grid">

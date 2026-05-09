@@ -207,6 +207,7 @@ canvas#particles {
   display: flex; gap: 4px; align-items: center;
   background: rgba(245,243,237,0.04);
   backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);  /* iOS Safari < 17 */
   border: 1px solid var(--rule);
   border-radius: 999px; padding: 4px;
 }
@@ -259,7 +260,11 @@ canvas#particles {
 .nav-cta {
   font-size: 13px; font-weight: 600; padding: 10px 22px;
   background: var(--amber); color: var(--bg); border-radius: 999px;
-  transition: all 0.25s var(--ease-out);
+  /* Explicit transition list (was `transition: all` — paints expensive on
+     every property change, even unrelated ones). */
+  transition: background 0.25s var(--ease-out),
+              box-shadow 0.25s var(--ease-out),
+              transform 0.25s var(--ease-out);
   box-shadow: 0 0 0 0 var(--amber-glow);
   white-space: nowrap;
 }
@@ -487,7 +492,12 @@ section { padding: 140px 0; position: relative; }
   font-size: 14px; font-weight: 600; letter-spacing: 0.01em;
   border: 1px solid transparent; border-radius: 0;
   position: relative; overflow: hidden;
-  transition: all 0.3s var(--ease-out);
+  /* Explicit transition list (was `transition: all`) */
+  transition: background 0.3s var(--ease-out),
+              color 0.3s var(--ease-out),
+              border-color 0.3s var(--ease-out),
+              box-shadow 0.3s var(--ease-out),
+              transform 0.3s var(--ease-out);
   white-space: nowrap;
   cursor: none;
 }
@@ -602,11 +612,124 @@ code {
 }
 pre {
   background: var(--bg-2); border: 1px solid var(--rule);
-  border-radius: 6px; padding: 22px 24px; overflow-x: auto;
+  border-radius: 6px; padding: 22px 24px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;  /* iOS momentum scroll */
   line-height: 1.55; color: var(--ink-2);
   margin: 22px 0; font-size: 13px;
 }
 pre code { background: none; border: none; padding: 0; color: inherit; font-size: 13px; }
+@media (max-width: 768px) {
+  pre { font-size: 12px; padding: 16px 18px; }
+}
+
+/* Firefox + WebKit scrollbar styling on overflow containers */
+pre, .table-wrap, .terminal, .attest-pre {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-2) transparent;
+}
+pre::-webkit-scrollbar, .table-wrap::-webkit-scrollbar { height: 6px; width: 6px; }
+pre::-webkit-scrollbar-thumb, .table-wrap::-webkit-scrollbar-thumb {
+  background: var(--rule-2); border-radius: 3px;
+}
+
+/* ============================== DOC PAGES (.doc) =================== */
+/* Promoted from per-page styles on methodology, security, bug-classes,
+   case-studies/f7-percolator. Same rules were duplicated 3-4 times. */
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+section.doc h3 {
+  font-size: clamp(20px, 2vw, 26px); line-height: 1.25; font-weight: 600;
+  margin: 48px 0 18px; color: var(--ink); letter-spacing: -0.01em;
+}
+section.doc h4 { font-size: 16px; font-weight: 600; margin: 22px 0 8px; color: var(--ink); }
+section.doc p { color: var(--ink-2); margin-bottom: 16px; max-width: 76ch; line-height: 1.65; }
+section.doc ul, section.doc ol { color: var(--ink-2); margin: 0 0 16px 24px; max-width: 76ch; line-height: 1.7; }
+section.doc li { margin-bottom: 6px; }
+section.doc strong { color: var(--ink); }
+section.doc a {
+  color: var(--amber);
+  border-bottom: 1px solid rgba(245,184,0,0.3);
+  transition: border-color .15s ease;
+}
+section.doc a:hover { border-bottom-color: var(--amber); }
+section.doc li code { word-break: break-word; overflow-wrap: anywhere; }
+
+/* Tables */
+.table-wrap {
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  margin: 24px 0;
+}
+section.doc table {
+  width: 100%; border-collapse: collapse;
+  font-size: 14px; line-height: 1.55;
+}
+section.doc th, section.doc td {
+  text-align: left; padding: 14px 16px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+section.doc th {
+  font-weight: 600; font-size: 11px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1.5px solid var(--rule-2);
+  font-family: var(--mono);
+}
+section.doc td { color: var(--ink-2); }
+section.doc td strong { color: var(--ink); }
+@media (hover: hover) {
+  section.doc tbody tr:hover td { background: rgba(245,243,237,0.015); }
+}
+
+/* Callout — amber left-border information chip used in doc pages */
+.callout {
+  margin: 28px 0;
+  padding: 22px 28px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  border-radius: 0 8px 8px 0;
+}
+.callout p:last-child { margin-bottom: 0; }
+.callout .label {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.22em;
+  color: var(--amber); margin-bottom: 10px;
+}
+
+/* Table of Contents — used by methodology, bug-classes, security */
+nav.toc, .toc {
+  margin-top: 48px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 28px 32px;
+  max-width: 880px;
+}
+.toc-head {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 18px;
+}
+.toc ol { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 32px; }
+@media (max-width: 720px) { .toc ol { columns: 1; } }
+.toc li { margin-bottom: 8px; font-size: 14px; break-inside: avoid; }
+.toc a {
+  color: var(--ink-2);
+  border-bottom: 1px dashed transparent;
+  transition: color .15s ease, border-color .15s ease;
+}
+.toc a:hover { color: var(--amber); border-bottom-color: var(--amber); }
+.toc .toc-num, .toc .num {
+  font-family: var(--mono); color: var(--amber); font-size: 12px;
+  margin-right: 10px; letter-spacing: 0.06em;
+}
+@media (max-width: 768px) {
+  .toc { padding: 22px; }
+  .toc li { margin-bottom: 14px; }
+  .toc a { display: inline-block; padding: 6px 0; min-height: 44px; line-height: 1.4; }
+}
 
 /* ============================== TERMINAL BLOCK ==================== */
 /* macOS-style code block with traffic-light chrome, gradient surface,

@@ -4,21 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jelleo · Percolator</title>
-<meta name="description" content="Percolator — Solana protocol under continuous Jelleo audit. Anatoly Yakovenko's perpetual-futures protocol. The first protocol on the Jelleo loop, where the F7 structural-residual drain was confirmed and disclosed.">
+<meta name="description" content="Percolator under continuous Jelleo audit. Anatoly Yakovenko's perpetual-futures DEX, where the F7 insurance-residual drain was first confirmed and disclosed.">
 <meta name="theme-color" content="#050504">
 <link rel="canonical" href="https://jelleo.com/protocols/percolator/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Jelleo">
 <meta property="og:url" content="https://jelleo.com/protocols/percolator/">
 <meta property="og:title" content="Jelleo · Percolator">
-<meta property="og:description" content="Percolator — Solana protocol under continuous Jelleo audit. Anatoly Yakovenko's perpetual-futures protocol. The first protocol on the Jelleo loop, where the F7 structural-residual drain was confirmed and disclosed.">
-<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:description" content="Percolator under continuous Jelleo audit. Anatoly Yakovenko's perpetual-futures DEX, where the F7 insurance-residual drain was first confirmed and disclosed.">
+<meta property="og:image" content="https://jelleo.com/og.jpg?v=2">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Jelleo — The Underwriting Layer for Solana DeFi">
+<meta property="og:image:type" content="image/jpeg">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Jelleo · Percolator">
 <meta name="twitter:description" content="Percolator — Solana protocol under continuous Jelleo audit. Anatoly Yakovenko's perpetual-futures protocol. The first protocol on the Jelleo loop, where the F7 structural-residual drain was confirmed and disclosed.">
-<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:image" content="https://jelleo.com/og.jpg?v=2">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -169,6 +171,7 @@ section.doc li { margin-bottom: 6px; }
 </style>
 </head>
 <body>
+<a href="#main" class="skip-link">Skip to main content</a>
 
 <div class="bg-aurora"></div>
 <div class="bg-blobs">
@@ -217,6 +220,7 @@ section.doc li { margin-bottom: 6px; }
   <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
 </div>
 
+<main id="main">
 <section class="hero">
   <span class="hero-bracket tl"></span>
   <span class="hero-bracket br"></span>
@@ -304,13 +308,13 @@ section.doc li { margin-bottom: 6px; }
 
       <h3>Files in scope</h3>
       <div class="file-list">
-<div><span class="file-arrow">→</span>src/matching_engine/settle.rs</div>
-<div><span class="file-arrow">→</span>src/insurance/buffer.rs</div>
-<div><span class="file-arrow">→</span>src/risk/haircut.rs</div>
-<div><span class="file-arrow">→</span>src/state/account.rs</div>
-<div><span class="file-arrow">→</span>src/instructions/place_order.rs</div>
-<div><span class="file-arrow">→</span>src/instructions/cancel_order.rs</div>
-<div><span class="file-arrow">→</span>src/instructions/liquidate.rs</div>
+<div><span class="file-arrow">→</span><a href="https://github.com/aeyakovenko/percolator-prog/blob/main/src/matching_engine/settle.rs" target="_blank" rel="noopener" style="color: inherit; border-bottom: 1px dashed rgba(245,184,0,0.3);">src/matching_engine/settle.rs</a></div>
+<div><span class="file-arrow">→</span><a href="https://github.com/aeyakovenko/percolator-prog/blob/main/src/insurance/buffer.rs" target="_blank" rel="noopener" style="color: inherit; border-bottom: 1px dashed rgba(245,184,0,0.3);">src/insurance/buffer.rs</a></div>
+<div><span class="file-arrow">→</span><a href="https://github.com/aeyakovenko/percolator-prog/blob/main/src/risk/haircut.rs" target="_blank" rel="noopener" style="color: inherit; border-bottom: 1px dashed rgba(245,184,0,0.3);">src/risk/haircut.rs</a></div>
+<div><span class="file-arrow">→</span><a href="https://github.com/aeyakovenko/percolator-prog/blob/main/src/state/account.rs" target="_blank" rel="noopener" style="color: inherit; border-bottom: 1px dashed rgba(245,184,0,0.3);">src/state/account.rs</a></div>
+<div><span class="file-arrow">→</span><a href="https://github.com/aeyakovenko/percolator-prog/blob/main/src/instructions/place_order.rs" target="_blank" rel="noopener" style="color: inherit; border-bottom: 1px dashed rgba(245,184,0,0.3);">src/instructions/place_order.rs</a></div>
+<div><span class="file-arrow">→</span><a href="https://github.com/aeyakovenko/percolator-prog/blob/main/src/instructions/cancel_order.rs" target="_blank" rel="noopener" style="color: inherit; border-bottom: 1px dashed rgba(245,184,0,0.3);">src/instructions/cancel_order.rs</a></div>
+<div><span class="file-arrow">→</span><a href="https://github.com/aeyakovenko/percolator-prog/blob/main/src/instructions/liquidate.rs" target="_blank" rel="noopener" style="color: inherit; border-bottom: 1px dashed rgba(245,184,0,0.3);">src/instructions/liquidate.rs</a></div>
 </div>
 
       <h3>Bug-class coverage (12 classes · 31 hypotheses)</h3>
@@ -369,6 +373,8 @@ section.doc li { margin-bottom: 6px; }
     </div>
   </div>
 </section>
+
+</main>
 
 <footer class="footer">
   <div class="container">

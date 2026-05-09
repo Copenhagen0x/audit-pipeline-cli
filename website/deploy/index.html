@@ -4,21 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jelleo — The Underwriting Layer for Solana DeFi</title>
-<meta name="description" content="Jelleo — funded-state plan: the underwriting layer for Solana DeFi. Continuous on-chain attestations of code-level invariant integrity. Today: v0.1 hunt loop, F7 disclosed (PR #39).">
+<meta name="description" content="The autonomous immune system for Solana DeFi: continuous shadow audit, cross-protocol bug-class propagation, closed-loop fix bundles, on-chain attestation. v0.1 hunt loop that produced F7.">
 <meta name="theme-color" content="#050504">
 <link rel="canonical" href="https://jelleo.com/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Jelleo">
 <meta property="og:url" content="https://jelleo.com/">
 <meta property="og:title" content="Jelleo — The Underwriting Layer for Solana DeFi">
-<meta property="og:description" content="Funded-state plan: continuous on-chain attestations of code-level invariant integrity, designed for insurers / protocols / STRIDE-aligned evaluation. Today: v0.1 hunt loop, F7 disclosed (PR #39).">
-<meta property="og:image" content="https://jelleo.com/og.png?v=2">
+<meta property="og:description" content="The autonomous immune system for Solana DeFi: continuous shadow audit, cross-protocol bug-class propagation, closed-loop fix bundles, on-chain attestation. v0.1 hunt loop that produced F7.">
+<meta property="og:image" content="https://jelleo.com/og.jpg?v=2">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:type" content="image/png">
+<meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:alt" content="Jelleo — The Underwriting Layer for Solana DeFi">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://jelleo.com/og.png?v=2">
+<meta name="twitter:image" content="https://jelleo.com/og.jpg?v=2">
 <meta name="twitter:title" content="Jelleo — The Underwriting Layer for Solana DeFi">
 <meta name="twitter:description" content="Funded-state plan: continuous on-chain attestations of code-level invariant integrity, designed for insurers / protocols / STRIDE-aligned evaluation. Today: v0.1 hunt loop, F7 disclosed (PR #39).">
 <script type="application/ld+json">
@@ -27,7 +27,7 @@
   "@type": "Organization",
   "name": "Jelleo",
   "url": "https://jelleo.com/",
-  "logo": "https://jelleo.com/og.png",
+  "logo": "https://jelleo.com/og.jpg",
   "description": "The underwriting layer for Solana DeFi (funded-state plan). Today: v0.1 hunt loop, F7 disclosed against Anatoly's Percolator. Funded plan: continuous on-chain attestations of code-level invariant integrity.",
   "sameAs": [
     "https://github.com/Copenhagen0x/audit-pipeline-cli",
@@ -48,11 +48,15 @@
   }
 }
 </script>
-<link rel="modulepreload" href="https://unpkg.com/three@0.160.0/build/three.module.js">
+  <!-- Three.js modulepreload removed: was fetching 1.2 MB on mobile even though canvas#network-3d is display:none below 1024px -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 
 <style>
+
+.skip-link{position:absolute;left:-9999px;top:0;background:#f5b800;color:#000;padding:10px 16px;font-family:var(--mono,monospace);font-size:13px;font-weight:600;text-decoration:none;z-index:9999;border-radius:0 0 4px 0}
+.skip-link:focus{left:0}
+
 
 /* ========== ROOT ========== */
 :root {
@@ -72,7 +76,7 @@
   --rule:         rgba(245,243,237,0.08);
   --rule-2:       rgba(245,243,237,0.16);
 
-  --amber:        #f5b800;
+  --amber:        var(--amber);
   --amber-2:      #ffce4a;
   --amber-glow:   rgba(245,184,0,0.4);
 
@@ -84,7 +88,7 @@
   /* Severity color tokens — referenced by .dpc-high left-border + .dpc-embargo
      before the audit revealed they were undefined. Keep aligned with shared.css. */
   --critical:     #ef4444;
-  --high:         #f97316;
+  --high:         var(--high);
   --medium:       #eab308;
   --low:          #60a5fa;
   --info-c:       #6b7280;
@@ -526,7 +530,7 @@ canvas#particles {
 
 /* ========== HERO ========== */
 .hero {
-  min-height: 100vh;
+  min-height: 100svh;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1545,7 +1549,7 @@ section {
 .alert-row:hover { background: rgba(245,184,0,0.025); }
 .alert-row:last-child { border-bottom: none; }
 .alert-row.crit { border-left-color: var(--alert); }
-.alert-row.high { border-left-color: #f97316; }
+.alert-row.high { border-left-color: var(--high); }
 .alert-row.med  { border-left-color: var(--warn); }
 .alert-row.low  { border-left-color: #60a5fa; }
 .alert-row.info { border-left-color: var(--ink-4); }
@@ -1582,7 +1586,7 @@ section {
   letter-spacing: 0.04em;
 }
 .sev-crit { color: var(--alert); }
-.sev-high { color: #f97316; }
+.sev-high { color: var(--high); }
 .sev-med  { color: var(--warn); }
 .sev-low  { color: #60a5fa; }
 .sev-info { color: var(--ink-4); }
@@ -1973,7 +1977,7 @@ section {
   border: 1px solid;
 }
 .status-pill.embargo {
-  color: #f97316;
+  color: var(--high);
   border-color: rgba(249,115,22,0.3);
   background: rgba(249,115,22,0.08);
 }
@@ -3123,7 +3127,7 @@ body.preloading { overflow: hidden; }
 .sev-pyramid.crit .sp-f1 { border-bottom-color: var(--alert); }
 .sev-pyramid.crit .sp-f2 { border-bottom-color: #ff7676; }
 .sev-pyramid.crit .sp-f3 { border-bottom-color: #b80000; }
-.sev-pyramid.high .sp-f1 { border-bottom-color: #f97316; }
+.sev-pyramid.high .sp-f1 { border-bottom-color: var(--high); }
 .sev-pyramid.high .sp-f2 { border-bottom-color: #ffaa55; }
 .sev-pyramid.high .sp-f3 { border-bottom-color: #b04500; }
 .sev-pyramid.med .sp-f1  { border-bottom-color: var(--warn); }
@@ -3640,7 +3644,7 @@ body.preloading { overflow: hidden; }
 <div class="thought-stream" id="thought-stream"></div>
 
 <!-- ============== Audio toggle ============== -->
-<button class="audio-toggle" id="audio-toggle" aria-label="Toggle ambient audio">
+<button class="audio-toggle" id="audio-toggle" aria-label="Toggle ambient audio" aria-pressed="false">
   <svg viewBox="0 0 24 24" id="audio-icon-off" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
   </svg>
@@ -3750,10 +3754,11 @@ body.preloading { overflow: hidden; }
   <a href="/methodology.html" role="menuitem">Methodology</a>
   <a href="/security.html" role="menuitem">Security</a>
   <a href="/customer/" role="menuitem">Customer portal</a>
-  <a href="/integrate/" role="menuitem" style="color: #f5b800;">Request integration →</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
 </div>
 
 <!-- ============== HERO ============== -->
+<main id="main">
 <section class="hero" id="top">
   <canvas id="network-3d"></canvas>
   <div class="hero-3d-tip" id="hero-3d-tip">
@@ -3792,11 +3797,11 @@ body.preloading { overflow: hidden; }
     <div class="hero-cta-row">
       <a href="#live-ops" class="btn btn-primary">
         <span>Live operations</span>
-        <span class="arrow">→</span>
+        <span class="arrow" aria-hidden="true">→</span>
       </a>
       <a href="/integrate/" class="btn btn-ghost">
         <span>Request integration</span>
-        <span class="arrow">↗</span>
+        <span class="arrow" aria-hidden="true">↗</span>
       </a>
     </div>
 
@@ -3829,7 +3834,7 @@ body.preloading { overflow: hidden; }
 <!-- ============== METRICS ============== -->
 <section class="stats-section" id="running">
   <div class="container">
-    <div class="section-label" style="text-align: center; margin-bottom: 24px; color: #f5b800;">Year-1 funded-state targets · preview</div>
+    <div class="section-label" style="text-align: center; margin-bottom: 24px; color: var(--amber);">Year-1 funded-state targets · preview</div>
     <div class="stats-grid">
       <div class="stat-cell" data-reveal>
         <span class="stat-value" data-count-to="27">0</span>
@@ -4063,7 +4068,7 @@ body.preloading { overflow: hidden; }
         <div class="method-cta-eyebrow">Technical reference</div>
         <p>The full methodology — four pillars, hypothesis scoping schema, propagation engine, severity rubric, lifecycle state machine, attestation, reporting cadence — is published as a public reference document.</p>
       </div>
-      <a href="/methodology.html" class="btn btn-primary">Read the full methodology <span class="arrow">→</span></a>
+      <a href="/methodology.html" class="btn btn-primary">Read the full methodology <span class="arrow" aria-hidden="true">→</span></a>
     </div>
   </div>
 </section>
@@ -4114,7 +4119,7 @@ body.preloading { overflow: hidden; }
       </div>
     </div>
 
-    <div style="font-size: 11px; color: #f5b800; letter-spacing: 0.18em; text-transform: uppercase; margin-top: 64px; margin-bottom: 16px; font-family: var(--mono);">▸ Y1 funded-state operating shape · preview</div>
+    <div style="font-size: 11px; color: var(--amber); letter-spacing: 0.18em; text-transform: uppercase; margin-top: 64px; margin-bottom: 16px; font-family: var(--mono);">▸ Y1 funded-state operating shape · preview</div>
     <div class="live-strip" data-reveal>
       <div class="live-strip-cell">
         <span class="lsc-label">Cluster · Y1</span>
@@ -4185,7 +4190,7 @@ body.preloading { overflow: hidden; }
           <span class="dpc-meta">perpetual DEX · engine + BPF wrapper · preview</span>
         </div>
         <div class="dpc-scan">
-          <span class="dpc-status-tag" style="color: #f5b800;">●&nbsp;PREVIEW · MOCKED</span>
+          <span class="dpc-status-tag" style="color: var(--amber);">●&nbsp;PREVIEW · MOCKED</span>
           <span class="dpc-status-meta">SHA <code>5940285</code> · invariants <strong>1,487 / 1,500 (Y1 target)</strong> · last scan <strong>47s ago (mock)</strong></span>
         </div>
       </div>
@@ -4301,11 +4306,11 @@ body.preloading { overflow: hidden; }
       <aside class="attest-meta" data-tilt>
         <div class="am-row">
           <span class="am-label">Program ID</span>
-          <span class="am-value mono">JL1eo7…attEst99 <span style="color: #f5b800; font-size: 10px;">· planned</span></span>
+          <span class="am-value mono">JL1eo7…attEst99 <span style="color: var(--amber); font-size: 10px;">· planned</span></span>
         </div>
         <div class="am-row">
           <span class="am-label">Cluster</span>
-          <span class="am-value">mainnet-beta <span style="color: #f5b800; font-size: 10px;">· day-180</span></span>
+          <span class="am-value">mainnet-beta <span style="color: var(--amber); font-size: 10px;">· day-180</span></span>
         </div>
         <div class="am-row">
           <span class="am-label">Total attestations · Y1</span>
@@ -4542,17 +4547,18 @@ body.preloading { overflow: hidden; }
     <div class="cta-row" data-reveal data-delay="2">
       <a href="/integrate/" class="btn btn-primary">
         <span>Request integration</span>
-        <span class="arrow">→</span>
+        <span class="arrow" aria-hidden="true">→</span>
       </a>
       <a href="#disclosures" class="btn btn-ghost">
         <span>See the ledger</span>
-        <span class="arrow">→</span>
+        <span class="arrow" aria-hidden="true">→</span>
       </a>
     </div>
   </div>
 </section>
 
 <!-- ============== FOOTER ============== -->
+</main>
 <footer class="footer">
   <div class="container">
     <div class="footer-grid">
@@ -4930,6 +4936,7 @@ body.preloading { overflow: hidden; }
 
   // ============== 3D NETWORK GRAPH (hero) ==============
   (async function network3D() {
+    if (window.matchMedia("(max-width: 1024px)").matches) return;
     const cv = document.getElementById('network-3d');
     const tip = document.getElementById('hero-3d-tip');
     if (!cv || !tip) return;
