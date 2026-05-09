@@ -10,6 +10,7 @@ from rich.console import Console
 
 from audit_pipeline import __version__
 from audit_pipeline.commands import (
+    bundle,
     cache,
     confirm,
     cross_check,
@@ -126,6 +127,7 @@ main.add_command(derive_siblings.derive_siblings_cmd)  # auto-derive siblings fr
 main.add_command(cache.cache_group)                # PoC test cache (Tier 2 #10): list / flush / stats
 main.add_command(triage.triage_cmd)                # Triage UI (Tier 2 #12): local web UI for new-findings backlog
 main.add_command(triage_siblings.triage_siblings_cmd)  # P2 D13: review/approve/reject/merge LLM-derived siblings
+main.add_command(bundle.bundle_cmd)                # P3: closed-loop fix bundle (draft/verify/review/open-pr/status/list/override)
 main.add_command(confirm.confirm_cmd)              # empirical PoC: write custom test, cargo test, report
 
 # Subcommands — commercial layer (T1: severity + lifecycle + reports + issues)

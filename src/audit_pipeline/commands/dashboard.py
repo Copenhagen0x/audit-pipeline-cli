@@ -252,7 +252,53 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
         # queued. None of these expose customer-private data; everything
         # is cumulative-platform stats. Drives the /status/ counter row.
         "propagation_stats": _propagation_stats(workspace, db) if workspace else {},
+        # P3 Item 16: cumulative fix-bundle counters for the public snapshot.
+        # Counts only — no per-finding leak (matches pre-disclosure rule).
+        "fix_bundle_stats":  _fix_bundle_stats(workspace) if workspace else {},
     }
+
+
+def _fix_bundle_stats(workspace: Path) -> dict:
+    """P3 Item 16: cumulative fix-bundle counters for snapshot.json.
+
+    Counts only — never per-finding identifiers, never bug_class names.
+    Public snapshot must not leak which findings have bundles drafted
+    (pre-disclosure rule from `--public/--full` filter).
+    """
+    import json as _json
+    out = {
+        "bundles_drafted":   0,
+        "bundles_verified":  0,
+        "bundles_authorized": 0,
+        "prs_opened":        0,
+        "prs_merged":        0,
+        "by_status":         {},
+    }
+    bdir = workspace / "recon" / "bundles"
+    if not bdir.is_dir():
+        return out
+    for d in bdir.iterdir():
+        if not d.is_dir():
+            continue
+        mp = d / "meta.json"
+        if not mp.is_file():
+            continue
+        try:
+            m = _json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        status = m.get("status") or "drafted"
+        out["by_status"][status] = out["by_status"].get(status, 0) + 1
+        out["bundles_drafted"] += 1
+        if status in ("verified", "authorized", "pr-opened", "merged", "fixed"):
+            out["bundles_verified"] += 1
+        if status in ("authorized", "pr-opened", "merged", "fixed"):
+            out["bundles_authorized"] += 1
+        if status in ("pr-opened", "merged", "fixed"):
+            out["prs_opened"] += 1
+        if status in ("merged", "fixed"):
+            out["prs_merged"] += 1
+    return out
 
 
 def _propagation_stats(workspace: Path, db: FindingsDB) -> dict:
@@ -675,12 +721,62 @@ def _customer_propagation_slice(
                     "chain_html_path": f"recon/propagate/chains/{fid}.html",
                 })
 
+    # P3 Item 12: per-customer fix-bundle status. For each customer finding
+    # that has a bundle directory under <workspace>/recon/bundles/<id>/,
+    # surface the bundle status + verification summary so the gated portal
+    # can show "fix bundle drafted / verified / authorized / pr-opened /
+    # merged" alongside the finding.
+    import json as _json
+    bundles_dir = workspace / "recon" / "bundles"
+    fix_bundles: list[dict] = []
+    bundle_counts: dict[str, int] = {}
+    if bundles_dir.is_dir():
+        for f in customer_findings:
+            fid = f.get("id")
+            if fid is None:
+                continue
+            mp = bundles_dir / str(fid) / "meta.json"
+            if not mp.is_file():
+                continue
+            try:
+                m = _json.loads(mp.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            status = m.get("status") or "drafted"
+            bundle_counts[status] = bundle_counts.get(status, 0) + 1
+            entry = {
+                "finding_id": fid,
+                "status":     status,
+                "bug_class":  m.get("bug_class"),
+                "updated_at": m.get("updated_at"),
+                # Public archive URL — only resolves AFTER `bundle publish-archive`
+                # has been run for this bundle (which strips operator-private
+                # files: verification.json, authorization.json, hooks/, pr-body.md).
+                # Customer portal MUST NOT serve raw recon/bundles/<id>/ from the
+                # workspace — that would leak authorization.json + pr-body.md.
+                "public_bundle_url": f"https://api.jelleo.com/bundles/{fid}/",
+            }
+            # Surface gate-pass count if verification.json present
+            vp = bundles_dir / str(fid) / "verification.json"
+            if vp.is_file():
+                try:
+                    v = _json.loads(vp.read_text(encoding="utf-8"))
+                    n_pass = sum(1 for g in (v.get("gates") or {}).values()
+                                  if g.get("passed") is True)
+                    n_total = len(v.get("gates") or {})
+                    entry["gates_passed"] = f"{n_pass}/{n_total}"
+                except Exception:
+                    pass
+            fix_bundles.append(entry)
+
     return {
         "bug_classes_seen":         len(customer_bug_classes),
         "findings_with_bug_class":  findings_with_bug_class,
         "sibling_files":            sibling_files,
         "propagation_reports":      propagation_reports,
         "chain_links":              chain_links,
+        "fix_bundles":              fix_bundles,
+        "fix_bundle_counts":        bundle_counts,
     }
 
 

@@ -321,6 +321,124 @@ def _findings_table(findings: list[dict]) -> str:
     </table>"""
 
 
+def _fix_bundle_section(
+    workspace: Path,
+    findings: list[dict],
+    public: bool,
+) -> str:
+    """P3 Item 13: cycle-scoped fix-bundle activity block.
+
+    --public mode: counters only (matches pre-disclosure rule).
+    --full mode: per-finding table with bundle status + verification + authz.
+    """
+    import json as _json
+    finding_ids = {f.get("id") for f in findings if f.get("id") is not None}
+    if not finding_ids:
+        return ""
+
+    bdir = workspace / "recon" / "bundles"
+    if not bdir.is_dir():
+        return ""
+
+    rows: list[dict] = []
+    counts: dict[str, int] = {}
+    for f in findings:
+        fid = f.get("id")
+        if fid is None:
+            continue
+        mp = bdir / str(fid) / "meta.json"
+        if not mp.is_file():
+            continue
+        try:
+            m = _json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        status = m.get("status") or "drafted"
+        counts[status] = counts.get(status, 0) + 1
+        gates_passed = ""
+        vp = bdir / str(fid) / "verification.json"
+        if vp.is_file():
+            try:
+                v = _json.loads(vp.read_text(encoding="utf-8"))
+                n_pass = sum(1 for g in (v.get("gates") or {}).values() if g.get("passed") is True)
+                n_total = len(v.get("gates") or {})
+                gates_passed = f"{n_pass}/{n_total}"
+            except Exception:
+                pass
+        ap = bdir / str(fid) / "authorization.json"
+        rows.append({
+            "id":       fid,
+            "title":    (f.get("title") or "")[:90],
+            "hyp":      f.get("hypothesis_id") or "",
+            "status":   status,
+            "gates":    gates_passed,
+            "authorized": ap.is_file(),
+        })
+
+    if not rows:
+        return ""
+
+    counter_html = (
+        '<div class="kpi-grid">'
+        f'<div class="kpi"><div class="label">Findings with bundle</div>'
+        f'<div class="value">{len(rows)}</div></div>'
+        f'<div class="kpi"><div class="label">Verified</div>'
+        f'<div class="value">{counts.get("verified", 0) + counts.get("authorized", 0) + counts.get("pr-opened", 0) + counts.get("merged", 0) + counts.get("fixed", 0)}</div></div>'
+        f'<div class="kpi"><div class="label">Authorized</div>'
+        f'<div class="value">{counts.get("authorized", 0) + counts.get("pr-opened", 0) + counts.get("merged", 0) + counts.get("fixed", 0)}</div></div>'
+        f'<div class="kpi"><div class="label">PRs opened</div>'
+        f'<div class="value">{counts.get("pr-opened", 0) + counts.get("merged", 0) + counts.get("fixed", 0)}</div></div>'
+        f'<div class="kpi"><div class="label">Merged</div>'
+        f'<div class="value">{counts.get("merged", 0) + counts.get("fixed", 0)}</div></div>'
+        '</div>'
+    )
+
+    if public:
+        return f"""
+  <h2>04 &mdash; Fix-bundle activity</h2>
+  <p style="color:var(--text-2)">
+    Confirmed findings flow into the fix-bundle pipeline: LLM-drafted patch +
+    machine verification + operator-typed authorization + upstream PR. Per-
+    finding detail is suppressed in public reports (pre-disclosure rule).
+    The engine never auto-opens upstream PRs — every PR Jelleo opens was
+    authorized by the operator personally.
+  </p>
+  {counter_html}
+"""
+
+    body_rows: list[str] = []
+    for r in rows:
+        authz_mark = "&#x2713;" if r["authorized"] else "&middot;"
+        body_rows.append(
+            f"<tr>"
+            f"<td><code>{r['id']}</code></td>"
+            f"<td><code>{html.escape(r['hyp'])}</code></td>"
+            f"<td style=\"color:var(--text-2)\">{html.escape(r['title'])}</td>"
+            f"<td><code>{html.escape(r['status'])}</code></td>"
+            f"<td style=\"text-align:right\">{html.escape(r['gates'])}</td>"
+            f"<td style=\"text-align:center\">{authz_mark}</td>"
+            f"</tr>"
+        )
+    table = (
+        '<table><thead><tr>'
+        '<th>id</th><th>hypothesis</th><th>title</th>'
+        '<th>status</th><th style="text-align:right">gates</th>'
+        '<th style="text-align:center">authz</th>'
+        '</tr></thead><tbody>' + "".join(body_rows) + '</tbody></table>'
+    )
+
+    return f"""
+  <h2>04 &mdash; Fix-bundle activity</h2>
+  <p style="color:var(--text-2)">
+    Per-finding fix-bundle pipeline state. Engine drafts + verifies; operator
+    authorizes via long-form typed phrase; PR opens only against valid
+    authorization marker.
+  </p>
+  {counter_html}
+  {table}
+"""
+
+
 def _propagation_section(
     workspace: Path,
     findings: list[dict],
@@ -543,6 +661,7 @@ def _render_cycle_html(
   {_findings_table(findings)}
 
   {_propagation_section(workspace, findings, public) if workspace else ""}
+  {_fix_bundle_section(workspace, findings, public) if workspace else ""}
 
   <h2>A &mdash; Severity rubric</h2>
   <table>
@@ -671,6 +790,7 @@ def _render_weekly_html(
   {_sev_bar(counts)}
 
   {_propagation_section(workspace, findings, public) if workspace else ""}
+  {_fix_bundle_section(workspace, findings, public) if workspace else ""}
 
   <h2>Severity rubric</h2>
   <table>
