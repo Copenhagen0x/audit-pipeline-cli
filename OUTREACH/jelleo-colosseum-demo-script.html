@@ -173,19 +173,20 @@
     <tr><th style="width:18%">Time</th><th style="width:24%">Segment</th><th>What happens</th></tr>
   </thead>
   <tbody>
-    <tr><td class="time-col">0:00 — 0:25</td><td class="act-col">Open</td><td>Homepage hero · what Jelleo is in one breath · "everything you'll see is live data"</td></tr>
-    <tr><td class="time-col">0:25 — 0:55</td><td class="act-col">Status</td><td>Live VPS service health · heartbeat · proof the engine runs <em>right now</em></td></tr>
-    <tr><td class="time-col">0:55 — 1:30</td><td class="act-col">Cycles</td><td>Public archive of signed receipts · open one cycle · show a finding</td></tr>
-    <tr><td class="time-col">1:30 — 2:10</td><td class="act-col">Customer dashboard</td><td>Embedded buyer view · findings table · propagation · attestations</td></tr>
-    <tr><td class="time-col">2:10 — 2:45</td><td class="act-col">F7 case study</td><td>The first disclosure shipped by the engine · timeline · receipts</td></tr>
-    <tr><td class="time-col">2:45 — 3:00</td><td class="act-col">Close</td><td>One-line wrap · back to homepage</td></tr>
+    <tr><td class="time-col">0:00 — 0:20</td><td class="act-col">Open</td><td>Homepage hero · what Jelleo is in one breath · "everything you'll see is live data"</td></tr>
+    <tr><td class="time-col">0:20 — 0:50</td><td class="act-col">Status</td><td>Live VPS service health · heartbeat · proof the engine runs <em>right now</em></td></tr>
+    <tr><td class="time-col">0:50 — 1:20</td><td class="act-col">Four pillars</td><td>Methodology page · pillar grid · the architectural moat (P1 → P2 → P3 → P4)</td></tr>
+    <tr><td class="time-col">1:20 — 1:55</td><td class="act-col">Cycles</td><td>Public archive of signed receipts · cycle table · verify-offline block</td></tr>
+    <tr><td class="time-col">1:55 — 2:35</td><td class="act-col">Customer dashboard</td><td>Embedded buyer view · findings table · propagation · attestations</td></tr>
+    <tr><td class="time-col">2:35 — 2:50</td><td class="act-col">F7 case study</td><td>The first disclosure shipped by the engine · timeline · receipts</td></tr>
+    <tr><td class="time-col">2:50 — 3:00</td><td class="act-col">Close</td><td>One-line wrap · back to homepage</td></tr>
   </tbody>
 </table>
 </div>
 
 <!-- SEGMENT 1 — OPEN -->
 <div class="act">
-<h2 class="act-head"><span class="time">0:00</span> Open — what Jelleo is <span class="duration">25 seconds</span></h2>
+<h2 class="act-head"><span class="time">0:00</span> Open — what Jelleo is <span class="duration">20 seconds</span></h2>
 
 <div class="stage-box">
   <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com</code> · homepage hero in viewport · animation running</span></div>
@@ -205,7 +206,7 @@ Everything I'm about to show you is live data."
 
 <!-- SEGMENT 2 — STATUS -->
 <div class="act">
-<h2 class="act-head"><span class="time">0:25</span> Status — proof the engine runs right now <span class="duration">30 seconds</span></h2>
+<h2 class="act-head"><span class="time">0:20</span> Status — proof the engine runs right now <span class="duration">30 seconds</span></h2>
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
@@ -231,7 +232,37 @@ The heartbeat is signed with our Ed25519 key and fires every hour. Cycle counts,
 
 <!-- SEGMENT 3 — CYCLES -->
 <div class="act">
-<h2 class="act-head"><span class="time">0:55</span> Cycles — the public receipts <span class="duration">35 seconds</span></h2>
+<h2 class="act-head"><span class="time">0:50</span> Four pillars — the architecture under the loop <span class="duration">30 seconds</span></h2>
+
+<h3 class="sub-head click">What you click:</h3>
+<ol class="click-list">
+  <li>Type <code>jelleo.com/methodology.html#pillars</code> in URL bar &middot; press Enter (jumps directly to the pillar grid)</li>
+  <li>Pause on the four-pillar grid for ~3 seconds &middot; let the viewer read the pillar numbers (P1 / P2 / P3 / P4)</li>
+  <li>Slow scroll down through the grid as you narrate each pillar &middot; one pillar per breath</li>
+</ol>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/methodology.html#pillars</code></span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">land on the pillar grid &middot; brief hold &middot; gentle scroll as each pillar is named</span></div>
+</div>
+
+<div class="say-box">
+"Four pillars under the engine.<br><br>
+<strong>P1 &middot; detection</strong> — autonomous hypothesis-driven hunting against deployed programs.<br>
+<strong>P2 &middot; propagation</strong> — when a finding lands, it auto-checks every architecturally similar protocol for the same bug class.<br>
+<strong>P3 &middot; fix bundle</strong> — every disclosure ships with a working patch, test, and verification.<br>
+<strong>P4 &middot; attestation</strong> — every cycle is signed and committed to a public registry.<br><br>
+No audit firm runs all four. The model doesn't allow it."
+</div>
+
+<div class="tactical-box">
+<strong>Pacing:</strong> ~58 words spoken. Hit each pillar name as a beat &mdash; tiny pause between them, like reading a list. The closing line ("the model doesn't allow it") is the punch &mdash; pause for half a second before moving on. That phrase is what positions Jelleo against incumbent audit firms without naming them.
+</div>
+</div>
+
+<!-- SEGMENT 4 — CYCLES (was Segment 3) -->
+<div class="act">
+<h2 class="act-head"><span class="time">1:20</span> Cycles — the public receipts <span class="duration">35 seconds</span></h2>
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
@@ -259,7 +290,7 @@ This is what 'underwriting' actually means in our model. It's not a quarterly re
 
 <!-- SEGMENT 4 — CUSTOMER DASHBOARD -->
 <div class="act">
-<h2 class="act-head"><span class="time">1:30</span> Customer dashboard — the buyer's view <span class="duration">40 seconds</span></h2>
+<h2 class="act-head"><span class="time">1:55</span> Customer dashboard — the buyer's view <span class="duration">40 seconds</span></h2>
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
@@ -288,7 +319,7 @@ Every disclosure ships with a closed-loop fix bundle — the patch, the test, th
 
 <!-- SEGMENT 5 — F7 CASE STUDY -->
 <div class="act">
-<h2 class="act-head"><span class="time">2:10</span> F7 case study — the proof point <span class="duration">35 seconds</span></h2>
+<h2 class="act-head"><span class="time">2:35</span> F7 case study — the proof point <span class="duration">15 seconds</span></h2>
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
@@ -316,7 +347,7 @@ The same engine you saw on the status page is what produced this. It's running r
 
 <!-- SEGMENT 6 — CLOSE -->
 <div class="act">
-<h2 class="act-head"><span class="time">2:45</span> Close — wrap <span class="duration">15 seconds</span></h2>
+<h2 class="act-head"><span class="time">2:50</span> Close — wrap <span class="duration">10 seconds</span></h2>
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
