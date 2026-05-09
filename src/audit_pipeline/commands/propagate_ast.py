@@ -119,22 +119,25 @@ BUG_CLASS_AST_PATTERNS: dict[str, list[tuple[str, str]]] = {
     ],
 
     # Arithmetic-overflow-pnl-mark: unchecked arithmetic on i128
+    # Tree-sitter Rust uses `type_cast_expression`, NOT `cast_expression`.
     "arithmetic-overflow-pnl-mark": [
         (
             "i128_binary_op",
             "(binary_expression "
-            "  left: (cast_expression type: (primitive_type) @type) "
+            "  (type_cast_expression type: (primitive_type) @type) "
             "  (#match? @type \"^i128$\"))",
         ),
     ],
 
     # Constant-product-invariant-violation: x*y multiplications on reserves
+    # `binary_expression` operator is an anonymous token, not a named field —
+    # match it as a positional child rather than `operator: "*"`.
     "constant-product-invariant-violation": [
         (
             "reserve_multiplication",
             "(binary_expression "
-            "  operator: \"*\" "
-            "  left: (field_expression field: (field_identifier) @field) "
+            "  (field_expression field: (field_identifier) @field) "
+            "  \"*\" "
             "  (#match? @field \"^(reserve|reserves|x|y)\"))",
         ),
     ],
