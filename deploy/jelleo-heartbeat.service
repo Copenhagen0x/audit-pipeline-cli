@@ -13,7 +13,7 @@ WorkingDirectory=/root/audit_runs/percolator-live
 # Netlify-served docroot so api.jelleo.com/heartbeat.json picks it up. The
 # signature is over the canonical bytes of the JSON (re-rendering breaks
 # verification, which is the point — signed bytes are the source of truth).
-ExecStart=/bin/bash -c 'source /root/.audit-env && HEARTBEAT_PATH="${JELLEO_HEARTBEAT_PATH:-/var/www/jelleo.com/heartbeat.json}" && exec /root/.local/bin/audit-pipeline --workspace /root/audit_runs/percolator-live heartbeat --out "$HEARTBEAT_PATH" --repo-dir /root/repos/audit-pipeline-cli'
+ExecStart=/bin/bash -c 'source /root/.audit-env && HEARTBEAT_PATH="${JELLEO_HEARTBEAT_PATH:-/var/www/jelleo.com/heartbeat.json}" && REPO_DIR="${JELLEO_REPO_DIR:-/root/audit-pipeline-cli}" && exec audit-pipeline --workspace /root/audit_runs/percolator-live heartbeat --out "$HEARTBEAT_PATH" --repo-dir "$REPO_DIR"'
 StandardOutput=append:/root/audit_runs/percolator-live/scheduler/heartbeat.log
 StandardError=append:/root/audit_runs/percolator-live/scheduler/heartbeat.log
 TimeoutStartSec=60
