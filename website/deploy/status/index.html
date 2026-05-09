@@ -296,6 +296,12 @@ section.doc { padding: 100px 0; }
           <div class="service-state unknown" data-svc="snapshot"><span class="dot"></span>Unknown</div>
         </div>
         <div class="service-row">
+          <div class="service-name">jelleo-heartbeat.timer<div class="desc">P4 signed proof-of-running heartbeat</div></div>
+          <div class="col-cadence">1 hr</div>
+          <div class="col-last">—</div>
+          <div class="service-state unknown" data-svc="heartbeat"><span class="dot"></span>Unknown</div>
+        </div>
+        <div class="service-row">
           <div class="service-name">jelleo-backup.timer<div class="desc">Findings DB off-site backup</div></div>
           <div class="col-cadence">24 hr</div>
           <div class="col-last">—</div>
@@ -311,6 +317,98 @@ section.doc { padding: 100px 0; }
 
       <div class="note" id="signal-note">
         <strong>Signal source.</strong> Each service writes its last-tick + status into the platform DB. The snapshot publisher rolls these into <code>api.jelleo.com/snapshot.json</code> every 5 minutes. This page polls that JSON every 60 seconds and re-renders. If the snapshot itself is stale (older than 30 minutes) the banner flips to <em>degraded</em>.
+      </div>
+
+      <h2 style="font-size: 22px; font-weight: 600; margin: 56px 0 12px; letter-spacing: -0.012em;">P4 &mdash; Cryptographic attestation</h2>
+      <p style="color: var(--ink-3); font-size: 14px; margin: 0 0 20px; max-width: 80ch;">
+        Off-chain Ed25519 signing on every cycle + per-cycle Merkle root.
+        Hourly heartbeat at <code>api.jelleo.com/heartbeat.json</code> proves the loop is running and signed.
+        Anyone with the <a href="/keys/jelleo.ed25519.pub">platform pubkey</a> can verify any artifact independently.
+      </p>
+      <div class="services" id="attestation-grid" style="margin-bottom: 56px;">
+        <div class="service-row">
+          <div class="service-name">Latest heartbeat<div class="desc" id="hb-desc">heartbeat.json &middot; signed Ed25519</div></div>
+          <div class="col-cadence" id="hb-engine">—</div>
+          <div class="col-last" id="hb-age">—</div>
+          <div class="service-state unknown" id="hb-state"><span class="dot"></span>Unknown</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">Per-cycle Merkle roots<div class="desc">SHA-256 over canonical finding+cycle fields, tamper-evident</div></div>
+          <div class="col-cadence" id="merkle-count">—</div>
+          <div class="col-last">—</div>
+          <div class="service-state up" id="merkle-state"><span class="dot"></span>Live</div>
+        </div>
+      </div>
+
+      <h2 style="font-size: 22px; font-weight: 600; margin: 56px 0 12px; letter-spacing: -0.012em;">P2 &mdash; Cross-protocol propagation</h2>
+      <p style="color: var(--ink-3); font-size: 14px; margin: 0 0 20px; max-width: 80ch;">
+        Confirmed findings auto-derive sibling hypotheses + sweep the indexed corpus
+        for the same structural pattern. <a href="/bug-classes.html">Bug-class catalog &rarr;</a>
+      </p>
+      <div class="services" id="propagation-grid" style="margin-bottom: 56px;">
+        <div class="service-row">
+          <div class="service-name">Bug classes with signatures<div class="desc">Regex + AST patterns the engine sweeps for</div></div>
+          <div class="col-cadence">&mdash;</div>
+          <div class="col-last">&mdash;</div>
+          <div class="service-state up" id="prop-bugclasses"><span class="dot"></span>—</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">Sibling hypotheses derived<div class="desc">LLM-emitted YAMLs from confirmed findings</div></div>
+          <div class="col-cadence">&mdash;</div>
+          <div class="col-last">&mdash;</div>
+          <div class="service-state up" id="prop-siblings"><span class="dot"></span>—</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">Propagation reports<div class="desc">Cross-protocol corpus sweeps fired</div></div>
+          <div class="col-cadence">&mdash;</div>
+          <div class="col-last">&mdash;</div>
+          <div class="service-state up" id="prop-reports"><span class="dot"></span>—</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">L1 dispatches queued<div class="desc">Top-scoring candidates queued for live hunt</div></div>
+          <div class="col-cadence">&mdash;</div>
+          <div class="col-last">&mdash;</div>
+          <div class="service-state up" id="prop-dispatches"><span class="dot"></span>—</div>
+        </div>
+      </div>
+
+      <h2 style="font-size: 22px; font-weight: 600; margin: 56px 0 12px; letter-spacing: -0.012em;">P3 &mdash; Closed-loop fix bundle</h2>
+      <p style="color: var(--ink-3); font-size: 14px; margin: 0 0 20px; max-width: 80ch;">
+        Confirmed findings flow into LLM-drafted patch + machine verification + operator-typed
+        authorization + upstream PR. The engine never auto-opens upstream PRs &mdash; every PR
+        Jelleo opens was authorized personally.
+      </p>
+      <div class="services" id="bundle-grid" style="margin-bottom: 56px;">
+        <div class="service-row">
+          <div class="service-name">Bundles drafted<div class="desc">Patch + writeup assembled</div></div>
+          <div class="col-cadence">&mdash;</div>
+          <div class="col-last">&mdash;</div>
+          <div class="service-state unknown" id="bundle-drafted"><span class="dot"></span>—</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">Bundles verified<div class="desc">All machine gates passed</div></div>
+          <div class="col-cadence">&mdash;</div>
+          <div class="col-last">&mdash;</div>
+          <div class="service-state unknown" id="bundle-verified"><span class="dot"></span>—</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">Bundles authorized<div class="desc">Operator typed long-form approval</div></div>
+          <div class="col-cadence">&mdash;</div>
+          <div class="col-last">&mdash;</div>
+          <div class="service-state unknown" id="bundle-authorized"><span class="dot"></span>—</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">PRs opened upstream<div class="desc">Disclosure dispatched to maintainers</div></div>
+          <div class="col-cadence">&mdash;</div>
+          <div class="col-last">&mdash;</div>
+          <div class="service-state unknown" id="bundle-pr-opened"><span class="dot"></span>—</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">PRs merged<div class="desc">Fix landed; finding transitions to fixed</div></div>
+          <div class="col-cadence">&mdash;</div>
+          <div class="col-last">&mdash;</div>
+          <div class="service-state unknown" id="bundle-pr-merged"><span class="dot"></span>—</div>
+        </div>
       </div>
 
       <div class="timestamp-line" id="last-fetch">Last fetched: never</div>
@@ -402,7 +500,47 @@ section.doc { padding: 100px 0; }
     }
   }
 
+  function setSquare(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const dot = el.querySelector('.dot');
+    el.lastChild.textContent = (value === undefined || value === null) ? ' —' : ` ${value}`;
+    // Color treatment: zero = neutral, anything > 0 = active
+    el.classList.remove('up', 'degraded', 'down', 'unknown');
+    el.classList.add(value && value > 0 ? 'up' : 'unknown');
+  }
+
+  async function refreshHeartbeat() {
+    try {
+      const r = await fetch('https://api.jelleo.com/heartbeat.json', { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const hb = await r.json();
+      const generated = Date.parse(hb.generated_at || '');
+      const ageMs = Date.now() - generated;
+      const ageMin = Math.floor(ageMs / 60_000);
+      const hbAge = document.getElementById('hb-age');
+      const hbState = document.getElementById('hb-state');
+      const hbEng = document.getElementById('hb-engine');
+      if (hbAge) hbAge.textContent = `${ageMin} min ago`;
+      if (hbEng) hbEng.textContent = (hb.engine_sha || '').slice(0, 12) || '—';
+      if (hbState) {
+        hbState.classList.remove('up', 'degraded', 'down', 'unknown');
+        if (ageMs < 90 * 60_000)        { hbState.classList.add('up');       hbState.lastChild.textContent = ' Live'; }
+        else if (ageMs < 240 * 60_000)  { hbState.classList.add('degraded'); hbState.lastChild.textContent = ' Lagging'; }
+        else                             { hbState.classList.add('down');     hbState.lastChild.textContent = ' Stale'; }
+      }
+    } catch (err) {
+      const hbState = document.getElementById('hb-state');
+      if (hbState) {
+        hbState.classList.remove('up', 'degraded', 'down', 'unknown');
+        hbState.classList.add('down');
+        hbState.lastChild.textContent = ' Unreachable';
+      }
+    }
+  }
+
   async function refresh() {
+    refreshHeartbeat();
     try {
       const r = await fetch(SNAPSHOT_URL, { cache: 'no-store' });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -427,6 +565,26 @@ section.doc { padding: 100px 0; }
 
       // Service rows
       (snap.services || []).forEach(s => setSvc(s.key, s.state, s.last_tick_ms));
+
+      // P2 propagation counters
+      const ps = snap.propagation_stats || {};
+      setSquare('prop-bugclasses',  ps.bug_classes_with_signatures);
+      setSquare('prop-siblings',    ps.sibling_files);
+      setSquare('prop-reports',     ps.propagation_reports);
+      setSquare('prop-dispatches',  ps.dispatches_pending);
+
+      // P3 fix-bundle counters
+      const fb = snap.fix_bundle_stats || {};
+      setSquare('bundle-drafted',    fb.bundles_drafted);
+      setSquare('bundle-verified',   fb.bundles_verified);
+      setSquare('bundle-authorized', fb.bundles_authorized);
+      setSquare('bundle-pr-opened',  fb.prs_opened);
+      setSquare('bundle-pr-merged',  fb.prs_merged);
+
+      // P4 cycle merkle roots count
+      const merkleRoots = snap.cycle_merkle_roots || [];
+      const mc = document.getElementById('merkle-count');
+      if (mc) mc.textContent = `${merkleRoots.length} cycle${merkleRoots.length === 1 ? '' : 's'}`;
 
       lastFetch.textContent = `Last fetched: ${new Date().toISOString()}`;
     } catch (err) {

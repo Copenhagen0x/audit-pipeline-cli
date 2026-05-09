@@ -453,6 +453,7 @@ def _probe_services() -> list[dict]:
         ("snapshot",          "jelleo-snapshot.timer"),
         ("backup",            "jelleo-backup.timer"),
         ("health",            "jelleo-health.timer"),
+        ("heartbeat",         "jelleo-heartbeat.timer"),  # P4 Y0
     ]
 
     if not shutil.which("systemctl"):
