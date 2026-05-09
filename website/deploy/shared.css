@@ -774,9 +774,10 @@ pre code { background: none; border: none; padding: 0; color: inherit; font-size
   .hero-title { font-size: clamp(28px, 9vw, 48px); }
   .hero { padding: 120px 0 60px; min-height: auto; }
   [data-reveal] { transition-duration: 0.5s; transform: translateY(20px); }
-  /* Hero brackets safer offsets so they don't collide with the title */
-  .hero-bracket.tl { top: 96px; left: 12px; }
-  .hero-bracket.br { bottom: 60px; right: 12px; }
+  /* Hero brackets are decorative corner ornaments designed for desktop hero
+     breathing room. On phones they have no horizontal margin to live in
+     without colliding with the eyebrow / title text — hide entirely. */
+  .hero-bracket { display: none !important; }
   /* Mobile blob shrink (was duplicated in index.html only — promoted here) */
   .blob-1 { width: 380px; height: 380px; left: -100px; top: -80px; }
   .blob-2 { width: 320px; height: 320px; right: -80px; }
