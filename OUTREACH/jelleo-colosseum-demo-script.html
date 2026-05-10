@@ -305,28 +305,29 @@ And here's the part that matters: anyone can verify a cycle offline. Curl the me
 <ol class="click-list">
   <li>Navigate to <code>jelleo.com/customer/demo/full.html</code> (use the .html path &mdash; directory-style URL 404s)</li>
   <li>Land on the identity strip · "Percolator · perpetual DEX" header visible · KPI cells (Engine SHA, Wrapper SHA, Invariants verified, Open findings)</li>
-  <li>Slow scroll into the <strong>Findings feed</strong> · pause ~3 seconds on the F7 row (CRITICAL · "Residual-conservation / insurance-siphon")</li>
-  <li>Continue scroll past sibling findings (PERC-23, PERC-31, etc.) into <strong>Cluster activity</strong></li>
+  <li>Slow scroll into the <strong>Findings feed</strong> · let the viewer see multiple rows tick past (different severities, different ages, different lifecycle states)</li>
+  <li>Continue scroll into <strong>Cluster activity</strong></li>
   <li>Continue past <strong>On-chain attestations</strong> panel · Solscan tx links visible</li>
   <li>End on <strong>Alert routing</strong> + <strong>Reports</strong> · let the page settle for ~1 second</li>
 </ol>
 
 <div class="stage-box">
   <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/customer/demo/full.html</code></span></div>
-  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">slow continuous scroll top-to-bottom · linger 3s on F7 row · don't click into anything</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">slow continuous scroll top-to-bottom · don't linger on any single row · don't click into anything</span></div>
 </div>
 
 <div class="say-box">
 "And finally — the buyer view. What a paying protocol actually sees inside Jelleo.<br><br>
-This is Percolator — the perpetual DEX where the engine produced F7. There it is, top of the findings feed, marked CRITICAL. First public disclosure shipped through this pipeline.<br><br>
-Below it, sibling findings the engine surfaced on its own. Cluster activity. On-chain attestations. Alert routing, reports.<br><br>
+This is Percolator — the perpetual DEX the engine has been running against. Findings feed at the top: one row per detected bug — severity, lifecycle state, file location. Multiple cycles' worth of output.<br><br>
+Below that, cluster activity. On-chain attestations. Alert routing, reports.<br><br>
 Audit firms drop a PDF and leave. This is what continuous looks like."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~80 words spoken &mdash; ~37 seconds. Scroll continuously &mdash; the dashboard scroll IS the demo. The narration just labels what the viewer is seeing.<br><br>
+<strong>Pacing:</strong> ~70 words spoken &mdash; ~32 seconds. Scroll continuously &mdash; the dashboard scroll IS the demo. The narration just labels what the viewer is seeing.<br><br>
 "And finally" tells the viewer this is the last big section &mdash; signals the demo is winding toward the close.<br><br>
 <strong>Why name Percolator:</strong> the page header literally shows "Percolator · Anatoly Yakovenko's perpetual DEX." Not naming it creates dissonance with what's visible. Saying "Percolator" once matches the screen. Skip Anatoly's name.<br><br>
+<strong>Why no F7 callout:</strong> F7 is 12 months old in the static dashboard mock; calling it out as "first disclosure" would frame stale data as fresh news. Better to talk about the feed as continuous engine output. The PERC-XX siblings already do the visual work of "engine produces a stream, not a snapshot."<br><br>
 <strong>"Audit firms drop a PDF and leave"</strong> &mdash; deliver as the attestations panel is on screen. Visual contrast: PDF vs on-chain receipts.
 </div>
 </div>
