@@ -4990,15 +4990,16 @@ body.preloading { overflow: hidden; }
       camera.aspect = aspect;
       // Tablet-only fix (iPad up to 12.9" Pro landscape = 1366px).
       // Hero content makes the canvas aspect narrow, clipping the sphere
-      // horizontally. Pull the camera back so we have ~10 units of visible
-      // horizontal space (sphere diameter 6 + 2 units margin per side =
-      // generous breathing room so the sphere reads clearly on iPad).
+      // horizontally. Pull the camera back so we have ~7.5 units of visible
+      // horizontal space (sphere diameter 6 + 0.75 units margin per side).
+      // Sphere ends up ~80% of canvas width — just slightly smaller than
+      // the (clipped) original, big enough to still read clearly.
       // Above 1400px viewport we DO NOT touch camera.position at all —
       // desktop is verified working and click-to-zoom (flyToNode/flyHome)
       // owns camera.position there.
       if (window.innerWidth <= 1400) {
         const fovRad = (camera.fov * Math.PI) / 180;
-        const minVisibleWidth = 10;
+        const minVisibleWidth = 7.5;
         const requiredZ = minVisibleWidth / (2 * Math.tan(fovRad / 2) * aspect);
         camera.position.z = Math.max(11.5, requiredZ);
       }
