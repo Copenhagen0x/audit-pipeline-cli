@@ -399,6 +399,17 @@ section { padding: 140px 0; position: relative; }
   padding: 160px 0 100px;
   position: relative; overflow: hidden;
 }
+/* Compact hero for utility / dashboard pages — title + lede only,
+   no full-viewport reveal. Use on Status, Cycles, and similar pages
+   where the real content sits below the fold and shouldn't be hidden
+   behind a screen of empty hero. */
+.hero.compact {
+  min-height: 0;
+  padding: 130px 0 60px;
+}
+@media (max-width: 768px) {
+  .hero.compact { padding: 96px 0 40px; }
+}
 .hero-bracket {
   position: absolute; width: 120px; height: 120px;
   pointer-events: none; border-color: var(--amber);
