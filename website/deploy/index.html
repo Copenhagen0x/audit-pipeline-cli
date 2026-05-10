@@ -4986,7 +4986,23 @@ body.preloading { overflow: hidden; }
     function resize3D() {
       const r = cv.getBoundingClientRect();
       renderer.setSize(r.width, r.height, false);
-      camera.aspect = r.width / Math.max(r.height, 1);
+      const aspect = r.width / Math.max(r.height, 1);
+      camera.aspect = aspect;
+      // Tablet-only fix (iPad landscape ~1025-1280px viewport): the hero
+      // content makes the canvas aspect narrow, which clips the sphere
+      // horizontally because the fixed vertical FOV produces a smaller
+      // horizontal view. Pull the camera back so we always have ~8 units
+      // of visible horizontal space (sphere diameter 6 + 1 unit margin
+      // per side). Above 1280px (desktop) we explicitly use the original
+      // z=11.5 — user verified desktop is fine and asked we not touch it.
+      if (window.innerWidth <= 1280) {
+        const fovRad = (camera.fov * Math.PI) / 180;
+        const minVisibleWidth = 8;
+        const requiredZ = minVisibleWidth / (2 * Math.tan(fovRad / 2) * aspect);
+        camera.position.z = Math.max(11.5, requiredZ);
+      } else {
+        camera.position.z = 11.5;
+      }
       camera.updateProjectionMatrix();
     }
 
