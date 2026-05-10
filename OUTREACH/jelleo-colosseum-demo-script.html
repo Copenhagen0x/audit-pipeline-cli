@@ -194,12 +194,13 @@
 
 <div class="say-box">
 "This is Jelleo — the autonomous immune system for Solana DeFi.<br><br>
-Continuous detection. Cross-protocol propagation. Closed-loop fix bundles. On-chain attestation.<br><br>
-Everything I'm about to show is live."
+In one breath: continuously detects bugs in deployed Solana programs, propagates each one across architecturally similar protocols, ships a fix bundle, and writes a signed receipt on-chain.<br><br>
+Everything I'm about to show — live. Let me walk you through it."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~30 words spoken &mdash; ~14 seconds. Match the on-screen title verbatim ("autonomous immune system for Solana DeFi") so narration and visual reinforce each other. Cursor parked. Let the 3D animation play under your voice. The four short noun phrases are the four pillars &mdash; you'll show them in detail later, this is just the preview.
+<strong>Pacing:</strong> ~50 words spoken &mdash; ~22 seconds. Match the on-screen title verbatim ("autonomous immune system for Solana DeFi") so narration and visual reinforce each other.<br><br>
+The "Let me walk you through it" line is your bridge into the next segment &mdash; deliver it as you're already moving the cursor toward the Status nav button. Don't pause between segments. The whole demo should feel like one continuous walkthrough, not six separate clips.
 </div>
 </div>
 
@@ -221,13 +222,15 @@ Everything I'm about to show is live."
 </div>
 
 <div class="say-box">
-"Live status of the production pipeline. Counters at top: services up, cycles produced, signed receipts, loop uptime. Refreshing from the VPS every sixty seconds.<br><br>
-Below: pillar one — nine systemd services running detection. Then propagation, fix bundles, attestation. Each has its own counters. Every cycle signed."
+"First stop — the Status page. This is the live health of the production pipeline.<br><br>
+Up top, you've got the counters: services running, cycles the engine has produced, signed receipts, loop uptime. These refresh from the VPS every sixty seconds.<br><br>
+And down here — this is the architecture in service form. Pillar one: nine systemd units running detection. Then propagation, fix bundles, attestation. Each panel ticks its own data. Every cycle signed."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~50 words spoken &mdash; ~23 seconds. Let the live counters tick on screen for ~2 seconds before you start talking. The viewer needs to <em>see</em> the data updating, not just hear "live."<br><br>
-<strong>Important pre-record check:</strong> verify on the live site (jelleo.com) that the counters show real numbers (not "—") &mdash; if the API is unreachable at record time, the page reads as broken. If counters show "—", wait or hard-refresh.
+<strong>Pacing:</strong> ~70 words spoken &mdash; ~32 seconds. Let the live counters tick for ~2 seconds before you start talking. The viewer needs to <em>see</em> the data updating before they hear "live."<br><br>
+The "first stop" opener bridges from the homepage walkthrough. The "and down here" mid-sentence is what carries the viewer's eye from the counter row to the service panels &mdash; deliver that line as you start scrolling. Don't pause between counters and services &mdash; one continuous narration.<br><br>
+<strong>Pre-record check:</strong> verify on the live site that the counters show real numbers (not "—"). If they show "—", the API is unreachable &mdash; hard-refresh or wait before recording.
 </div>
 </div>
 
@@ -250,17 +253,18 @@ Below: pillar one — nine systemd services running detection. Then propagation,
 </div>
 
 <div class="say-box">
-"Back to the homepage. The architecture under the loop.<br><br>
-<strong>P1 — detection.</strong> Counterfactual mainnet simulation.<br>
-<strong>P2 — propagation.</strong> When a bug lands anywhere, the engine sweeps every architecturally similar protocol for the same class.<br>
-<strong>P3 — fix bundle.</strong> Patch, test, Kani proof, all bundled.<br>
-<strong>P4 — attestation.</strong> Every cycle signed and committed on-chain.<br><br>
+"Now back to the homepage. Here's where you see the architecture — all four pillars side by side.<br><br>
+<strong>P1, detection.</strong> Counterfactual simulation against live mainnet, every transaction in parallel.<br><br>
+<strong>P2, propagation.</strong> When a bug lands anywhere, the engine sweeps every architecturally similar protocol for the same class.<br><br>
+<strong>P3, fix bundle.</strong> Patch, test suite, Kani proof — all bundled into one PR. Maintainers get verified proposals, not raw findings.<br><br>
+<strong>P4, attestation.</strong> Every cycle signs a Merkle root to chain. Permanent, queryable, composable.<br><br>
 No audit firm runs all four. The model doesn't allow it."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~65 words spoken &mdash; ~30 seconds. Hit each pillar name as a beat &mdash; tiny pause between them. The cards are doing the visual work (watermarks P1/P2/P3/P4, technical chips). Don't over-narrate &mdash; the chips on each card already show the stack (RPC subscription, LiteSVM, Kani synthesizer, Anchor program, Ed25519 signing).<br><br>
-The closing line is the punch &mdash; "no audit firm runs all four. The model doesn't allow it." &mdash; pause half a beat before scrolling away.
+<strong>Pacing:</strong> ~115 words spoken &mdash; ~52 seconds (the cards-doing-visual-work segment can absorb more narration without feeling slow because the viewer is seeing rich content the whole time).<br><br>
+"Now back to the homepage" is the bridge from Status. Hit each pillar opener (P1, P2, P3, P4) as a beat &mdash; tiny pause between them. The "no audit firm in the world runs all four" closing line is the punch &mdash; pause half a beat before scrolling onward.<br><br>
+Each pillar narration matches what's visible on its card &mdash; the body text, the chips. Don't read the chips out loud; they're there for the viewer to scan while you talk.
 </div>
 </div>
 
@@ -282,12 +286,14 @@ The closing line is the punch &mdash; "no audit firm runs all four. The model do
 </div>
 
 <div class="say-box">
-"Cycles archive. Every audit cycle the engine produced — each with its own Merkle root.<br><br>
-Anyone can verify offline. Here's the curl command, here's the verify call. Nothing to trust."
+"Now the receipts side. The Cycles page.<br><br>
+This is the public archive — every audit cycle the engine has ever produced, each one with its own Merkle root.<br><br>
+And here's the part that matters: anyone can verify a cycle offline. Curl the merkle.json, run the verify call, you're done. Nothing to trust."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~35 words spoken &mdash; ~16 seconds. The "nothing to trust" line is the punch &mdash; deliver it as the curl/verify code block is fully on screen. The on-screen command does the visual work; the line lands because the viewer can <em>see</em> the verification recipe.
+<strong>Pacing:</strong> ~50 words spoken &mdash; ~23 seconds. "Now the receipts side" bridges from Pillars (P4 was attestation; this is where the attestations live).<br><br>
+"And here's the part that matters" cues the viewer that the next line is the punch &mdash; deliver it as the curl/verify code block is fully on screen. The on-screen command does the visual work; the line lands because the viewer can <em>see</em> the verification recipe.
 </div>
 </div>
 
@@ -311,14 +317,16 @@ Anyone can verify offline. Here's the curl command, here's the verify call. Noth
 </div>
 
 <div class="say-box">
-"What a paying protocol sees. This is Percolator — the perpetual DEX where the engine produced F7.<br><br>
-F7 right here, marked CRITICAL. Below it, sibling findings the engine surfaced. Cluster activity. On-chain attestations — every cycle committed to chain. Alert routing. Reports.<br><br>
+"And finally — the buyer view. What a paying protocol actually sees inside Jelleo.<br><br>
+This is Percolator — the perpetual DEX where the engine produced F7. There it is, top of the findings feed, marked CRITICAL. First public disclosure shipped through this pipeline.<br><br>
+Below it, sibling findings the engine surfaced on its own. Cluster activity. On-chain attestations. Alert routing, reports.<br><br>
 Audit firms drop a PDF and leave. This is what continuous looks like."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~60 words spoken &mdash; ~28 seconds. Scroll continuously &mdash; the dashboard scroll IS the demo. The narration just labels what the viewer sees.<br><br>
-<strong>Why name Percolator:</strong> the page header literally shows "Percolator · Anatoly Yakovenko's perpetual DEX." Not naming Percolator in narration creates dissonance with what the viewer sees on screen. Saying "Percolator" once matches what's visible. Skip Anatoly's name.<br><br>
+<strong>Pacing:</strong> ~80 words spoken &mdash; ~37 seconds. Scroll continuously &mdash; the dashboard scroll IS the demo. The narration just labels what the viewer is seeing.<br><br>
+"And finally" tells the viewer this is the last big section &mdash; signals the demo is winding toward the close.<br><br>
+<strong>Why name Percolator:</strong> the page header literally shows "Percolator · Anatoly Yakovenko's perpetual DEX." Not naming it creates dissonance with what's visible. Saying "Percolator" once matches the screen. Skip Anatoly's name.<br><br>
 <strong>"Audit firms drop a PDF and leave"</strong> &mdash; deliver as the attestations panel is on screen. Visual contrast: PDF vs on-chain receipts.
 </div>
 </div>
@@ -341,11 +349,12 @@ Audit firms drop a PDF and leave. This is what continuous looks like."
 </div>
 
 <div class="say-box">
-"That's Jelleo. Continuous, signed, on-chain. One disclosure already shipped. The rest is being built right now."
+"That's Jelleo. Continuous, signed, on-chain.<br><br>
+One disclosure already shipped. The rest of Solana DeFi — that's what's being built right now."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~20 words spoken &mdash; ~10 seconds. Let the last sentence land. After "right now," wait one full second of silence before stopping the recording. That silence is what makes the close feel deliberate, not rushed.
+<strong>Pacing:</strong> ~25 words spoken &mdash; ~12 seconds. Let the last sentence land. After "right now," wait one full second of silence before stopping the recording. That silence is what makes the close feel deliberate, not rushed.
 </div>
 </div>
 
