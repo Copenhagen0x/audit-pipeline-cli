@@ -997,7 +997,12 @@ html:not(.js) [data-reveal] { opacity: 1 !important; transform: none !important;
   * { cursor: auto !important; }
   /* Custom cursor decorations — keep hidden on touch */
   .cursor-dot, .cursor-ring { display: none !important; }
-  /* Kill canvas particles + blobs on touch devices regardless of width */
+}
+/* Kill canvas particles + blobs on PHONES only (touch devices ≤768px wide).
+   On iPads / larger tablets we KEEP them — without the ambient background
+   layers, sub-pages render as straight-black walls (homepage was unaffected
+   only because it has its own inline blob/particle CSS overrides). */
+@media (hover: none) and (max-width: 768px) {
   canvas#particles { display: none !important; }
   .blob { display: none !important; }
 }
