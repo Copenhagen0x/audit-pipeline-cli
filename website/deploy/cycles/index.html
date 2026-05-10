@@ -456,11 +456,17 @@ audit-pipeline merkle verify --file cycle.json \
       const rootHref = n.root
         ? `https://api.jelleo.com/cycles/${encodeURIComponent(n.root)}.merkle.json`
         : 'https://api.jelleo.com/cycles/';
+      const detailHref = n.root
+        ? `/cycles/cycle.html?root=${encodeURIComponent(n.root)}`
+        : null;
+      const detailLink = detailHref
+        ? `<a href="${detailHref}">view →</a> · `
+        : '';
       row.innerHTML =
         `<div class="idx">${idx}</div>` +
         `<div class="root" title="${n.root || ''}">${shortRoot(n.root)}</div>` +
         `<div class="age">${ageStr}</div>` +
-        `<div class="links"><a href="${rootHref}" target="_blank" rel="noopener noreferrer">merkle.json ↗</a></div>`;
+        `<div class="links">${detailLink}<a href="${rootHref}" target="_blank" rel="noopener noreferrer">merkle.json ↗</a></div>`;
       tableEl.appendChild(row);
     });
   }

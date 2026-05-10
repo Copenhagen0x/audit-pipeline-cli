@@ -849,11 +849,11 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   <div class="id-grid">
     <div class="id-cell">
       <div class="id-label">Engine SHA</div>
-      <div class="id-value mono">5940285</div>
+      <div class="id-value mono" id="id-engine-sha">5940285</div>
     </div>
     <div class="id-cell">
       <div class="id-label">Wrapper SHA</div>
-      <div class="id-value mono">c447686</div>
+      <div class="id-value mono" id="id-wrapper-sha">c447686</div>
     </div>
     <div class="id-cell">
       <div class="id-label">Invariants verified</div>
@@ -861,7 +861,7 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     </div>
     <div class="id-cell">
       <div class="id-label">Open findings</div>
-      <div class="id-value">7 open <span style="color: var(--ink-3); font-weight: 400; font-size: 12px;">(of 12 total) · open distribution: 1 H · 4 M · 1 L · 1 I</span></div>
+      <div class="id-value" id="id-open-findings">7 open <span style="color: var(--ink-3); font-weight: 400; font-size: 12px;">(of 12 total) · open distribution: 1 H · 4 M · 1 L · 1 I</span></div>
     </div>
     <div class="id-cell">
       <div class="id-label">Disclosed · Y1 cumulative (target)</div>
@@ -886,17 +886,21 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
         <span class="panel-meta">live · 12 total · 7 open · F7 closed-without-merge (regression-locked at <code>a1afd2e</code>)</span>
       </div>
 
-      <div class="feed-toolbar">
-        <span class="chip active">All <span class="count">12</span></span>
-        <span class="chip">Critical <span class="count">0</span></span>
-        <span class="chip">High <span class="count">2</span></span>
-        <span class="chip">Medium <span class="count">5</span></span>
-        <span class="chip">Low <span class="count">3</span></span>
-        <span class="chip">Info <span class="count">2</span></span>
+      <div class="feed-toolbar" id="feed-toolbar">
+        <span class="chip active">All <span class="count" data-sev-count="All">12</span></span>
+        <span class="chip">Critical <span class="count" data-sev-count="Critical">0</span></span>
+        <span class="chip">High <span class="count" data-sev-count="High">2</span></span>
+        <span class="chip">Medium <span class="count" data-sev-count="Medium">5</span></span>
+        <span class="chip">Low <span class="count" data-sev-count="Low">3</span></span>
+        <span class="chip">Info <span class="count" data-sev-count="Info">2</span></span>
         <span style="color: var(--ink-3); font-size: 11px; margin-left: 8px;">(includes resolved + merged; open subset shown in identity strip above)</span>
       </div>
 
-      <div class="findings" id="findings">
+      <!-- Findings feed: if live customer manifest is reachable, JS replaces
+           the static rows below with live customer_findings. If manifest is
+           absent (anonymous viewer, fetch error), the static rows remain
+           so the page still reads as a coherent demo. -->
+      <div class="findings" id="findings" data-customer-findings>
 
         <!-- F7 — the headline -->
         <div class="finding-row crit">
@@ -1399,78 +1403,219 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
 
 <script>
 (function() {
-  // Live-data fetch from the privacy-tightened public snapshot.
-  // The snapshot exposes ONLY: aggregate stats, per-target severity counts,
-  // cycle history, and findings whose status is in {disclosed, fixed,
-  // verified, rejected}. Titles + hypothesis IDs are stripped server-side.
-  // Any fetch failure leaves the page's static numbers intact.
+  // Two data sources, two trust tiers:
+  //
+  //   1. snapshot.json (public, anonymous-readable)
+  //      → aggregate stats, severity-by-target counts, recent cycles,
+  //        and disclosed-only public findings. Used to patch data-snapshot-key
+  //        elements throughout the page so anonymous visitors see live counters.
+  //
+  //   2. customer/<token>/manifest.json (per-customer, "token in URL is auth")
+  //      → INCLUDES in-progress findings (triaged/confirmed/disclosed/fixed/
+  //        verified) scoped to this customer's owned targets. Renders the
+  //        Findings feed, identity-strip counters, and attestations panel
+  //        as the actual current state.
+  //
+  // Both are tried. If either fails, the static demo content remains so the
+  // page never looks broken — graceful degradation by design.
   const SNAPSHOT_URL = 'https://api.jelleo.com/snapshot.json';
+  const MANIFEST_URL = 'https://api.jelleo.com/customer/demo/manifest.json';
+
+  const SEVERITY_ORDER = ['Critical', 'High', 'Medium', 'Low', 'Info'];
+  const STATUS_PILL_CLASS = {
+    'disclosed':  'locked',
+    'fixed':      'merged',
+    'verified':   'merged',
+    'confirmed':  'review',
+    'triaged':    'review',
+    'rejected':   'merged',
+    'new':        'review',
+  };
+  const STATUS_PILL_LABEL = {
+    'disclosed':  'disclosed',
+    'fixed':      'fixed · merged',
+    'verified':   'verified · merged',
+    'confirmed':  'confirmed · in review',
+    'triaged':    'triaged · in review',
+    'rejected':   'rejected · false-positive',
+    'new':        'new',
+  };
 
   function relativeTime(iso) {
     if (!iso) return '—';
     try {
       const t = new Date(iso).getTime();
       const dt = Math.floor((Date.now() - t) / 1000);
-      if (dt < 60) return dt + ' seconds ago';
-      if (dt < 3600) return Math.floor(dt / 60) + ' minutes ago';
+      if (dt < 60)    return dt + ' seconds ago';
+      if (dt < 3600)  return Math.floor(dt / 60) + ' minutes ago';
       if (dt < 86400) return Math.floor(dt / 3600) + ' hours ago';
       return Math.floor(dt / 86400) + ' days ago';
     } catch (_) { return '—'; }
   }
 
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // -------------------- snapshot.json (public, aggregate) --------------------
+
   async function patchFromSnapshot() {
     let data;
     try {
       const res = await fetch(SNAPSHOT_URL, { cache: 'no-store' });
-      if (!res.ok) return setTimeout(patchFromSnapshot, 60000);
+      if (!res.ok) return;
       data = await res.json();
-    } catch (_) {
-      return setTimeout(patchFromSnapshot, 60000);
-    }
+    } catch (_) { return; }
     if (!data || data.platform !== 'jelleo') return;
 
-    // Patch any element with data-snapshot-key attribute. Format:
-    //   <span data-snapshot-key="stats.by_severity_disclosed.Critical">21</span>
+    // data-snapshot-key patcher (banner stats, etc.)
     document.querySelectorAll('[data-snapshot-key]').forEach((el) => {
       const path = el.getAttribute('data-snapshot-key').split('.');
       let v = data;
-      for (const p of path) {
-        if (v == null) break;
-        v = v[p];
-      }
+      for (const p of path) { if (v == null) break; v = v[p]; }
       if (v != null) el.textContent = String(v);
     });
 
-    // Update last-scan ticker with the actual generated_at timestamp
+    // last-scan ticker reflects when snapshot.json itself was published
     const lastScanEl = document.getElementById('last-scan');
     if (lastScanEl && data.generated_at) {
       lastScanEl.textContent = relativeTime(data.generated_at);
     }
+  }
 
-    // Optional: render the public-findings list when a container is present.
-    // Only severity + status + bug_class — titles intentionally absent.
-    const findingsContainer = document.querySelector('[data-snapshot-findings]');
-    if (findingsContainer && Array.isArray(data.public_findings)) {
-      const rows = data.public_findings.slice(0, 10).map(f => {
-        const sev = (f.severity || 'Info').toLowerCase();
-        return `<div class="snapshot-finding-row" style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--rule);font-size:13px;font-family:var(--mono);">
-          <span style="color:var(--ink-3);min-width:80px;">F${f.id}</span>
-          <span style="flex:1;color:var(--ink-2);">${f.bug_class || '—'}</span>
-          <span class="sev sev-${sev}" style="font-size:10px;letter-spacing:0.04em;">${f.severity || ''}</span>
-          <span style="color:var(--ink-3);">${f.status || ''}</span>
-        </div>`;
+  // -------------------- manifest.json (customer-private) --------------------
+
+  function renderFinding(f) {
+    const sev = (f.severity || 'Info');
+    const sevClass = sev.toLowerCase();
+    const status = (f.status || 'confirmed').toLowerCase();
+    const pillClass = STATUS_PILL_CLASS[status] || 'review';
+    const pillLabel = STATUS_PILL_LABEL[status] || status;
+    const disclosureUrl = f.disclosure_url;
+    const pillHtml = disclosureUrl
+      ? `<a class="status-pill ${pillClass}" href="${escapeHtml(disclosureUrl)}" target="_blank" rel="noopener">${escapeHtml(pillLabel)}</a>`
+      : `<span class="status-pill ${pillClass}">${escapeHtml(pillLabel)}</span>`;
+    // Finding ID convention: numeric ids (1, 7, 21...) get "F" prefix to
+    // match the established F7-style displayed across the site. Non-numeric
+    // ids (already-prefixed like "PERC-23") pass through unchanged.
+    const rawId = String(f.id ?? '?');
+    const findingIdShort = escapeHtml(/^\d+$/.test(rawId) ? `F${rawId}` : rawId);
+    const bugClassOrTitle = f.title || f.bug_class || '—';
+    const cite = f.hypothesis_id ? `hyp · ${escapeHtml(f.hypothesis_id)}` : '';
+    const age = f.updated_at ? escapeHtml(relativeTime(f.updated_at)) : '—';
+    const verdict = f.verdict ? `
+      <div class="fr-preview">
+        <div class="verdict-line">
+          <span class="label">Verdict:</span>
+          <span class="value">${escapeHtml(f.verdict)}</span>
+        </div>
+        ${f.poc_fired ? '<strong>PoC fired</strong> · ' : ''}${f.n_siblings ? `${f.n_siblings} sibling${f.n_siblings === 1 ? '' : 's'} flagged` : ''}
+      </div>` : '';
+
+    return `<div class="finding-row ${sevClass === 'critical' ? 'crit' : sevClass === 'medium' ? 'med' : sevClass}">
+      <span class="fr-id">${findingIdShort}</span>
+      <span class="fr-class">${escapeHtml(bugClassOrTitle)}</span>
+      <span class="fr-age">${age}</span>
+      <span class="fr-meta">
+        <span class="severity-badge ${sevClass === 'critical' ? 'crit' : sevClass === 'medium' ? 'med' : sevClass}">${escapeHtml(sev.toUpperCase())}</span>
+        ${pillHtml}
+        ${cite ? `<span class="fr-cite">${cite}</span>` : ''}
+      </span>${verdict}
+    </div>`;
+  }
+
+  function updateSeverityChips(findings) {
+    const counts = { All: findings.length, Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
+    findings.forEach(f => {
+      const sev = f.severity;
+      if (counts[sev] != null) counts[sev] += 1;
+    });
+    SEVERITY_ORDER.concat(['All']).forEach(s => {
+      document.querySelectorAll(`[data-sev-count="${s}"]`).forEach(el => {
+        el.textContent = String(counts[s] || 0);
       });
-      findingsContainer.innerHTML = rows.join('');
+    });
+  }
+
+  function updateIdentityStrip(manifest) {
+    const findings = manifest.public_findings || [];
+    const recentCycles = manifest.recent_cycles || [];
+
+    // engine SHA from latest cycle
+    const latestCycle = recentCycles[0];
+    if (latestCycle) {
+      const engShaEl = document.getElementById('id-engine-sha');
+      if (engShaEl && latestCycle.engine_sha) engShaEl.textContent = String(latestCycle.engine_sha);
     }
 
-    // Refresh every 60s for live updates
-    setTimeout(patchFromSnapshot, 60000);
+    // open findings count + distribution (open = triaged/confirmed, not yet disclosed/fixed/verified)
+    const OPEN_STATUSES = new Set(['triaged', 'confirmed', 'new']);
+    const openFindings = findings.filter(f => OPEN_STATUSES.has(f.status));
+    const total = findings.length;
+    const open = openFindings.length;
+    const dist = { High: 0, Medium: 0, Low: 0, Info: 0, Critical: 0 };
+    openFindings.forEach(f => { if (dist[f.severity] != null) dist[f.severity] += 1; });
+    const distStr = Object.entries(dist)
+      .filter(([_, n]) => n > 0)
+      .map(([s, n]) => `${n} ${s[0]}`)
+      .join(' · ');
+    const ofEl = document.getElementById('id-open-findings');
+    if (ofEl) {
+      ofEl.innerHTML = `${open} open <span style="color: var(--ink-3); font-weight: 400; font-size: 12px;">(of ${total} total)${distStr ? ' · open: ' + distStr : ''}</span>`;
+    }
+  }
+
+  function renderFindingsFeed(findings) {
+    const container = document.querySelector('[data-customer-findings]');
+    if (!container) return;
+    if (!Array.isArray(findings) || findings.length === 0) {
+      container.innerHTML = `<div style="padding: 32px 18px; text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em;">
+        No findings yet · engine has not produced any confirmed bugs for this protocol.
+      </div>`;
+      return;
+    }
+    // Sort: by severity desc (Critical → Info), then by updated_at desc
+    const sevRank = { Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4 };
+    const sorted = findings.slice().sort((a, b) => {
+      const ra = sevRank[a.severity] ?? 5;
+      const rb = sevRank[b.severity] ?? 5;
+      if (ra !== rb) return ra - rb;
+      const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return tb - ta;
+    });
+    container.innerHTML = sorted.map(renderFinding).join('');
+  }
+
+  async function patchFromManifest() {
+    let data;
+    try {
+      const res = await fetch(MANIFEST_URL, { cache: 'no-store' });
+      if (!res.ok) return;  // anonymous / no manifest → static demo stays
+      data = await res.json();
+    } catch (_) { return; }
+    if (!data) return;
+
+    renderFindingsFeed(data.public_findings || []);
+    updateSeverityChips(data.public_findings || []);
+    updateIdentityStrip(data);
+  }
+
+  // -------------------- orchestration --------------------
+
+  async function refreshAll() {
+    // run both in parallel
+    await Promise.allSettled([patchFromSnapshot(), patchFromManifest()]);
+    setTimeout(refreshAll, 60000);
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', patchFromSnapshot);
+    document.addEventListener('DOMContentLoaded', refreshAll);
   } else {
-    patchFromSnapshot();
+    refreshAll();
   }
 })();
 </script>

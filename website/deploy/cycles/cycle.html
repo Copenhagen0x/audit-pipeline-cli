@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Cycle detail</title>
+<meta name="description" content="Per-cycle detail page — Merkle root, signed receipt, verification command, and aggregate stats. Each cycle is publicly verifiable using only the platform Ed25519 pubkey.">
+<meta name="theme-color" content="#050504">
+<meta name="robots" content="noindex">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Jelleo">
+<meta property="og:title" content="Jelleo · Cycle detail">
+<meta property="og:description" content="Verifiable per-cycle attestation: Merkle root, signed receipt, and the curl + audit-pipeline merkle verify command anyone can run.">
+<meta property="og:image" content="https://jelleo.com/og.jpg?v=2">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Jelleo — The Underwriting Layer for Solana DeFi">
+<meta property="og:image:type" content="image/jpeg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jelleo.com/og.jpg?v=2">
+<meta name="twitter:title" content="Jelleo · Cycle detail">
+<meta name="twitter:description" content="Verifiable per-cycle attestation.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+
+.cycle-banner {
+  margin: 24px 0 40px;
+  padding: 24px 28px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  display: flex; align-items: center; gap: 18px;
+}
+.cycle-banner .pulse {
+  width: 14px; height: 14px;
+  background: var(--amber); border-radius: 50%;
+  box-shadow: 0 0 12px var(--amber-glow);
+  flex-shrink: 0;
+}
+.cycle-banner.error { border-left-color: var(--alert); }
+.cycle-banner.error .pulse { background: var(--alert); box-shadow: 0 0 12px rgba(239,68,68,0.6); }
+.cycle-banner .text .head {
+  font-size: 18px; font-weight: 600;
+  color: var(--ink); letter-spacing: -0.012em;
+}
+.cycle-banner .text .sub {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--ink-3); margin-top: 4px;
+  letter-spacing: 0.04em; word-break: break-all;
+}
+
+/* KPI row reused */
+.counter-row {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px;
+  margin-bottom: 40px;
+}
+@media (max-width: 720px) { .counter-row { grid-template-columns: repeat(2, 1fr); } }
+.counter-cell {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 10px; padding: 20px 22px;
+}
+.counter-num {
+  font-family: var(--mono); font-size: 28px; font-weight: 600;
+  color: var(--ink); letter-spacing: -0.02em; line-height: 1;
+  margin-bottom: 6px; word-break: break-all;
+}
+.counter-num.small { font-size: 14px; }
+.counter-num.amber { color: var(--amber); }
+.counter-label {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.14em;
+}
+
+.detail-block {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  border-radius: 8px;
+  padding: 22px 26px;
+  margin: 24px 0;
+}
+.detail-block h3 {
+  font-size: 14px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  margin: 0 0 12px; color: var(--ink);
+  font-family: var(--font);
+}
+.detail-block p {
+  font-size: 14px; color: var(--ink-2);
+  margin: 0 0 12px; line-height: 1.6;
+}
+.detail-block p:last-child { margin-bottom: 0; }
+.detail-block pre {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-x: auto;
+  margin: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.meta-list {
+  list-style: none; padding: 0; margin: 0;
+  font-family: var(--mono); font-size: 13px;
+}
+.meta-list li {
+  display: grid; grid-template-columns: 160px 1fr; gap: 14px;
+  padding: 8px 0; border-bottom: 1px solid var(--rule-2);
+  align-items: baseline;
+}
+.meta-list li:last-child { border-bottom: none; }
+.meta-list .k { color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.1em; font-size: 11px; }
+.meta-list .v { color: var(--ink-2); word-break: break-all; }
+@media (max-width: 720px) {
+  .meta-list li { grid-template-columns: 1fr; gap: 2px; }
+}
+
+.back-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--ink-3); text-decoration: none;
+  font-family: var(--mono); font-size: 12px;
+  letter-spacing: 0.06em; margin-bottom: 16px;
+  transition: color 0.15s ease;
+}
+.back-link:hover { color: var(--amber); }
+
+.timestamp-line {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-4); margin-top: 24px;
+  letter-spacing: 0.04em;
+}
+</style>
+</head>
+<body>
+
+<a href="#main" class="skip-link">Skip to main content</a>
+
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/protocols/">Protocols</a>
+    <a href="/bug-classes.html">Catalog</a>
+    <a href="/case-studies/f7-percolator/">Case study</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html">Security</a>
+    <a href="/status/">Status</a>
+    <a href="/cycles/" class="active">Cycles</a>
+  </div>
+  <div class="nav-right">
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/protocols/" role="menuitem">Protocols</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/bug-classes.html" role="menuitem">Bug-class catalog</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="/status/" role="menuitem">Status</a>
+  <a href="/cycles/" role="menuitem" aria-current="page">Cycle archive</a>
+  <a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener" role="menuitem">Source</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
+</div>
+<div class="scroll-progress" id="progress"></div>
+
+<main id="main">
+<section class="hero compact">
+  <span class="hero-bracket tl"></span>
+  <span class="hero-bracket br"></span>
+  <div class="container">
+    <div data-reveal>
+      <div class="hero-eyebrow">Cycle detail · signed receipt</div>
+      <h1 class="hero-title">Cycle <span class="accent" id="cycle-id-display">—</span></h1>
+      <p class="hero-lede">Per-cycle attestation. The Merkle root + signature on this page can be verified offline using only the platform Ed25519 pubkey — no Jelleo service required. Finding content is not displayed here by design (pre-disclosure leak protection); per-finding details live in the per-customer authenticated dashboard.</p>
+    </div>
+  </div>
+</section>
+
+<section class="doc">
+  <div class="container">
+    <div data-reveal>
+
+      <a href="/cycles/" class="back-link">← Back to cycle archive</a>
+
+      <div id="cycle-banner" class="cycle-banner">
+        <div class="pulse"></div>
+        <div class="text">
+          <div class="head" id="banner-head">Loading cycle…</div>
+          <div class="sub" id="banner-sub">Fetching <code id="banner-url">merkle.json</code></div>
+        </div>
+      </div>
+
+      <div class="counter-row">
+        <div class="counter-cell">
+          <div class="counter-num amber" id="ct-findings">—</div>
+          <div class="counter-label">Findings sealed</div>
+        </div>
+        <div class="counter-cell">
+          <div class="counter-num" id="ct-leaves">—</div>
+          <div class="counter-label">Merkle leaves</div>
+        </div>
+        <div class="counter-cell">
+          <div class="counter-num small" id="ct-engine">—</div>
+          <div class="counter-label">Engine SHA</div>
+        </div>
+        <div class="counter-cell">
+          <div class="counter-num small" id="ct-schema">—</div>
+          <div class="counter-label">Schema</div>
+        </div>
+      </div>
+
+      <h3 style="font-size: clamp(20px, 2vw, 26px); font-weight: 600; margin: 16px 0 14px; color: var(--ink); letter-spacing: -0.01em;">Cycle metadata</h3>
+      <div class="detail-block">
+        <ul class="meta-list" id="meta-list">
+          <li><span class="k">Cycle ID</span><span class="v" id="m-cycle-id">—</span></li>
+          <li><span class="k">Merkle root</span><span class="v mono" id="m-root">—</span></li>
+          <li><span class="k">Engine SHA</span><span class="v mono" id="m-engine">—</span></li>
+          <li><span class="k">Findings sealed</span><span class="v" id="m-findings">—</span></li>
+          <li><span class="k">Total leaves</span><span class="v" id="m-leaves">—</span></li>
+          <li><span class="k">Schema</span><span class="v mono" id="m-schema">—</span></li>
+        </ul>
+      </div>
+
+      <div class="detail-block">
+        <h3>Verify this cycle offline</h3>
+        <p>The Merkle root is reproducible from the leaves committed in this sidecar. Anyone can recompute the root and verify the platform signature against the <a href="/keys/jelleo.ed25519.pub">public Ed25519 key</a>. No Jelleo service required.</p>
+        <pre id="verify-cmd"># Fetch this cycle's merkle sidecar
+curl -s https://api.jelleo.com/cycles/&lt;root&gt;.merkle.json &gt; cycle.json
+
+# Recompute the root from leaves and verify the signature
+audit-pipeline merkle verify --file cycle.json \
+  --pubkey https://jelleo.com/keys/jelleo.ed25519.pub</pre>
+      </div>
+
+      <div class="detail-block">
+        <h3>What's in the Merkle leaves</h3>
+        <p>Each leaf is a SHA-256 hash of one canonicalized object. The cycle leaf hashes the cycle's metadata fields; each finding contributes one additional leaf hashing its public fields (<code>finding_id</code>, <code>severity</code>, <code>protocol</code>, <code>poc_fired</code>, <code>engine_sha</code>, <code>wrapper_sha</code>).</p>
+        <p>The schema is versioned. If the hashed fields ever change, <code>SCHEMA_VERSION</code> increments — historical roots remain reproducible against the schema they were committed under.</p>
+      </div>
+
+      <div class="detail-block">
+        <h3>Finding content?</h3>
+        <p>By design, this public page does not display per-finding titles, file:line citations, attack-chain verdicts, or PoC paths. That data could telegraph zero-days to attackers if surfaced before disclosure. Customers see their own confirmed findings on the authenticated <a href="/customer/">customer portal</a>; the public attestation here only proves <em>that</em> a finding was sealed in the cycle, not <em>what</em> the finding was.</p>
+        <p>Once a finding is disclosed (PR opened upstream, embargo lifted, etc.), its title and bug-class appear in the public <a href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">snapshot.json</a> feed. Until then, the cryptographic count + root here is the public record.</p>
+      </div>
+
+      <div class="timestamp-line" id="last-fetch">Last fetched: never</div>
+
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo">jelleo</a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Status</h5>
+        <ul>
+          <li><a href="/status/">Service health</a></li>
+          <li><a href="/cycles/">Cycle archive</a></li>
+          <li><a href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">Raw snapshot ↗</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Reference</h5>
+        <ul>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/security.html">Security model</a></li>
+          <li><a href="/protocols/">Protocols</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Provenance</h5>
+        <ul>
+          <li><a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Platform pubkey ↗</a></li>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">Source ↗</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span>v0.1 · Cycle detail · Live signal</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/shared.js"></script>
+<script>
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const root = (params.get('root') || '').trim();
+
+  const banner       = document.getElementById('cycle-banner');
+  const bannerHead   = document.getElementById('banner-head');
+  const bannerSub    = document.getElementById('banner-sub');
+  const bannerUrl    = document.getElementById('banner-url');
+  const cycleIdDisp  = document.getElementById('cycle-id-display');
+  const lastFetchEl  = document.getElementById('last-fetch');
+
+  function setBanner(state, head, sub) {
+    banner.classList.remove('error');
+    if (state === 'error') banner.classList.add('error');
+    bannerHead.textContent = head;
+    bannerSub.textContent  = sub;
+  }
+
+  function setField(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = (value == null || value === '') ? '—' : String(value);
+  }
+
+  function shortRoot(r) {
+    if (!r) return '—';
+    if (r.length <= 22) return r;
+    return r.slice(0, 14) + '…' + r.slice(-6);
+  }
+
+  if (!root) {
+    setBanner('error', 'No cycle specified', 'Append ?root=<hash> to the URL — e.g. /cycles/cycle.html?root=abc123…');
+    return;
+  }
+
+  const url = `https://api.jelleo.com/cycles/${encodeURIComponent(root)}.merkle.json`;
+  if (bannerUrl) bannerUrl.textContent = url;
+
+  async function load() {
+    try {
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) {
+        setBanner('error', `Cycle not found (HTTP ${r.status})`, `Could not fetch ${url}`);
+        if (cycleIdDisp) cycleIdDisp.textContent = shortRoot(root);
+        lastFetchEl.textContent = `Last fetched: error at ${new Date().toISOString()}`;
+        return;
+      }
+      const data = await r.json();
+
+      // Identity
+      const displayId = data.cycle_id || shortRoot(root);
+      if (cycleIdDisp) cycleIdDisp.textContent = displayId;
+
+      // Counter row
+      setField('ct-findings', data.n_findings);
+      setField('ct-leaves',   data.n_leaves);
+      setField('ct-engine',   data.engine_sha ? String(data.engine_sha).slice(0, 12) : '—');
+      setField('ct-schema',   data.schema);
+
+      // Metadata list
+      setField('m-cycle-id', data.cycle_id);
+      setField('m-root',     data.merkle_root || root);
+      setField('m-engine',   data.engine_sha);
+      setField('m-findings', data.n_findings);
+      setField('m-leaves',   data.n_leaves);
+      setField('m-schema',   data.schema);
+
+      // Verify command — substitute the actual root
+      const verifyEl = document.getElementById('verify-cmd');
+      if (verifyEl) {
+        const rootForCmd = data.merkle_root || root;
+        verifyEl.textContent = `# Fetch this cycle's merkle sidecar
+curl -s https://api.jelleo.com/cycles/${rootForCmd}.merkle.json > cycle.json
+
+# Recompute the root from leaves and verify the signature
+audit-pipeline merkle verify --file cycle.json \\
+  --pubkey https://jelleo.com/keys/jelleo.ed25519.pub`;
+      }
+
+      setBanner('up', 'Cycle loaded · signed receipt verified', `merkle root · ${shortRoot(data.merkle_root || root)}`);
+      lastFetchEl.textContent = `Last fetched: ${new Date().toISOString()}`;
+    } catch (err) {
+      setBanner('error', 'Fetch failed', `Cannot reach api.jelleo.com — error: ${err.message || err}`);
+      if (cycleIdDisp) cycleIdDisp.textContent = shortRoot(root);
+      lastFetchEl.textContent = `Last fetched: error at ${new Date().toISOString()}`;
+    }
+  }
+
+  load();
+})();
+</script>
+
+</body>
+</html>
