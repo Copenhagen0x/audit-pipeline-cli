@@ -43,6 +43,12 @@ console = Console()
                    "included; future customers come from a config file. Each manifest "
                    "contains the customer's owned findings INCLUDING confirmed (in-progress) "
                    "ones — that data is private to the customer behind the token gate.")
+@click.option("--cycles-dir", type=click.Path(path_type=Path), default=None,
+              help="ALSO publish per-cycle merkle.json sidecars under this dir "
+                   "(e.g. /var/www/jelleo.com/cycles/). Each sidecar is copied from "
+                   "<workspace>/hunts/<cycle-id>/merkle.json to <cycles-dir>/<root>.merkle.json "
+                   "where <root> is the cycle's Merkle root. Lets /cycles/<root>/ detail pages "
+                   "and the public verify-offline command actually resolve.")
 @click.option("--serve", is_flag=True, help="Serve via http.server after writing")
 @click.option("--port", type=int, default=8765, show_default=True)
 @click.option("--auto-refresh", type=int, default=60, show_default=True,
@@ -53,13 +59,14 @@ def dashboard_cmd(
     output: Path | None,
     snapshot_json: Path | None,
     customer_manifest_dir: Path | None,
+    cycles_dir: Path | None,
     serve: bool,
     port: int,
     auto_refresh: int,
 ) -> None:
     """Generate (and optionally serve) the customer-facing dashboard.
 
-    Three artifacts are produced, each scoped to a different audience:
+    Four artifacts are produced, each scoped to a different audience:
 
       1. dashboard.html (always)         — the rich HTML view.
       2. snapshot.json (--snapshot-json) — public homepage feed; only
@@ -67,6 +74,11 @@ def dashboard_cmd(
       3. customer/<token>/manifest.json (--customer-manifest-dir) — per-
          customer JSON behind the token gate; INCLUDES that customer's
          confirmed (in-progress) findings, since the customer owns the data.
+      4. cycles/<root>.merkle.json (--cycles-dir) — per-cycle public
+         attestations, one file per cycle keyed by Merkle root. Source of
+         truth for /cycles/<root>/ detail pages and the public verify-
+         offline command. Safe to publish: contains only root, leaves
+         schema, n_findings count, engine_sha — no per-finding content.
     """
     import json
 
@@ -98,8 +110,61 @@ def dashboard_cmd(
             )
             console.print(f"[green]wrote[/green] {mpath}")
 
+    if cycles_dir:
+        n_published, n_skipped = _publish_cycle_sidecars(workspace, Path(cycles_dir))
+        if n_published:
+            console.print(f"[green]published[/green] {n_published} cycle sidecar(s) to {cycles_dir}")
+        if n_skipped:
+            console.print(f"[dim]skipped[/dim] {n_skipped} cycle(s) (missing merkle_root field)")
+
     if serve:
         _serve(out.parent, out.name, port)
+
+
+def _publish_cycle_sidecars(workspace: Path, cycles_dir: Path) -> tuple[int, int]:
+    """Copy every cycle's merkle.json sidecar into the public web docroot.
+
+    Source: <workspace>/hunts/<cycle-id>/merkle.json
+    Target: <cycles-dir>/<merkle-root>.merkle.json
+
+    Keying by Merkle root (not cycle-id) means the public URL is
+    self-attesting — anyone who has the root can fetch the sidecar
+    and verify against it without needing to know the internal
+    cycle_id naming. Idempotent: re-running overwrites with same content
+    if nothing changed.
+
+    Returns (n_published, n_skipped).
+    """
+    import json as _json
+    import shutil
+
+    cycles_dir.mkdir(parents=True, exist_ok=True)
+    hunts = workspace / "hunts"
+    if not hunts.is_dir():
+        return (0, 0)
+
+    n_published = 0
+    n_skipped = 0
+    for cycle_dir in hunts.iterdir():
+        if not cycle_dir.is_dir():
+            continue
+        sidecar = cycle_dir / "merkle.json"
+        if not sidecar.is_file():
+            continue
+        try:
+            data = _json.loads(sidecar.read_text(encoding="utf-8"))
+        except Exception:
+            n_skipped += 1
+            continue
+        root = data.get("merkle_root")
+        if not root:
+            n_skipped += 1
+            continue
+        target = cycles_dir / f"{root}.merkle.json"
+        shutil.copyfile(sidecar, target)
+        n_published += 1
+
+    return (n_published, n_skipped)
 
 
 def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
