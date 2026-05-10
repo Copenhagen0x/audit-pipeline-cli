@@ -193,13 +193,13 @@
 </div>
 
 <div class="say-box">
-"This is Jelleo — the on-chain underwriting layer for Solana DeFi.<br><br>
-A continuous audit pipeline that runs against live programs in production. It surfaces bugs, propagates each one across protocols built on similar architecture, ships a closed-loop fix bundle for every disclosure, and writes a signed receipt to chain.<br><br>
-Everything I'm about to show you is live data."
+"This is Jelleo — the autonomous immune system for Solana DeFi.<br><br>
+Continuous detection. Cross-protocol propagation. Closed-loop fix bundles. On-chain attestation.<br><br>
+Everything I'm about to show is live."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~58 words. Speak deliberately, don't rush. The hero animation does the work — let it breathe under your voice. Don't move the cursor in this segment. Keep it parked.
+<strong>Pacing:</strong> ~30 words spoken &mdash; ~14 seconds. Match the on-screen title verbatim ("autonomous immune system for Solana DeFi") so narration and visual reinforce each other. Cursor parked. Let the 3D animation play under your voice. The four short noun phrases are the four pillars &mdash; you'll show them in detail later, this is just the preview.
 </div>
 </div>
 
@@ -209,23 +209,25 @@ Everything I'm about to show you is live data."
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
-  <li>Click <strong>"Status"</strong> in the top nav → loads <code>/status/</code></li>
-  <li>Slow scroll through the services panel · pause briefly on each row</li>
-  <li>Hover over the heartbeat freshness widget for ~2 seconds</li>
+  <li>Click <strong>"Status"</strong> in the top nav · loads <code>/status/</code></li>
+  <li>Pause ~2 seconds on the counter row at top (Services up, Total cycles, Signed receipts, Loop uptime)</li>
+  <li>Slow scroll through the <strong>P1</strong> services panel · 9 systemd units listed (shadow, watch, schedulers, snapshot, heartbeat, backup, health)</li>
+  <li>Continue scroll past <strong>P2</strong> propagation panel, <strong>P3</strong> fix-bundle panel, <strong>P4</strong> attestation panel · each has its own counter cells</li>
 </ol>
 
 <div class="stage-box">
   <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/status/</code></span></div>
-  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll slowly through services panel · hover heartbeat · let live counters tick</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">land on counters · slow continuous scroll past P1 → P2 → P3 → P4 panels · don't click into anything</span></div>
 </div>
 
 <div class="say-box">
-"Live status of the production pipeline. Every service you see is running on the engine right now — detection, propagation, fix bundles, attestation, scheduler, heartbeat. The numbers refresh from the production VPS in real time.<br><br>
-The heartbeat is signed with our Ed25519 key and fires every hour. Cycle counts, Merkle roots — anyone can verify them independently."
+"Live status of the production pipeline. Counters at top: services up, cycles produced, signed receipts, loop uptime. Refreshing from the VPS every sixty seconds.<br><br>
+Below: pillar one — nine systemd services running detection. Then propagation, fix bundles, attestation. Each has its own counters. Every cycle signed."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~62 words. Most important: let the live counters tick on screen for 2-3 seconds before you stop talking. The viewer needs to <em>see</em> the freshness, not just hear about it.
+<strong>Pacing:</strong> ~50 words spoken &mdash; ~23 seconds. Let the live counters tick on screen for ~2 seconds before you start talking. The viewer needs to <em>see</em> the data updating, not just hear "live."<br><br>
+<strong>Important pre-record check:</strong> verify on the live site (jelleo.com) that the counters show real numbers (not "—") &mdash; if the API is unreachable at record time, the page reads as broken. If counters show "—", wait or hard-refresh.
 </div>
 </div>
 
@@ -248,17 +250,17 @@ The heartbeat is signed with our Ed25519 key and fires every hour. Cycle counts,
 </div>
 
 <div class="say-box">
-"Underneath the loop, four pillars.<br><br>
-<strong>Detection</strong> — for every transaction hitting a covered protocol, a parallel simulation runs against attack-pattern instrumented forks. When state diverges, the platform flags it in real time.<br><br>
-<strong>Propagation</strong> — when any bug is disclosed anywhere, the engine extracts the structural pattern and searches every indexed protocol for the same class.<br><br>
-<strong>Fix delivery</strong> — confirmed bug becomes a bundle: the bug, the candidate fix, a Kani proof that the fix preserves invariants, and the test suite. Maintainers receive verified proposals, not raw findings.<br><br>
-<strong>Attestation</strong> — every cycle publishes a cryptographically signed Merkle root to chain. Other protocols can require attestation as a precondition for interaction.<br><br>
+"Back to the homepage. The architecture under the loop.<br><br>
+<strong>P1 — detection.</strong> Counterfactual mainnet simulation.<br>
+<strong>P2 — propagation.</strong> When a bug lands anywhere, the engine sweeps every architecturally similar protocol for the same class.<br>
+<strong>P3 — fix bundle.</strong> Patch, test, Kani proof, all bundled.<br>
+<strong>P4 — attestation.</strong> Every cycle signed and committed on-chain.<br><br>
 No audit firm runs all four. The model doesn't allow it."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~115 words spoken &mdash; brisk pace. The visual is doing half the work: 4 distinct pillar cards with watermark P1/P2/P3/P4, technical body, stack chips. Don't over-narrate &mdash; let the cards land. The closing line ("the model doesn't allow it") is the punch &mdash; pause half a beat before moving on.<br><br>
-<strong>Why this works better than methodology page:</strong> the homepage cards are interactive (tilt animation), have technical chips that anchor abstract concepts to concrete tools, and live in the natural scroll flow of the homepage so the viewer never feels "we left the main page." Methodology page is a static doc &mdash; reads like a textbook. This reads like a product.
+<strong>Pacing:</strong> ~65 words spoken &mdash; ~30 seconds. Hit each pillar name as a beat &mdash; tiny pause between them. The cards are doing the visual work (watermarks P1/P2/P3/P4, technical chips). Don't over-narrate &mdash; the chips on each card already show the stack (RPC subscription, LiteSVM, Kani synthesizer, Anchor program, Ed25519 signing).<br><br>
+The closing line is the punch &mdash; "no audit firm runs all four. The model doesn't allow it." &mdash; pause half a beat before scrolling away.
 </div>
 </div>
 
@@ -268,25 +270,24 @@ No audit firm runs all four. The model doesn't allow it."
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
-  <li>Type <code>jelleo.com/cycles/</code> in the URL bar &middot; press Enter (cleanest move &mdash; desktop nav doesn't carry this link)</li>
-  <li>Pause on the counter row for ~2 seconds (Total cycles, Latest root, Engine SHA visible)</li>
-  <li>Slow scroll through the archive table · let the viewer see multiple Merkle roots</li>
-  <li>Pause briefly on the "Verify a cycle offline" code block</li>
+  <li>Click <strong>"Cycles"</strong> in the top nav · loads <code>/cycles/</code></li>
+  <li>Pause ~2 seconds on the counter row (Total cycles, Signed receipts, Latest root, Engine SHA)</li>
+  <li>Slow scroll through the cycle archive table · multiple Merkle roots visible</li>
+  <li>Pause on the <strong>"Verify a cycle offline"</strong> code block · let the curl + audit-pipeline merkle verify command sit on screen for the punch line</li>
 </ol>
 
 <div class="stage-box">
   <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/cycles/</code></span></div>
-  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">land on hero · scroll past counters · scroll through archive table · stop on verify-block</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll past counters · through archive table · stop on the verify-block code snippet</span></div>
 </div>
 
 <div class="say-box">
-"Public archive of every audit cycle the engine has produced. Each one has a Merkle root over its findings. Every finding inside is signed and traceable.<br><br>
-The whole chain is verifiable offline — there's nothing to trust.<br><br>
-This is what 'underwriting' actually means in our model. It's not a quarterly report. It's a continuous stream of cryptographically signed receipts."
+"Cycles archive. Every audit cycle the engine produced — each with its own Merkle root.<br><br>
+Anyone can verify offline. Here's the curl command, here's the verify call. Nothing to trust."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~70 words. The "nothing to trust" line is the punch — pause for half a beat after it. The viewer should mentally connect <em>verifiable</em> to <em>infrastructure</em>, not to <em>vendor</em>. The on-screen <code>curl ... merkle verify</code> snippet does the visual work — let it sit on screen for the punch line.
+<strong>Pacing:</strong> ~35 words spoken &mdash; ~16 seconds. The "nothing to trust" line is the punch &mdash; deliver it as the curl/verify code block is fully on screen. The on-screen command does the visual work; the line lands because the viewer can <em>see</em> the verification recipe.
 </div>
 </div>
 
@@ -296,30 +297,29 @@ This is what 'underwriting' actually means in our model. It's not a quarterly re
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
-  <li>Navigate to <code>jelleo.com/customer/demo/full/</code> (the embedded customer view)</li>
-  <li>Land on the identity strip · pause ~2 seconds (engine SHA, wrapper SHA, invariants verified, open findings KPIs)</li>
-  <li>Slow scroll into the findings table · <strong>pause ~3 seconds on the F7 row</strong> (labeled CRITICAL · "uninsured-loss-residual / self-dealing siphon")</li>
-  <li>Continue scroll to the cluster activity / propagation panel · pause on the protocol list showing where F7's pattern was swept</li>
-  <li>Continue to the on-chain attestations panel · multiple Solscan tx links visible</li>
-  <li>End on the alert routing / reports section · let the page settle</li>
+  <li>Navigate to <code>jelleo.com/customer/demo/full.html</code> (use the .html path &mdash; directory-style URL 404s)</li>
+  <li>Land on the identity strip · "Percolator · perpetual DEX" header visible · KPI cells (Engine SHA, Wrapper SHA, Invariants verified, Open findings)</li>
+  <li>Slow scroll into the <strong>Findings feed</strong> · pause ~3 seconds on the F7 row (CRITICAL · "Residual-conservation / insurance-siphon")</li>
+  <li>Continue scroll past sibling findings (PERC-23, PERC-31, etc.) into <strong>Cluster activity</strong></li>
+  <li>Continue past <strong>On-chain attestations</strong> panel · Solscan tx links visible</li>
+  <li>End on <strong>Alert routing</strong> + <strong>Reports</strong> · let the page settle for ~1 second</li>
 </ol>
 
 <div class="stage-box">
-  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/customer/demo/full/</code></span></div>
-  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">slow continuous scroll top-to-bottom · linger 3s on F7 finding · linger on propagation + attestation panels</span></div>
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/customer/demo/full.html</code></span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">slow continuous scroll top-to-bottom · linger 3s on F7 row · don't click into anything</span></div>
 </div>
 
 <div class="say-box">
-"This is what a paying protocol sees. Continuous view of their codebase — open findings, severity, lifecycle state, confidence per finding.<br><br>
-This row right here — <strong>F7</strong>. The first public disclosure shipped through this engine. One-shot insurance-drain bug in a deployed Solana perpetual DEX. Disclosed with a working LiteSVM proof-of-concept.<br><br>
-Below it, the propagation panel — every architecturally similar protocol swept for the same bug class. Then the attestations — every cycle's Merkle root committed on-chain, queryable forever.<br><br>
-Every disclosure ships with a closed-loop fix bundle — patch, test, verification. Audit firms drop a PDF and leave. This is what continuous looks like."
+"What a paying protocol sees. This is Percolator — the perpetual DEX where the engine produced F7.<br><br>
+F7 right here, marked CRITICAL. Below it, sibling findings the engine surfaced. Cluster activity. On-chain attestations — every cycle committed to chain. Alert routing. Reports.<br><br>
+Audit firms drop a PDF and leave. This is what continuous looks like."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~115 words spoken &mdash; brisk. The scroll IS the demo &mdash; one panel per ~6-8 seconds.<br><br>
-<strong>F7 strategy:</strong> showing F7 inside the customer dashboard (as a CRITICAL finding row in a real-looking table) is far stronger than a static case-study page. It frames F7 as evidence the engine works in production, not as a marketing artifact. The viewer sees: "this is what a customer sees; here's a real bug they were notified about; here's where the engine swept other protocols for the same class."<br><br>
-<strong>"Audit firms drop a PDF and leave"</strong> &mdash; deliver this line as the attestations panel is fully on screen. Visual contrast does the work: PDF vs on-chain receipts.
+<strong>Pacing:</strong> ~60 words spoken &mdash; ~28 seconds. Scroll continuously &mdash; the dashboard scroll IS the demo. The narration just labels what the viewer sees.<br><br>
+<strong>Why name Percolator:</strong> the page header literally shows "Percolator · Anatoly Yakovenko's perpetual DEX." Not naming Percolator in narration creates dissonance with what the viewer sees on screen. Saying "Percolator" once matches what's visible. Skip Anatoly's name.<br><br>
+<strong>"Audit firms drop a PDF and leave"</strong> &mdash; deliver as the attestations panel is on screen. Visual contrast: PDF vs on-chain receipts.
 </div>
 </div>
 
@@ -341,12 +341,11 @@ Every disclosure ships with a closed-loop fix bundle — patch, test, verificati
 </div>
 
 <div class="say-box">
-"That's Jelleo. Continuous, signed, on-chain.<br><br>
-One disclosure already shipped. The infrastructure to underwrite Solana DeFi is open and waiting to be occupied."
+"That's Jelleo. Continuous, signed, on-chain. One disclosure already shipped. The rest is being built right now."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~32 words. Let the last sentence land. After "occupied," wait one full second of silence before stopping the recording. That second of silence is what makes the close feel deliberate, not rushed.
+<strong>Pacing:</strong> ~20 words spoken &mdash; ~10 seconds. Let the last sentence land. After "right now," wait one full second of silence before stopping the recording. That silence is what makes the close feel deliberate, not rushed.
 </div>
 </div>
 
