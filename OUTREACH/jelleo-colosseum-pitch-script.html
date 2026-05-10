@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Jelleo · Colosseum Pitch Video Script · 2 minutes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0a0a0a; --ink-2: #2d2d2d; --ink-3: #595959; --ink-4: #8a8a8a;
+    --rule: #d4d4d4;
+    --bg: #ffffff;
+    --accent: #b45309;
+    --accent-tint: #fffbeb;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  @page { size: letter; margin: 0.55in; }
+  @media print {
+    .print-bar { display: none; }
+    .beat { page-break-inside: avoid; }
+    .page-break { page-break-before: always; }
+  }
+  .shell { max-width: 7.4in; margin: 0 auto; padding: 0.1in 0.2in; }
+
+  .cover { padding: 0 0 0.16in; border-bottom: 2px solid var(--accent); margin-bottom: 0.32in; }
+  .wordmark {
+    display: inline-block; font-weight: 700; letter-spacing: .26em;
+    font-size: 11px; padding: 4px 10px; border: 1.5px solid var(--ink); line-height: 1;
+  }
+
+  .beat {
+    margin: 0 0 0.5in;
+    padding: 0 0 0.3in;
+    border-bottom: 1px solid var(--rule);
+  }
+  .beat:last-of-type { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .beat-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10pt; color: var(--accent); font-weight: 700;
+    letter-spacing: .14em; text-transform: uppercase;
+    margin-bottom: 0.1in;
+  }
+  .beat-cue {
+    font-size: 14pt; font-weight: 600; color: var(--ink-2);
+    font-style: italic;
+    margin: 0 0 0.18in;
+    line-height: 1.4;
+  }
+  .speech {
+    font-size: 17pt;
+    line-height: 1.55;
+    color: var(--ink);
+  }
+  .speech p { margin: 0 0 0.14in; }
+  .speech p:last-child { margin-bottom: 0; }
+  .speech strong { font-weight: 600; color: var(--ink); }
+  .pause { color: var(--accent); font-style: italic; font-size: 0.7em; }
+
+  .print-bar { position: fixed; top: 12px; right: 12px; padding: 8px 14px;
+    background: var(--ink); color: white; border-radius: 4px;
+    font-size: 11pt; cursor: pointer; border: none; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+</style>
+</head>
+<body>
+
+<button class="print-bar" onclick="window.print()">Print to PDF →</button>
+
+<div class="shell">
+
+<!-- COVER -->
+<div class="cover">
+  <span class="wordmark">JELLEO</span>
+</div>
+
+<!-- BEAT 2 — BACKGROUND -->
+<div class="beat">
+  <div class="beat-tag">Beat 2 · background</div>
+  <div class="beat-cue">"I went to financial economics college in Russia…"</div>
+  <div class="speech">
+    <p>I went to financial economics college in Russia, and I've been running portfolios for years. Markets teaches you to stop trusting narratives and start looking for receipts. <span class="pause">[small pause]</span> In DeFi, there usually aren't any.</p>
+  </div>
+</div>
+
+<!-- BEAT 3 — THE PIVOT -->
+<div class="beat">
+  <div class="beat-tag">Beat 3 · the pivot</div>
+  <div class="beat-cue">"I also run an AI-agent product company…"</div>
+  <div class="speech">
+    <p>I also run an AI-agent product company — using multi-agent orchestration instead of writing each step by hand.</p>
+    <p>About a month ago I pointed that toolchain at Solana DeFi security as an experiment. The very first cycle produced a real bug — a one-shot insurance-drain in a deployed perpetual DEX. I disclosed it as a public pull request with a working proof-of-concept. <span class="pause">[small pause]</span> That's when I knew this wasn't a side project.</p>
+  </div>
+</div>
+
+<!-- BEAT 4 — WHAT JELLEO IS -->
+<div class="beat page-break">
+  <div class="beat-tag">Beat 4 · what Jelleo is</div>
+  <div class="beat-cue">"Jelleo is the productized version of that pipeline…"</div>
+  <div class="speech">
+    <p>Jelleo is the productized version of that pipeline. The on-chain underwriting layer for Solana DeFi — continuous detection, cross-protocol propagation, fix bundles, and signed receipts anyone can verify.</p>
+    <p>Built for protocols, insurers, and the capital downstream of them — who today get a quarterly audit and operate blind in between.</p>
+  </div>
+</div>
+
+<!-- BEAT 5 — WHY ME + CLOSE -->
+<div class="beat">
+  <div class="beat-tag">Beat 5 · why me + close</div>
+  <div class="beat-cue">"Why me…"</div>
+  <div class="speech">
+    <p>Why me. I'm not a Rust engineer. I'm not a Solana dev. What I am is someone who's lived inside risk, knows what infrastructure-grade trust looks like, and has the methodology to direct AI agents at problems traditional firms can't economically solve with humans.</p>
+    <p>That combination is rare. The timing is now. <span class="pause">[breath]</span> So this is what I'm building.</p>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

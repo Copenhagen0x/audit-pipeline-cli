@@ -173,13 +173,12 @@
     <tr><th style="width:18%">Time</th><th style="width:24%">Segment</th><th>What happens</th></tr>
   </thead>
   <tbody>
-    <tr><td class="time-col">0:00 — 0:20</td><td class="act-col">Open</td><td>Homepage hero · what Jelleo is in one breath · "everything you'll see is live data"</td></tr>
-    <tr><td class="time-col">0:20 — 0:50</td><td class="act-col">Status</td><td>Live VPS service health · heartbeat · proof the engine runs <em>right now</em></td></tr>
-    <tr><td class="time-col">0:50 — 1:20</td><td class="act-col">Four pillars</td><td>Methodology page · pillar grid · the architectural moat (P1 → P2 → P3 → P4)</td></tr>
-    <tr><td class="time-col">1:20 — 1:55</td><td class="act-col">Cycles</td><td>Public archive of signed receipts · cycle table · verify-offline block</td></tr>
-    <tr><td class="time-col">1:55 — 2:35</td><td class="act-col">Customer dashboard</td><td>Embedded buyer view · findings table · propagation · attestations</td></tr>
-    <tr><td class="time-col">2:35 — 2:50</td><td class="act-col">F7 case study</td><td>The first disclosure shipped by the engine · timeline · receipts</td></tr>
-    <tr><td class="time-col">2:50 — 3:00</td><td class="act-col">Close</td><td>One-line wrap · back to homepage</td></tr>
+    <tr><td class="time-col">0:00 — 0:20</td><td class="act-col">Open</td><td>Homepage hero + 3D network animation · "everything you'll see is live data"</td></tr>
+    <tr><td class="time-col">0:20 — 0:55</td><td class="act-col">Status — engine live</td><td>Click Status · service grid ticking · heartbeat · P2/P3/P4 attestation panels</td></tr>
+    <tr><td class="time-col">0:55 — 1:30</td><td class="act-col">Four pillars (on homepage)</td><td>Back to homepage <code>/#product</code> · animated pillar cards with watermarks, chips, tilt</td></tr>
+    <tr><td class="time-col">1:30 — 2:00</td><td class="act-col">Cycles — receipts</td><td>Click Cycles · archive table · click into raw merkle.json (signed JSON in browser)</td></tr>
+    <tr><td class="time-col">2:00 — 2:45</td><td class="act-col">Customer dashboard</td><td>Embedded buyer view · findings table (F7 visible here) · propagation · attestations · alerts</td></tr>
+    <tr><td class="time-col">2:45 — 3:00</td><td class="act-col">Close</td><td>Back to homepage hero · one-line wrap</td></tr>
   </tbody>
 </table>
 </div>
@@ -206,7 +205,7 @@ Everything I'm about to show you is live data."
 
 <!-- SEGMENT 2 — STATUS -->
 <div class="act">
-<h2 class="act-head"><span class="time">0:20</span> Status — proof the engine runs right now <span class="duration">30 seconds</span></h2>
+<h2 class="act-head"><span class="time">0:20</span> Status — proof the engine runs right now <span class="duration">35 seconds</span></h2>
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
@@ -232,37 +231,40 @@ The heartbeat is signed with our Ed25519 key and fires every hour. Cycle counts,
 
 <!-- SEGMENT 3 — CYCLES -->
 <div class="act">
-<h2 class="act-head"><span class="time">0:50</span> Four pillars — the architecture under the loop <span class="duration">30 seconds</span></h2>
+<h2 class="act-head"><span class="time">0:55</span> Four pillars — homepage #product section <span class="duration">35 seconds</span></h2>
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
-  <li>Type <code>jelleo.com/methodology.html#pillars</code> in URL bar &middot; press Enter (jumps directly to the pillar grid)</li>
-  <li>Pause on the four-pillar grid for ~3 seconds &middot; let the viewer read the pillar numbers (P1 / P2 / P3 / P4)</li>
-  <li>Slow scroll down through the grid as you narrate each pillar &middot; one pillar per breath</li>
+  <li>From the homepage, scroll smoothly down to the <strong>"Four pillars. One adaptive loop."</strong> section · or type <code>jelleo.com/#product</code> in URL bar to jump there</li>
+  <li>Land on the section header · let the lede paragraph come in</li>
+  <li>Slow scroll past each of the 4 pillar cards (P1, P2, P3, P4) &mdash; ~5-6 seconds per card</li>
+  <li>Hover over one pillar card briefly to trigger the tilt animation (cards lift toward the cursor)</li>
+  <li>Linger on the stack chips at the bottom of each card (RPC subscription, LiteSVM, Kani synthesizer, Anchor program, etc.) &mdash; these are concrete proof of architecture</li>
 </ol>
 
 <div class="stage-box">
-  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/methodology.html#pillars</code></span></div>
-  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">land on the pillar grid &middot; brief hold &middot; gentle scroll as each pillar is named</span></div>
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/#product</code></span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">smooth continuous scroll past P1 &rarr; P2 &rarr; P3 &rarr; P4 &middot; brief hover for tilt &middot; pause on stack chips</span></div>
 </div>
 
 <div class="say-box">
-"Four pillars under the engine.<br><br>
-<strong>P1 &middot; detection</strong> — autonomous hypothesis-driven hunting against deployed programs.<br>
-<strong>P2 &middot; propagation</strong> — when a finding lands, it auto-checks every architecturally similar protocol for the same bug class.<br>
-<strong>P3 &middot; fix bundle</strong> — every disclosure ships with a working patch, test, and verification.<br>
-<strong>P4 &middot; attestation</strong> — every cycle is signed and committed to a public registry.<br><br>
+"Underneath the loop, four pillars.<br><br>
+<strong>Detection</strong> — for every transaction hitting a covered protocol, a parallel simulation runs against attack-pattern instrumented forks. When state diverges, the platform flags it in real time.<br><br>
+<strong>Propagation</strong> — when any bug is disclosed anywhere, the engine extracts the structural pattern and searches every indexed protocol for the same class.<br><br>
+<strong>Fix delivery</strong> — confirmed bug becomes a bundle: the bug, the candidate fix, a Kani proof that the fix preserves invariants, and the test suite. Maintainers receive verified proposals, not raw findings.<br><br>
+<strong>Attestation</strong> — every cycle publishes a cryptographically signed Merkle root to chain. Other protocols can require attestation as a precondition for interaction.<br><br>
 No audit firm runs all four. The model doesn't allow it."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~58 words spoken. Hit each pillar name as a beat &mdash; tiny pause between them, like reading a list. The closing line ("the model doesn't allow it") is the punch &mdash; pause for half a second before moving on. That phrase is what positions Jelleo against incumbent audit firms without naming them.
+<strong>Pacing:</strong> ~115 words spoken &mdash; brisk pace. The visual is doing half the work: 4 distinct pillar cards with watermark P1/P2/P3/P4, technical body, stack chips. Don't over-narrate &mdash; let the cards land. The closing line ("the model doesn't allow it") is the punch &mdash; pause half a beat before moving on.<br><br>
+<strong>Why this works better than methodology page:</strong> the homepage cards are interactive (tilt animation), have technical chips that anchor abstract concepts to concrete tools, and live in the natural scroll flow of the homepage so the viewer never feels "we left the main page." Methodology page is a static doc &mdash; reads like a textbook. This reads like a product.
 </div>
 </div>
 
 <!-- SEGMENT 4 — CYCLES (was Segment 3) -->
 <div class="act">
-<h2 class="act-head"><span class="time">1:20</span> Cycles — the public receipts <span class="duration">35 seconds</span></h2>
+<h2 class="act-head"><span class="time">1:30</span> Cycles — the public receipts <span class="duration">30 seconds</span></h2>
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
@@ -288,66 +290,44 @@ This is what 'underwriting' actually means in our model. It's not a quarterly re
 </div>
 </div>
 
-<!-- SEGMENT 4 — CUSTOMER DASHBOARD -->
+<!-- SEGMENT 4 — CUSTOMER DASHBOARD (now absorbs F7 content; F7 shown as a finding row) -->
 <div class="act">
-<h2 class="act-head"><span class="time">1:55</span> Customer dashboard — the buyer's view <span class="duration">40 seconds</span></h2>
+<h2 class="act-head"><span class="time">2:00</span> Customer dashboard — buyer view + F7 in context <span class="duration">45 seconds</span></h2>
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">
-  <li>Navigate directly to <code>jelleo.com/customer/demo/full/</code> (type in URL bar OR click a nav shortcut if present)</li>
-  <li>Pause on the identity strip / KPI cells for ~2 seconds</li>
-  <li>Slow scroll through the findings table</li>
-  <li>Continue scrolling to the cluster activity / propagation graph</li>
-  <li>Continue to the on-chain attestations panel</li>
-  <li>End on the alert routing / reports section</li>
+  <li>Navigate to <code>jelleo.com/customer/demo/full/</code> (the embedded customer view)</li>
+  <li>Land on the identity strip · pause ~2 seconds (engine SHA, wrapper SHA, invariants verified, open findings KPIs)</li>
+  <li>Slow scroll into the findings table · <strong>pause ~3 seconds on the F7 row</strong> (labeled CRITICAL · "uninsured-loss-residual / self-dealing siphon")</li>
+  <li>Continue scroll to the cluster activity / propagation panel · pause on the protocol list showing where F7's pattern was swept</li>
+  <li>Continue to the on-chain attestations panel · multiple Solscan tx links visible</li>
+  <li>End on the alert routing / reports section · let the page settle</li>
 </ol>
 
 <div class="stage-box">
   <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/customer/demo/full/</code></span></div>
-  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">slow continuous scroll top-to-bottom · cursor at right edge · don't click into anything</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">slow continuous scroll top-to-bottom · linger 3s on F7 finding · linger on propagation + attestation panels</span></div>
 </div>
 
 <div class="say-box">
-"This is what a paying protocol sees. A continuous view of their codebase: open findings, severity, lifecycle state, the engine's confidence per finding, the propagation tree showing which sibling protocols have been swept for the same bug class.<br><br>
-Every disclosure ships with a closed-loop fix bundle — the patch, the test, the verification artifact. That's the structural difference from an audit firm. They drop a PDF and leave."
+"This is what a paying protocol sees. Continuous view of their codebase — open findings, severity, lifecycle state, confidence per finding.<br><br>
+This row right here — <strong>F7</strong>. The first public disclosure shipped through this engine. One-shot insurance-drain bug in a deployed Solana perpetual DEX. Disclosed with a working LiteSVM proof-of-concept.<br><br>
+Below it, the propagation panel — every architecturally similar protocol swept for the same bug class. Then the attestations — every cycle's Merkle root committed on-chain, queryable forever.<br><br>
+Every disclosure ships with a closed-loop fix bundle — patch, test, verification. Audit firms drop a PDF and leave. This is what continuous looks like."
 </div>
 
 <div class="tactical-box">
-<strong>Pacing:</strong> ~75 words. Scroll speed should match narration speed — ~1 panel per 5-6 seconds. The "drop a PDF and leave" line lands hardest if you say it as the on-chain attestations panel is on screen — the visual contrast does the work.
+<strong>Pacing:</strong> ~115 words spoken &mdash; brisk. The scroll IS the demo &mdash; one panel per ~6-8 seconds.<br><br>
+<strong>F7 strategy:</strong> showing F7 inside the customer dashboard (as a CRITICAL finding row in a real-looking table) is far stronger than a static case-study page. It frames F7 as evidence the engine works in production, not as a marketing artifact. The viewer sees: "this is what a customer sees; here's a real bug they were notified about; here's where the engine swept other protocols for the same class."<br><br>
+<strong>"Audit firms drop a PDF and leave"</strong> &mdash; deliver this line as the attestations panel is fully on screen. Visual contrast does the work: PDF vs on-chain receipts.
 </div>
 </div>
 
-<!-- SEGMENT 5 — F7 CASE STUDY -->
-<div class="act">
-<h2 class="act-head"><span class="time">2:35</span> F7 case study — the proof point <span class="duration">15 seconds</span></h2>
-
-<h3 class="sub-head click">What you click:</h3>
-<ol class="click-list">
-  <li>Navigate to <code>jelleo.com/case-studies/f7-percolator/</code></li>
-  <li>Pause on the hero / 08.5 KPI strip for ~2 seconds</li>
-  <li>Scroll to the timeline section · pause on the disclosure event</li>
-  <li>Scroll to the receipt strip showing engine SHA + wrapper SHA</li>
-</ol>
-
-<div class="stage-box">
-  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><code>jelleo.com/case-studies/f7-percolator/</code></span></div>
-  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">land on hero · scroll to timeline · scroll to receipt strip · stop</span></div>
-</div>
-
-<div class="say-box">
-"Proof the model works. F7 is the first public disclosure shipped by the Jelleo engine — a one-shot insurance-drain bug in a deployed Solana perpetual DEX.<br><br>
-Full timeline, the LiteSVM proof-of-concept test, the upstream pull request — all of it verifiable.<br><br>
-The same engine you saw on the status page is what produced this. It's running right now against the rest of the protocols in our coverage queue."
-</div>
-
-<div class="tactical-box">
-<strong>Pacing:</strong> ~75 words. Don't name Anatoly or Percolator on camera — say "deployed Solana perpetual DEX." The timeline page itself names the protocol; let the viewer connect the dots without you making a name-drop.
-</div>
-</div>
+<!-- F7 case study segment removed — F7 now shown inside Customer Dashboard segment as a finding row, which is more concrete than a dedicated case-study page tour -->
 
 <!-- SEGMENT 6 — CLOSE -->
 <div class="act">
-<h2 class="act-head"><span class="time">2:50</span> Close — wrap <span class="duration">10 seconds</span></h2>
+<h2 class="act-head"><span class="time">2:45</span> Close — wrap <span class="duration">15 seconds</span></h2>
 
 <h3 class="sub-head click">What you click:</h3>
 <ol class="click-list">

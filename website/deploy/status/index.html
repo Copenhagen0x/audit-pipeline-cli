@@ -307,7 +307,11 @@ section.doc { padding: 100px 0; }
         </div>
       </div>
 
-      <h3 style="font-size: clamp(20px, 2vw, 26px); font-weight: 600; margin: 32px 0 18px; color: var(--ink); letter-spacing: -0.01em;">Service health</h3>
+      <h2 style="font-size: 22px; font-weight: 600; margin: 56px 0 12px; letter-spacing: -0.012em;">P1 &mdash; Detection (service health)</h2>
+      <p style="color: var(--ink-3); font-size: 14px; margin: 0 0 20px; max-width: 80ch;">
+        Mainnet shadow + commit-watch + scheduler timers. These are the P1 services that
+        run continuous detection &mdash; the first pillar of the loop.
+      </p>
 
       <div class="services" id="services-grid">
         <div class="service-row">
@@ -368,27 +372,6 @@ section.doc { padding: 100px 0; }
 
       <div class="note" id="signal-note">
         <strong>Signal source.</strong> Each service writes its last-tick + status into the platform DB. The snapshot publisher rolls these into <code>api.jelleo.com/snapshot.json</code> every 5 minutes. This page polls that JSON every 60 seconds and re-renders. If the snapshot itself is stale (older than 30 minutes) the banner flips to <em>degraded</em>.
-      </div>
-
-      <h2 style="font-size: 22px; font-weight: 600; margin: 56px 0 12px; letter-spacing: -0.012em;">P4 &mdash; Cryptographic attestation</h2>
-      <p style="color: var(--ink-3); font-size: 14px; margin: 0 0 20px; max-width: 80ch;">
-        Off-chain Ed25519 signing on every cycle + per-cycle Merkle root.
-        Hourly heartbeat at <code>api.jelleo.com/heartbeat.json</code> proves the loop is running and signed.
-        Anyone with the <a href="/keys/jelleo.ed25519.pub">platform pubkey</a> can verify any artifact independently.
-      </p>
-      <div class="services" id="attestation-grid" style="margin-bottom: 56px;">
-        <div class="service-row">
-          <div class="service-name">Latest heartbeat<div class="desc" id="hb-desc">heartbeat.json &middot; signed Ed25519</div></div>
-          <div class="col-cadence" id="hb-engine">—</div>
-          <div class="col-last" id="hb-age">—</div>
-          <div class="service-state unknown" id="hb-state"><span class="dot"></span>Unknown</div>
-        </div>
-        <div class="service-row">
-          <div class="service-name">Per-cycle Merkle roots<div class="desc">SHA-256 over canonical finding+cycle fields, tamper-evident</div></div>
-          <div class="col-cadence" id="merkle-count">—</div>
-          <div class="col-last">—</div>
-          <div class="service-state unknown" id="merkle-state"><span class="dot"></span>—</div>
-        </div>
       </div>
 
       <h2 style="font-size: 22px; font-weight: 600; margin: 56px 0 12px; letter-spacing: -0.012em;">P2 &mdash; Cross-protocol propagation</h2>
@@ -459,6 +442,27 @@ section.doc { padding: 100px 0; }
           <div class="col-cadence">&mdash;</div>
           <div class="col-last">&mdash;</div>
           <div class="service-state unknown" id="bundle-pr-merged"><span class="dot"></span>—</div>
+        </div>
+      </div>
+
+      <h2 style="font-size: 22px; font-weight: 600; margin: 56px 0 12px; letter-spacing: -0.012em;">P4 &mdash; Cryptographic attestation</h2>
+      <p style="color: var(--ink-3); font-size: 14px; margin: 0 0 20px; max-width: 80ch;">
+        Off-chain Ed25519 signing on every cycle + per-cycle Merkle root.
+        Hourly heartbeat at <code>api.jelleo.com/heartbeat.json</code> proves the loop is running and signed.
+        Anyone with the <a href="/keys/jelleo.ed25519.pub">platform pubkey</a> can verify any artifact independently.
+      </p>
+      <div class="services" id="attestation-grid" style="margin-bottom: 56px;">
+        <div class="service-row">
+          <div class="service-name">Latest heartbeat<div class="desc" id="hb-desc">heartbeat.json &middot; signed Ed25519</div></div>
+          <div class="col-cadence" id="hb-engine">—</div>
+          <div class="col-last" id="hb-age">—</div>
+          <div class="service-state unknown" id="hb-state"><span class="dot"></span>Unknown</div>
+        </div>
+        <div class="service-row">
+          <div class="service-name">Per-cycle Merkle roots<div class="desc">SHA-256 over canonical finding+cycle fields, tamper-evident</div></div>
+          <div class="col-cadence" id="merkle-count">—</div>
+          <div class="col-last">—</div>
+          <div class="service-state unknown" id="merkle-state"><span class="dot"></span>—</div>
         </div>
       </div>
 
