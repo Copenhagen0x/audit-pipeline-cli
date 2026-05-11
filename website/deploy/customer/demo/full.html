@@ -6,7 +6,7 @@
 <link rel="canonical" href="https://jelleo.com/customer/demo/">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jelleo · Percolator dashboard</title>
-<meta name="description" content="Embedded customer dashboard — what a Jelleo-monitored Solana DeFi protocol sees. Live findings feed, on-chain attestation registry, cluster activity, alert routing.">
+<meta name="description" content="Embedded customer dashboard — what a Jelleo-monitored Solana DeFi protocol sees. Live findings feed, on-chain attestation registry, cluster activity.">
 <meta name="theme-color" content="#050504">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -688,44 +688,6 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   text-decoration-color: var(--rule-2);
 }
 
-/* Alert routing */
-.routes {
-  padding: 14px 16px;
-}
-.route-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--rule);
-  font-size: 12px;
-}
-.route-item:last-child { border-bottom: none; }
-.route-target {
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--ink);
-  letter-spacing: 0.005em;
-}
-.route-channel {
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 4px;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  background: rgba(245,184,0,0.1);
-  color: var(--amber);
-  margin-right: 8px;
-  border: 1px solid rgba(245,184,0,0.3);
-}
-.route-threshold {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--ink-3);
-}
-
 /* Reports */
 .reports {
   padding: 14px 16px;
@@ -1131,40 +1093,6 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
         </div>
         <div style="padding: 12px 16px; border-top: 1px solid var(--rule); font-size: 11px; color: var(--ink-4); font-family: var(--mono); letter-spacing: 0.04em;">
           Each cycle Ed25519-signed off-chain · <span style="color: var(--amber); font-weight: 600;">Y1 funded:</span> Anchor program publishes roots to mainnet
-        </div>
-      </div>
-    </div>
-
-    <!-- Alert routing -->
-    <div class="panel">
-      <div class="panel-head">
-        <span class="panel-pulse"></span>
-        <span class="panel-title">Alert routing</span>
-        <span class="panel-meta">customer config · 3 active routes</span>
-      </div>
-      <div class="panel-body">
-        <div class="routes">
-          <div class="route-item">
-            <div>
-              <span class="route-channel">Slack</span>
-              <span class="route-target">#percolator-security-alerts</span>
-            </div>
-            <span class="route-threshold">CRITICAL · HIGH</span>
-          </div>
-          <div class="route-item">
-            <div>
-              <span class="route-channel">Email</span>
-              <span class="route-target">anatoly@…</span>
-            </div>
-            <span class="route-threshold">DAILY DIGEST</span>
-          </div>
-          <div class="route-item">
-            <div>
-              <span class="route-channel">PagerDuty</span>
-              <span class="route-target">on-call rotation · 2 contacts</span>
-            </div>
-            <span class="route-threshold">CRITICAL only</span>
-          </div>
         </div>
       </div>
     </div>
