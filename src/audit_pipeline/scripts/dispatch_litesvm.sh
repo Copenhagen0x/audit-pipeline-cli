@@ -1,57 +1,52 @@
 #!/usr/bin/env bash
-# dispatch_litesvm.sh — run a LiteSVM test on the VPS for cross-platform reproduction.
+# dispatch_litesvm.sh — run a LiteSVM BPF reachability/bound test.
 #
 # Usage:
-#   bash scripts/dispatch_litesvm.sh <vps-host> <ssh-key> <test-name> [--features <feat>]
+#   bash scripts/dispatch_litesvm.sh <vps-host> <ssh-key> <test-name> [wrapper-dir] [features]
+#
+# Args:
+#   vps-host:     user@host (or "-" to run locally without SSH)
+#   ssh-key:      path to SSH key (or "-" to run locally)
+#   test-name:    cargo test name (e.g. test_my_finding_bound_analysis)
+#   wrapper-dir:  Optional. Path to wrapper Cargo.toml dir. Default
+#                 /tmp/audit/wrapper. For our deployment, pass
+#                 /root/audit_runs/percolator-live/target/wrapper.
+#   features:     Optional cargo features (e.g. "small")
 #
 # Examples:
-#   bash scripts/dispatch_litesvm.sh root@1.2.3.4 ~/.ssh/audit_vps test_v6_cursor_wrap_consumption_reset
-#   bash scripts/dispatch_litesvm.sh root@1.2.3.4 ~/.ssh/audit_vps test_v6_cursor_wrap_consumption_reset --features small
-#
-# Prerequisites:
-#   - VPS provisioned via provision_vps.sh
-#   - Wrapper code at /tmp/audit/wrapper/ on VPS
-#   - BPF artifact built (target/deploy/<program>.so) — script will rebuild if missing
+#   bash scripts/dispatch_litesvm.sh root@1.2.3.4 ~/.ssh/key test_my_lit /root/audit_runs/percolator-live/target/wrapper
+#   bash scripts/dispatch_litesvm.sh - - test_my_lit /root/audit_runs/percolator-live/target/wrapper    # local
 
 set -euo pipefail
 
-VPS_HOST="${1:?Usage: dispatch_litesvm.sh <vps-host> <ssh-key> <test> [--features <feat>]}"
-SSH_KEY="${2:?Usage: dispatch_litesvm.sh <vps-host> <ssh-key> <test> [--features <feat>]}"
-TEST_NAME="${3:?Usage: dispatch_litesvm.sh <vps-host> <ssh-key> <test> [--features <feat>]}"
-FEATURES="${4:-}"
+VPS_HOST="${1:?Usage: dispatch_litesvm.sh <vps-host> <ssh-key> <test-name> [wrapper-dir] [features]}"
+SSH_KEY="${2:?Usage: dispatch_litesvm.sh <vps-host> <ssh-key> <test-name> [wrapper-dir] [features]}"
+TEST_NAME="${3:?Usage: dispatch_litesvm.sh <vps-host> <ssh-key> <test-name> [wrapper-dir] [features]}"
+WRAPPER_DIR="${4:-/tmp/audit/wrapper}"
+FEATURES="${5:-}"
 
-SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=no"
+RESULTS_DIR="$(dirname "$WRAPPER_DIR")/results"
 
-echo "==> Running LiteSVM test '$TEST_NAME' on $VPS_HOST"
-[[ -n "$FEATURES" ]] && echo "    Feature flags: $FEATURES"
+if [[ "$VPS_HOST" == "-" || "$SSH_KEY" == "-" ]]; then
+    SSH_EXEC=("bash" "-lc")
+else
+    SSH_EXEC=("ssh" "-i" "$SSH_KEY" "-o" "StrictHostKeyChecking=no" "$VPS_HOST")
+fi
 
-# Build BPF artifact if missing OR if features changed
-echo "  Ensuring BPF artifact present..."
-$SSH "$VPS_HOST" "bash -lc '
-    cd /tmp/audit/wrapper
-    source ~/.cargo/env
-    if [[ ! -f target/deploy/*.so ]] || [[ \"$FEATURES\" != \"\" ]]; then
-        echo \"  Building BPF artifact: cargo build-sbf $FEATURES\"
-        cargo build-sbf $FEATURES 2>&1 | tail -10
-    else
-        echo \"  BPF artifact present\"
-    fi
-'"
+run_remote() {
+    "${SSH_EXEC[@]}" "$@"
+}
 
-# Run the test, stream output, capture for cross-platform compare
-LOG_PATH="/tmp/audit/results/litesvm_$TEST_NAME.log"
-echo "  Running test, output → $LOG_PATH"
-$SSH "$VPS_HOST" "bash -lc '
-    cd /tmp/audit/wrapper
-    source ~/.cargo/env
-    cargo test --test $TEST_NAME $FEATURES -- --nocapture 2>&1 | tee $LOG_PATH
-'" || true
+LOG_PATH="$RESULTS_DIR/litesvm_$TEST_NAME.log"
+run_remote "mkdir -p $RESULTS_DIR"
 
-# Summary
-echo
-echo "==> Test complete. Result summary:"
-$SSH "$VPS_HOST" "grep -E '^test result|test .* (ok|FAILED)' $LOG_PATH | tail -10 | sed 's/^/    /'"
+echo "==> Running LiteSVM test '$TEST_NAME' on $VPS_HOST (wrapper=$WRAPPER_DIR)"
+echo "    Log: $LOG_PATH"
 
-echo
-echo "    Full log: $LOG_PATH (on VPS)"
-echo "    Pull locally: scp -i $SSH_KEY $VPS_HOST:$LOG_PATH ./local_litesvm_$TEST_NAME.log"
+if [[ -n "$FEATURES" ]]; then
+    CARGO_CMD="cargo test --features '$FEATURES' --test $TEST_NAME -- --nocapture --test-threads=1"
+else
+    CARGO_CMD="cargo test --test $TEST_NAME -- --nocapture --test-threads=1"
+fi
+
+run_remote "set -e; source ~/.cargo/env 2>/dev/null || true; cd $WRAPPER_DIR && $CARGO_CMD 2>&1 | tee $LOG_PATH"

@@ -755,11 +755,15 @@ def _hunt_run(
         litesvm_out = cycle_dir / "litesvm"
         litesvm_out.mkdir(parents=True, exist_ok=True)
         # FIX 3: After authoring, actually invoke dispatch_litesvm.sh to run
-        # the LiteSVM test on the VPS. Legacy behavior only wrote the file.
-        vps_host = config.get("vps", {}).get("host")
-        vps_key = config.get("vps", {}).get("ssh_key")
+        # the LiteSVM test. Pass the actual wrapper path (workspace config)
+        # so the script does NOT depend on /tmp/audit symlinks. If vps.host
+        # is null (running on the VPS itself), use "-" "-" to skip SSH.
+        vps_host = config.get("vps", {}).get("host") or "-"
+        vps_key = config.get("vps", {}).get("ssh_key") or "-"
         from audit_pipeline import __file__ as pkg_init_path
         dispatch_script = Path(pkg_init_path).parent / "scripts" / "dispatch_litesvm.sh"
+        # The wrapper lives under the workspace at config.wrapper.local
+        wrapper_dir = workspace / config.get("wrapper", {}).get("local", "target/wrapper")
         for v in fired_for_litesvm:
             hyp_id = v["hypothesis_id"]
             finding_name = _slugify(hyp_id)
@@ -771,16 +775,14 @@ def _hunt_run(
                 "--output", str(litesvm_out),
             ])
             dispatch_rc: int | None = None
-            if (
-                rc_author == 0
-                and vps_host
-                and vps_key
-                and dispatch_script.exists()
-            ):
+            if rc_author == 0 and dispatch_script.exists():
                 # Test naming convention from litesvm.py: test_<finding>_bound_analysis
                 test_name = f"test_{finding_name}_bound_analysis"
                 dispatch_rc = _run(
-                    ["bash", str(dispatch_script), vps_host, vps_key, test_name],
+                    [
+                        "bash", str(dispatch_script),
+                        vps_host, vps_key, test_name, str(wrapper_dir),
+                    ],
                     timeout=600,
                 )
                 log("litesvm_dispatched", hypothesis_id=hyp_id,
