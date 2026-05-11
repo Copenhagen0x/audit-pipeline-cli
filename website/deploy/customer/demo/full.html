@@ -1525,15 +1525,26 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     const services = manifest.services || [];
 
     const hypsEl = document.getElementById('ops-hyps-latest');
-    if (hypsEl) hypsEl.textContent = latestCycle ? String(latestCycle.n_dispatched || 0) : '—';
+    if (hypsEl) {
+      if (latestCycle && latestCycle.in_progress && latestCycle.n_planned) {
+        // Mid-flight Layer 1: show "68 / 492" so the counter ticks each
+        // 60s snapshot tick instead of staying at 0 for an hour.
+        hypsEl.textContent = `${latestCycle.n_dispatched || 0} / ${latestCycle.n_planned}`;
+      } else {
+        hypsEl.textContent = latestCycle ? String(latestCycle.n_dispatched || 0) : '—';
+      }
+    }
 
     const hypsSubEl = document.getElementById('ops-hyps-sub');
     if (hypsSubEl && latestCycle) {
-      if (latestCycle.finished_at) {
+      if (latestCycle.in_progress && latestCycle.started_at) {
+        const pct = latestCycle.progress_pct != null
+          ? ` · ${latestCycle.progress_pct}%`
+          : '';
+        hypsSubEl.textContent = `dispatching${pct} · started ${relativeTime(latestCycle.started_at)}`;
+      } else if (latestCycle.finished_at) {
         hypsSubEl.textContent = `dispatched · ${relativeTime(latestCycle.finished_at)}`;
       } else if (latestCycle.started_at) {
-        // Hunt is in progress — show "dispatching · started X ago" so users
-        // don't see "0 dispatched · 18 hours ago" while Layer 1 is running.
         hypsSubEl.textContent = `dispatching · started ${relativeTime(latestCycle.started_at)}`;
       } else {
         hypsSubEl.textContent = 'dispatching';

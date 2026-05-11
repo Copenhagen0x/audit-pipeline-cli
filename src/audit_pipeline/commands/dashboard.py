@@ -262,8 +262,9 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
             "n_siblings":     details.get("n_siblings") or 0,
         })
 
-    recent_cycles = [
-        {
+    recent_cycles = []
+    for c in cycles:
+        entry = {
             "cycle_id": c.get("cycle_id"),
             "target_id": c.get("target_id"),
             "engine_sha": (c.get("engine_sha") or "")[:10],
@@ -273,8 +274,19 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
             "n_confirmed": c.get("n_confirmed"),
             "receipt_fingerprint": _read_receipt_fingerprint(c.get("cycle_id")),
         }
-        for c in cycles
-    ]
+        # Mid-flight progress: while finished_at is null, n_dispatched is
+        # still 0 in the DB (it's only set when Layer 1 completes). Override
+        # with the live count of *_response.md files in the cycle's recon/
+        # dir so the dashboard counter ticks up every snapshot tick instead
+        # of staying at 0 for an hour.
+        if not entry["finished_at"]:
+            prog = _in_progress_cycle_progress(workspace, c.get("cycle_id"))
+            if prog:
+                entry["in_progress"] = True
+                entry["n_dispatched"] = prog["n_responses"]
+                entry["n_planned"] = prog["n_prompts"]
+                entry["progress_pct"] = prog["pct_complete"]
+        recent_cycles.append(entry)
 
     # Public stats reflect only-disclosed surface. The full counts (including
     # in-progress findings) stay on the VPS findings.db.
@@ -691,8 +703,9 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         if sev in bucket:
             bucket[sev] += 1
 
-    recent_cycles = [
-        {
+    recent_cycles = []
+    for c in cycles:
+        entry = {
             "cycle_id": c.get("cycle_id"),
             "target_id": c.get("target_id"),
             "engine_sha": (c.get("engine_sha") or "")[:10],
@@ -702,8 +715,14 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
             "n_confirmed": c.get("n_confirmed"),
             "receipt_fingerprint": _read_receipt_fingerprint(c.get("cycle_id")),
         }
-        for c in cycles
-    ]
+        if not entry["finished_at"]:
+            prog = _in_progress_cycle_progress(workspace, c.get("cycle_id"))
+            if prog:
+                entry["in_progress"] = True
+                entry["n_dispatched"] = prog["n_responses"]
+                entry["n_planned"] = prog["n_prompts"]
+                entry["progress_pct"] = prog["pct_complete"]
+        recent_cycles.append(entry)
 
     # G28: per-customer propagation slice. Counts are scoped to findings
     # whose hypothesis_id (or derived siblings) belong to this customer's
@@ -888,6 +907,35 @@ def _customer_propagation_slice(
         "chain_links":              chain_links,
         "fix_bundles":              fix_bundles,
         "fix_bundle_counts":        bundle_counts,
+    }
+
+
+def _in_progress_cycle_progress(
+    workspace: Path | None, cycle_id: str | None
+) -> dict | None:
+    """For a cycle whose finished_at is null, scan its recon/ dir to derive
+    live mid-flight progress: how many prompts were dispatched and how many
+    responses have come back. Returns None if workspace / cycle_id missing,
+    or if the recon dir doesn't exist (cycle not at Layer 1 yet)."""
+    if not workspace or not cycle_id:
+        return None
+    recon = workspace / "hunts" / cycle_id / "recon"
+    if not recon.is_dir():
+        return None
+    try:
+        n_prompts = sum(1 for _ in recon.glob("*_prompt.md"))
+        n_responses = sum(1 for _ in recon.glob("*_response.md"))
+        n_verdicts = sum(1 for _ in recon.glob("*_verdict.md"))
+    except OSError:
+        return None
+    if n_prompts == 0:
+        return None
+    pct = (n_responses / n_prompts * 100.0) if n_prompts else 0.0
+    return {
+        "n_prompts": n_prompts,
+        "n_responses": n_responses,
+        "n_verdicts": n_verdicts,
+        "pct_complete": round(pct, 1),
     }
 
 
