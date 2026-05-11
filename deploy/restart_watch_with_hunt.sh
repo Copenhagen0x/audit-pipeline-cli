@@ -41,7 +41,7 @@ ON_UPDATE_CMD='source /root/.audit-env && audit-pipeline --workspace '"$WORKSPAC
 
 # Restart watch with the hunt trigger wired in.
 tmux new-session -d -s jelleo-watch \
-    "source $ENV_FILE && /root/.local/bin/audit-pipeline --workspace $WORKSPACE watch \
+    "source $ENV_FILE && audit-pipeline --workspace $WORKSPACE watch \
         --auto-pull \
         --update-pin \
         --interval 300 \

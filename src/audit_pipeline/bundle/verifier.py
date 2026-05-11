@@ -99,7 +99,43 @@ def _gate_patch_well_formed(workspace: Path, finding_id: int) -> GateResult:
             f"Bundle policy is one-file-per-patch.",
             time.time() - t0,
         )
-    return GateResult(True, f"valid unified diff modifying {touched[0]}", time.time() - t0)
+    # FIX B-#10: reject LLM-authored patches that touch paths outside the
+    # engine repo (path traversal via `+++ b/../../etc/passwd` or absolute
+    # paths). git apply IS mostly safe, but defense-in-depth: reject any
+    # `..` segments, absolute paths, or paths containing dangerous tokens.
+    target = touched[0]
+    if (
+        target.startswith("/")
+        or target.startswith("\\")
+        or ".." in target.replace("\\", "/").split("/")
+        or "\x00" in target
+    ):
+        return GateResult(
+            False,
+            f"patch target {target!r} contains path-traversal or absolute "
+            f"path segments — refusing to apply",
+            time.time() - t0,
+        )
+    # Reject diffs that include binary patch markers, symlink-mode changes,
+    # rename ops, or new-file modes (LLM should only modify existing files).
+    forbidden_markers = [
+        "GIT binary patch",
+        "Binary files",
+        "new file mode 120000",  # symlink
+        "rename from",
+        "rename to",
+        "deleted file mode",
+        "new file mode",
+    ]
+    for marker in forbidden_markers:
+        if marker in text:
+            return GateResult(
+                False,
+                f"patch contains forbidden marker {marker!r} — bundle policy "
+                f"allows text edits to existing files only",
+                time.time() - t0,
+            )
+    return GateResult(True, f"valid unified diff modifying {target}", time.time() - t0)
 
 
 def _have_cargo() -> bool:
@@ -125,7 +161,11 @@ def _gate_poc_fails_pre_patch(
         return GateResult(None, "skipped — no poc_test_name provided", time.time() - t0)
     try:
         # cargo test exits 0 if all tests pass. We want the PoC to FAIL on the
-        # unpatched repo (i.e. exit non-zero) to prove the bug is reproducible.
+        # unpatched repo (i.e. test assertion fires) to prove the bug is
+        # reproducible. FIX B-#14: distinguish compile failure / "no such
+        # test" / panic from genuine test assertion failure. Any non-zero exit
+        # was previously treated as "bug reproduces" which is wrong — compile
+        # errors and missing test binaries would falsely confirm fake bugs.
         proc = subprocess.run(
             ["cargo", "test", "--features", "test", "--test", poc_test_name],
             cwd=str(engine_repo),
@@ -133,15 +173,47 @@ def _gate_poc_fails_pre_patch(
         )
     except subprocess.TimeoutExpired:
         return GateResult(False, "cargo test timed out (>600s)", time.time() - t0)
-    if proc.returncode == 0:
+    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    looks_compile_failed = (
+        "could not compile" in combined
+        or "error[E" in combined.split("test result:")[0]
+        or "did not match any tests" in combined
+        or "no test target" in combined.lower()
+    )
+    if looks_compile_failed:
+        return GateResult(
+            None,
+            f"skipped — cargo failed to compile / no test target named "
+            f"{poc_test_name} (this is NOT a bug-reproduction signal). "
+            f"stderr tail: {(proc.stderr or '')[-300:]}",
+            time.time() - t0,
+        )
+    looks_test_fired = (
+        "test result: FAILED" in combined
+        or "panicked at" in combined
+        or "assertion failed" in combined
+    )
+    if proc.returncode == 0 and not looks_test_fired:
         return GateResult(
             False,
             "PoC PASSED on unpatched repo — bug is not reproducible. "
             "Either the PoC is wrong or the repo already has the fix.",
             time.time() - t0,
         )
-    return GateResult(True, f"PoC failed on unpatched repo (exit {proc.returncode}) — bug reproduces",
-                      time.time() - t0)
+    if looks_test_fired:
+        return GateResult(
+            True,
+            f"PoC failed on unpatched repo (exit {proc.returncode}, "
+            f"assertion fired) — bug reproduces",
+            time.time() - t0,
+        )
+    # Non-zero exit but no test-fail signature found. Mark indeterminate.
+    return GateResult(
+        None,
+        f"skipped — cargo exited {proc.returncode} without a recognizable "
+        f"test-result signature. stderr tail: {(proc.stderr or '')[-300:]}",
+        time.time() - t0,
+    )
 
 
 def _apply_patch(engine_repo: Path, patch_text: str) -> tuple[bool, str]:
@@ -358,9 +430,27 @@ def run_all_gates(
             gates[gate_name] = GateResult(
                 None, "skipped — patch_well_formed failed", 0.0)
 
+    # FIX B-#18: derive engine_sha from `git rev-parse HEAD` inside the engine
+    # repo as the AUTHORITATIVE provenance value, not from a free-form arg
+    # that could be doctored via meta.json. Falls back to the caller-supplied
+    # engine_sha only when git isn't available.
+    actual_engine_sha = engine_sha
+    if engine_repo is not None and (engine_repo / ".git").is_dir():
+        try:
+            proc = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(engine_repo),
+                capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                actual_engine_sha = proc.stdout.strip()
+        except (subprocess.TimeoutExpired, OSError):
+            pass  # fall back to caller-supplied
+
     out = {
         "finding_id": finding_id,
-        "engine_sha": engine_sha,
+        "engine_sha": actual_engine_sha,
+        "engine_sha_claimed": engine_sha if engine_sha != actual_engine_sha else None,
         "patch_sha":  file_sha256(patch_path(workspace, finding_id)),
         "ran_at":     datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "gates":      {k: v.to_json() for k, v in gates.items()},

@@ -561,8 +561,22 @@ def _hunt_run(
 
     # RESUME: if recon_summary.json already exists and is non-empty, skip
     # Layer 1 entirely. The recon command writes the summary at the END of
-    # its work, so presence == completion.
+    # its work, so presence == completion. FIX A-H1: also try-parse the JSON
+    # to catch the SIGKILL-mid-write case where the file exists but is
+    # truncated. Corrupt summary => fall through to re-run recon.
+    summary_is_valid_for_resume = False
     if resume_cycle and summary_path.exists() and summary_path.stat().st_size > 50:
+        try:
+            _probe = json.loads(summary_path.read_text())
+            if isinstance(_probe, dict) and "verdicts" in _probe:
+                summary_is_valid_for_resume = True
+        except (json.JSONDecodeError, OSError) as e:
+            log("layer1_resume_summary_corrupt", error=str(e))
+            console.print(
+                f"[yellow]Layer 1 resume blocked — recon_summary.json is "
+                f"corrupt ({e}). Re-running Layer 1.[/yellow]"
+            )
+    if summary_is_valid_for_resume:
         log("layer1_resumed_from_existing", path=str(summary_path))
         console.print(
             f"[green]Layer 1 SKIPPED — resuming from existing recon_summary.json "
@@ -752,17 +766,26 @@ def _hunt_run(
             cargo_log_path = poc_out / f"cargo_{finding_name}.log"
             # RESUME: if both scaffold AND cargo log exist from a prior run,
             # reload the outcome and skip both LLM authoring AND cargo test.
-            # The cargo log is written at the END of the test run, so its
-            # presence == completion.
+            # FIX A-H2: only accept the cargo log if it contains a TERMINAL
+            # marker — without one, the prior cargo run was killed mid-stream
+            # and re-parsing it could silently demote a real bug to "no bug".
+            cargo_log_complete = False
+            combined = ""
             if (
                 resume_cycle
                 and scaffold_path.exists()
                 and cargo_log_path.exists()
                 and cargo_log_path.stat().st_size > 100
             ):
+                combined = cargo_log_path.read_text(encoding="utf-8", errors="replace")
+                cargo_log_complete = (
+                    "test result:" in combined
+                    or "could not compile" in combined
+                    or "error: could not" in combined
+                )
+            if cargo_log_complete:
                 log("poc_resumed_from_existing", hypothesis_id=hyp_id,
                     finding=finding_name)
-                combined = cargo_log_path.read_text(encoding="utf-8", errors="replace")
                 looks_compile_failed = (
                     "could not compile" in combined
                     or "error[E" in combined.split("test result:")[0]

@@ -212,7 +212,7 @@ if mkdir -p "$PUBLIC_CYCLE_DIR" 2>/dev/null; then
                 --print-to-pdf="$PUBLIC_CYCLE_DIR/hunt_report.pdf" \
                 "file://$PUBLIC_CYCLE_DIR/hunt_report.html" >/dev/null 2>&1 || true
             if [ -f "$PUBLIC_CYCLE_DIR/hunt_report.pdf" ]; then
-                /root/.local/bin/audit-pipeline --workspace "$WORKSPACE" \
+                audit-pipeline --workspace "$WORKSPACE" \
                     sign sign "$PUBLIC_CYCLE_DIR/hunt_report.pdf" >/dev/null 2>&1 || true
                 echo "publish_cycle: rendered + signed hunt_report.pdf"
             fi
@@ -245,7 +245,7 @@ if [ -f "$WORKSPACE/findings.db" ] && command -v sqlite3 >/dev/null 2>&1; then
     if [ -n "$CONFIRMED_IDS" ]; then
         N_NOTIFIED=0
         for FID in $CONFIRMED_IDS; do
-            if /root/.local/bin/audit-pipeline --workspace "$WORKSPACE" \
+            if audit-pipeline --workspace "$WORKSPACE" \
                 notify critical --finding-id "$FID" --repro-link "$REPRO_BASE/" \
                 >/dev/null 2>&1; then
                 N_NOTIFIED=$((N_NOTIFIED + 1))

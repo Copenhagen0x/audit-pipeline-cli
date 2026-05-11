@@ -29,7 +29,7 @@ set -euo pipefail
 
 WORKSPACE="${WORKSPACE:-/root/audit_runs/percolator-live}"
 DOCROOT="${DOCROOT:-/var/www/jelleo.com/cycles}"
-AUDIT_PIPELINE="${AUDIT_PIPELINE:-/root/.local/bin/audit-pipeline}"
+AUDIT_PIPELINE="${AUDIT_PIPELINE:-audit-pipeline}"
 
 # 1. Resolve cycle id
 if [ "$#" -ge 1 ]; then

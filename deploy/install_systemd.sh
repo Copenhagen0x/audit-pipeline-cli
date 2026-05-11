@@ -16,8 +16,9 @@ if [[ ! -f /root/.audit-env ]]; then
     exit 1
 fi
 
-if [[ ! -x /root/.local/bin/audit-pipeline ]]; then
-    echo "ERROR: /root/.local/bin/audit-pipeline missing. Install audit-pipeline first."
+if ! command -v audit-pipeline >/dev/null 2>&1; then
+    echo "ERROR: audit-pipeline missing from PATH. Install audit-pipeline first."
+    echo "  (looked in: $PATH)"
     exit 1
 fi
 
@@ -55,7 +56,7 @@ echo "=== Ensuring cryptography is installed ==="
 # Generate the signing keypair on first run only — refuses to overwrite.
 if [[ ! -f /root/audit_runs/percolator-live/keys/jelleo.ed25519 ]]; then
     echo "=== Generating Ed25519 signing keypair ==="
-    /root/.local/bin/audit-pipeline --workspace /root/audit_runs/percolator-live sign keygen || \
+    audit-pipeline --workspace /root/audit_runs/percolator-live sign keygen || \
         echo "  WARN: keygen failed — re-run manually after fixing"
 fi
 
