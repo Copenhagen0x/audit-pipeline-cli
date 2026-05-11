@@ -1,0 +1,2491 @@
+# Diff-targeted hypothesis library for Percolator perpetual DEX.
+#
+# Authored 2026-05-10 against HEAD e2ed66cc63bcb95da55f2e3955c7cae1419093ec.
+# Diff baseline: c3c941eb (F7 PR #39 base). Range covers 9 commits since F7,
+# 22 files changed, 21,137 insertions / 7,170 deletions, src/percolator.rs
+# growing from ~8,500 lines to 10,416 lines.
+#
+# Surface families (familial ID prefix):
+#   A* — Anchor v2 entrypoint port (commit eefe834)        — 19 hyps
+#   O* — TOTO oracle legs                                   — 16 hyps
+#   F* — Hyperp dynamic fees                                — 14 hyps
+#   K* — Keeper changes (036b51c + 36cbea3 + 3203c98)      — 19 hyps
+#   M* — Matcher zero-fill (9c8daa4)                        —  6 hyps
+#   S* — After-hours self-deal (e2ed66c) + adjacent surfaces — 20 hyps
+#   W* — Withdrawal safety (d3f5a07)                        — 10 hyps
+#   C* — Crank progress (d3f5a07)                           — 10 hyps
+#   T* — Threat-model gap inversion (a1_siphon / economic / envelope) — 24 hyps
+#
+# Total: 138 diff-targeted hypotheses (de-duplicated where literal overlap).
+#
+# Methodology: 6 parallel deep-read agents read the diff at e2ed66cc,
+# studied surrounding code in src/percolator.rs (10,416 lines), and authored
+# falsifiable claims framed for the 3-pass LLM hunt pipeline (recon ->
+# adversarial debate -> LiteSVM PoC).
+#
+# Each hypothesis is run by `audit-pipeline hunt --hypotheses ...` and
+# verdicts land in the Jelleo findings DB. Cluster-applicable claims
+# auto-propagate to drift, mango, jupiter-perps when applicable.
+
+hypotheses:
+
+  # ===================================================================
+  # FAMILY A — Anchor v2 entrypoint port (commit eefe834)
+  # ===================================================================
+
+  - id: A1-matcher-realloc-frozen-ctx-len
+    class: state_transition
+    severity: Critical
+    bug_class: post-cpi-stale-data-length
+    claim: >
+      TradeCpi (src/percolator.rs:8049-8079) issues invoke_signed to a
+      caller-supplied matcher program with caller-supplied a_matcher_ctx,
+      then at line 8064 calls a_matcher_ctx.try_borrow_data() and parses
+      the matcher's return blob. The Anchor v2 bridge
+      (src/percolator.rs:10298-10354) snapshots data_len once at top-of-
+      entrypoint into a `&mut [u8]` slice built via
+      `from_raw_parts_mut(ptr, (*raw).data_len as usize)` (line 10324-10328)
+      and wraps it in Rc<RefCell<&mut [u8]>>. The slice length is FROZEN —
+      never re-read from RuntimeAccount.data_len after CPI. A malicious
+      matcher (controlled at LP InitLP time via
+      engine.accounts[lp_idx].matcher_program) writes attacker-favorable
+      MatcherReturn bytes into ctx data BEFORE shrinking data_len via a
+      nested CPI to system_program reallocation. The post-invoke borrow
+      in percolator reads through the bridge's stale 64-byte slice -> sees
+      attacker bytes that pass abi_ok (req_id matches because matcher
+      sets it), enabling attacker-chosen exec_price_e6 and exec_size.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeCpi handler around lines 7700-8200, zc::invoke_signed_trade
+      (lines 1628-1649), matcher_abi::read_matcher_return (line 1679+),
+      policy::abi_ok, process_with_legacy_account_infos (10298-10354)
+    relevant_constants: |
+      size_of::<RuntimeAccount>() = 88, MATCHER_CALL_LEN, FLAG_VALID = 1,
+      FLAG_PARTIAL_OK = 2, FLAG_REJECTED = 4
+
+  - id: A1-cpi-data-len-frozen-general
+    class: state_transition
+    severity: Critical
+    bug_class: post-cpi-stale-data-length
+    claim: >
+      Every AccountInfo built by the bridge at src/percolator.rs:10341
+      holds a Rc<RefCell<&mut [u8]>> whose slice length is frozen at
+      top-of-entrypoint. Any account passed into a CPI that later mutates
+      its data_len in the runtime (realloc, close, allocate) is read post-
+      CPI through the frozen-length slice — out-of-bounds-by-semantics
+      reads or silent truncation. Concrete check across all handlers
+      that do `account.try_borrow_data()` AFTER `invoke_signed`/`invoke`
+      and don't re-bind a fresh AccountInfo.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeCpi (line 8049), CloseSlab (lines 8846-8877), Deposit/Withdraw
+      collateral handlers (around lines 6440, 6677, 6863, 8665, 9557,
+      9730, 9833, 10227)
+
+  - id: A1-borrow-state-bypass
+    class: implicit_invariant
+    severity: High
+    bug_class: pinocchio-borrow-state-desync
+    claim: >
+      The bridge constructs `&mut u64` and `&mut [u8]` raw references via
+      unsafe at src/percolator.rs:10322-10328 and wraps them in
+      Rc<RefCell<_>>. It NEVER touches RuntimeAccount.borrow_state.
+      Pinocchio uses borrow_state to track active borrows; the bridge
+      leaves it at NOT_BORROWED while two `&mut` references into the
+      same RuntimeAccount fields are alive. Any nested CPI to an Anchor
+      v2 callee that constructs an AccountView over the same *raw and
+      tries try_borrow_mut() will succeed (borrow_state says NOT_BORROWED)
+      and obtain a second `&mut [u8]` aliasing the same bytes — Rust UB.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-aliased-lamports-mut-ref
+    class: implicit_invariant
+    severity: High
+    bug_class: rust-aliasing-rawmut-into-runtime-account
+    claim: >
+      Line 10322: `let lamports_ref = unsafe { &mut (*raw).lamports };`
+      creates a `&mut u64` into the SVM-resident RuntimeAccount.lamports
+      field. Solana's CPI runtime ALSO acquires `&mut` access to the same
+      field during invoke_signed (to update lamports post-CPI). Two `&mut`
+      references to the same u64 violate Rust's aliasing rules. In BPF
+      this is "fine" because the CPI runtime suspends the caller's stack
+      frame and the Rust-level &mut is not actively used during invoke,
+      but a sufficiently-smart compiler may reorder lamport reads/writes
+      around the invoke point assuming sole ownership.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-anchor-v2-default-feature-shipped
+    class: invariant_property
+    severity: Medium
+    bug_class: untested-production-path
+    claim: >
+      Cargo.toml line 13 sets `default = ["anchor-v2"]`. The Anchor v2
+      bridge ships to mainnet by default (`cargo build-sbf` activates it
+      automatically). The 277-test suite predates the bridge and almost
+      certainly runs solana-program-test which constructs AccountInfos
+      via the legacy path — meaning the bridge's unsafe code is NEVER
+      exercised by existing tests. Verify by inspecting CI / Cargo.toml
+      dev-deps and confirming whether any test builds the BPF binary
+      with anchor-v2 active.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: Cargo.toml
+
+  - id: A1-rent-epoch-hardcoded-zero
+    class: invariant_property
+    severity: Medium
+    bug_class: rent-epoch-build-divergence
+    claim: >
+      AccountInfo.rent_epoch is hardcoded to Epoch::default() = 0 at line
+      10346. The legacy entrypoint passes the real rent_epoch from the
+      SVM input. No percolator code reads rent_epoch today, but the
+      asymmetry between builds means any future feature that conditions
+      on rent_epoch ages will silently behave differently in anchor-v2
+      builds. Also, CPI re-serialization to the callee includes the
+      forged rent_epoch=0, which the runtime may or may not validate.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-pubkey-address-transmute-no-static-assert
+    class: implicit_invariant
+    severity: Medium
+    bug_class: type-punning-version-drift
+    claim: >
+      Lines 10339-10340 transmute `&Address` into `&Pubkey` via raw
+      pointer cast. solana_address::Address and solana_program v1.18.26's
+      Pubkey are both `#[repr(transparent)] struct(_, [u8; 32])`, so
+      layout matches today. There is NO `const _: () = assert!(...)`
+      guarding this assumption. A future Cargo.lock update that pulls
+      solana-program v2.x (different repr) or that bumps solana-address
+      to a non-transparent layout would silently break the transmute.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-duplicate-account-detection-by-ptr
+    class: invariant_property
+    severity: Medium
+    bug_class: duplicate-account-detection-semantics
+    claim: >
+      `first_duplicate` (lines 10356-10366) detects duplicates by
+      account_ptr equality. Pinocchio's serializer uses the borrow_state
+      byte = duplicate-index marker (NON_DUP_MARKER vs index) and writes
+      identical *raw RuntimeAccount pointers for duplicates. account_ptr
+      equality therefore matches Pinocchio's semantics. The bridge
+      correctly shares the same Rc<RefCell> for duplicates. Falsifiable:
+      pass the same account twice in a transaction and observe slice
+      aliasing.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-rc-refcell-lifetime-via-clone
+    class: implicit_invariant
+    severity: High
+    bug_class: rust-lifetime-extension-via-rc-clone
+    claim: >
+      The bridge's Rc<RefCell<&mut [u8]>> is cloned into AccountInfo
+      structs. Inside the processor, AccountInfo is .clone()'d into CPI
+      args at e.g. src/percolator.rs:4027-4030 (collateral::deposit/
+      withdraw) and lines 8856-8860 (CloseSlab). Each clone bumps the
+      Rc's refcount, extending the lifetime of the inner `&mut [u8]`
+      beyond the original Vec. The compiler accepts this because the
+      Rc::clone is an unsafe lifetime extension via `'a` smuggling.
+      Practically, the Rcs are all dropped at function return, so memory
+      stays valid. But the Rust type system does NOT enforce that.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-cpi-tail-account-owner-aliased
+    class: state_transition
+    severity: High
+    bug_class: post-cpi-owner-mutation-via-assign
+    claim: >
+      The bridge sets AccountInfo.owner to a `&Pubkey` aliasing
+      RuntimeAccount.owner (line 10340). Pinocchio's docs explicitly warn:
+      "It is the caller's responsibility to ensure that this reference is
+      not used after the account owner has been changed [via assign]."
+      Inside TradeCpi, the matcher CPI is permitted to .assign() any of
+      the tail accounts it owns or controls (system_program::assign,
+      etc.). After CPI, any access to `tail_ai.owner` reads the post-
+      assign value. Falsifiable: build PoC where matcher reassigns a
+      tail account to system_program, then check whether any post-CPI
+      owner check in percolator reads attacker-chosen owner.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-anchor-guardrails-runtime-asserts
+    class: invariant_property
+    severity: Medium
+    bug_class: feature-flag-runtime-assertion
+    claim: >
+      Cargo.toml line 52 enables `features = ["alloc", "guardrails"]` on
+      anchor-lang-v2. The guardrails feature in anchor-lang-v2 may inject
+      runtime-level borrow assertions, panic-on-uninitialized-account
+      checks, or other invariants. These guardrails operate on AccountView
+      objects, NOT on the legacy AccountInfo objects the bridge builds.
+      If guardrails post-CPI assert borrow_state == NOT_BORROWED on the
+      Pinocchio side, the bridge's hidden raw `&mut` borrows are invisible
+      to the assertion.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: Cargo.toml
+
+  - id: A1-no-program-id-pointer-check
+    class: authorization
+    severity: Low
+    bug_class: program-id-stack-allocation
+    claim: >
+      `Pubkey::new_from_array(program_id.to_bytes())` at line 10293
+      heap-stacks a copy of the program ID rather than aliasing the SVM-
+      resident Address. Downstream PDA derivations (`find_program_address`,
+      `create_program_address`) operate by byte-content equality, not
+      pointer identity, so the copy is benign. Risk only if Solana's CPI
+      ever validates program_id by pointer identity into the input buffer.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-vault-close-data-len-shrink
+    class: state_transition
+    severity: High
+    bug_class: post-spl-close-stale-data
+    claim: >
+      CloseSlab issues `spl_token::instruction::close_account` at line
+      8846-8862. The SPL Token close instruction transfers lamports and
+      sets the runtime's account state. Post-close, RuntimeAccount.data_len
+      may remain at 165 (SPL Token does not realloc; it just zeroes the
+      bytes and clears authority) — or it may be set to 0 depending on
+      runtime version. The bridge's frozen slice still claims 165 bytes.
+      Verify SPL Token v4.0.0 close semantics on data_len.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-error-mapping-completeness
+    class: invariant_property
+    severity: Low
+    bug_class: error-discriminant-collision
+    claim: >
+      `map_legacy_error` at src/percolator.rs:10368-10408 exhaustively
+      maps each LegacyProgramError variant to an AnchorProgramError
+      variant. `Custom(code)` passes through 1:1. If anchor-lang-v2's
+      AnchorProgramError reserves Custom codes for internal errors (e.g.,
+      0..=99 for anchor runtime), PercolatorError discriminants may
+      collide.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-bridge-no-empty-accounts-guard
+    class: invariant_property
+    severity: Low
+    bug_class: zero-account-edge-case
+    claim: >
+      The bridge's process_with_legacy_account_infos accepts an empty
+      `accounts` slice without explicit guard. Each instruction handler
+      does its own accounts::expect_len call. A new handler that forgets
+      expect_len would panic on index access. Defense-in-depth concern.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-test-suite-coverage-gap
+    class: invariant_property
+    severity: High
+    bug_class: untested-bridge-code
+    claim: >
+      The bridge module at src/percolator.rs:10266-10410 is gated on
+      `feature = "anchor-v2"`. Unit tests (`cargo test`) run with default
+      features but compile WITHOUT the BPF entrypoint (only
+      no-entrypoint), so the bridge code is not even compiled in pure
+      `cargo test`. Integration tests via LiteSVM load the BPF binary,
+      which IS built with anchor-v2. The bridge is exercised only via
+      LiteSVM. Verify CI runs cargo build-sbf AND LiteSVM tests; verify
+      tests cover post-CPI data reads on every CPI path.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-bridge-handles-256-accounts-stack
+    class: invariant_property
+    severity: Medium
+    bug_class: stack-pressure-from-vec-allocation
+    claim: >
+      For each instruction, the bridge allocates 3 Vec<_>s (lamports,
+      data, legacy_accounts) sized to accounts.len(). With MAX_TX_ACCOUNTS
+      = 256 and AccountInfo size ~ 56 bytes, the stack frame for
+      process_with_legacy_account_infos approaches ~25KB if Vecs spill.
+      `#[inline(never)]` is set on the function, mitigating recursive
+      stack growth. Still: heap allocations via Pinocchio's
+      BumpAllocator may exhaust if the heap budget is tight. DoS-class.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-double-write-via-rc-clone-in-cpi
+    class: state_transition
+    severity: High
+    bug_class: rc-refcell-borrow-collision
+    claim: >
+      The bridge wraps `&mut [u8]` data slices in Rc<RefCell<>>. Inside
+      collateral::deposit at line 4027 the AccountInfo is .clone()'d
+      (which Rc::clones the data) and handed to invoke. invoke's
+      implementation in solana-program v1.18.26 itself takes the same
+      Rc<RefCell<>> from the original AccountInfo and writes back
+      post-CPI. If both the cloned and original AccountInfo are alive
+      and ANY code holds a `RefMut` on one while invoke runs, RefCell's
+      panic-on-borrow-conflict triggers.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  - id: A1-system-program-creation-flow-untouched
+    class: state_transition
+    severity: Low
+    bug_class: account-creation-pre-bridged
+    claim: >
+      Searched src/percolator.rs for system_instruction::create_account
+      and system_program::ID — no matches. Percolator does NOT itself
+      allocate accounts via CPI; all accounts (slab, vault, user) must
+      be pre-created by the caller. This means the bridge does not
+      have to handle the "data_len grows during instruction" case for
+      its own CPIs. Reduces the attack surface relative to programs that
+      do dynamic account allocation.
+    applies_to: [percolator]
+    scope_conditions: [anchor_v2_runtime]
+    target_file: src/percolator.rs
+
+  # ===================================================================
+  # FAMILY O — TOTO oracle legs (commit d40edb5)
+  # ===================================================================
+
+  - id: O1-leg-publish-time-rewind
+    class: invariant_property
+    severity: High
+    bug_class: oracle-monotonicity-violation
+    claim: >
+      `read_external_price_e6` returns `max_publish_time` derived only from the
+      current read's leg publish times, but `clamp_external_price` then writes
+      this value into `config.last_oracle_publish_time` whenever the read
+      `advanced`. If leg 1 advances (newer timestamp) while leg 2 stays at the
+      same prior timestamp that is older than the previously written
+      `last_oracle_publish_time` (which had been set to a `max_publish_time`
+      that happened to be leg 2's older time), the field can rewind backwards.
+      In particular the max returned is `max(this_read_leg_timestamps)`, NOT
+      `max(this_read, stored)`, so a 3-leg setup where the laggard leg has
+      strictly older timestamp than the previously stored composite `max`
+      can REWIND `last_oracle_publish_time`, which is used by downstream
+      anti-replay logic and `last_good_oracle_slot` accounting.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      oracle::read_external_price_e6 (lines 3596-3658)
+      oracle::clamp_external_price (lines 3708-3744)
+
+  - id: O2-leg-conflict-bypass-zero-prev
+    class: state_transition
+    severity: Critical
+    bug_class: oracle-confidence-bypass
+    claim: >
+      The same-publish-time conflict check at `read_external_price_e6` is gated on
+      `prev_time != 0` AND `prev_price != 0`. At init, all `oracle_leg_publish_times`
+      and `oracle_leg_prices_e6` are zeroed for Hyperp markets, AND for an active
+      leg whose first observation had `publish_time == 0` (legitimate from Pyth Pull
+      raw timestamp 0 or a fresh test feed), the previous-time storage will remain
+      0 even after acceptance because the inner `if publish_time > prev_time` only
+      writes when strictly greater. A subsequent read with the same timestamp and
+      a different price BYPASSES the conflict check (the `prev_time != 0` guard
+      fails), permitting silent same-slot price flapping that walks
+      `last_effective_price_e6` one cap-step per replay.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      oracle::read_external_price_e6 (lines 3629-3651)
+
+  - id: O3-divide-leg-tiny-leg2-amplification
+    class: arithmetic_overflow
+    severity: High
+    bug_class: oracle-composition-overflow
+    claim: >
+      `compose_oracle_leg` in `divide` mode computes `acc * 1_000_000 / leg`. If
+      attacker can make `leg_e6 == 1` (smallest non-zero), the composite price
+      explodes by factor 1e6. The post-composition `MAX_ORACLE_PRICE` check catches
+      `next > MAX_ORACLE_PRICE`, but for moderate `acc` (say `acc = 100_000_000`
+      and leg = 1), `next = 1e8 * 1e6 / 1 = 1e14`, exceeds MAX_ORACLE_PRICE so
+      aborts. For `acc = 1` and `leg = 1`, `next = 1e6`, accepted. If a Pyth
+      confidence + raw price legitimately produces a tiny `leg_e6` (e.g. far-decimal
+      token after invert+scale), one attacker-supplied leg can dominate the cross.
+      No check that leg2/leg3 produce sensible cross.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      oracle::compose_oracle_leg (lines 3563-3585)
+      oracle::read_external_price_e6 (call site at line 3648)
+
+  - id: O4-invert-after-compose-mismatch
+    class: invariant_property
+    severity: High
+    bug_class: oracle-scale-mismatch
+    claim: >
+      `read_external_price_e6` composes legs via `compose_oracle_leg` (multiplies/
+      divides at e6 scale) BEFORE applying `apply_engine_price_transform` (invert
+      + unit_scale). No consistency check that the composite `acc` is in the
+      correct scale for the configured `invert` flag — `invert == 1` means raw is
+      inverted (1e12 / raw), so the composite of multiple raw legs is treated as
+      one raw e6 value and inverted as a whole. For a cross like ETH/SOL where
+      leg1=ETH-USD multiplied, leg2=SOL-USD divided, invert=1 mathematically gives
+      SOL/ETH. If admin configures the flags for one currency convention but the
+      wire-time invert flag is wrong, the composite silently produces a meaningful
+      but WRONG cross.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      oracle::read_external_price_e6 (line 3653-3657)
+      oracle::oracle_leg_config_ok (lines 3530-3561)
+
+  - id: O5-hyperp-oracle-account-not-consumed
+    class: authorization
+    severity: Low
+    bug_class: oracle-account-spoofing-noop
+    claim: >
+      For Hyperp markets `oracle_account_count(config) == 1` (line 5379-5380), so
+      all Hyperp-mode wrappers (InitMarket, TradeCpi, CloseAccount, etc.) require
+      ONE oracle account in the args. `get_engine_oracle_price_e6` for Hyperp path
+      never reads `oracle_accounts`. An attacker can pass any AccountInfo for the
+      oracle slot — junk, an attacker-owned account, or even the slab itself —
+      and the handler accepts it. CU griefing today; potential future foot-gun
+      if a reviewer adds a sanity probe on oracle_accounts[0] BEFORE the
+      is_hyperp_mode check.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      processor::oracle_account_count (lines 5377-5384)
+      oracle::get_engine_oracle_price_e6 Hyperp branch (lines 3929-3983)
+
+  - id: O6-init-publish-time-may-be-zero
+    class: state_transition
+    severity: High
+    bug_class: oracle-init-replay
+    claim: >
+      `read_init_external_oracle_price` (lines 5398-5448) calls
+      `read_external_price_e6` to seed init state. The returned `publish_time`
+      (max across legs) is stored as `init_publish_time` and used at line 5511 as
+      `oracle_target_publish_time` and `last_oracle_publish_time` AND as the
+      genesis monotonicity baseline. If any Pyth Pull source returns publish_time
+      = 0 (test feeds, pre-restart sentinel), the genesis baseline is 0, and
+      subsequent reads with `prev_time == 0` bypass the per-leg conflict check
+      (see O2).
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      processor::read_init_external_oracle_price (lines 5398-5448)
+      oracle::read_external_price_e6 (lines 3596-3658)
+
+  - id: O7-leg-account-ordering-not-bound
+    class: authorization
+    severity: Critical
+    bug_class: oracle-account-confusion
+    claim: >
+      `read_external_price_e6` iterates `oracle_accounts[i]` and calls
+      `read_raw_oracle_price_e6` with `oracle_leg_feed_id(config, i)` as the
+      EXPECTED feed id. There is no `expect_writable(oracle_accounts[i])` or
+      `expect_owner` for the account vector at the wrapper layer — only the
+      inner reader differentiates Pyth vs Chainlink. Anomalous accounts (closed,
+      lamport-drained) might cause unintended behavior in pinned Pyth/Chainlink
+      readers.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      oracle::read_external_price_e6 (lines 3596-3658)
+      oracle::read_raw_oracle_price_e6 (lines 3413-3442)
+
+  - id: O8-leg-disable-via-zero-feed-after-init
+    class: state_transition
+    severity: Low
+    bug_class: oracle-leg-disable-bypass
+    claim: >
+      `oracle_leg_config_ok` for non-Hyperp requires `leg1 != [0u8;32]` and, when
+      `count >= 2`, `leg2 != [0u8;32]`. `oracle_leg_count(config)` tolerates
+      `oracle_leg_count == 0` as 1 (line 3504-3505 "tolerate zeroed legacy
+      configs"). If a legacy market (pre-TOTO) was initialized and stored
+      `oracle_leg_count = 0`, post-upgrade reads treat it as single-leg.
+      `UpdateConfig` does not include leg fields — legs are init-immutable.
+      Minor risk: if admin reads-modifies-writes MarketConfig via direct memory
+      write (e.g. an exploit on slab data), `oracle_leg_config_ok` is bypassed.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      oracle::oracle_leg_count (lines 3503-3510)
+      oracle::oracle_leg_config_ok (lines 3530-3561)
+
+  - id: O9-leg-prev-price-no-rewind-on-equal-time
+    class: invariant_property
+    severity: Medium
+    bug_class: oracle-replay-residual
+    claim: >
+      Per-leg same-timestamp conflict check (line 3635-3637): rejects when
+      `publish_time == prev_time` AND `prev_price != 0` AND `price != prev_price`.
+      An attacker who can produce a Pyth update with `publish_time == prev_time`
+      and `price == prev_price` (an exact REPLAY) is permitted — the check passes.
+      The replay then proceeds: `if publish_time > prev_time` is FALSE so
+      `advanced` stays false from this leg. With OTHER legs advancing, the
+      function returns `advanced = true` overall. `clamp_external_price` writes
+      `last_oracle_publish_time = max_publish_time` which is recomputed each
+      call — the replayed leg contributes its OLD publish time. Result:
+      `last_oracle_publish_time` can rewind to the older leg's timestamp even
+      though the composite advanced. (Same root as O1 — different angle.)
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      oracle::read_external_price_e6 (lines 3631-3643)
+      oracle::clamp_external_price (lines 3717-3725)
+
+  - id: O10-leg-count-3-leg2-divides-but-leg3-multiplies
+    class: invariant_property
+    severity: Low
+    bug_class: oracle-flag-semantics
+    claim: >
+      `oracle_leg_flags` has 2 bits: `ORACLE_LEG_FLAG_DIVIDE_LEG2 = 1<<1` and
+      `ORACLE_LEG_FLAG_DIVIDE_LEG3 = 1<<2`. Bit 0 is unused.
+      `oracle_leg_config_ok` masks against `ORACLE_LEG_FLAGS_MASK = 0b110`.
+      The bit-1 / bit-2 naming is confusing: ORACLE_LEG_FLAG_DIVIDE_LEG2 is
+      bit 1, not bit 0. If a client encodes the flag using a 0-indexed scheme,
+      they might pass `1 << 0 == 0x01`. Init validation rejects that, but an
+      attacker who submits any flag value may exhaust admin's init budget on
+      retries. Low severity — not a value-extraction bug.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+
+  - id: O11-init-no-cross-validation
+    class: invariant_property
+    severity: Low
+    bug_class: oracle-init-config-error
+    claim: >
+      At init for non-Hyperp non-trivial-leg markets,
+      `read_init_external_oracle_price` reads the composite oracle and stores
+      the initial price. The function does NOT cross-check that the composite
+      price is "reasonable" — there is no min/max sanity window. An admin with
+      bad configuration (wrong invert flag, misordered legs) produces a
+      numeric-valid but semantically-wrong genesis price. Subsequent reads obey
+      the per-slot rate limit, so the market is anchored to the wrong price for
+      many slots. No recovery path other than waiting for many cap-step
+      adjustments toward the true target.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+
+  - id: O12-publish-time-skew-cross-legs
+    class: invariant_property
+    severity: High
+    bug_class: oracle-cross-correlation-attack
+    claim: >
+      Multi-leg oracle: each leg has its own `publish_time`. For composite
+      cross-rates (e.g. ETH/SOL via ETH/USD × USD/SOL), the two legs may update
+      at different cadences. The composite price `acc` is computed from
+      CURRENT-read prices of all legs, but `max_publish_time` returned is the
+      MAX of leg timestamps. If leg1 is fresh (now=1000) and leg2 is stale
+      (last_publish=900, still within `max_staleness_secs`), the composite uses
+      a 100-second-stale leg2 price with leg1's fresh price. Returned ts = 1000.
+      Engine treats the composite as a "fresh observation at slot 1000" but it
+      includes 100s of leg2 staleness. Mitigation would be
+      `max_publish_time = min(leg_timestamps)`.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      oracle::read_external_price_e6 (lines 3596-3658, especially 3644)
+
+  - id: O13-init-composite-double-transform
+    class: arithmetic_overflow
+    severity: Low
+    bug_class: oracle-transform-double-apply
+    claim: >
+      `read_init_external_oracle_price` calls `read_external_price_e6`, which
+      itself calls `apply_engine_price_transform` (line 3654) at the END applying
+      invert + unit_scale. Mathematically equal under no truncation; for very
+      large legs, integer truncation diverges between evaluation orders. Edge:
+      very-high-price legs produce different init_price vs runtime read on the
+      SAME inputs.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+
+  - id: O14-init-leg2-equal-leg1-after-zeroed-prev
+    class: invariant_property
+    severity: Medium
+    bug_class: oracle-config-bypass
+    claim: >
+      `oracle_leg_config_ok` rejects `leg2 == leg1` (line 3550) and `leg3 == leg1
+      || leg3 == leg2` (line 3557). But the check is on byte-arrays. If two
+      distinct Pyth feed IDs happen to differ by one byte (e.g. an admin chose
+      two highly-correlated feeds like BTC-USD on two different price
+      subscriptions), the check passes. Cross-leg correlation attack: legs that
+      are 99% correlated act as a single source for price manipulation. No
+      protection against highly-correlated legs.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+
+  - id: O15-cross-leg-divide-zero-result
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: oracle-composition-zero
+    claim: >
+      `compose_oracle_leg` divides at line 3567-3571: `acc * 1_000_000 / leg_e6`.
+      With 3 legs, a precision-sensitive sequence produces a small intermediate
+      (e.g. leg2 = high price, multiplied with low-decimal leg1 then divided by
+      very high leg3) — final could round to 0 -> reject. Reject-not-corrupt is
+      OK. Concern: aggregation produces VALID-but-INACCURATE composite for
+      moderate values, e.g. `1_500_000 * 1e6 / 999_999_999 = 1` (truncates 99%
+      of value). Composite is technically nonzero so passes the check, but is
+      off by 99%. No relative-error check.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+
+  - id: O16-init-min-staleness-not-enforced-per-leg
+    class: invariant_property
+    severity: Medium
+    bug_class: oracle-staleness-per-leg
+    claim: >
+      `read_external_price_e6` uses `config.max_staleness_secs` for ALL legs
+      uniformly (line 3626). Different oracle sources have different update
+      cadences (Pyth Pull ~1 Hz, Chainlink OCR2 ~1 min, RWA feeds hours). A
+      composite pulling together fast + slow legs with the SAME max_staleness
+      must use the SLOW leg's tolerance — fast leg can sit stale for the slow
+      window without rejection. Attacker can lock in stale-fast-leg price during
+      manipulation window. No per-leg staleness override field in MarketConfig.
+    applies_to: [percolator]
+    scope_conditions: [toto_oracle]
+    target_file: src/percolator.rs
+
+  # ===================================================================
+  # FAMILY F — Hyperp dynamic fees (commit d40edb5)
+  # ===================================================================
+
+  - id: F1-dynamic-fee-gating-off-at-equality
+    class: invariant_property
+    severity: Critical
+    bug_class: dynamic-fee-bypass
+    claim: >
+      Dynamic Hyperp fee is enabled ONLY when `config.trade_fee_base_bps <
+      engine.params.max_trading_fee_bps` (strict less-than at lines 8219, 8280).
+      Init validation at lines 6105-6124 permits `trade_fee_base_bps ==
+      max_trading_fee_bps`. An admin who sets `trade_fee_base_bps =
+      max_trading_fee_bps = 10_000` creates a "static-max-fee" Hyperp market
+      where dynamic mode is DISABLED — yet the comment + intent says the
+      mark-movement externality should be priced. Mark movement caused by
+      any trade is unpriced. Attacker self-deals to drag the EWMA mark; OI
+      on the wrong side loses PnL with no fee absorption.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      processor::Instruction::TradeCpi dynamic_hyperp_fee_enabled gate (line 8279-8280)
+      processor::handle_init_market trade_fee validation (lines 6105-6124)
+
+  - id: F2-mark-externality-uses-anchor-price-not-exec
+    class: invariant_property
+    severity: High
+    bug_class: dynamic-fee-undercount
+    claim: >
+      In `hyperp_dynamic_fee_bps` callsite (lines 8281-8310),
+      `mark_externality_notional` is computed using `price` (the anchor / oracle
+      effective price) for converting `max_side_oi_q` into notional (line
+      8289-8293). But `current_fee_paid_cap` and the actual engine trade
+      execution use `exec_price`. For Hyperp markets, `price` is the
+      `last_effective_price_e6` (rate-limited index) and `exec_price` is the
+      matcher's chosen execution price — by design these diverge. If
+      `exec_price > price`, the externality is priced against the LOWER anchor
+      -> undercount fee. If `exec_price < price`, externality is priced against
+      the HIGHER anchor -> overcharge defender.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F3-mark-externality-single-side-undercount
+    class: invariant_property
+    severity: High
+    bug_class: dynamic-fee-undercount
+    claim: >
+      Line 8287-8288: `max_side_oi_q = max(engine.oi_eff_long_q,
+      engine.oi_eff_short_q)`. Used as the externality basis. But a real perp's
+      total exposed notional that eats PnL from a mark move is `(long_oi +
+      short_oi)` since BOTH sides have positions whose mark-PnL is affected
+      (longs gain when mark↑, shorts lose). Using `max` instead of `long+short`
+      undercounts the gross PnL flow that a mark-move externalizes. The doubling
+      at line 8296 assumes the larger side dominates 1:1 — wrong when long_oi ≈
+      short_oi. Balanced book undercounts by 2×.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F4-dynamic-fee-iteration-64-cap-dos
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: dynamic-fee-dos
+    claim: >
+      `hyperp_dynamic_fee_bps` uses a hardcoded 64-iteration cap on the
+      fixed-point solver (line 1467). Returns `None` if convergence fails;
+      caller turns into PercolatorError::InvalidConfigParam and the trade
+      reverts. With adversarially chosen `(base_fee_bps,
+      mark_externality_notional, trade_notional, mark_min_fee, halflife_slots)`,
+      the fixed-point can oscillate and bench past 64 iterations even when a
+      valid solution exists. Trade reverts forever for that input — liveness
+      DoS. An admin setting `mark_min_fee` close to threshold makes
+      `ewma_effective_alpha_bps` step-discontinuous in `fee_bps`, causing the
+      solver to bounce between two regimes.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F5-init-trade-fee-cap-on-max-only
+    class: invariant_property
+    severity: Medium
+    bug_class: dynamic-fee-config-undercap
+    claim: >
+      At init (lines 6105-6124), `trade_fee_base_bps` is validated against
+      `risk_params.max_trading_fee_bps` (must be `<=`). NO independent
+      validation that `trade_fee_base_bps <= MAX_DYNAMIC_TRADE_FEE_BPS = 10_000`.
+      `RiskParams::max_trading_fee_bps` is itself validated `<= 10_000` (line
+      6219) so transitively safe today. However `hyperp_dynamic_fee_bps`
+      directly checks `base_fee_bps > MAX_DYNAMIC_TRADE_FEE_BPS` at line 1462,
+      duplicating the bound. Two sources of truth — brittleness.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F6-mark-ewma-clamp-pre-trade-snapshot
+    class: state_transition
+    severity: Medium
+    bug_class: dynamic-fee-stale-snapshot
+    claim: >
+      Dynamic fee computation uses `config.mark_ewma_e6` (line 8300) and
+      `config.last_effective_price_e6` (line 8283) as inputs. Read BEFORE
+      `execute_trade_with_matcher`, but EWMA actual mutates AFTER fee collection
+      at 8383. Multi-instruction sandwich attacks: a buy-then-sell pair in the
+      same TX sees identical pre-trade snapshots and computes identical fees,
+      even though the second trade moves the mark in a direction the first
+      trade's fee should have priced.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F7-band-bps-hyperp-uses-price-move-per-slot
+    class: invariant_property
+    severity: High
+    bug_class: matcher-band-bypass
+    claim: >
+      For dynamic Hyperp markets, the anti-off-market band is changed from
+      `max(2 * max_trading_fee_bps, 100)` to `max(max_price_move_bps_per_slot,
+      100)` (lines 8221-8225). For market with cap = 80 bps, band is `max(80,
+      100) = 100 bps = 1%` — TIGHTER than legacy 2× fee band. But for cap =
+      10_000, band is 100% off market. Legacy `2 × max_trading_fee_bps` for
+      max-fee markets was 200%. New logic LOWERS effective band by ~20× for
+      max-headroom dynamic markets. Combined with F1, admin can pick whichever
+      band rule is most permissive.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F8-dynamic-fee-only-tradecpi-path
+    class: invariant_property
+    severity: Medium
+    bug_class: dynamic-fee-coverage-gap
+    claim: >
+      Dynamic Hyperp fee is computed ONLY in `TradeCpi` path (line 8298).
+      `TradeNoCpi` uses `config.trade_fee_base_bps` directly. Hyperp markets
+      explicitly reject `TradeNoCpi` so this is OK. BUT: other trade-like state
+      mutations (KeeperCrank liquidation, ResolveMarket settlement,
+      ConvertReleasedPnl) move the mark indirectly via post-settle `mark_ewma`
+      updates. None of these compute dynamic fee. For markets where dynamic is
+      enabled, liquidations externalize mark movement without charging dynamic
+      fee — by design or oversight?
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F9-fee-paid-cap-uses-base-not-current
+    class: invariant_property
+    severity: Medium
+    bug_class: ewma-bias
+    claim: >
+      In dynamic-fee Hyperp TradeCpi: `current_fee_paid_cap =
+      current_trade_fee_paid_cap(trade_size, exec_price, current_trade_fee_bps)`
+      (line 8313-8314) uses the DYNAMIC `current_trade_fee_bps`. The EWMA
+      fee-paid logic that influences mark update (line 8369-8372) snaps the
+      insurance delta to `current_fee_paid_cap`. If the actual collected fee is
+      LESS than cap (engine internal capping, partial fills, etc.), the `min(delta,
+      current_fee_paid_cap)` returns lower delta. EWMA-suppression vector.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F10-hyperp-dynamic-fee-vs-mark-min-fee-zero
+    class: state_transition
+    severity: Critical
+    bug_class: dynamic-fee-ewma-bypass
+    claim: >
+      `hyperp_dynamic_fee_bps` calls `ewma_update` with `mark_min_fee` as
+      fee-weighting threshold. If `mark_min_fee == 0`, every fee_paid value is
+      "full weight" — the ewma update IGNORES the fee_paid amount. The
+      fixed-point solver converges trivially. The "F2 Hyperp liveness spoof
+      defense" (line 6127-6141) requires `mark_min_fee > 0` only when
+      permissionless resolve is enabled. Hyperp markets WITHOUT permissionless
+      resolve can have `mark_min_fee == 0` AND `trade_fee_base_bps <
+      max_trading_fee_bps` (dynamic enabled) AND admin-burn — attacker
+      self-deals to drag mark, all positions on wrong side bleed PnL, no
+      liveness recourse.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F11-dynamic-fee-rounding-favors-attacker
+    class: arithmetic_overflow
+    severity: Low
+    bug_class: dynamic-fee-rounding
+    claim: >
+      `hyperp_dynamic_fee_bps` ceiling-divides at multiple places (lines 1418-
+      1428, 1480-1486). Each iteration uses PREVIOUS iteration's rounded-up
+      `fee_paid` to compute next `mark_move_bps`. Should converge upward
+      monotonically — but worth verifying empirically that this DOES NOT
+      oscillate due to ceiling rounding pushing past a threshold.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F12-band-bps-hyperp-static-uses-base-not-current
+    class: invariant_property
+    severity: Medium
+    bug_class: matcher-band-stale
+    claim: >
+      Dynamic Hyperp TradeCpi off-market band check at lines 8214-8238 uses
+      `engine_ref.params.max_price_move_bps_per_slot` for dynamic-Hyperp. The
+      `current_trade_fee_bps` (post-dynamic) is NOT used in the band check. A
+      trade that pays 7000 bps in dynamic fees has effective economic
+      "tolerance" of 7000 bps, yet the band check uses a SEPARATE limit
+      (typically 80-200 bps). A trade priced 5% off-market in dynamic mode is
+      REJECTED by the band check — fine for security but bounds dynamic-fee
+      reach.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F13-mark-min-fee-write-via-ewma-on-init-zero
+    class: state_transition
+    severity: Low
+    bug_class: dynamic-fee-init-state
+    claim: >
+      `policy::ewma_update` first-update path: if `old == 0` and `mark_min_fee
+      > 0 && fee_paid < mark_min_fee`, returns 0. Early-stage dynamic Hyperp
+      markets with `mark_min_fee > 0` cannot bootstrap the EWMA from
+      sub-threshold trades. Hyperp markets seed `mark_ewma_e6 =
+      initial_mark_price_e6` at init so branch unreachable in normal flow.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  - id: F14-mark-externality-uses-effective-price-pre-trade
+    class: state_transition
+    severity: Medium
+    bug_class: dynamic-fee-stale-anchor
+    claim: >
+      Line 8282-8286: `clamped_exec =
+      clamp_oracle_price(last_effective_price_e6, exec_price,
+      max_price_move_bps_per_slot)`. The `last_effective_price_e6` is the
+      pre-trade snapshot. For Hyperp markets the effective price was just
+      updated by `get_engine_oracle_price_e6`. `mark_ewma_clamp_base` returns
+      `last_effective_price_e6.max(1)`. `.max(1)` only kicks in when
+      `last_effective_price_e6 == 0`. For active markets it's a no-op.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_dynamic_fees]
+    target_file: src/percolator.rs
+
+  # ===================================================================
+  # FAMILY K — Keeper changes (commits 036b51c + 36cbea3 + 3203c98)
+  # ===================================================================
+
+  - id: K1-caller-hint-evicted-by-phase2-promotion
+    class: state_transition
+    severity: High
+    bug_class: keeper-candidate-inspection-budget-bypass
+    claim: >
+      In keeper_crank dispatch (src/percolator.rs:6992-7167) the `combined`
+      vector is built in the order [risk_buffer entries] -> [Phase-2
+      promotions] -> [caller candidates]. The engine receives
+      `max_candidate_inspections = 32`. When the engine iterates `combined`,
+      it breaks at `inspected >= 32`. With RR_WINDOW_WITH_CANDIDATES = 32 the
+      Phase-2 promotion alone can fill the 32-slot inspection budget once the
+      cursor is over a dense region, so caller-supplied actionable hints
+      sitting at indices 32..40 of `combined` are never inspected. An attacker
+      who needs a specific account NOT liquidated can pad the cursor region
+      with high-OI accounts so Phase-2 promotion saturates inspection budget;
+      caller hints targeting the attacker silently dropped.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, candidate_phase2_promotion]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      processor::Instruction::KeeperCrank dispatch (lines 6989-7174)
+      processor::append_phase2_fullclose_candidates (lines 4947-4995)
+
+  - id: K2-partial-catchup-hint-throttle-bypass
+    class: state_transition
+    severity: High
+    bug_class: keeper-cursor-budget-bypass
+    claim: >
+      In the partial-catchup branch (src/percolator.rs:7073-7115, from
+      3203c98), when `has_liquidation_hint` is true the wrapper hard-zeros
+      `rr_window_size=0` and `rr_scan_limit=0`, AND sets `progress_slot =
+      segment_slot`. `has_liquidation_hint` is true when ANY candidate has
+      policy set. The check accepts hints without validating them against
+      account state. An attacker who submits a single dummy candidate with
+      FullClose policy pointing at any used account (even one that will fail
+      maintenance margin) (a) throttles Phase 2 to zero touches for that crank
+      and (b) pins `current_slot` to `segment_slot`. Across repeated stale
+      gaps prevents structural cursor walk from ever advancing.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, partial_catchup]
+    target_file: src/percolator.rs
+
+  - id: K3-progress-slot-segment-decouples-current-slot
+    class: state_transition
+    severity: High
+    bug_class: keeper-progress-slot-decoupling
+    claim: >
+      When partial_catchup + has_liquidation_hint, wrapper passes `now_slot =
+      segment_slot` to `permissionless_progress_not_atomic`. The engine sets
+      `self.current_slot = now_slot`. So after the crank, `engine.current_slot
+      = segment_slot < clock.slot`. The wrapper then rolls back oracle fields
+      via `partial_crank_config_to_write`, but the engine's `last_oracle_price`
+      is updated to `segment_price` while `config.last_effective_price_e6` is
+      rolled back. Subsequent reads diverge from `engine.last_oracle_price`.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, partial_catchup, oracle_field_rollback]
+    target_file: src/percolator.rs
+
+  - id: K4-append-phase2-skips-stale-risk-buffer
+    class: state_transition
+    severity: Medium
+    bug_class: keeper-cursor-budget-bypass
+    claim: >
+      `append_phase2_fullclose_candidates` deduplicates via
+      `candidate_list_contains`. But the risk buffer entry IS pushed to
+      `combined` unconditionally (line 7020) even when the account is no longer
+      used (only gate is buf.count, not idx_used_in_market). Engine sees stale
+      candidate idx in Phase 1 and burns an inspection slot via `inspected +=
+      1` even though it skips the touch. An attacker who lands their account in
+      risk buffer then closes it elsewhere can burn 4 inspection slots per
+      crank.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, risk_buffer_stale]
+    target_file: src/percolator.rs
+
+  - id: K5-phase2-promotion-cursor-not-advanced
+    class: state_transition
+    severity: Medium
+    bug_class: keeper-cursor-budget-bypass
+    claim: >
+      `append_phase2_fullclose_candidates` scans starting from
+      `engine.rr_cursor_position` (line 4965) and adds matching live nonzero
+      accounts as Phase-1 FullClose candidates. Function does NOT advance the
+      engine cursor — only reads. Engine's Phase-2 scan later starts from
+      `self.rr_cursor_position` (same starting point) and advances cursor by
+      `phase2.inspected`. These same indices were already inspected via Phase
+      1. Risk: caller submitting a candidate triggers BOTH phases to walk same
+      indices, halving useful work.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, candidate_phase2_promotion]
+    target_file: src/percolator.rs
+
+  - id: K6-account-hint-stuck-on-stale-risk-buffer-idx
+    class: state_transition
+    severity: High
+    bug_class: liquidation-hint-stale
+    claim: >
+      `account_hint` (lines 7187-7190) set to `candidates.first()` else
+      `combined.iter().next()`. When `candidates` empty but `combined` has a
+      risk-buffer entry that became stale (idx_used==false), hint points to a
+      no-longer-used account. Engine's `try_permissionless_account_b_dispatch`
+      validates and may fall through to `validate_permissionless_account_b_
+      recovery_reason`. If that errors (e.g. CorruptState), the WHOLE crank
+      errors out. An attacker who leaves a stale risk-buffer entry pointing at
+      a recently-removed account can DoS the keeper crank.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, account_b_dispatch]
+    target_file: src/percolator.rs
+
+  - id: K7-account-hint-attacker-controlled-priority
+    class: state_transition
+    severity: High
+    bug_class: keeper-account-priority-bypass
+    claim: >
+      `account_hint = candidates.first()` gives the caller direct control over
+      which account the engine evaluates B-progress for FIRST, before any
+      Phase 1 / Phase 2 candidate liquidation. An attacker front-running a
+      near-margin victim's expected liquidation crank can submit a Phase-2
+      touch-only candidate targeting their own account; engine processes
+      B-progress on attacker's account first, deferring victim's liquidation
+      by an extra slot. If attacker times b_snap update to push themselves
+      above maintenance AND victim below it, wrapper's risk-buffer might not
+      yet contain the victim — giving the attacker a window.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, account_b_dispatch, front_running]
+    target_file: src/percolator.rs
+
+  - id: K8-promotion-cap-allows-overflow-into-caller-truncation
+    class: state_transition
+    severity: Medium
+    bug_class: keeper-candidate-truncation
+    claim: >
+      `COMBINED_CAP = RISK_BUF_CAP + MAX_KEEPER_CANDIDATES +
+      RR_WINDOW_WITH_CANDIDATES = 4 + 8 + 32 = 44`. With Phase-2 promotion at
+      max (32 entries) + risk-buffer-with-partial-preserve potentially adding
+      up to 8, total = 44 = COMBINED_CAP. Caller's 8 candidates race against
+      `if combined.len() == COMBINED_CAP { break; }`. An attacker who stages
+      4 ExactPartial hints aligned with risk-buffer consumes 4 extra slots,
+      leaving caller's actionable hints with zero room.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, candidate_combined_truncation]
+    target_file: src/percolator.rs
+
+  - id: K9-promotion-misses-rr-cursor-wrap
+    class: state_transition
+    severity: Medium
+    bug_class: keeper-cursor-wrap-bypass
+    claim: >
+      `append_phase2_fullclose_candidates` walks `i` from `rr_cursor_position`
+      to `wrap_bound` and breaks WITHOUT wrapping back to 0. Engine's Phase-2
+      scan DOES wrap. When `rr_cursor_position` is near end of slab and an
+      exposed account sits at low indices that Phase 2 wraps to, the wrapper's
+      Phase-1 promotion misses that exposed account. Engine's Phase-2 wrap
+      touches the low-index target without same-crank liquidation opportunity.
+      Padding-shield commit 36cbea3 fixed Phase-2 throttling but asymmetric
+      wrap leaves a tail-around-the-wrap window where targets get touched but
+      not closed in same crank.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, candidate_phase2_promotion, cursor_wrap]
+    target_file: src/percolator.rs
+
+  - id: K10-effective-pos-q-checked-recompute-on-promotion
+    class: state_transition
+    severity: Medium
+    bug_class: keeper-state-leak
+    claim: >
+      `append_phase2_fullclose_candidates` calls `effective_pos_q_checked`
+      on every used slot to filter zero-position accounts (line 4979). Reads
+      account's position_basis_q at PRE-crank state — engine's later Phase 1
+      pass may touch accounts and settle losses, changing effective position.
+      If between promotion-time check and engine's liquidate_at_oracle for
+      that idx, engine's Phase 1 auto-closed a different account whose
+      AccountB-progress side-effect flipped this account's effective position
+      to zero, engine's `validate_keeper_hint(FullClose)` returns policy
+      unchanged but liquidate_at_oracle operates on now-flat account.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, candidate_phase2_promotion]
+    target_file: src/percolator.rs
+
+  - id: K11-promotion-tx-bound-overflow
+    class: state_transition
+    severity: Low
+    bug_class: keeper-arithmetic-overflow
+    claim: >
+      `append_phase2_fullclose_candidates` increments `inspected` and `touched`
+      with `checked_add(1)` returning EngineOverflow on overflow. Loop bound
+      `inspected < scan_cap` uses `scan_cap = min(rr_scan_limit, wrap_bound)`.
+      Both are u64. With `wrap_bound = MAX_ACCOUNTS as u64` (4096 default), and
+      `rr_scan_limit = min(RR_SCAN_LIMIT_PER_CRANK, max_accounts)`, scan_cap ≤
+      4096. Overflow not reachable on real values. Defensive verification.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, candidate_phase2_promotion]
+    target_file: src/percolator.rs
+
+  - id: K12-cu-tier-test-loophole-tier-promotion-dos
+    class: state_transition
+    severity: Medium
+    bug_class: cu-exhaustion-dos
+    claim: >
+      Commit 036b51c made keeper CU tests tier-aware. Test passes iff
+      `saw_structural_cursor_progress` is true. In production, before
+      saturation (>=128 actors), CU can grow per-actor without test catching
+      it. If MAX_KEEPER_CANDIDATES later grows or RR_WINDOW grows, saturation
+      point moves, and CU usage in pre-saturation regime (typical Y0
+      production with <100 accounts) is unbounded by this test.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, cu_budget]
+    target_file: tests/cu_benchmark.rs
+
+  - id: K13-partial-catchup-skips-fee-sweep-and-reward
+    class: state_transition
+    severity: Medium
+    bug_class: keeper-fee-skip
+    claim: >
+      `sweep_delta` calculation (src/percolator.rs:7223-7253) gates fee sync
+      and reward on `!progress_was_crank || partial_catchup`. When
+      partial_catchup is true OR engine returns non-Cranked outcome
+      (AccountBProgress, Recovered, etc.), sweep_delta = 0 — no fee sync, no
+      reward. An attacker can force AccountBProgress outcomes via K7-style
+      hint manipulation to keep sweep_delta = 0 so honest keepers receive no
+      reward, starving the protocol of keepers.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, keeper_reward]
+    target_file: src/percolator.rs
+
+  - id: K14-phase2-promotion-late-binding-vs-budget-zero
+    class: state_transition
+    severity: High
+    bug_class: keeper-candidate-budget-bypass
+    claim: >
+      `append_phase2_fullclose_candidates` is gated on
+      `!candidates.is_empty()`. In partial-catchup + has_liquidation_hint
+      branch, `rr_window_size = 0`, helper early-returns Ok(()). Phase-2
+      promotion SKIPPED. The engine's Phase 2 also runs with rr_touch_limit=0
+      — NO structural cursor walk fires. The two patches CONTRADICT: 36cbea3
+      wants Phase 2 to always cover, 3203c98 wants Phase 2 disabled when hints
+      present and gap stale. The latter wins. Padding shield is REINTRODUCED
+      whenever gap > max_accrual_dt_slots AND any hint is supplied.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, partial_catchup, candidate_phase2_promotion]
+    target_file: src/percolator.rs
+
+  - id: K15-keeper-accrual-segment-cant-progress-undercollat
+    class: state_transition
+    severity: Medium
+    bug_class: keeper-protective-progress-bypass
+    claim: >
+      Engine `keeper_has_possible_protective_progress` returns true if ANY
+      candidate index is `is_used` AND `< params.max_accounts` — without
+      validating the candidate has nonzero effective position. Combined with
+      K2's hint throttling: when partial_catchup + has_liquidation_hint forces
+      rr_touch_limit=0 and rr_scan_limit=0, engine still returns Ok(true) on
+      candidate-side check. Engine proceeds with accrue_market_segment_to_internal
+      even when only "protective" candidate is flat. Bypasses Undercollateralized
+      gate.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, equity_active_accrual]
+    target_file: src/percolator.rs
+
+  - id: K16-promote-stale-after-reclaim
+    class: state_transition
+    severity: Medium
+    bug_class: keeper-reclaim-loop-interaction
+    claim: >
+      Post-crank reclaim loop iterates `combined` and reclaims flat-zero
+      accounts. `combined` includes Phase-2 promoted indices. If Phase-2
+      promotion lands on near-flat account that engine's Phase-2 touch
+      flattens to zero, wrapper reclaims it post-crank. Promoted indices are
+      based on PRE-crank state — guesses about what Phase 2 WOULD touch. If
+      actual Phase-2 cursor walk wraps differently than the promotion's
+      iteration, promoted indices may NOT have been touched by engine, yet
+      still get reclaimed if already flat-zero. Attacker could racetrack a
+      victim's flat account into promotion list to force reclaim.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, reclaim_flat_zero]
+    target_file: src/percolator.rs
+
+  - id: K17-combined-cap-arithmetic-allows-double-count
+    class: state_transition
+    severity: Low
+    bug_class: keeper-budget-accounting
+    claim: >
+      `COMBINED_CAP = 4 + 8 + 32 = 44`. Engine's `max_candidate_inspections =
+      min(MAX_TOUCHED, 32) = 32` — only first 32 inspected. Entries at
+      positions 32..44 silently dropped. Append order means dropped 12 are
+      caller candidates. Combined cap arithmetic CONFIRMS K1 numerically.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, candidate_combined_truncation]
+    target_file: src/percolator.rs
+
+  - id: K18-segment-price-rate-limit-from-stale-anchor
+    class: state_transition
+    severity: High
+    bug_class: oracle-price-rate-limit-bypass
+    claim: >
+      Partial-catchup branch: `segment_price =
+      effective_price_from_target(engine.last_oracle_price, raw_target,
+      max_price_move_bps_per_slot, segment_dt, oi_any)`. `segment_dt =
+      max_accrual_dt_slots`. Rate limit applies per-slot times segment_dt.
+      Actual wall-clock gap is much larger. Attacker who withholds cranks
+      accumulates large gap; each crank's segment_price moves by full
+      max-rate-limited step at progressively-stale anchors. If raw target
+      spikes and reverts, partial-catchup's rate limit follows the spike with
+      1-segment lag.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, partial_catchup, oracle_lag]
+    target_file: src/percolator.rs
+
+  - id: K19-touch-budget-arithmetic-overflow-on-MAX-revalidations
+    class: state_transition
+    severity: Low
+    bug_class: keeper-overflow-defensive
+    claim: >
+      Engine `combined_touch_budget = max_revalidations + rr_touch_limit` uses
+      `saturating_add` then compares against MAX_TOUCHED_PER_INSTRUCTION.
+      Sum = 64 = MAX_TOUCHED_PER_INSTRUCTION. Exact equality is OK. If
+      LIQ_BUDGET_PER_CRANK bumped without updating MAX_TOUCHED_PER_INSTRUCTION,
+      engine returns Overflow which wrapper propagates. Defensive verification.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank]
+    target_file: src/percolator.rs
+
+  # ===================================================================
+  # FAMILY M — Matcher zero-fill validation (commit 9c8daa4)
+  # ===================================================================
+
+  - id: M1-zero-fill-clock-rollback-via-pre-oracle-config-restore
+    class: state_transition
+    severity: High
+    bug_class: zero-fill-state-rollback-mark-corruption
+    claim: >
+      On a TradeCpi canonical zero-fill (exec_size==0,
+      exec_price_e6==oracle_price_e6), wrapper at src/percolator.rs:8184–8191
+      writes `restored = config_pre_oracle` back into the slab while
+      preserving ONLY last_good_oracle_slot, last_effective_price_e6,
+      last_oracle_publish_time, oracle_target_*, and last_hyperp_index_slot.
+      `mark_ewma_e6`, `mark_ewma_last_slot`, `last_mark_push_slot`, and
+      `hyperp_mark_e6` are NOT on preserve-list. A matcher that always returns
+      canonical zero-fill can advance the engine clock and
+      `last_effective_price_e6` while wrapper rolls `mark_ewma_last_slot`
+      backward — next genuine trade's `ewma_update` computes `dt = clock.slot
+      - old_mark_ewma_last_slot` for arbitrarily large window, unlocking full-
+      alpha EWMA snap that bypasses per-slot mark-smoothing.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, mark_ewma, zero_fill_path]
+    target_file: src/percolator.rs
+
+  - id: M2-zero-fill-canonical-price-matcher-not-bound-to-engine-oracle
+    class: state_transition
+    severity: High
+    bug_class: matcher-zero-fill-price-validation-bypass
+    claim: >
+      Fix at src/percolator.rs:1760 requires `ret.exec_price_e6 ==
+      oracle_price_e6` for zero-fill, but `oracle_price_e6` is the
+      request-time oracle passed to matcher (dt-capped `price` from
+      `read_price_clamped` / Hyperp index, NOT engine's `last_oracle_price`).
+      On Hyperp markets, a maliciously crafted matcher can generate canonical
+      zero-fill where `exec_price_e6 == request_price`, but `request_price`
+      was already permitted to diverge from `engine.last_oracle_price` by up
+      to `max_price_move_bps_per_slot`. Wrapper stamps divergent value into
+      `config.last_effective_price_e6` — matcher walks
+      `last_effective_price_e6` arbitrarily through repeated zero-fills.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, zero_fill_path]
+    target_file: src/percolator.rs
+
+  - id: M3-zero-fill-feeless-mark-ewma-clock-pump
+    class: state_transition
+    severity: High
+    bug_class: liveness-spoof-via-feeless-walk
+    claim: >
+      Hyperp market without permissionless resolution can have `mark_min_fee
+      == 0` (F2 gate at 6139 only fires when both conditions are met). With
+      mark_min_fee==0, EWMA full-weight observation check reduces to `true`,
+      so every fill (including matcher-zero-fill that bypasses `fee_paid`
+      insurance delta) refreshes `mark_ewma_last_slot` and
+      `last_mark_push_slot`. Canonical zero-fill never goes through trade
+      EWMA update branch — but M1 rollback PLUS ability to repeat zero-fills
+      lets attacker freeze the mark clock while market time advances. First
+      non-zero fill then jumps EWMA at maximal dt, manufacturing arbitrary
+      `mark_move_bps` for after-hours dynamic-fee formula.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, mark_min_fee_zero]
+    target_file: src/percolator.rs
+
+  - id: M4-zero-fill-replay-against-stuck-target-accrual
+    class: state_transition
+    severity: Medium
+    bug_class: zero-fill-bypassing-stuck-target-gate
+    claim: >
+      Zero-fill branch calls `reject_stuck_target_accrual` and
+      `reject_account_limited_market_progress` BEFORE accruing, then restores
+      config_pre_oracle. If mutable side effect inside `reject_*` writes
+      engine state, that mutation survives wrapper's config restore — but
+      matched `mark_ewma_last_slot` snapshot does NOT. Repeated zero-fills can
+      drift engine.last_market_slot forward by `max_accrual_dt_slots` per
+      call while mark_ewma_last_slot held constant by restore. Breaks `dt <=
+      max_accrual_dt_slots` coupling between engine clock and EWMA clock.
+    applies_to: [percolator]
+    scope_conditions: [zero_fill_path]
+    target_file: src/percolator.rs
+
+  - id: M5-zero-fill-nonce-replay-via-write_req_nonce-after-restore
+    class: state_transition
+    severity: Medium
+    bug_class: nonce-write-ordering-on-failed-path
+    claim: >
+      Zero-fill branch writes `state::write_req_nonce(&mut data, req_id)` at
+      src/percolator.rs:8192 AFTER restoring pre-oracle config but BEFORE any
+      post-condition validation. A matcher that returns canonical zero-fill
+      burns nonce slots without paying fee — at one zero-fill per slot this
+      is a cheap nonce-exhaustion DoS for the LP. When req_nonce eventually
+      saturates u64, LP's `nonce_on_success` check returns None and bricks
+      all future TradeCpi on this LP.
+    applies_to: [percolator]
+    scope_conditions: [zero_fill_path, nonce_monotonicity]
+    target_file: src/percolator.rs
+
+  - id: M6-matcher-context-mutation-between-validate-and-use
+    class: state_transition
+    severity: Critical
+    bug_class: toctou-matcher-return-double-read
+    claim: >
+      Between `read_matcher_return(&ctx_data)` at src/percolator.rs:8065 and
+      subsequent uses of `ret.exec_price_e6`/`ret.exec_size`/`ret.lp_account_id`
+      throughout 8082–8446, wrapper only locks ctx_data via try_borrow_data
+      for the duration of `ctx_data` scope, then `drop(ctx_data)` at line
+      8080. AFTER drop, wrapper continues to use values in `ret` local —
+      safe if MatcherReturn is by-value. But the new zero-fill canonical-price
+      check at 1760 reads `ret.exec_price_e6` and `ret.oracle_price_e6` from
+      the SAME copy. Test whether any later validation OR re-borrow of
+      `a_matcher_ctx` between 8080 and 8194 reads fresh ctx bytes.
+    applies_to: [percolator]
+    scope_conditions: [tradecpi, matcher_ctx_re_borrow]
+    target_file: src/percolator.rs
+
+  # ===================================================================
+  # FAMILY S — After-hours self-deal + adjacent surfaces (commit e2ed66c)
+  # ===================================================================
+
+  - id: S1-after-hours-self-deal-mark-ratchet-via-controlled-pair
+    class: state_transition
+    severity: Critical
+    bug_class: dynamic-fee-mark-ratchet-self-deal
+    claim: >
+      New regression test at tests/test_tradecpi.rs:6866–6925 verifies
+      `claim_after <= claim_before` for a SINGLE after-hours self-dealing
+      trade on `init_hyperp_with_dynamic_fee(1_000_000, 10_000, 1, 0)`
+      (mark_min_fee=0). Does NOT iterate the attack: single trade burns fees
+      AND moves mark, but mark move is bounded by max_price_move_bps_per_slot.
+      Repeating self-deal at every slot walks `mark_ewma_e6` cumulatively
+      while regression test's single-shot invariant cannot detect cumulative
+      siphoning of insurance via repeated `mark_move_bps` rebates. The
+      `hyperp_dynamic_fee_bps` fixed-point iteration finds fee covering
+      chosen move, but chosen move uses `mark_externality_notional =
+      max(max_side_oi_q, trade_notional) * 2` — if max_side_oi_q is BELOW
+      trade_notional, fee covers 2× trade's own notional. SIBLING side
+      immediately closes against LP at new mark, locking paper profit. A
+      ramp of 100 such trades with mark_min_fee=0 collects 100× trade fee
+      while EWMA moves arbitrarily.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, mark_min_fee_zero, self_deal]
+    target_file: src/percolator.rs
+
+  - id: S2-after-hours-self-deal-with-third-party-victim
+    class: state_transition
+    severity: Critical
+    bug_class: cross-account-extraction
+    claim: >
+      `controlled_extractable_upper_bound` at tests/test_tradecpi.rs:6803–6810
+      sums capital + max(pnl, 0) for ALL controlled accounts. Regression test
+      considers ONLY two-account attacker setup. If a THIRD honest LP holds
+      opposite-sided OI before attacker opens self-deal, dynamic-fee mark
+      move and EWMA snap cause honest LP's MM/funding accrual to spike
+      against him. Attacker-controlled pair's claim_after unchanged
+      (assertion passes), insurance balance unchanged or grows (assertion
+      passes), but honest LP bleeds out under funding+haircut into insurance
+      fund. Attacker then liquidates honest LP at manipulated mark.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, honest_third_party_lp]
+    target_file: src/percolator.rs
+
+  - id: S3-after-hours-fee-collected-into-insurance-but-self-trade-loss-eats-its-own
+    class: state_transition
+    severity: High
+    bug_class: fee-vs-loss-cycle-attacker-tax-arbitrage
+    claim: >
+      After-hours regression asserts `insurance_after >= insurance_before`
+      which holds because dynamic fee at 1bps + mark-move-bps lands in
+      insurance. Test stipulates ONE crank. With matched losers and winners
+      both controlled, attacker's combined loss = trade fee paid + mark-driven
+      PnL transfer. If PnL transfer routes through insurance (loss-absorption
+      fallback when LP cap exhausted), attacker can choose fee_base_bps so
+      low and trade so large that `current_trade_fee_paid_cap` is dwarfed
+      by mark-move PnL. LP-side loss exceeds capital → triggers
+      `record_uninsured_protocol_loss` → insurance absorbs. Net: insurance
+      grows by `fee` and shrinks by `loss > fee`. Single-snapshot test
+      can hide flow.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, lp_capital_exhaustion, insurance_loss_absorb]
+    target_file: src/percolator.rs
+
+  - id: S4-clamp-base-divergence-fee-planning-vs-ewma-actual
+    class: state_transition
+    severity: High
+    bug_class: clamp-base-asymmetry
+    claim: >
+      In TradeCpi non-zero-fill, dynamic-fee pre-flight at
+      src/percolator.rs:8282 calls
+      `clamp_oracle_price(mark_ewma_clamp_base(last_effective_price_e6),
+      exec_price, max_price_move_bps_per_slot)`. Actual EWMA update at
+      8361–8365 also clamps against `mark_ewma_clamp_base(last_effective_price_e6)`
+      using `ret.exec_price_e6` directly. Hyperp mark update at 8424 uses
+      `clamp_oracle_price(config.last_effective_price_e6, ret.exec_price_e6,
+      max_change_bps_cpi)` WITHOUT `.max(1)` floor. For markets where
+      `last_effective_price_e6` is briefly zero (after permissionless-resolve
+      cleanup), the three clamp call sites diverge.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, first_trade_after_resolve_cleanup]
+    target_file: src/percolator.rs
+
+  - id: S5-mark-min-fee-zero-allows-dust-trade-walk-on-non-perm-resolve
+    class: state_transition
+    severity: High
+    bug_class: full-weight-observation-with-zero-min-fee
+    claim: >
+      New self-deal regression uses `init_hyperp_with_dynamic_fee(..., 1, 0)`
+      — `mark_min_fee == 0`. With min_fee==0,
+      `ewma_effective_alpha_bps` returns `alpha_bps` regardless of fee_paid,
+      and `full_weight_observation` check at 8404/8441 evaluates to `true`
+      always. A 1-quantum trade pays trade_fee_base_bps * 1q ≈ 0 fee but
+      still gets full EWMA weight and refreshes `mark_ewma_last_slot`. With
+      controlled-pair self-deal at 1q size, attacker walks EWMA and Hyperp
+      liveness clock at zero real cost. Regression test uses size=100_000_000,
+      so dust-trade vector is untested. F2 gate (6139) only blocks when
+      perm_resolve enabled.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, mark_min_fee_zero, no_perm_resolve, dust_trade]
+    target_file: src/percolator.rs
+
+  - id: S6-mark-ewma-halflife-zero-collapses-to-instant-snap
+    class: state_transition
+    severity: Critical
+    bug_class: halflife-zero-instant-mark
+    claim: >
+      `ewma_update` at src/percolator.rs:1369 returns `price` directly when
+      `halflife_slots == 0`. `mark_ewma_halflife_slots` is admin-set at
+      InitMarketHyperp / UpdateConfig and new dynamic-fee init path does NOT
+      validate `mark_ewma_halflife_slots > 0` for after-hours markets. With
+      halflife==0, ANY trade's clamped exec price instantaneously becomes
+      new EWMA. `hyperp_dynamic_fee_bps` iteration computes `next_mark =
+      ewma_update(old, clamped, halflife=0) == clamped`. Fee covers that one
+      trade's externality fine — but EWMA itself is now at clamped exec, so
+      next trade's `old_mark` is previous clamped exec, allowing 100%
+      per-slot ratcheting bounded only by max_price_move_bps_per_slot.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, ewma_halflife_zero]
+    target_file: src/percolator.rs
+
+  - id: S7-cpi-trade-size-discards-requested-size-allows-zero-cash-conservation-skip
+    class: state_transition
+    severity: Critical
+    bug_class: matcher-controlled-size-bypasses-margin
+    claim: >
+      `cpi_trade_size` at src/percolator.rs:527 returns `exec_size` and
+      ignores `_requested_size`. Wrapper signs matcher CPI on behalf of user
+      without ensuring `|exec_size| > 0` corresponds to user's intent
+      expressed in `size`. Malicious matcher can echo lp_account_id,
+      oracle_price_e6, req_id correctly, set exec_price_e6 ==
+      oracle_price_e6, set exec_size = 1q (smallest positive trade), with
+      NO PARTIAL_OK flag — size-constraint branch at 1768 only checks
+      `exec_size.unsigned_abs() <= req_size.unsigned_abs()` and signum match,
+      both pass. User requesting size=1_000_000 gets trade of size=1, paying
+      full pre-touch recurring fees and full per-trade base fee on 1q
+      notional. With after-hours dynamic fees, matcher executes 1q at
+      maximally-divergent exec_price, moves EWMA mark by full per-slot cap on
+      1q trade — "size protection" is purely matcher's choice.
+    applies_to: [percolator]
+    scope_conditions: [tradecpi, matcher_returns_micro_fill, no_partial_ok_needed]
+    target_file: src/percolator.rs
+
+  - id: S8-matcher-exec-price-band-uses-engine-oracle-not-ewma-on-hyperp
+    class: state_transition
+    severity: High
+    bug_class: exec-price-band-vs-mark-divergence
+    claim: >
+      Anti-off-market band at src/percolator.rs:8214–8237 compares
+      `exec_price` to `price` (dt-capped oracle/index). For Hyperp
+      after-hours, operative "fair" anchor for self-dealing matched pair
+      should be `mark_ewma_e6` (value used by dynamic-fee iterator and
+      funding rate), NOT Hyperp index `last_effective_price_e6` returned as
+      `price`. After repeated self-deals, EWMA mark and engine's
+      `last_effective_price_e6` diverge — band check passes because exec is
+      near index, but EWMA mark is far from both. Funding accrued against
+      EWMA mark / index gap can compound in attacker's favor.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, exec_price_band]
+    target_file: src/percolator.rs
+
+  - id: S9-permissioned-matcher-can-front-run-its-own-CPI-via-tail-accounts
+    class: state_transition
+    severity: Medium
+    bug_class: tail-accounts-state-leak
+    claim: >
+      Matcher CPI forwards `a_tail` verbatim. A matcher trusted by LP owner
+      can include LP's OWN slab via the tail, forcing wrapper's matcher_ctx
+      write to interleave with matcher's own slab reads. Reentrancy guard
+      (`is_cpi_in_progress`) only blocks RE-ENTERING TradeCpi, not OTHER
+      mutations to slab data via matcher's own program. A matcher that
+      includes slab as writable tail account, then mutates mark_ewma_e6 or
+      fee_credits on a separate code path, can corrupt wrapper state between
+      zc::engine_mut borrows.
+    applies_to: [percolator]
+    scope_conditions: [tradecpi, matcher_tail_accounts, reentrancy_guard_scope]
+    target_file: src/percolator.rs
+
+  - id: S10-self-deal-via-distinct-owner-delegation-bypasses-account-equality
+    class: state_transition
+    severity: Critical
+    bug_class: self-deal-via-delegated-authority
+    claim: >
+      Wrapper's only self-deal block is `lp_idx != user_idx` at
+      src/percolator.rs:7799. Different `owner` values for the two indices
+      are permitted. Attacker controls keypairs A and B but LP at lp_idx is
+      owned by a THIRD keypair C that delegated matcher authority to a
+      program D under attacker control. C's private key never used in
+      TradeCpi (a_lp_owner is non-signer at 7802). Economic effect identical
+      to self-deal: A signs user side, D's matcher signs LP side.
+      After-hours self-deal regression uses A and B both attacker-keyed but
+      does NOT cover the C-delegates-to-D case.
+    applies_to: [percolator]
+    scope_conditions: [tradecpi, delegated_lp_authority, no_lp_signer_required]
+    target_file: src/percolator.rs
+
+  - id: S11-mark-min-fee-collected-into-insurance-but-mark-walk-counted-only-when-paid
+    class: state_transition
+    severity: High
+    bug_class: fee-paid-snapshot-loss-absorption-undercount
+    claim: >
+      `fee_paid_cpi` computed as `(insurance_after - insurance_before).min(
+      current_fee_paid_cap)`. Comment acknowledges UNDERCOUNTS when loss
+      absorption happens in same trade. When that fires, `delta` saturates
+      to 0, `fee_paid_cpi = 0`, and EWMA full-weight check `fee_paid_cpi
+      >= mark_min_fee` fails for any mark_min_fee > 0 — but EWMA VALUE was
+      still nudged by partial alpha, and `mark_ewma_last_slot` NOT advanced.
+      Repeated trades in loss-absorption regime nudge EWMA value while clock
+      dt stays fixed. First trade after regime exits computes alpha against
+      stale dt, snapping EWMA. `hyperp_dynamic_fee_bps` plans fee against
+      STALE clock and undercharges the snap.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, loss_absorption_during_trade]
+    target_file: src/percolator.rs
+
+  - id: S12-zero-fill-restore-allows-fee-credit-divergence
+    class: state_transition
+    severity: Medium
+    bug_class: fee-credit-vs-config-restore
+    claim: >
+      Zero-fill `restored = config_pre_oracle` write at 8184–8191 covers
+      MarketConfig only. But preceding `reject_account_limited_market_progress`/
+      `catchup_accrue`/ `accrue_market_to` calls mutate per-account state on
+      `engine` — specifically `fee_credits` and `last_fee_slot` (maintenance-
+      fee path). On zero-fill, wrapper does NOT undo per-account fee
+      mutations. Repeated zero-fills can drain slot's `fee_credits` while
+      matcher provides no actual trade service. If catchup_accrue path
+      triggers per-account haircut, haircut survives config restore but no
+      longer paired with trade-level cash-flow.
+    applies_to: [percolator]
+    scope_conditions: [zero_fill_path, maintenance_fee_per_slot]
+    target_file: src/percolator.rs
+
+  - id: S13-after-hours-dynamic-fee-iterator-divergence-on-overflow
+    class: state_transition
+    severity: Medium
+    bug_class: dynamic-fee-iterator-saturation-return-Some
+    claim: >
+      `hyperp_dynamic_fee_bps` iterates up to 64 times. On overflow path
+      returns None at multiple points. If iterator terminates by `needed <=
+      fee_bps`, returns `Some(fee_bps)`. With adversarial inputs (very large
+      `mark_externality_notional`, very small `trade_notional`),
+      `needed_u128` can OSCILLATE within 64-iter budget. If oscillation lands
+      on `needed == fee_bps` exactly, function returns fee_bps JUST BELOW
+      actual minimum required for next iteration — under-fee by one bps.
+      Compounded across many trades is a steady leak.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, dynamic_fee_iteration]
+    target_file: src/percolator.rs
+
+  - id: S14-after-hours-self-deal-during-pause-stale-window
+    class: state_transition
+    severity: High
+    bug_class: paused-market-zero-fill-or-self-deal
+    claim: >
+      `permissionless_stale_matured` at start of TradeCpi rejects with
+      `OracleStale` ONLY in specific arms. During "soft-stale" window (oracle
+      just-barely-fresh per `max_staleness_secs` but Hyperp's
+      `last_mark_push_slot` significantly behind), matcher can return
+      canonical zero-fill. Each zero-fill advances
+      `last_effective_price_e6` via preserved field at 8186 and advances
+      `accrue_market_to` while NOT charging fees. Attacker rides soft-stale
+      window: real trades by honest LPs deterred, but zero-fills walk engine
+      clock and index, generating fabricated "live" trail that defeats
+      `permissionless_resolve_stale_slots` maturation.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, soft_stale_window, zero_fill_path]
+    target_file: src/percolator.rs
+
+  - id: S15-cancel-replace-self-trade-via-rapid-nonce-burn
+    class: state_transition
+    severity: Medium
+    bug_class: cancel-replace-self-trade
+    claim: >
+      TradeCpi has no "cancel" instruction — orders atomic at matcher level.
+      On wrapper, a matcher returning FLAG_REJECTED consumes one CPI's gas
+      and returns error. Test: does FLAG_REJECTED still advance `req_nonce`
+      BEFORE error? If yes, matcher that alternates FLAG_REJECTED +
+      actual-fill responses can burn nonces between fills to manipulate LP's
+      `lp_instance_id` sequence — which is the only identifier
+      validate_matcher_return uses for echoed lp_account_id (7882).
+    applies_to: [percolator]
+    scope_conditions: [tradecpi, matcher_flag_rejected, nonce_handling]
+    target_file: src/percolator.rs
+
+  - id: S16-non-canonical-zero-fill-still-mutates-insurance-via-pre-touch
+    class: state_transition
+    severity: High
+    bug_class: pre-touch-recurring-fee-on-zero-fill
+    claim: >
+      `reject_account_limited_market_progress` at 8153 may still settle
+      per-account fee state on zero-fill path. If matcher returns canonical
+      zero-fill whenever LP's recurring fees would otherwise be due, LP
+      avoids paying maintenance fees indefinitely as long as zero-fills
+      happen at slots intercepting fee sweep. Asymmetric: LP pays fees on
+      real trades, evades them on zero-fills.
+    applies_to: [percolator]
+    scope_conditions: [zero_fill_path, maintenance_fee_per_slot]
+    target_file: src/percolator.rs
+
+  - id: S17-validate-matcher-return-allows-i128-MIN-req-size-bypass
+    class: state_transition
+    severity: Medium
+    bug_class: i128-min-size-validation-edge
+    claim: >
+      `validate_matcher_return` checks `ret.exec_size.unsigned_abs() >
+      req_size.unsigned_abs()`. The `unsigned_abs()` of `i128::MIN` is `1 <<
+      127`. Wrapper at 7793 rejects `size == i128::MIN` BEFORE matcher CPI,
+      but ONLY for TradeCpi entry size. Verify no OTHER caller (future
+      TradeCpi-like instruction or KeeperCrank lifecycle path) reuses
+      validate_matcher_return without pre-filtering i128::MIN.
+    applies_to: [percolator]
+    scope_conditions: [matcher_abi, i128_min_handling]
+    target_file: src/percolator.rs
+
+  - id: S18-after-hours-self-deal-multi-leg-toto-oracle
+    class: state_transition
+    severity: High
+    bug_class: composite-oracle-leg-rollback-self-deal
+    claim: >
+      Commit d40edb5 introduces multi-leg oracle support (oracle_leg_count
+      up to 3). Multi-leg composite oracles compose leg prices via
+      multiply/divide. When matcher receives `oracle_price_e6` this is
+      COMPOSITE — but `validate_matcher_return` echoes composite price, NOT
+      per-leg prices. Composite oracle update that rolls back single leg
+      between request and validation could let matcher attempt "stale-leg"
+      zero-fill that passes composite price echo but uses a leg in its own
+      pricing. Combined with after-hours dynamic fees on TOTO market, this
+      is cross-source manipulation territory.
+    applies_to: [percolator]
+    scope_conditions: [composite_oracle, toto_market, hyperp_after_hours]
+    target_file: src/percolator.rs
+
+  - id: S19-after-hours-fee-paid-cap-overflows-on-large-notional
+    class: state_transition
+    severity: Medium
+    bug_class: trade-fee-paid-cap-saturation
+    claim: >
+      `current_trade_fee_paid_cap` multiplies `notional * trading_fee_bps /
+      10000` then `* 2`. For after-hours max case
+      (`current_trade_fee_bps == MAX_DYNAMIC_TRADE_FEE_BPS == 10_000`), this
+      becomes `notional * 2` directly. With MAX_TRADE_SIZE_Q and Hyperp mark
+      near MAX_ORACLE_PRICE, u128 multiplication can overflow. Verify no
+      path silently saturates cap to u64::MAX creating artificially-low
+      effective fee.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_after_hours, max_dynamic_fee_bps]
+    target_file: src/percolator.rs
+
+  - id: S20-after-hours-trade-during-mark-resolved-mode-via-stale-snapshot
+    class: state_transition
+    severity: Medium
+    bug_class: resolved-market-frozen-state-trade-cpi
+    claim: >
+      TradeCpi rejects when `engine.market_mode == Resolved`. Resolved
+      snapshot taken via immutable borrow BEFORE matcher CPI. If malicious
+      matcher (in tail) reinvokes a separate ResolveMarket instruction
+      during its callback, slab's market_mode flips to Resolved mid-CPI.
+      Wrapper's post-CPI logic proceeds without re-checking market_mode.
+      mark_ewma update / fee collection / insurance mutation runs on
+      Resolved market, breaking "frozen time" invariant. Reentrancy guard
+      blocks TradeCpi reentry but does NOT block ResolveMarket entry.
+    applies_to: [percolator]
+    scope_conditions: [tradecpi, reentrancy_guard, resolve_market_during_cpi]
+    target_file: src/percolator.rs
+
+  # ===================================================================
+  # FAMILY W — Withdrawal safety (commit d3f5a07)
+  # ===================================================================
+
+  - id: W1-flat-account-bypass-loss-stale-lock
+    class: state_transition
+    severity: Critical
+    bug_class: vault-balance-divergence
+    claim: >
+      `withdraw_not_atomic` gates the loss-stale positive-pnl lock behind
+      `position_basis_q != 0` (engine src/percolator.rs lines 7463 and 7472).
+      A user who just closed a position via TradeNoCpi/TradeCpi to a flat
+      basis BEFORE the global loss-stale window is consumed has `basis == 0`
+      but a positive `pnl` already credited. Wrapper's withdraw path runs
+      `accrue_market_to`, but stale K/F deltas only re-touch accounts with
+      non-zero basis. After local touch on flat account,
+      `account_has_unsettled_live_effects` returns Ok(false) trivially
+      (early return on basis==0). Withdraw computes equity = capital +
+      min(pnl, 0) + matured_pnl - fee_debt; since pnl > 0, min(pnl,0) = 0
+      and user pulls capital out before the corresponding loss is
+      socialized onto remaining holders.
+    applies_to: [percolator]
+    scope_conditions: [withdrawal_path, post_close_flat_state]
+    target_file: src/percolator.rs
+
+  - id: W2-positive-pnl-withdraw-skips-effective-matured-haircut
+    class: state_transition
+    severity: Critical
+    bug_class: vault-balance-divergence
+    claim: >
+      `account_equity_withdraw_raw` at engine line 5645 adds
+      `effective_matured_pnl_checked(idx, false)` to capital. But `min(pnl,
+      0)` is added as `neg_pnl`, which means if `account.pnl` is positive
+      (profit just realized via close), positive pnl is silently dropped
+      from gate — but user already moved profit into capital column via
+      prior close, double-counting. User can: deposit C, trade to open and
+      close profitably so capital grows by ΔPnL, immediately withdraw C+ΔPnL
+      — never paying h-lock warmup horizon.
+    applies_to: [percolator]
+    scope_conditions: [withdrawal_path, trade_realized_profit]
+    target_file: src/percolator.rs
+
+  - id: W3-im-req-wrap-i256-but-eq-wraps-i128
+    class: state_transition
+    severity: Critical
+    bug_class: vault-balance-divergence
+    claim: >
+      Engine line 7525-7531 widens `eq_withdraw - amount` and `im_req` into
+      I256 to avoid wrapping when `min_nonzero_im_req > i128::MAX`. But
+      `eq_withdraw` itself is computed as i128 (engine line 5660 with
+      `try_into_i128`). When conservative path returns `i128::MIN + 1` on
+      overflow, I256 widening produces `I256::from_i128(i128::MIN + 1)` ≈
+      -2^127. Subtracting amount keeps deep negative — gate rejects, which
+      is OK. But i128::MIN+1 sentinel can be reached normally on dense
+      accounts (lots of matured pnl), causing legitimate withdrawals
+      rejected forever — and reverse direction the try_into_i128 floor
+      sentinel hides what should have been an overflow.
+    applies_to: [percolator]
+    scope_conditions: [withdrawal_path, max_matured_pnl_edge]
+    target_file: src/percolator.rs
+
+  - id: W4-wrapper-set-owner-skips-validate-used-slot
+    class: state_transition
+    severity: High
+    bug_class: account-spoof
+    claim: >
+      New `set_wrapper_owner` at src/percolator.rs line 5355 replaces
+      `engine.set_owner` (engine line 7310) which calls
+      `validate_used_account_slot` first. Wrapper version only checks idx <
+      max_accounts + owner != [0;32] + accounts[idx].owner == [0;32]. Both
+      InitUser and InitLP currently call set_wrapper_owner AFTER
+      deposit_not_atomic which materializes the slot, so safe today. But
+      any future codepath calling set_wrapper_owner WITHOUT preceding
+      materialization will silently write owner bytes into a free-list
+      slot.
+    applies_to: [percolator]
+    scope_conditions: [account_lifecycle, init_user, init_lp]
+    target_file: src/percolator.rs
+
+  - id: W5-residual-owner-after-close-shadows-fresh-init
+    class: state_transition
+    severity: High
+    bug_class: account-spoof
+    claim: >
+      `close_account_not_atomic` (engine 9306) calls `free_slot` (engine
+      2007) which marks slot unused but does NOT zero `accounts[idx].owner`.
+      If residual owner bytes survive on freed slot, subsequent
+      `prepare_lazy_free_head` plus InitUser calls
+      `set_wrapper_owner(engine, idx, fresh_owner)` which rejects because
+      `accounts[idx].owner != [0u8; 32]`. DoS on slot reuse: attacker who
+      closes their account permanently bricks that idx.
+    applies_to: [percolator]
+    scope_conditions: [account_lifecycle, close_then_reinit]
+    target_file: src/percolator.rs
+
+  - id: W6-withdraw-during-active-bankrupt-close-race
+    class: state_transition
+    severity: High
+    bug_class: atomicity-violation
+    claim: >
+      Engine's `withdraw_not_atomic` does NOT call
+      `ensure_no_active_bankrupt_close` (compare engine 7433-7543 vs
+      `deposit_not_atomic` at 7341 which does call it). When market has
+      `active_close_present != 0` (mid-cascade liquidation), KeeperCrank
+      dispatcher routes to `continue_active_bankrupt_close_not_atomic`, but
+      withdraw paths can still execute. User can withdraw collateral DURING
+      multi-instruction bankruptcy close that hasn't finished re-pricing
+      other accounts, escaping a haircut that would have applied.
+    applies_to: [percolator]
+    scope_conditions: [withdrawal_path, active_bankrupt_close]
+    target_file: src/percolator.rs
+
+  - id: W7-withdraw-pre-accrue-positive-pnl-lock-check-stale
+    class: state_transition
+    severity: Medium
+    bug_class: vault-balance-divergence
+    claim: >
+      `withdraw_not_atomic` checks `loss_stale_positive_pnl_lock_active` at
+      line 7463 BEFORE `accrue_market_to`, AGAIN at line 7472 AFTER. Lock
+      predicate reads `last_market_slot < current_slot && oi != 0`.
+      `accrue_market_to` advances `last_market_slot` to `now_slot`, so AFTER
+      accrue lock is by definition not active. Post-accrue check is dead.
+      Real protection relies on PRE-accrue check, but that check fires
+      before `reject_account_limited_market_progress` which can preempt
+      accrue. Investigate whether attacker can arrange bypass.
+    applies_to: [percolator]
+    scope_conditions: [withdrawal_path, loss_stale_window]
+    target_file: src/percolator.rs
+
+  - id: W8-withdraw-min-nonzero-im-req-zero-eff-bypass
+    class: state_transition
+    severity: High
+    bug_class: vault-balance-divergence
+    claim: >
+      IM check at engine line 7505 conditional on `eff != 0`.
+      `effective_pos_q_checked(idx, false)` can return Ok(0) for non-flat
+      cases: (a) `adl_epoch_snap != epoch_side` with ResetPending mode
+      returns Ok(0), (b) `effective_abs == 0` after mul_div_floor. In case
+      (a), position still REAL — basis non-zero, side reset pending.
+      Withdrawer's effective position zeroed by side reset, so they can
+      withdraw FULL capital ignoring IM, even though basis still represents
+      real exposure.
+    applies_to: [percolator]
+    scope_conditions: [withdrawal_path, side_reset_pending]
+    target_file: src/percolator.rs
+
+  - id: W9-zero-capital-zero-payout-close-skips-ata-validation
+    class: state_transition
+    severity: Medium
+    bug_class: account-spoof
+    claim: >
+      New test `test_zero_payout_close_account_skips_destination_ata_validation`
+      indicates CloseAccount on zero-capital account skips destination ATA
+      validation. If engine drains capital to 0 via fee/loss path, next
+      CloseAccount can be called with ANY destination ATA — including
+      attacker's. Normally fine (zero tokens transferred), BUT if transfer
+      logic uses destination ATA for non-zero internal sweep (e.g. dust
+      accrual via sweep_empty_market_surplus_to_insurance), attacker's ATA
+      could pick up surplus tokens.
+    applies_to: [percolator]
+    scope_conditions: [close_account, zero_capital]
+    target_file: src/percolator.rs
+
+  - id: W10-cross-market-collateral-not-isolated
+    class: state_transition
+    severity: Critical
+    bug_class: vault-balance-divergence
+    claim: >
+      WithdrawCollateral verifies `a_vault.owner == derived_pda` and mint
+      matches `config.collateral_mint`, but does NOT verify engine slab
+      corresponds to SAME mint/vault as previously seen. If multiple
+      Percolator slabs (markets) share common collateral mint, malicious
+      construction passes slab_A's `a_slab` AccountInfo with slab_B's
+      `a_vault` (whose owner_pda derived from slab_B). Wrapper computes
+      `derived_pda` from `program_id, a_slab.key, config.vault_authority_bump`
+      — using slab_A's bump. If slab_B's vault PDA canonicalizes at same
+      bump, verification passes.
+    applies_to: [percolator]
+    scope_conditions: [withdrawal_path, multi_market_collateral]
+    target_file: src/percolator.rs
+
+  # ===================================================================
+  # FAMILY C — Crank progress (commit d3f5a07)
+  # ===================================================================
+
+  - id: C1-account-hint-attacker-controlled-recovery-resolve
+    class: state_transition
+    severity: Critical
+    bug_class: market-grief
+    claim: >
+      New wrapper KeeperCrank path (src/percolator.rs 7187-7190) sets
+      `account_hint` from `candidates.first()` — ATTACKER-CONTROLLED
+      instruction parameter. Engine's
+      `try_permissionless_account_b_dispatch` calls
+      `try_permissionless_account_b_progress`, which on
+      Account-B-stalemate routes to
+      `permissionless_recovery_resolve_account_b_p_last_not_atomic`. That
+      branch CONVERTS MARKET TO RESOLVED at `last_oracle_price` via
+      `resolve_market_not_atomic(Degenerate, ...)`. A griefer who can
+      drive ANY single account into B-stale-cannot-progress state can
+      target it via account_hint and force ENTIRE MARKET into Resolved
+      mode.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, account_hint, permissionless_progress]
+    target_file: src/percolator.rs
+
+  - id: C2-bindex-headroom-recovery-via-attacker-loss-weight
+    class: state_transition
+    severity: Critical
+    bug_class: market-grief
+    claim: >
+      `validate_permissionless_p_last_recovery_reason` for
+      `BIndexHeadroomExhausted` accepts when `b_long_num == u128::MAX ||
+      b_short_num == u128::MAX`. If attacker can push `b_long_num` to
+      u128::MAX via repeated trades or via single trade that explodes
+      loss_weight, ANY permissionless crank caller can invoke
+      `permissionless_recovery_resolve_p_last_not_atomic` and resolve the
+      market. Investigate path from attacker-controlled trade size/price to
+      b_*_num saturation.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, b_index_overflow, permissionless_recovery]
+    target_file: src/percolator.rs
+
+  - id: C3-explicit-loss-saturated-recovery-attacker-griefed
+    class: state_transition
+    severity: Critical
+    bug_class: market-grief
+    claim: >
+      `validate_permissionless_p_last_recovery_reason` for
+      `ExplicitLossOrDustAuditOverflow` accepts when
+      `explicit_unallocated_loss_saturated != 0`. The
+      `explicit_unallocated_loss` counter is bumped whenever bounded
+      loss-distribution step cannot find any account to absorb. Attacker
+      who repeatedly causes K-failed loss buffering can drive
+      `explicit_unallocated_loss_saturated` true. Any subsequent
+      KeeperCrank by attacker hits global recovery scan and converts
+      market to Resolved at current `last_oracle_price`.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, explicit_loss_overflow, permissionless_recovery]
+    target_file: src/percolator.rs
+
+  - id: C4-resolved-payout-cannot-be-transferred-by-keepercrank
+    class: state_transition
+    severity: High
+    bug_class: vault-balance-divergence
+    claim: >
+      Wrapper KeeperCrank sets `resolved_scan_limit: 1` and
+      `resolved_fee_rate_per_slot: config.maintenance_fee_per_slot`
+      "defensively". If market already Resolved when KeeperCrank runs,
+      engine's `permissionless_progress_not_atomic` immediately takes
+      `force_close_resolved_cursor_with_fee_not_atomic` branch. That branch
+      can free slots and zero capital — but wrapper comment claims it
+      "cannot transfer resolved payouts from this account list", so wrapper
+      does NO collateral transfer. Vault balance now exceeds sum-of-capitals
+      → orphaned vault tokens.
+    applies_to: [percolator]
+    scope_conditions: [resolved_market, keeper_crank_on_resolved]
+    target_file: src/percolator.rs
+
+  - id: C5-account-hint-bypasses-rr-touch-budget
+    class: state_transition
+    severity: High
+    bug_class: state-leak
+    claim: >
+      `try_permissionless_account_b_dispatch` runs BEFORE
+      `GLOBAL_RECOVERY_PRIORITY` scan and BEFORE
+      `keeper_crank_with_request_not_atomic`. When dispatch returns
+      `AccountBProgress(idx)`, wrapper marks outcome as NOT-a-crank
+      (`progress_was_crank` becomes false). Then sweep_delta forced to 0.
+      But engine HAS mutated state — ran touch_account_live_local +
+      finalize + resets on hinted account. Attacker calling KeeperCrank
+      with own idx as first candidate uses this free-of-charge to settle
+      own account's local state without paying recurring fee sweep.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, account_hint, fee_sync_bypass]
+    target_file: src/percolator.rs
+
+  - id: C6-wrapper-deleted-bounded-keeper-policy-defense
+    class: state_transition
+    severity: High
+    bug_class: vault-balance-divergence
+    claim: >
+      Deleted `bounded_keeper_policy_for_engine` degraded
+      `LiquidationPolicy::FullClose` to touch-only on dense books
+      (same_side_count > DENSE_ADL_FULLCLOSE_SIDE_SCAN_LIMIT=8 or
+      opposing_count > 8). New commit drops that degradation. FullClose on
+      dense book now reaches engine. If engine has not absorbed this
+      contract, dense-book FullClose can panic on CU exhaustion
+      mid-mutation, leaving partially updated state.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, dense_market, full_close_liquidation]
+    target_file: src/percolator.rs
+
+  - id: C7-wrapper-deleted-account-provably-nonnegative-defense
+    class: state_transition
+    severity: Critical
+    bug_class: vault-balance-divergence
+    claim: >
+      Deleted `account_provably_nonnegative_after_accrual` and
+      `account_provably_above_maintenance_after_accrual` previews rejected
+      cranks whose Phase-2 RR scan would touch uncovered account that goes
+      negative after this step. New commit replaces with engine-side gating
+      that has NO equivalent pre-touch protection. Attacker calls
+      KeeperCrank with no candidates during price-jump slot; RR scan
+      touches next exposed account; equity goes negative; insurance
+      absorbs; cursor advances. Over N cranks attacker drains insurance via
+      cursor walk, with NO liquidations attempted. Old wrapper coverage
+      gated with CatchupRequired.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, empty_candidates, price_jump]
+    target_file: src/percolator.rs
+
+  - id: C8-crank-reward-paid-from-pre-floor-insurance
+    class: state_transition
+    severity: Medium
+    bug_class: vault-balance-divergence
+    claim: >
+      KeeperCrank reward path caps reward by `ins_now =
+      engine.insurance_fund.balance.get()` AFTER `sweep_maintenance_fees`,
+      then credits `reward` to caller via
+      `credit_account_from_insurance_not_atomic`. Insurance floor is
+      enforced by engine via subtract, but wrapper does NOT consult floor —
+      only ins_now. If sweep_maintenance_fees pushes insurance to BELOW
+      floor, reward withdraws more, breaching floor invariant by reward
+      bps.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, crank_reward, insurance_floor]
+    target_file: src/percolator.rs
+
+  - id: C9-partial-catchup-cursor-not-rewound-on-failure
+    class: state_transition
+    severity: High
+    bug_class: state-leak
+    claim: >
+      Inside KeeperCrank, when `partial_target.is_some()`, wrapper sets
+      `partial_catchup = true` and forwards to
+      `permissionless_progress_not_atomic`. Engine partially accrues to
+      chunked target, advancing `last_market_slot` to partial-chunk slot.
+      If later step fails and returns ProgramError, partial accrue mutation
+      NOT rolled back at engine boundary (Solana tx rollback only program-
+      level state — engine has no own checkpointing). Across two
+      transactions: first runs partial accrue, second resumes from new
+      partial cursor. Investigate partial-cursor invariant alignment.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, partial_catchup, multi_tx_state]
+    target_file: src/percolator.rs
+
+  - id: C10-engine-resolved-after-progress-skips-risk-buffer-update
+    class: state_transition
+    severity: High
+    bug_class: state-leak
+    claim: >
+      Lines 7305-7311: after `permissionless_progress_not_atomic`, wrapper
+      checks `engine.market_mode == Resolved` and if so, bails early from
+      risk-buffer Phase A scrub. Permissionless recovery path that JUST
+      resolved market DURING this crank leaves stale entries in risk
+      buffer that reference accounts/state captured pre-resolution.
+      Subsequent Live cranks can't run (market resolved), but Resolved
+      cranks use legacy resolved branch with stale risk_buffer entries
+      that are NEVER scrubbed.
+    applies_to: [percolator]
+    scope_conditions: [keeper_crank, recovery_to_resolved, risk_buffer]
+    target_file: src/percolator.rs
+
+  # ===================================================================
+  # FAMILY T — Threat-model gap inversion
+  # (test_a1_siphon_regression + test_economic_attack_vectors + test_envelope_gate)
+  # ===================================================================
+
+  - id: T1-tvl-cap-saturating-mul-overflow
+    class: invariant_property
+    severity: High
+    bug_class: arithmetic-saturation-bypass
+    claim: >
+      InitUser/InitLP/DepositCollateral perform TVL:insurance cap check
+      with `ins.saturating_mul(tvl_insurance_cap_mult as u128)` at
+      percolator.rs:6433, 6557, 6670. When `insurance_fund.balance *
+      tvl_insurance_cap_mult` overflows u128, saturating_mul caps at
+      u128::MAX, masking cap entirely. Admin setting tvl_insurance_cap_mult
+      to large value plus large insurance balance (or malicious sequence of
+      TopUpInsurance to inflate balance, then deposits) can DEFEAT cap
+      silently.
+    applies_to: [percolator]
+    scope_conditions: [tvl_cap_check]
+    target_file: src/percolator.rs
+
+  - id: T1-init-user-fee-strand-on-panic
+    class: invariant_property
+    severity: Critical
+    bug_class: vault-insurance-divergence
+    claim: >
+      InitUser at percolator.rs:6440 transfers `fee_payment` (capital + fee)
+      to vault BEFORE calling `deposit_not_atomic` (6452) and
+      `top_up_insurance_fund` (6457). If `top_up_insurance_fund` returns
+      error (e.g. EngineOverflow), SPL transfer is committed but neither
+      `c_tot` nor `insurance_fund.balance` reflect the `fee_units`. Result
+      is SAME class of vault-vs-counter divergence as F7: vault grows by
+      fee_units but no counter grows. Residual = vault - c_tot - insurance
+      inflates by exactly fee_units, claimable by any K/F winner.
+    applies_to: [percolator]
+    scope_conditions: [init_user_fee_path]
+    target_file: src/percolator.rs
+
+  - id: T1-fee-credit-overpayment-dust-strand
+    class: invariant_property
+    severity: High
+    bug_class: vault-insurance-divergence
+    claim: >
+      DepositFeeCredits at percolator.rs:9843 transfers `amount` base tokens
+      to vault at line 9921 BEFORE booking `units2` units in engine at 9930.
+      `units2` conversion via `base_to_units` may produce dust remainder
+      different from dust Phase-2 validation computed if `unit_scale` is
+      read twice across slab unlock/re-lock window. Any drift between
+      phase-1 dust check and phase-4 dust silently donates base-amount
+      tokens to vault without engine recognizing them.
+    applies_to: [percolator]
+    scope_conditions: [deposit_fee_credits_path]
+    target_file: src/percolator.rs
+
+  - id: T1-residual-claim-cross-market-CPI
+    class: invariant_property
+    severity: Critical
+    bug_class: cross-program-invariant-violation
+    claim: >
+      A1 regression tests prove `attacker_delta <= ROUNDING_TOLERANCE` for
+      two-account matched pair within SINGLE market. They do NOT test
+      three-account triangular settlement where attacker controls THIRD
+      bridge account that absorbs and re-emits PnL across two cranks.
+      Under triangle (A long, B short paired with A, C short paired with
+      B), §1.4 envelope computed pairwise but residual is market-wide pot.
+      "Winning side" collection can claim from pot inflated by DIFFERENT
+      pair's insurance absorption.
+    applies_to: [percolator]
+    scope_conditions: [triangular_settlement]
+    target_file: src/percolator.rs
+
+  - id: T1-a1-hyperp-no-position-gap
+    class: invariant_property
+    severity: High
+    bug_class: missing-test-scenario
+    claim: >
+      test_a1_hyperp_mark_siphon_defended runs WITHOUT matched pair because
+      TradeNoCpi is disabled on Hyperp. Note at line 313: "without any open
+      positions, insurance balance is trivially unaffected." Leaves
+      UNCOVERED case where attacker opens positions via PushHyperpMark
+      authority-triggered lifecycle side effects (adversarial mark push
+      causing ADL enqueue that affects pre-existing honest position).
+      Mark-push authority CAN manipulate existing victim's PnL even with
+      zero attacker positions.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_oracle_authority]
+    target_file: src/percolator.rs
+
+  - id: T1-a1-tradecpi-matcher-rebate-side-channel
+    class: invariant_property
+    severity: Critical
+    bug_class: matcher-program-trust-boundary
+    claim: >
+      test_a1_tradecpi_siphon_defended covers well-behaved matcher. Does
+      NOT cover ADVERSARIAL matcher_program that satisfies ABI echo +
+      identity binding + nonce discipline but exfiltrates value via
+      matcher_context PDA's writable allowance during TradeCpi. If matcher
+      writes to its own owned data on same tx as matched pair, wrapper has
+      no way to verify matcher didn't credit itself rebate units that are
+      accounted-in on same instruction.
+    applies_to: [percolator]
+    scope_conditions: [adversarial_matcher_program]
+    target_file: src/percolator.rs
+
+  - id: T1-fee-cycling-wash-rebate-route
+    class: invariant_property
+    severity: High
+    bug_class: fee-counter-vault-divergence
+    claim: >
+      test_attack_fee_cycling_wash_trades_no_rebate_siphon verifies fees
+      route to insurance, not to wash-trade traders. Does NOT cover path
+      where fee accumulates as NEGATIVE `fee_credits` debt on LP (e.g.
+      maintenance fee accrued during wash trades) and LP closes debt via
+      DepositFeeCredits while c_tot has already absorbed negative-debt
+      placeholder. If bookkeeping reduces engine vault claim without
+      matching vault transfer, residual grows.
+    applies_to: [percolator]
+    scope_conditions: [fee_debt_repayment_path]
+    target_file: src/percolator.rs
+
+  - id: T1-stale-matured-withdraw-residual-bypass
+    class: invariant_property
+    severity: Critical
+    bug_class: missing-envelope-check
+    claim: >
+      test_envelope_gate.rs covers TopUpInsurance and InitUser rejection on
+      permissionless_stale_matured. Does NOT cover WithdrawInsuranceLimited
+      (tag 23), which calls `live_insurance_withdraw_residual_ok` at 1297
+      to check residual >= 0 but lacks explicit stale-matured early-reject
+      mirroring InitUser path. If stale-matured market still has positive
+      residual but engine's vault read is one-touch-behind, operator can
+      drain insurance_withdraw_deposit_remaining through tag 23 even after
+      hard timeout.
+    applies_to: [percolator]
+    scope_conditions: [stale_matured_withdraw]
+    target_file: src/percolator.rs
+
+  - id: T1-init-market-config-prevalidation-gap
+    class: invariant_property
+    severity: High
+    bug_class: init-time-prevalidation-gap
+    claim: >
+      test_envelope_gate.rs verifies InitMarket rejects
+      max_price_move_bps_per_slot==0 and ResolveMarket rejects mode==2.
+      Does NOT prevalidate other zero-or-extreme RiskParam fields:
+      `maintenance_margin_bps == 0`, `initial_margin_bps == 0`,
+      `liquidation_fee_bps == u16::MAX`, `tvl_insurance_cap_mult ==
+      u16::MAX` while `funding_rate_cap_bps == 0`. Any creates degenerate
+      envelope where §1.4 trivially holds yet insurance pays out.
+    applies_to: [percolator]
+    scope_conditions: [init_market_config]
+    target_file: src/percolator.rs
+
+  - id: T1-resolve-market-degenerate-mode-byte
+    class: invariant_property
+    severity: Medium
+    bug_class: instruction-decode-default-arm
+    claim: >
+      test_envelope_gate.rs verifies ResolveMarket mode=2 rejects via
+      InvalidInstructionData (parser-level). Does NOT test that mode=1
+      (Degenerate) with UNEXPECTED slab state (num_used_accounts > 0,
+      open positions, residual > 0) is handled correctly. Explicit split
+      means each arm has its own internal logic — Degenerate branch may
+      skip invariants Ordinary branch enforces.
+    applies_to: [percolator]
+    scope_conditions: [resolve_market_degenerate]
+    target_file: src/percolator.rs
+
+  - id: T1-zero-insurance-self-liq-adl-residual
+    class: invariant_property
+    severity: Critical
+    bug_class: adl-residual-drain
+    claim: >
+      test_attack_zero_insurance_self_liquidation_no_net_extraction asserts
+      no net extraction when insurance is zero. Uses one weak long + one
+      LP. Does NOT cover case where zero insurance forces ADL enqueue
+      across MULTIPLE counterparties. ADL waterfall can spread loss to
+      non-attacker LPs while preserving attacker's winning LP leg —
+      attacker's two-account delta stays ≤0 but third honest LP is
+      socialized into covering attacker's exit. `assert_no_net_extraction`
+      sums only attacker idx_a + idx_b.
+    applies_to: [percolator]
+    scope_conditions: [zero_insurance_adl]
+    target_file: src/percolator.rs
+
+  - id: T1-whipsaw-cross-slot-residual-claim
+    class: invariant_property
+    severity: High
+    bug_class: residual-claim-across-slot-boundary
+    claim: >
+      test_attack_whipsaw_profit_recycling_no_net_extraction runs user-side
+      whipsaw within one continuous crank sequence. Does NOT cover case
+      where first leg matures profit, user WITHDRAWS that profit, then
+      slab is touched via separate authorized cycle (different signer,
+      different keeper, different tx) before reverse leg is processed.
+      `last_good_oracle_slot` cursor advance between withdrawal and
+      reverse-leg crank can cause reverse loss to apply at STALE effective
+      price, undercounting loss vs gain already paid.
+    applies_to: [percolator]
+    scope_conditions: [cross_slot_whipsaw]
+    target_file: src/percolator.rs
+
+  - id: T1-min-position-rounding-multi-asset
+    class: invariant_property
+    severity: Medium
+    bug_class: rounding-accumulation-across-markets
+    claim: >
+      test_attack_min_position_whipsaw_no_rounding_mint and
+      test_attack_many_one_unit_trades_no_rounding_accumulation cover SINGLE
+      market with 1-unit trades. Do NOT cover case where attacker runs
+      identical 1-unit trades across N independently-deployed markets
+      sharing SAME mint. Per-slab assertion passes, but aggregate attacker
+      wealth across markets isn't bounded by any test.
+    applies_to: [percolator]
+    scope_conditions: [multi_market_rounding]
+    target_file: src/percolator.rs
+
+  - id: T1-sequential-winner-third-account-bridge
+    class: invariant_property
+    severity: Critical
+    bug_class: residual-double-claim
+    claim: >
+      test_attack_sequential_winner_exits_after_whipsaw_no_double_spend
+      tests TWO attacker-controlled longs + ONE short across one reversal.
+      Does NOT test chain of N>=3 longs where each opens against prior
+      generation's loser and closes on next generation's winner. Each
+      handoff at price P_i settles partial residual; cumulative chain may
+      permit each winner to claim from same residual pot N-1 times if
+      `try_settle_account` doesn't snapshot residual capacity per-account.
+    applies_to: [percolator]
+    scope_conditions: [sequential_winner_chain]
+    target_file: src/percolator.rs
+
+  - id: T1-self-crank-owner-tx-bundle-confused-deputy
+    class: invariant_property
+    severity: High
+    bug_class: confused-deputy
+    claim: >
+      test_attack_unmatured_pnl_keeper_branch_matrix_no_extraction verifies
+      wrong-owner self-crank rejects. Does NOT test owner self-crank
+      bundled WITH a CPI from another program in SAME transaction. If
+      malicious program performs account-reload trick such that engine
+      reads pre-CPI state but wrapper reads post-CPI state, owner check at
+      wrapper passes but engine operates on wrong account index.
+    applies_to: [percolator]
+    scope_conditions: [self_crank_cpi_bundle]
+    target_file: src/percolator.rs
+
+  - id: T1-deposit-collateral-cap-overflow
+    class: invariant_property
+    severity: High
+    bug_class: arithmetic-saturation-bypass
+    claim: >
+      DepositCollateral at 6708 has tvl_insurance_cap_mult check around
+      6654-6672 using `ins.saturating_mul`. Same root as
+      T1-tvl-cap-saturating-mul-overflow but additional adversarial
+      control: attacker sequences many TopUpInsurance calls (each
+      contributing to balance) until balance * mult overflows u128, then
+      deposits unlimited capital. Cost is top-ups but those recoverable
+      via WithdrawInsuranceLimited.
+    applies_to: [percolator]
+    scope_conditions: [deposit_collateral_cap]
+    target_file: src/percolator.rs
+
+  - id: T1-init-user-fee-zero-roundtrip
+    class: invariant_property
+    severity: Medium
+    bug_class: zero-value-edge-case
+    claim: >
+      InitUser at 6406-6408 rejects `fee_payment <= fee_base`. Does NOT
+      consider case `fee_payment > fee_base BUT capital_base rounds to
+      dust below unit_scale`. Check at 6445 `if capital_units == 0` then
+      errors. But SPL transfer at 6440 happens BEFORE that check. If
+      transfer succeeds and capital_units==0 errors, fee_payment is in
+      vault, engine state unchanged. Solana SPL deposits ARE reverted by
+      tx atomicity — confirm via test.
+    applies_to: [percolator]
+    scope_conditions: [init_user_dust_rounding]
+    target_file: src/percolator.rs
+
+  - id: T1-unmatured-pnl-fee-credits-zero-debt
+    class: invariant_property
+    severity: Medium
+    bug_class: assertion-branch-uncovered
+    claim: >
+      test_attack_unmatured_pnl_public_interface_matrix_no_extraction
+      asserts DepositFeeCredits rejects "when no fee debt exists". Asserts
+      `result.is_err()`. Does NOT verify atomicity of rejection: if SPL
+      token transfer at 9921 fires before debt check at 9916, tokens could
+      already be in vault. Reading code at 9916 confirms check is in
+      Phase 2 BEFORE SPL transfer (good), but test as written doesn't
+      verify vault balance unchanged on rejection.
+    applies_to: [percolator]
+    scope_conditions: [deposit_fee_credits_atomicity]
+    target_file: src/percolator.rs
+
+  - id: T1-target-lag-stale-positive-pnl-claim
+    class: invariant_property
+    severity: High
+    bug_class: target-effective-price-lag-bypass
+    claim: >
+      test_attack_target_lag_withdraw_rejected_atomically verifies
+      WithdrawCollateral rejects during target/effective price lag. Does
+      NOT cover ConvertReleasedPnl during same lag. ConvertReleasedPnl
+      reads price for compute_current_funding_rate_e9 and maturity check.
+      If `raw_target` and `effective_price` diverge by large amount,
+      maturity computation may use whichever side is favorable to caller —
+      converting under-collateralized PnL claim into capital before engine
+      catches up.
+    applies_to: [percolator]
+    scope_conditions: [convert_released_pnl_lag]
+    target_file: src/percolator.rs
+
+  - id: T1-hyperp-mark-cpi-bundled-trade
+    class: invariant_property
+    severity: Critical
+    bug_class: cross-instruction-state-race
+    claim: >
+      A1b test runs PushHyperpMark in isolation. Does NOT test transaction
+      containing PushHyperpMark immediately FOLLOWED by TradeCpi in SAME
+      tx. Mark-smoothing cap applied per ix; back-to-back ix bundling can
+      chain smoothings within one slot, letting attacker push mark to
+      target the smoothing should prevent. Then TradeCpi opens position at
+      just-pushed mark price.
+    applies_to: [percolator]
+    scope_conditions: [push_hyperp_mark_bundle]
+    target_file: src/percolator.rs
+
+  - id: T1-resolve-then-withdraw-residue-fold
+    class: invariant_property
+    severity: High
+    bug_class: terminal-state-residue-capture
+    claim: >
+      WithdrawInsurance (tag 20) at line 9473 includes comment at 9586
+      "tag 20 (whose terminal-surplus sweep also folds residue into
+      payout — not replicated here)". Tag 20 captures `vault - c_tot -
+      insurance` residue into insurance_authority's payout post-resolve.
+      No test verifies residue is BOUND BY attacker-deposited capital.
+      Attacker who is also insurance_authority can engineer pre-resolve
+      residual growth and harvest via tag 20 post-resolve.
+    applies_to: [percolator]
+    scope_conditions: [tag_20_terminal_residue]
+    target_file: src/percolator.rs
+
+  - id: T1-resolved-keeper-early-return-side-effect
+    class: invariant_property
+    severity: Medium
+    bug_class: state-modification-in-early-return
+    claim: >
+      test_attack_unmatured_pnl_keeper_branch_matrix_no_extraction verifies
+      "resolved KeeperCrank early-return branch should succeed" with
+      `after == before`. Tested for ONE account state. Does NOT cover case
+      where resolved market has accounts with negative fee_credits (debt)
+      — early return may still touch fee accrual via lazy-sync side
+      effects in KeeperCrank entrypoint. "Before" snapshot taken AFTER
+      `try_resolve_market` which itself may have synced fees, masking
+      whether early-return branch itself touches state.
+    applies_to: [percolator]
+    scope_conditions: [resolved_keeper_early_return]
+    target_file: src/percolator.rs
+
+  - id: T1-init-market-vault-pubkey-collision
+    class: invariant_property
+    severity: Critical
+    bug_class: vault-authority-collision
+    claim: >
+      test_envelope_gate.rs verifies one InitMarket field prevalidation.
+      Does NOT verify that two markets with same collateral_mint and same
+      slab key (impossible across keys, but possible via PDA derivation
+      collisions) cannot share vault_authority. If `vault_authority_bump`
+      not strictly tied to (program_id, slab_key) via PDA derivation,
+      attacker who creates fake-slab account with forged vault PDA could
+      withdraw from legitimate market's vault.
+    applies_to: [percolator]
+    scope_conditions: [vault_pda_collision]
+    target_file: src/percolator.rs
+
+  - id: T1-fee-credit-debt-via-c-tot-shift
+    class: invariant_property
+    severity: Critical
+    bug_class: fee-counter-vault-divergence
+    claim: >
+      sync_account_fee_bounded_to_market at 4350 is canonical accrual sync
+      for fee_credits. Called in DepositFeeCredits Phase 1 and
+      DepositCollateral path. After fee_sync, fee_credits decrease (debt
+      grows). Shadow F7 case: if fee_sync DEBITS `c_tot` to "pre-collect"
+      fee but vault hasn't received corresponding base tokens (since
+      fee-debt paid LATER via DepositFeeCredits), residual = vault - c_tot
+      - insurance INCREASES by exactly fee_units. Same root as F7: counter
+      moves without vault.
+    applies_to: [percolator]
+    scope_conditions: [fee_accrual_c_tot_debit]
+    target_file: src/percolator.rs
