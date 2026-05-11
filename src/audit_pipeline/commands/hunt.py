@@ -558,6 +558,24 @@ def _hunt_run(
     import yaml
     with open(hypotheses) as f:
         hyp_meta_list = yaml.safe_load(f).get("hypotheses", [])
+    # FIX #7: detect duplicate hyp ids — when --protocol-class merges multiple
+    # YAML files, two files could share an id (e.g. `H1` in percolator.yaml
+    # and percolator_deep.yaml). Silent overwrite was masking real duplicates;
+    # now we fail loudly with the conflicting ids so the user can fix them.
+    seen_ids: dict[str, int] = {}
+    duplicates: list[str] = []
+    for h in hyp_meta_list:
+        hid = h.get("id")
+        if hid in seen_ids:
+            duplicates.append(hid)
+        seen_ids[hid] = seen_ids.get(hid, 0) + 1
+    if duplicates:
+        log("hyp_id_collisions", duplicates=duplicates)
+        console.print(
+            f"[yellow]Warning: {len(duplicates)} hyp id collision(s): "
+            f"{duplicates[:5]}{'...' if len(duplicates) > 5 else ''}. "
+            f"Later entries overwrite earlier ones in hyp_meta.[/yellow]"
+        )
     hyp_meta = {h["id"]: h for h in hyp_meta_list}
 
     candidates = [v for v in verdicts if v.get("verdict") in ("TRUE", "NEEDS_LAYER_2_TO_DECIDE")]
@@ -648,9 +666,12 @@ def _hunt_run(
                 "demoted_by_debate": demoted,
             }
             log("debate_one", hypothesis_id=hyp_id, returncode=rc, promoted=verdict_changed)
-            # debate ~= one Sonnet round; assume ~$0.20 average; record best-effort
-            daily_cap.record_spend(0.20)
-            total_cost += 0.20
+            # FIX #3: debate ~= one Sonnet round with full proposer verdict
+            # + class template + grounded code in the prompt. Real cost is
+            # $0.50-2.00 (avg ~$1.00). The legacy $0.20 estimate undercounted
+            # by 5x and made the cycle think it had budget when it didn't.
+            daily_cap.record_spend(1.00)
+            total_cost += 1.00
 
     # ---------- Layer 2: PoC scaffold + cargo test ----------
     poc_results: dict[str, dict[str, Any]] = {}
@@ -685,9 +706,12 @@ def _hunt_run(
                     "--engine-root", str(engine_dir_for_cargo),
                     "--output", str(poc_out),
                 ])
-                # poc-llm bills its own API call — estimate $0.10-0.20 per hyp
-                daily_cap.record_spend(0.15)
-                total_cost += 0.15
+                # FIX #4: poc-llm prompt is large (claim + grounded source +
+                # template scaffold). Real cost is $0.20-0.50 per hyp depending
+                # on source complexity. Use $0.30 as the realistic average; the
+                # legacy $0.15 undercounted by 2x.
+                daily_cap.record_spend(0.30)
+                total_cost += 0.30
                 log("poc_llm_authored", hypothesis_id=hyp_id, finding=finding_name,
                     bug_class=bug_class, returncode=rc)
                 # If LLM authoring failed, fall back to template scaffolding so
@@ -1251,8 +1275,18 @@ def _now_from(epoch_seconds: float) -> str:
     return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).isoformat(timespec="seconds")
 
 
+RC_TIMEOUT = 124  # POSIX timeout convention
+RC_NOT_FOUND = 127  # POSIX command-not-found convention
+
+
 def _run(cmd: list[str], cwd: Path | None = None, timeout: int = 1800) -> int:
-    """Run a subprocess, stream output, return exit code."""
+    """Run a subprocess, stream output, return exit code.
+
+    FIX #1: Distinguishes timeout (rc=124) and not-found (rc=127) from
+    a real non-zero exit via the standard POSIX sentinel codes. Callers
+    can check `rc == RC_TIMEOUT` / `rc == RC_NOT_FOUND` instead of
+    conflating them with real failures.
+    """
     try:
         proc = subprocess.run(cmd, cwd=str(cwd) if cwd else None, timeout=timeout)
         return proc.returncode

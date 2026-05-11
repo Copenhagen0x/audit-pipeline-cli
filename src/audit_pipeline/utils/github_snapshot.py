@@ -24,10 +24,12 @@ mid-cycle.
 
 from __future__ import annotations
 
+import atexit
 import io
 import shutil
 import tarfile
 import tempfile
+import weakref
 from collections.abc import Iterator
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -35,6 +37,23 @@ from pathlib import Path
 import requests
 
 from audit_pipeline.utils.github import _headers, parse_github_repo
+
+# FIX #6: registry of live snapshot temp roots, cleaned up at interpreter
+# exit. Catches the SIGKILL / OOM / parent-process-died case where __exit__
+# never runs and the tarball would leak in /tmp until reboot.
+_LIVE_SNAPSHOTS: weakref.WeakSet = weakref.WeakSet()
+
+
+def _atexit_cleanup_snapshots() -> None:
+    for snap in list(_LIVE_SNAPSHOTS):
+        try:
+            if getattr(snap, "_tmp_root", None) and not getattr(snap, "_keep_on_exit", False):
+                shutil.rmtree(snap._tmp_root, ignore_errors=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+atexit.register(_atexit_cleanup_snapshots)
 
 # How long the tarball download is given before we abort (large repos can
 # take a few seconds; 60s is generous and prevents indefinite hangs).
@@ -189,6 +208,10 @@ class GitHubSnapshot(AbstractContextManager["GitHubSnapshot"]):
                 )
             buf.write(chunk)
         buf.seek(0)
+
+        # Register in the live-snapshots set so the atexit hook can clean up
+        # if __exit__ never gets called (SIGKILL / OOM / parent died).
+        _LIVE_SNAPSHOTS.add(self)
 
         # Create temp dir for extraction.
         if self._cache_dir is not None:

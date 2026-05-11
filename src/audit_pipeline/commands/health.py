@@ -31,8 +31,12 @@ console = Console()
               default="shadow/daemon.log", show_default=True,
               help="Shadow daemon log path (relative to workspace)")
 @click.option("--watch-log", type=click.Path(),
-              default="watch/daemon.log", show_default=True,
-              help="Watch daemon log path (relative to workspace)")
+              default="watch/watch.log", show_default=True,
+              help="Watch daemon log path (relative to workspace). FIX #14: "
+                   "default switched from watch/daemon.log (systemd stdout "
+                   "capture, only logs at startup) to watch/watch.log (the "
+                   "file watch.py actively appends polling state to). The "
+                   "old default always read as stale.")
 @click.option("--shadow-stale-min", type=int, default=10, show_default=True)
 @click.option("--watch-stale-min", type=int, default=15, show_default=True)
 @click.option("--webhook-url", default=None, envvar="HUNT_WEBHOOK_URL",

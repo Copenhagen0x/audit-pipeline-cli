@@ -648,13 +648,29 @@ def _parse_verdict(text: str) -> tuple[str, str]:
     section_end = section_start + next_header.start() if next_header else len(text)
     block = text[section_start:section_end][:1000].upper()
 
-    # Verdict match — order matters: NEEDS_LAYER_2 wins over bare TRUE/FALSE
+    # Verdict match — order matters: NEEDS_LAYER_2 wins over bare TRUE/FALSE.
+    # FIX #5: tightened TRUE/FALSE matching. Legacy code fell through to bare
+    # `\bTRUE\b` / `\bFALSE\b` substring match, which mis-classified responses
+    # like "this assumption is TRUE for opening orders but FALSE for closes"
+    # as TRUE verdicts. New order:
+    #   1. Anchored `VERDICT: TRUE/FALSE` (preferred form per template)
+    #   2. Token on its own line (`^\s*TRUE\s*$`) — emphasized verdict
+    #   3. Strict tokens at top of block only (first 200 chars)
     verdict = "UNKNOWN"
+    block_head = block[:200]
     if re.search(r"NEEDS[_\s]LAYER[_\s]2", block):
         verdict = "NEEDS_LAYER_2_TO_DECIDE"
-    elif re.search(r"\bVERDICT\s*[:=\-]\s*TRUE\b", block) or re.search(r"\bTRUE\b", block):
+    elif re.search(r"\bVERDICT\s*[:=\-]\s*TRUE\b", block):
         verdict = "TRUE"
-    elif re.search(r"\bVERDICT\s*[:=\-]\s*FALSE\b", block) or re.search(r"\bFALSE\b", block):
+    elif re.search(r"\bVERDICT\s*[:=\-]\s*FALSE\b", block):
+        verdict = "FALSE"
+    elif re.search(r"(?m)^\s*\*?\*?TRUE\*?\*?\s*$", block):
+        verdict = "TRUE"
+    elif re.search(r"(?m)^\s*\*?\*?FALSE\*?\*?\s*$", block):
+        verdict = "FALSE"
+    elif re.search(r"\bTRUE\b", block_head):
+        verdict = "TRUE"
+    elif re.search(r"\bFALSE\b", block_head):
         verdict = "FALSE"
 
     # Confidence — also word-boundary

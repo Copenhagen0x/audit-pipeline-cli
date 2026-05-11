@@ -901,10 +901,18 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
         <span style="color: var(--ink-3); font-size: 11px; margin-left: 8px;">(includes resolved + merged; open subset shown in identity strip above)</span>
       </div>
 
-      <!-- Findings feed: if live customer manifest is reachable, JS replaces
-           the static rows below with live customer_findings. If manifest is
-           absent (anonymous viewer, fetch error), the static rows remain
-           so the page still reads as a coherent demo. -->
+      <!-- FIX #11: previously the static rows rendered as if live when the
+           manifest 404'd, exposing fictional PERC-23/29/31/... findings as
+           if they were confirmed bugs. Added a visible "PREVIEW · NO LIVE
+           DATA" warning that renders only when JS doesn't replace the rows.
+           When live manifest succeeds, JS sets data-live="1" on .findings and
+           the warning is hidden via CSS. -->
+      <div class="preview-banner" id="preview-banner" style="display: block; padding: 8px 12px; margin: 8px 0; background: rgba(245,184,0,0.12); border: 1px solid rgba(245,184,0,0.4); border-radius: 4px; font-size: 11px; color: var(--amber); letter-spacing: 0.04em;">
+        <strong>PREVIEW · NO LIVE DATA</strong> — these rows are mocked sample
+        findings shown when the live customer manifest is unreachable. They are
+        NOT real findings. Wait for the live data to load (auto-refreshes every
+        60s) or sign in to view your real engagement data.
+      </div>
       <div class="findings" id="findings" data-customer-findings>
 
         <!-- F7 — the headline -->
@@ -1486,7 +1494,18 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     // ids (already-prefixed like "PERC-23") pass through unchanged.
     const rawId = String(f.id ?? '?');
     const findingIdShort = escapeHtml(/^\d+$/.test(rawId) ? `F${rawId}` : rawId);
-    const bugClassOrTitle = f.title || f.bug_class || '—';
+    // FIX #13: API truncates title to 120 chars at a hard byte boundary,
+    // which leaves mid-word "..." on every row. Clip at the nearest word
+    // boundary (>= 60% of max) before rendering so the displayed text reads
+    // cleanly. Full title can still be seen via the row's expand-preview.
+    const cleanClip = (s, max = 92) => {
+      if (!s) return '';
+      if (s.length <= max) return s;
+      const cut = s.slice(0, max);
+      const lastSp = cut.lastIndexOf(' ');
+      return (lastSp > max * 0.6 ? cut.slice(0, lastSp) : cut) + '…';
+    };
+    const bugClassOrTitle = cleanClip(f.title) || f.bug_class || '—';
     const cite = f.hypothesis_id ? `hyp · ${escapeHtml(f.hypothesis_id)}` : '';
     const age = f.updated_at ? escapeHtml(relativeTime(f.updated_at)) : '—';
     const verdict = f.verdict ? `
@@ -1666,9 +1685,17 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     if (metaEl) metaEl.textContent = `last ${Math.min(N, cycles.length)} of ${cycles.length} cycles`;
   }
 
+  // FIX #12: paginate at 50 to prevent unbounded findings feed (100+
+  // findings = 8000px scroll). "Show more" button reveals the rest.
+  const FEED_PAGE_SIZE = 50;
+  let feedExpanded = false;
+
   function renderFindingsFeed(findings) {
     const container = document.querySelector('[data-customer-findings]');
     if (!container) return;
+    // FIX #11: hide the "PREVIEW · NO LIVE DATA" banner once we have live data.
+    const previewBanner = document.getElementById('preview-banner');
+    if (previewBanner && Array.isArray(findings)) previewBanner.style.display = 'none';
     if (!Array.isArray(findings) || findings.length === 0) {
       container.innerHTML = `<div style="padding: 32px 18px; text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em;">
         No findings yet · engine has not produced any confirmed bugs for this protocol.
@@ -1685,7 +1712,14 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
       return tb - ta;
     });
-    container.innerHTML = sorted.map(renderFinding).join('');
+    const visible = feedExpanded ? sorted : sorted.slice(0, FEED_PAGE_SIZE);
+    const remaining = sorted.length - visible.length;
+    const moreButton = remaining > 0
+      ? `<button id="feed-show-more" style="display:block;width:100%;padding:14px;margin-top:8px;background:transparent;border:1px solid var(--rule-2);border-radius:4px;color:var(--ink-2);font-family:var(--mono);font-size:12px;letter-spacing:0.06em;cursor:pointer;">show ${remaining} more findings →</button>`
+      : '';
+    container.innerHTML = visible.map(renderFinding).join('') + moreButton;
+    const btn = document.getElementById('feed-show-more');
+    if (btn) btn.addEventListener('click', () => { feedExpanded = true; renderFindingsFeed(findings); });
   }
 
   async function patchFromManifest() {

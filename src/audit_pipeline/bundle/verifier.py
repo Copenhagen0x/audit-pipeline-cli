@@ -168,6 +168,28 @@ def _apply_patch(engine_repo: Path, patch_text: str) -> tuple[bool, str]:
     return (True, "")
 
 
+def _unapply_patch(engine_repo: Path, patch_text: str) -> None:
+    """Reverse a unified diff via `git apply -R`. Idempotent / quiet.
+
+    FIX #2: Replaces the previous `git checkout .` rollback which would
+    NUKE every uncommitted change in the working tree (including hunt's
+    LLM-authored PoC files that live at tests/test_<finding>.rs but are
+    not git-tracked). Reverse-apply touches only the patch's own files.
+    """
+    try:
+        subprocess.run(
+            ["git", "apply", "-R", "-"],
+            cwd=str(engine_repo),
+            input=patch_text, capture_output=True, text=True, timeout=60,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        # Defensive: if reverse fails, it usually means the patch never
+        # cleanly applied or has been backed out already. Don't crash the
+        # verifier — the next gate's `git apply --check` will catch any
+        # residual state.
+        pass
+
+
 def _gate_poc_passes_post_patch(
     workspace: Path,
     finding_id: int,
@@ -201,13 +223,11 @@ def _gate_poc_passes_post_patch(
             capture_output=True, text=True, timeout=600,
         )
     except subprocess.TimeoutExpired:
-        # roll back patch
-        subprocess.run(["git", "checkout", "."], cwd=str(engine_repo))
+        _unapply_patch(engine_repo, patch_text)
         return GateResult(False, "cargo test timed out post-patch (>600s)", time.time() - t0)
     finally:
         # Always roll back to keep the working tree clean
-        subprocess.run(["git", "checkout", "."], cwd=str(engine_repo),
-                       capture_output=True)
+        _unapply_patch(engine_repo, patch_text)
 
     if proc.returncode != 0:
         return GateResult(
@@ -246,12 +266,10 @@ def _gate_tests_pass_post_patch(
             capture_output=True, text=True, timeout=1800,
         )
     except subprocess.TimeoutExpired:
-        subprocess.run(["git", "checkout", "."], cwd=str(engine_repo),
-                       capture_output=True)
+        _unapply_patch(engine_repo, patch_text)
         return GateResult(False, "full cargo test timed out (>1800s)", time.time() - t0)
     finally:
-        subprocess.run(["git", "checkout", "."], cwd=str(engine_repo),
-                       capture_output=True)
+        _unapply_patch(engine_repo, patch_text)
 
     if proc.returncode != 0:
         # Truncate stderr so it fits in verification.json
@@ -296,12 +314,10 @@ def _gate_kani_proof_holds(
             capture_output=True, text=True, timeout=1800,
         )
     except subprocess.TimeoutExpired:
-        subprocess.run(["git", "checkout", "."], cwd=str(engine_repo),
-                       capture_output=True)
+        _unapply_patch(engine_repo, patch_text)
         return GateResult(False, "kani timed out (>1800s)", time.time() - t0)
     finally:
-        subprocess.run(["git", "checkout", "."], cwd=str(engine_repo),
-                       capture_output=True)
+        _unapply_patch(engine_repo, patch_text)
 
     if proc.returncode != 0:
         return GateResult(False, f"kani harness {kani_harness} did not verify post-patch",
