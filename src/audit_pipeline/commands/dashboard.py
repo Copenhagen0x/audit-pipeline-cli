@@ -1047,12 +1047,32 @@ def _in_progress_cycle_progress(
         label = "Layer 3 Kani"
     elif n_poc_logs > 0 or n_poc_tests > 0:
         phase = "poc"
-        # PoC target = debate-promoted set, approximated by TRUE-after-debate.
-        # We don't have a clean count without re-parsing debate outputs, so
-        # use cargo logs as denominator (settles to actual count once Layer
-        # 2 fires for each candidate).
+        # PoC target = debate-promoted set, deduplicated by hypothesis_id.
+        # The log contains one debate_one event per debate iteration; if the
+        # hunt was killed and resumed N times, the same hyp produces N
+        # promoted events, inflating the denominator (e.g. 530 events for
+        # 98 unique hyps after 3 restarts on the 2026-05-11 cycle).
+        # We want UNIQUE hyps so the dashboard shows real progress.
+        promoted_ids: set[str] = set()
+        log_path = cycle_dir / "hunt.log.jsonl"
+        if log_path.is_file():
+            try:
+                with log_path.open("r", encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if '"event": "debate_one"' not in line:
+                            continue
+                        try:
+                            ev = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if ev.get("promoted") is True and ev.get("hypothesis_id"):
+                            promoted_ids.add(ev["hypothesis_id"])
+            except OSError:
+                pass
+        n_promoted = len(promoted_ids)
         n_done = n_poc_logs
-        n_total = max(n_poc_tests, n_poc_logs, 1)
+        n_total = n_promoted if n_promoted > 0 else max(n_contested, n_poc_logs, 1)
         label = "Layer 2 PoC"
     elif n_debate_done > 0 or n_contested > 0:
         phase = "debate"

@@ -363,10 +363,61 @@ def poc_llm_cmd(
 
     grounded = collect_grounded_code(targets, rs_files, max_lines=code_max_lines)
     blocks = [v for v in grounded.values() if v]
+
+    # Always include the FULL target_file as additional context. Without it,
+    # the PoC author only sees ~7-120 lines of one matched function and ends
+    # up writing #[ignore] tests with "insufficient source grounding"
+    # comments. Sonnet's 200k context window easily fits a 10k-line Rust
+    # file (~100k input tokens), so just dump the whole engine source so
+    # the author can see real types, constructors, and call sites.
+    #
+    # Fallback chain when hyp.target_file is missing/unmatched:
+    #   1. hyp.target_file (e.g. "src/percolator.rs")
+    #   2. percolator.rs (the main engine file — covers most hyps)
+    #   3. the FIRST .rs file in rs_files
+    target_file = hyp.get("target_file") or ""
+    candidates: list[str] = []
+    if target_file:
+        candidates.append(target_file)
+    candidates.append("percolator.rs")
+    full_file_block = ""
+    for cand in candidates:
+        cand_name = Path(cand).name
+        for f in rs_files:
+            if f.name == cand_name or str(f).endswith(cand):
+                try:
+                    contents = f.read_text(encoding="utf-8", errors="replace")
+                    full_file_block = (
+                        f"### FULL FILE `{f.name}` (entire engine source for this hyp)\n"
+                        f"```rust\n{contents}\n```"
+                    )
+                except OSError:
+                    pass
+                break
+        if full_file_block:
+            break
+    # Last-resort fallback: dump the FIRST .rs file we know about, so the
+    # author at least has SOMETHING beyond the tiny snippet.
+    if not full_file_block and rs_files:
+        try:
+            f0 = rs_files[0]
+            contents = f0.read_text(encoding="utf-8", errors="replace")
+            full_file_block = (
+                f"### FULL FILE `{f0.name}` (engine source — fallback context)\n"
+                f"```rust\n{contents}\n```"
+            )
+        except OSError:
+            pass
+
+    engine_source_parts = []
+    if full_file_block:
+        engine_source_parts.append(full_file_block)
+    if blocks:
+        engine_source_parts.append("### Targeted snippets:\n" + "\n\n".join(blocks))
     engine_source = (
-        "\n\n".join(blocks)
-        if blocks
-        else "(no function-named source found; build the test from the claim text alone)"
+        "\n\n".join(engine_source_parts)
+        if engine_source_parts
+        else "(no source found; build the test from the claim text alone)"
     )
 
     strategy = strategy_for(hyp.get("bug_class"))
