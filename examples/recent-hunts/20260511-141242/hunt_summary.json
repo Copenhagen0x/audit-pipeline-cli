@@ -1,0 +1,56 @@
+{
+  "schema": "audit-pipeline.hunt.v1",
+  "cycle_id": "20260511-141242",
+  "target": "default",
+  "workspace": "/root/audit_runs/percolator-live",
+  "source_mode": "local",
+  "source_repo": null,
+  "engine_sha": "6cd742f25a9bcebeb9adc01136b129b5996397dd",
+  "wrapper_sha": "873ac1304275276cef89bb9dc89b17bc3cfa8de8",
+  "started_at": "2026-05-11T14:14:05+00:00",
+  "elapsed_seconds": 0.0,
+  "total_cost_usd": 0.0594,
+  "daily_spent_usd": 7.5677,
+  "daily_cap_usd": 0.0,
+  "n_hypotheses": 3,
+  "n_candidates": 0,
+  "n_debate_runs": 0,
+  "n_poc_scaffolded": 0,
+  "n_poc_fired": 0,
+  "n_kani_runs": 0,
+  "n_litesvm_runs": 0,
+  "n_narratives": 0,
+  "n_confirmed": 0,
+  "confirmed": [],
+  "verdicts": [
+    {
+      "hypothesis_id": "SMOKE1-pre-fire-chain-test-noop",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2222,
+      "output_tokens": 928
+    },
+    {
+      "hypothesis_id": "SMOKE2-pre-fire-chain-test-trivial",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2191,
+      "output_tokens": 696
+    },
+    {
+      "hypothesis_id": "SMOKE3-pre-fire-chain-test-bind",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2193,
+      "output_tokens": 1014
+    }
+  ],
+  "debate": {},
+  "poc": {},
+  "kani": {},
+  "litesvm": {},
+  "narrative": {}
+}

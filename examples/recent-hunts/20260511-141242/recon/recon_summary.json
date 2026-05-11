@@ -1,0 +1,43 @@
+{
+  "schema": "audit-pipeline.recon.v1",
+  "workspace": "/root/audit_runs/percolator-live",
+  "engine_sha": "6cd742f25a9bcebeb9adc01136b129b5996397dd",
+  "wrapper_sha": "873ac1304275276cef89bb9dc89b17bc3cfa8de8",
+  "n_hypotheses": 3,
+  "n_dispatched": 3,
+  "n_skipped_budget": 0,
+  "skipped_for_budget": [],
+  "n_errors": 0,
+  "n_ok": 3,
+  "total_input_tokens": 6606,
+  "total_output_tokens": 2638,
+  "total_cost_usd": 0.0594,
+  "elapsed_seconds": 19.3,
+  "verdicts": [
+    {
+      "hypothesis_id": "SMOKE1-pre-fire-chain-test-noop",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2222,
+      "output_tokens": 928
+    },
+    {
+      "hypothesis_id": "SMOKE2-pre-fire-chain-test-trivial",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2191,
+      "output_tokens": 696
+    },
+    {
+      "hypothesis_id": "SMOKE3-pre-fire-chain-test-bind",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 2193,
+      "output_tokens": 1014
+    }
+  ],
+  "completed_at": "2026-05-11T14:13:03Z"
+}
