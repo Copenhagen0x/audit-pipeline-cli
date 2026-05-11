@@ -1,7 +1,7 @@
 {
   "schema": "jelleo.recent-hunts.manifest.v1",
   "description": "Manifest of recent autonomous hunt cycles published to this repo. Sorted most-recent-first. Updated automatically by the VPS post-cycle hook (deploy/post_cycle_publish.sh).",
-  "updated_at": "2026-05-11T14:15:40Z",
+  "updated_at": "2026-05-11T14:16:52Z",
   "cycles": [
     {
       "id": "20260511-141242",

@@ -15,3 +15,4 @@
 {"ts": "2026-05-11T14:15:39+00:00", "event": "merkle_signed", "cycle_id": "20260511-141242", "rc": 0}
 {"ts": "2026-05-11T14:15:39+00:00", "event": "hunt_done", "elapsed": 0.007832765579223633, "n_confirmed": 0, "cost": 0.0594}
 {"ts": "2026-05-11T14:15:39+00:00", "event": "auto_publish_html_rendered", "rc": 0, "cycle_id": "20260511-141242"}
+{"ts": "2026-05-11T14:15:43+00:00", "event": "auto_publish", "rc": 0, "script": "/root/audit-pipeline-cli/deploy/publish_cycle.sh"}
