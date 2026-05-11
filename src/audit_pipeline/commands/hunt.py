@@ -992,34 +992,46 @@ def _hunt_run(
 
     med_plus_findings = _confirmed_med_plus()
 
+    # P2 needs a propagate corpus (built by `propagate init-corpus`). If the
+    # corpus dir is missing, skip P2 gracefully instead of failing.
+    propagate_corpus = workspace / "propagate_corpus"
     if med_plus_findings and not skip_propagate:
-        console.print()
-        console.print(
-            f"[bold]Pillar 2 - propagate {len(med_plus_findings)} "
-            f"Med+ finding(s) across sibling protocols[/bold]"
-        )
-        for c in med_plus_findings:
-            hyp_id = c["hypothesis_id"]
-            # Look up DB finding id (needed by `propagate search`)
-            findings_for_hyp = [
-                f for f in db.list_findings(target_id=target_id, limit=200)
-                if f.get("cycle_id") == cycle_id and f.get("hypothesis_id") == hyp_id
-            ]
-            if not findings_for_hyp:
-                pillar_results["propagate"][hyp_id] = {"error": "finding not in db"}
-                continue
-            finding_id = findings_for_hyp[0]["id"]
-            rc = _run([
-                _audit_pipeline_bin(), "--workspace", str(workspace),
-                "propagate", "search",
-                "--finding-id", str(finding_id),
-            ], timeout=600)
-            pillar_results["propagate"][hyp_id] = {
-                "finding_id": finding_id, "returncode": rc,
-            }
-            log("propagate_done", hypothesis_id=hyp_id, finding_id=finding_id, rc=rc)
-            daily_cap.record_spend(1.50)
-            total_cost += 1.50
+        if not propagate_corpus.is_dir():
+            console.print(
+                f"[yellow]Pillar 2 skipped — corpus not initialized at "
+                f"{propagate_corpus}. Run `audit-pipeline propagate init-corpus "
+                f"--output {propagate_corpus}` first.[/yellow]"
+            )
+            pillar_results["propagate"]["_skipped"] = "corpus not initialized"
+        else:
+            console.print()
+            console.print(
+                f"[bold]Pillar 2 - auto-fire propagate on "
+                f"{len(med_plus_findings)} Med+ finding(s) across sibling "
+                f"protocols[/bold]"
+            )
+            for c in med_plus_findings:
+                hyp_id = c["hypothesis_id"]
+                findings_for_hyp = [
+                    f for f in db.list_findings(target_id=target_id, limit=200)
+                    if f.get("cycle_id") == cycle_id and f.get("hypothesis_id") == hyp_id
+                ]
+                if not findings_for_hyp:
+                    pillar_results["propagate"][hyp_id] = {"error": "finding not in db"}
+                    continue
+                finding_id = findings_for_hyp[0]["id"]
+                rc = _run([
+                    _audit_pipeline_bin(), "--workspace", str(workspace),
+                    "propagate", "auto-fire",
+                    "--finding-id", str(finding_id),
+                    "--corpus", str(propagate_corpus),
+                ], timeout=600)
+                pillar_results["propagate"][hyp_id] = {
+                    "finding_id": finding_id, "returncode": rc,
+                }
+                log("propagate_done", hypothesis_id=hyp_id, finding_id=finding_id, rc=rc)
+                daily_cap.record_spend(1.50)
+                total_cost += 1.50
 
     if med_plus_findings and not skip_bundle:
         console.print()
@@ -1038,17 +1050,33 @@ def _hunt_run(
                 pillar_results["bundle"][hyp_id] = {"error": "finding not in db"}
                 continue
             finding_id = findings_for_hyp[0]["id"]
-            rc_draft = _run([
+            # bundle draft signature: takes finding_id as POSITIONAL arg.
+            # Also pass engine-repo + target-file + poc-source-file +
+            # poc-test-name so the bundle has everything `verify` needs.
+            poc_info = poc_results.get(hyp_id, {})
+            scaffold_path = poc_info.get("scaffold_path")
+            poc_test_name = f"test_{_slugify(hyp_id)}"
+            meta = hyp_meta.get(hyp_id, {})
+            target_file_rel = meta.get("target_file", "src/percolator.rs")
+            draft_argv = [
                 _audit_pipeline_bin(), "--workspace", str(workspace),
                 "bundle", "draft",
-                "--finding-id", str(finding_id),
-            ], timeout=900)
+                str(finding_id),
+                "--engine-repo", str(engine_dir_for_cargo),
+                "--target-file", target_file_rel,
+                "--poc-test-name", poc_test_name,
+            ]
+            if scaffold_path:
+                draft_argv += ["--poc-source-file", scaffold_path]
+            rc_draft = _run(draft_argv, timeout=900)
             rc_verify = None
             if rc_draft == 0:
                 rc_verify = _run([
                     _audit_pipeline_bin(), "--workspace", str(workspace),
                     "bundle", "verify",
-                    "--finding-id", str(finding_id),
+                    str(finding_id),
+                    "--engine-repo", str(engine_dir_for_cargo),
+                    "--poc-test-name", poc_test_name,
                 ], timeout=600)
             pillar_results["bundle"][hyp_id] = {
                 "finding_id": finding_id,
