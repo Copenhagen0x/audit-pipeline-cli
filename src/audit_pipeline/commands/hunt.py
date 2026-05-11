@@ -457,6 +457,12 @@ def _hunt_run(
     else:
         cycle_id = base_cycle_id
     cycle_dir = hunts_dir / cycle_id
+    # FIX C7: collision-safe cycle ID. If two cycles fire within the same UTC
+    # second (watch + manual, or double-fire), append a 4-char random suffix.
+    if cycle_dir.exists():
+        import secrets
+        cycle_id = f"{cycle_id}-{secrets.token_hex(2)}"
+        cycle_dir = hunts_dir / cycle_id
     cycle_dir.mkdir(parents=True, exist_ok=True)
 
     db.insert_cycle(
@@ -732,15 +738,62 @@ def _hunt_run(
                         scaffold_path.read_text(encoding="utf-8"),
                         encoding="utf-8",
                     )
-                    cargo_rc = _run(
+                    # FIX C3: Capture output and distinguish compile failure
+                    # from test assertion failure. cargo's exit code is non-zero
+                    # for BOTH cases. Without this distinction, every malformed
+                    # LLM-authored PoC reads as a "confirmed bug" and triggers
+                    # P2/P3 chain. Parse the output to find the actual outcome.
+                    test_log = (cycle_dir / "poc" / f"cargo_{finding_name}.log")
+                    cargo_proc = subprocess.run(
                         ["cargo", "test", "--features", "test", "--test",
                          f"test_{finding_name}"],
-                        cwd=engine_dir, timeout=300,
+                        cwd=str(engine_dir),
+                        capture_output=True,
+                        text=True,
+                        timeout=600,  # raised from 300 to handle cold builds
                     )
+                    cargo_rc = cargo_proc.returncode
+                    combined = (cargo_proc.stdout or "") + "\n" + (cargo_proc.stderr or "")
+                    test_log.write_text(combined, encoding="utf-8")
+
+                    # Decode cargo outcome. Compile-fail patterns: `error[E`,
+                    # `cannot find`, `did not match any tests`. Real failure
+                    # patterns: `test result: FAILED`, `panicked`, `assertion
+                    # failed`.
+                    looks_compile_failed = (
+                        "could not compile" in combined
+                        or "error[E" in combined.split("test result:")[0]
+                        or "did not match any tests" in combined
+                        or "no test target" in combined.lower()
+                    )
+                    looks_test_fired = (
+                        "test result: FAILED" in combined
+                        or "panicked at" in combined
+                        or "assertion failed" in combined
+                    )
+
+                    if looks_compile_failed:
+                        outcome = "compile_error"
+                        fired = False
+                    elif looks_test_fired:
+                        outcome = "test_failed_bug_reproduced"
+                        fired = True
+                    elif cargo_rc == 0:
+                        outcome = "test_passed_no_bug"
+                        fired = False
+                    else:
+                        outcome = f"unknown_rc_{cargo_rc}"
+                        fired = False  # Don't escalate unknowns to P2/P3
+
                     poc_results[hyp_id]["compile_test_rc"] = cargo_rc
-                    poc_results[hyp_id]["fired"] = (cargo_rc != 0)
+                    poc_results[hyp_id]["fired"] = fired
+                    poc_results[hyp_id]["outcome"] = outcome
+                    poc_results[hyp_id]["cargo_log_path"] = str(test_log)
                     log("poc_test_run", hypothesis_id=hyp_id, cargo_rc=cargo_rc,
-                        fired=poc_results[hyp_id]["fired"])
+                        outcome=outcome, fired=fired)
+                except subprocess.TimeoutExpired:
+                    poc_results[hyp_id]["outcome"] = "timeout"
+                    log("poc_test_timeout", hypothesis_id=hyp_id)
                 except Exception as e:  # noqa: BLE001
                     log("poc_test_error", hypothesis_id=hyp_id, error=str(e))
 
@@ -1004,6 +1057,14 @@ def _hunt_run(
     # P2 needs a propagate corpus (built by `propagate init-corpus`). If the
     # corpus dir is missing, skip P2 gracefully instead of failing.
     propagate_corpus = workspace / "propagate_corpus"
+    # FIX C8: Define a per-cycle budget guard for pillar work. The legacy code
+    # let P2 ($1.50/finding) + P3 ($5/finding) compound past the user-set
+    # --budget-cap-usd, which would have blown a $250 cap to $400+ with 10
+    # Med+ findings. We now check the running total before each pillar call
+    # and gracefully skip when the cap is approached.
+    def _cycle_budget_remaining() -> float:
+        return max(0.0, budget_cap_usd - total_cost)
+
     if med_plus_findings and not skip_propagate:
         if not propagate_corpus.is_dir():
             console.print(
@@ -1020,6 +1081,12 @@ def _hunt_run(
                 f"protocols[/bold]"
             )
             for c in med_plus_findings:
+                # FIX C8: budget gate
+                if _cycle_budget_remaining() < 1.50:
+                    log("propagate_halted_cycle_budget",
+                        total_cost=total_cost, budget=budget_cap_usd)
+                    pillar_results["propagate"]["_halted"] = "cycle budget exhausted"
+                    break
                 hyp_id = c["hypothesis_id"]
                 findings_for_hyp = [
                     f for f in db.list_findings(target_id=target_id, limit=200)
@@ -1034,7 +1101,7 @@ def _hunt_run(
                     "propagate", "auto-fire",
                     "--finding-id", str(finding_id),
                     "--corpus", str(propagate_corpus),
-                ], timeout=600)
+                ], timeout=1800)  # raised from 600s — corpus traversal can be slow
                 pillar_results["propagate"][hyp_id] = {
                     "finding_id": finding_id, "returncode": rc,
                 }
@@ -1050,6 +1117,12 @@ def _hunt_run(
             f"(does NOT open PRs)[/bold]"
         )
         for c in med_plus_findings:
+            # FIX C8: budget gate (bundle is more expensive than propagate)
+            if _cycle_budget_remaining() < 5.00:
+                log("bundle_halted_cycle_budget",
+                    total_cost=total_cost, budget=budget_cap_usd)
+                pillar_results["bundle"]["_halted"] = "cycle budget exhausted"
+                break
             hyp_id = c["hypothesis_id"]
             findings_for_hyp = [
                 f for f in db.list_findings(target_id=target_id, limit=200)

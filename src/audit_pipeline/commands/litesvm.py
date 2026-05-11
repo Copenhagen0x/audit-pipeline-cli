@@ -66,8 +66,12 @@ def litesvm_author(
 
     suffix = "_litesvm" if template == "litesvm_reachability_test" else "_bound_analysis"
     out_path = output / f"test_{finding}{suffix}.rs"
+    # FIX C4: idempotent — skip silently if the file already exists. Hunt is
+    # invoked in a loop and re-runs across cycles will collide otherwise.
+    # Caller can delete the file to force re-authoring.
     if out_path.exists():
-        raise click.ClickException(f"{out_path} already exists.")
+        console.print(f"[yellow]{out_path} exists; skipping.[/yellow]")
+        return
 
     out_path.write_text(content)
     console.print(f"[green]Wrote {out_path}[/green]")
