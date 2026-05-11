@@ -402,9 +402,26 @@ def propagate_search(
 
 
 def _walk_source_files(repo: Path):
-    """Yield every .rs file under `repo`, skipping target/ and similar."""
+    """Yield every .rs file under `repo`, skipping target/ and similar.
+
+    FIX B-#4: Skip symlinks entirely. A malicious corpus repo could include
+    a symlink like `payload.rs -> /root/.audit-env` which the regex scanner
+    would happily slurp, exfiltrating secrets into the next propagation
+    report. We refuse to follow symlinks (file OR directory) — if a real
+    audit needs a symlinked target, the corpus maintainer materializes it.
+    """
     skip_dirs = {"target", "node_modules", ".git", "build"}
+    repo_resolved = repo.resolve()
     for path in repo.rglob("*"):
+        try:
+            if path.is_symlink():
+                continue
+            # Also refuse paths that resolve outside the repo (defense-
+            # in-depth against root-level symlinks higher in the chain).
+            if not str(path.resolve()).startswith(str(repo_resolved)):
+                continue
+        except OSError:
+            continue
         if not path.is_file():
             continue
         if path.suffix not in SEARCH_EXTENSIONS:
@@ -1152,6 +1169,34 @@ def add_target_cmd(name: str, github_url: str, corpus: Path, ref: str | None) ->
     protocol we haven't indexed before. Initializes git submodules so the
     full source tree is readable to the corpus walker.
     """
+    # FIX B-#5: restrict github_url to https://github.com/ and bitbucket.org
+    # or codeberg.org. Without an allow-list, an operator could be
+    # socially-engineered into running `add-target hostile-corpus
+    # https://attacker.com/poison` which would land in the corpus that
+    # propagate then scans, exfiltrating data via the propagation report
+    # (combined with B-#4 symlink protection).
+    _ALLOWED_HOSTS = (
+        "https://github.com/",
+        "https://gitlab.com/",
+        "https://bitbucket.org/",
+        "https://codeberg.org/",
+        "git@github.com:",
+        "git@gitlab.com:",
+    )
+    if not any(github_url.startswith(prefix) for prefix in _ALLOWED_HOSTS):
+        raise click.ClickException(
+            f"refusing to clone from {github_url!r}: only public-git hosts "
+            f"(github.com, gitlab.com, bitbucket.org, codeberg.org) are "
+            f"allowed for corpus repos. Pass an explicit URL from one of "
+            f"these origins, or build your corpus manually outside this CLI."
+        )
+    # Reject patterns that have historically been used for path-traversal
+    # or credential exfiltration via git URL parsing.
+    if any(c in github_url for c in ("\x00", "\n", "\r", "..")):
+        raise click.ClickException(
+            f"refusing url containing control / .. sequences: {github_url!r}"
+        )
+
     target = corpus / name
     if target.exists():
         console.print(f"[yellow]{name} already exists at {target}[/yellow]")
@@ -1165,10 +1210,18 @@ def add_target_cmd(name: str, github_url: str, corpus: Path, ref: str | None) ->
         raise click.ClickException(f"clone failed: {proc.stderr.strip()}")
 
     if ref:
-        subprocess.run(
+        co_proc = subprocess.run(
             ["git", "checkout", ref],
             cwd=str(target), capture_output=True, text=True,
         )
+        # FIX B-#6: surface checkout failure loudly. Was previously swallowed,
+        # leaving operator on default branch thinking they got the ref.
+        if co_proc.returncode != 0:
+            raise click.ClickException(
+                f"git checkout {ref!r} failed inside {target}: "
+                f"{co_proc.stderr.strip()}. Repo IS cloned but at default "
+                f"branch — delete it and retry or `git checkout` manually."
+            )
 
     # Init submodules if any (B7-style)
     try:

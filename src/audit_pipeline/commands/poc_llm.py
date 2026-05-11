@@ -311,18 +311,56 @@ def poc_llm_cmd(
     engine_src_dir = engine_root / "src"
     rs_files = sorted(engine_src_dir.glob("*.rs"))
 
+    # FIX M3: stop-word filter on tokens parsed from relevant_instructions.
+    # The previous tokenizer included English words like "the", "around",
+    # "handler", "lines" — these would substring-match every line of every
+    # .rs file in collect_grounded_code, inflating the prompt by ~2x and
+    # polluting the model's attention. Filter aggressively: only keep
+    # tokens that look like Rust identifiers AND aren't in the stop list.
+    POC_LLM_STOPWORDS = {
+        # English chaff that shows up in `relevant_instructions`
+        "the", "around", "lines", "line", "handler", "handlers", "see",
+        "value", "values", "result", "results", "context", "ctx", "match",
+        "matches", "for", "every", "field", "fields", "block", "blocks",
+        "function", "instruction", "args", "arg", "above", "below",
+        "with", "from", "through", "into", "onto", "etc", "also",
+        "true", "false", "null", "none", "must", "should", "may",
+        "logic", "path", "paths", "mode", "modes", "return", "returns",
+        "update", "updates", "check", "checks", "gate", "gates",
+        "forwarding", "unpack", "validation", "require",
+        # Rust keywords + common stdlib
+        "fn", "pub", "let", "mut", "if", "else", "match", "use", "mod",
+        "self", "impl", "struct", "enum", "trait", "where", "type",
+        "ref", "in", "as", "of", "is", "or", "and", "not", "any",
+        "ok", "err", "some", "vec", "box", "str", "u8", "u16", "u32",
+        "u64", "u128", "i8", "i16", "i32", "i64", "i128", "usize", "bool",
+    }
+
+    def _is_useful_token(tok: str) -> bool:
+        if len(tok) < 4:
+            return False
+        low = tok.lower()
+        if low in POC_LLM_STOPWORDS:
+            return False
+        # Must look like a Rust identifier (snake_case or CamelCase),
+        # not a number or punctuation fragment.
+        return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", tok))
+
     targets: list[str] = []
     # Always include the engine_function hint
     if hyp.get("engine_function"):
         targets.append(hyp["engine_function"])
-    # Plus tokens parsed from relevant_instructions
+    # Plus tokens parsed from relevant_instructions (filtered)
     raw = hyp.get("relevant_instructions") or ""
     if isinstance(raw, str):
         for line in raw.splitlines():
             for token in line.replace(",", " ").split():
                 token = token.strip(" `'\"():")
-                if token and not token.startswith("("):
+                if _is_useful_token(token):
                     targets.append(token)
+    # De-duplicate while preserving order
+    seen = set()
+    targets = [t for t in targets if not (t in seen or seen.add(t))]
 
     grounded = collect_grounded_code(targets, rs_files, max_lines=code_max_lines)
     blocks = [v for v in grounded.values() if v]

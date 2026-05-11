@@ -43,13 +43,33 @@ def extract_function(relevant_instructions: str | None) -> str:
         return FALLBACK
     text = relevant_instructions
 
+    # FIX M4: expanded stop-word list. The greedy `<word>(` regex pattern
+    # was matching control-flow keywords + generic identifiers + common
+    # nouns. Result: live library has hyps with engine_function values
+    # like `mode`, `path`, `return`, `update`, `logic`, `validation`,
+    # `gate`, `forwarding`, `check`. These break Kani synthesis (no fn
+    # named `mode` exists). Expanded skip-list catches them.
+    GENERIC_STOPWORDS = {
+        "line", "lines", "engine", "config", "around", "value", "result",
+        "true", "false", "ok", "err", "some", "none",
+        "mode", "modes", "path", "paths", "return", "returns",
+        "update", "updates", "updating", "logic", "validation",
+        "gate", "gates", "forwarding", "check", "checks",
+        "unpack", "require_initialized", "match", "fn",
+        "let", "mut", "impl", "self", "ref", "the", "and", "for",
+        "see", "around", "handler", "handlers", "lines",
+        "every", "field", "fields", "block", "blocks", "panicked",
+        "deserialize", "serialize", "with",
+        # Anchor v2 internals that aren't real entry points
+        "instruction", "process_instruction", "process",
+    }
+
     # Try snake_case function patterns first
     for pat in RUST_FN_PATTERNS:
         m = pat.search(text)
         if m:
             name = m.group(1)
-            # Skip generic words that aren't real functions
-            if name in {"line", "lines", "engine", "config", "around", "value", "result", "true", "false", "ok"}:
+            if name.lower() in GENERIC_STOPWORDS:
                 continue
             return name
 

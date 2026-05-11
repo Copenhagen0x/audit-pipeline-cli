@@ -574,7 +574,7 @@ Insurance loss = (ΔK − 0.2)·N.
         </div>
         <div class="event ongoing">
           <div class="when">Ongoing &middot; <span style="color: var(--amber); font-size: 11px;">in progress</span></div>
-          <div class="what">Sibling-class hypotheses in the same bug class ("insurance-residual coupling") are queued for cross-protocol propagation against any other Solana protocol that maintains a vault counter and an out-of-vault insurance counter. Today: zero confirmed siblings.</div>
+          <div class="what">Sibling-class hypotheses in the same bug class ("insurance-residual coupling") are queued for cross-protocol propagation against any other Solana protocol that maintains a vault counter and an out-of-vault insurance counter. Propagation chain runs on every confirmed Med+ finding; sibling counter updates from snapshot.json above.</div>
         </div>
       </div>
     </div>
@@ -600,7 +600,7 @@ Insurance loss = (ΔK − 0.2)·N.
         </div>
         <div class="kpi-cell">
           <div class="label">Confirmed siblings</div>
-          <div class="value muted">0</div>
+          <div class="value muted" data-snapshot-key="stats.f7_confirmed_siblings">—</div>
         </div>
       </div>
 
@@ -616,10 +616,10 @@ Insurance loss = (ΔK − 0.2)·N.
         <li><strong>SIB-V7-6</strong> · <code>self-trade-residual-skew-cross-protocol</code> &mdash; any protocol whose residual formula composes vault, insurance, and per-side counters must not allow a self-trade primitive to widen the residual asymmetrically. <span class="sev sev-critical">Critical</span></li>
       </ul>
 
-      <h3 style="margin-top: 40px;">What "0 confirmed siblings" means</h3>
-      <p>Zero is a feature, not a hole. The corpus sweep ran every regex signature for the F7 class plus the <code>insurance_balance_mutation</code> AST query against every <code>.rs</code> file in the indexed corpus. None of the matches survived manual triage as a true sibling &mdash; meaning the eight indexed protocols today don't replicate Percolator's residual-formula coupling. That's a result you can publish.</p>
+      <h3 style="margin-top: 40px;">Cross-protocol propagation status</h3>
+      <p>The corpus sweep runs every regex signature for the F7 class plus the <code>insurance_balance_mutation</code> AST query against every <code>.rs</code> file in the indexed corpus on every confirmed Med+ finding. The "Confirmed siblings" counter above updates from <code>snapshot.json</code> as new findings clear the verification chain.</p>
 
-      <p>For protocols where a sibling does eventually confirm, the hook fires the same disclosure pipeline F7 went through: <a href="/methodology.html#propagation">propagation methodology</a> &middot; <a href="/bug-classes.html">full bug-class catalog</a>.</p>
+      <p>Each sibling that confirms fires the same disclosure pipeline F7 went through: <a href="/methodology.html#propagation">propagation methodology</a> &middot; <a href="/bug-classes.html">full bug-class catalog</a>.</p>
 
       <div class="callout">
         <strong>Operator note</strong> &mdash; the per-finding chain page (parent &rarr; siblings &rarr; corpus sweep &rarr; queued L1 dispatches) is generated automatically via <code>audit-pipeline propagate chain &lt;finding-id&gt;</code> and surfaces in the customer dashboard manifest.

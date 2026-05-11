@@ -47,6 +47,7 @@ upgrading the engine invalidates all open authorizations.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -88,8 +89,13 @@ class AuthorizationMarker:
 
 
 def expected_phrase(finding_id: int, patch_sha: str) -> str:
-    """The exact string the operator must type to authorize."""
-    return f"yes-authorize-finding-{finding_id}-{patch_sha[:12]}"
+    """The exact string the operator must type to authorize.
+
+    FIX B-#17: phrase now binds the FULL 64-char patch_sha instead of just
+    12 chars. That's 256 bits of entropy in the authorization phrase,
+    closing the 48-bit collision window for substitution attacks.
+    """
+    return f"yes-authorize-finding-{finding_id}-{patch_sha}"
 
 
 def file_sha256(path: Path) -> str:
@@ -133,8 +139,28 @@ def write_authorization(
     except (json.JSONDecodeError, OSError) as e:
         raise AuthorizationInvalid(f"verification.json unreadable: {e}") from e
 
-    failed = [k for k, v in (verification.get("gates") or {}).items()
-              if v.get("passed") is not True]
+    # FIX B-#15: require ALL expected gate keys present AND each passed.
+    # Previously a verification.json with empty `gates: {}` slipped past
+    # because list-comprehension found no failures. Empty dict → empty
+    # failure list → authorization succeeded with zero verified gates.
+    REQUIRED_GATES = (
+        "patch_well_formed",
+        "poc_fails_pre_patch",
+        "poc_passes_post_patch",
+        "tests_pass_post_patch",
+        # kani_proof_holds is SKIP-able (None) so we don't require it
+        # to be True — but it MUST be present in the dict (proves the
+        # gate actually ran rather than being silently omitted).
+    )
+    gates = verification.get("gates") or {}
+    missing = [k for k in REQUIRED_GATES if k not in gates]
+    if missing:
+        raise AuthorizationInvalid(
+            f"verification.json missing required gates: {missing}. "
+            f"Re-run `bundle verify` to produce the full gate set."
+        )
+    failed = [k for k in REQUIRED_GATES
+              if gates.get(k, {}).get("passed") is not True]
     if failed:
         raise AuthorizationInvalid(
             f"verification has {len(failed)} failing gate(s): {sorted(failed)}. "
@@ -143,7 +169,8 @@ def write_authorization(
 
     p_sha = file_sha256(p_path)
     expected = expected_phrase(finding_id, p_sha)
-    if typed_phrase.strip() != expected:
+    # FIX B-#16: constant-time comparison to avoid timing side-channels.
+    if not hmac.compare_digest(typed_phrase.strip(), expected):
         raise AuthorizationInvalid(
             f"typed phrase doesn't match. Expected exactly:\n"
             f"    {expected}\n"

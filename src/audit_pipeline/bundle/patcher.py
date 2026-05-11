@@ -150,13 +150,40 @@ def _parse_response(raw: str, bug_class: str) -> PatchDraft:
 
 
 def is_unified_diff(text: str) -> bool:
-    """Coarse check that text looks like a unified diff."""
+    """Coarse check that text looks like a unified diff.
+
+    FIX B-#19: also reject patches that contain binary patch markers,
+    symlink mode changes, or rename ops. These payload shapes get past
+    a simple "has --- and +++" check and `git apply` will happily process
+    them — opening a path to binary writes, symlink injection, and file
+    moves that the LLM should never be authoring as bug fixes.
+    """
     if not text.strip():
         return False
     has_minus_header = bool(re.search(r"^--- (a/|/dev/null)", text, re.MULTILINE))
     has_plus_header = bool(re.search(r"^\+\+\+ (b/|/dev/null)", text, re.MULTILINE))
     has_hunk = bool(re.search(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@", text, re.MULTILINE))
-    return has_minus_header and has_plus_header and has_hunk
+    if not (has_minus_header and has_plus_header and has_hunk):
+        return False
+    # Reject dangerous diff modes — bundle policy is text edits to existing
+    # files only. The verifier's _gate_patch_well_formed has the same
+    # rejections; we replicate here so the LLM-output extraction stage
+    # also rejects, not just the verify-time gate.
+    forbidden = (
+        "GIT binary patch",
+        "Binary files",
+        "new file mode 120000",  # symlink
+        "rename from",
+        "rename to",
+        "deleted file mode",
+        "new file mode",
+        "copy from",
+        "copy to",
+    )
+    for marker in forbidden:
+        if marker in text:
+            return False
+    return True
 
 
 def files_touched(diff: str) -> list[str]:

@@ -1,0 +1,64 @@
+# Logrotate config for Jelleo audit pipeline.
+# Install: cp deploy/logrotate-jelleo /etc/logrotate.d/jelleo
+# Test:    logrotate -d /etc/logrotate.d/jelleo
+#
+# Without this, hunt/shadow/scheduler logs grow unbounded. 11M shadow log
+# today × 365 days × N cycles per day → fills disk, corrupts mid-write
+# attestation artifacts when the FS hits ENOSPC.
+#
+# Rotates weekly, keeps 8 weeks, compresses with gzip, truncates in-place
+# (copytruncate) so the running services don't need a restart to release
+# the old file handle.
+
+/root/audit_runs/percolator-live/shadow/*.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    notifempty
+    missingok
+    copytruncate
+    nodateext
+    create 644 root root
+    su root root
+}
+
+/root/audit_runs/percolator-live/watch/*.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    notifempty
+    missingok
+    copytruncate
+    nodateext
+    create 644 root root
+    su root root
+}
+
+/root/audit_runs/percolator-live/scheduler/*.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    notifempty
+    missingok
+    copytruncate
+    nodateext
+    create 644 root root
+    su root root
+}
+
+# Hunt cycle artifacts (recon prompts, debate, poc test logs).
+# Retained for one cycle then compressed; rebuilt every cycle anyway.
+/root/audit_runs/percolator-live/hunts/*/poc/*.log {
+    weekly
+    rotate 2
+    compress
+    notifempty
+    missingok
+    copytruncate
+    nodateext
+    create 644 root root
+    su root root
+}

@@ -46,6 +46,7 @@ that leaf as the root.
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any
 
 # Stable list of finding fields in canonical order. Adding a field at
@@ -63,9 +64,22 @@ from typing import Any
 # finding's structural truth changing. If we hashed it, every future
 # update would invalidate the historical root. Trade-off: changes to
 # details_json don't tamper-check; structural fields do.
+# v3 (2026-05-11): added `details_digest` and `cycle_id` to FINDING_FIELDS.
+# Reason: legacy v2 excluded details_json from the hash on the rationale that
+# disclosure_url etc. legitimately mutates. But that means a malicious
+# operator could rewrite the entire PoC narrative / attacker steps / impact
+# claim post-attestation and the Merkle root stays valid — which defeats
+# the tamper-evident property the user is showing to Toly. Solution:
+# include a SHA256 digest of the canonical details_json so any change
+# invalidates the root, AND allow legitimate updates by computing a new
+# root (the schema version bump signals re-attestation is required).
+# Also added cycle_id because a finding can be reassigned to a different
+# cycle silently otherwise.
 FINDING_FIELDS = (
     "bug_class",
     "confidence",
+    "cycle_id",
+    "details_digest",
     "engine_sha",
     "hypothesis_id",
     "id",
@@ -88,7 +102,7 @@ CYCLE_FIELDS = (
     "wrapper_sha",
 )
 
-SCHEMA_VERSION = "v2"  # v2 (2026-05-09): added poc_fired, engine_sha, wrapper_sha to FINDING_FIELDS
+SCHEMA_VERSION = "v3"  # v3 (2026-05-11): added details_digest + cycle_id to FINDING_FIELDS
 
 
 def canonical_encode(record: dict[str, Any], fields: tuple[str, ...]) -> bytes:
@@ -136,11 +150,37 @@ def merkle_root(leaves: list[bytes]) -> bytes:
     return nodes[0]
 
 
+def _details_digest(details: Any) -> str:
+    """SHA256 hex digest of canonical details_json bytes.
+
+    Sorted-key JSON encoding ensures the digest is deterministic across
+    runs even if the SQLite text storage reshuffles keys. Empty/None
+    details → empty digest "" so the field is absent in the canonical
+    encoding (legacy findings stay verifiable).
+    """
+    if details is None:
+        return ""
+    try:
+        canon = json.dumps(details, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError):
+        canon = str(details)
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest()
+
+
 def cycle_leaves(cycle: dict, findings: list[dict]) -> list[bytes]:
     """Build the deterministic leaf set for a cycle: 1 metadata + N findings."""
     leaves = [leaf_hash(canonical_encode(cycle, CYCLE_FIELDS))]
     for f in findings:
-        leaves.append(leaf_hash(canonical_encode(f, FINDING_FIELDS)))
+        # FIX B-#24: compute details_digest from the row's details_json
+        # column (if present) so the Merkle root commits to narrative
+        # content too. Post-attestation rewriting of details_json
+        # invalidates the root.
+        f_with_digest = dict(f)
+        if "details_digest" not in f_with_digest:
+            f_with_digest["details_digest"] = _details_digest(
+                f.get("details_json") or f.get("details")
+            )
+        leaves.append(leaf_hash(canonical_encode(f_with_digest, FINDING_FIELDS)))
     return leaves
 
 

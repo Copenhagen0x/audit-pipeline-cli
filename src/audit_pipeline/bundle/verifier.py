@@ -51,6 +51,7 @@ which is treated as a FAIL by `auth.write_authorization()`.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -159,6 +160,17 @@ def _gate_poc_fails_pre_patch(
         return GateResult(None, "skipped — no engine_repo provided", time.time() - t0)
     if not poc_test_name:
         return GateResult(None, "skipped — no poc_test_name provided", time.time() - t0)
+    # FIX B-#12: validate poc_test_name has the shape `test_<alnum_>`.
+    # Without this, an empty / whitespace / wildcard value would expand
+    # `cargo test --test <X>` into running ALL tests, any failure of which
+    # would falsely confirm the PoC.
+    if not re.match(r"^test_[A-Za-z0-9_]+$", poc_test_name):
+        return GateResult(
+            None,
+            f"skipped — poc_test_name {poc_test_name!r} doesn't match "
+            f"^test_[A-Za-z0-9_]+$ (could match unrelated tests)",
+            time.time() - t0,
+        )
     try:
         # cargo test exits 0 if all tests pass. We want the PoC to FAIL on the
         # unpatched repo (i.e. test assertion fires) to prove the bug is
@@ -240,26 +252,42 @@ def _apply_patch(engine_repo: Path, patch_text: str) -> tuple[bool, str]:
     return (True, "")
 
 
-def _unapply_patch(engine_repo: Path, patch_text: str) -> None:
-    """Reverse a unified diff via `git apply -R`. Idempotent / quiet.
+def _unapply_patch(engine_repo: Path, patch_text: str) -> bool:
+    """Reverse a unified diff via `git apply -R`. Returns True on success.
 
-    FIX #2: Replaces the previous `git checkout .` rollback which would
-    NUKE every uncommitted change in the working tree (including hunt's
-    LLM-authored PoC files that live at tests/test_<finding>.rs but are
-    not git-tracked). Reverse-apply touches only the patch's own files.
+    FIX #2 / B-#11: Replaces the previous `git checkout .` rollback which
+    would NUKE every uncommitted change in the working tree (including
+    hunt's LLM-authored PoC files that live at tests/test_<finding>.rs but
+    are not git-tracked). Reverse-apply touches only the patch's own
+    files.
+
+    Returns False if the reverse-apply failed AND the working tree still
+    has unstaged changes touching the patch's target file — that's a
+    partial-state leak risk: subsequent gates run against a contaminated
+    tree. Caller should treat False as "skip the rest of this verify
+    run" rather than silently continuing.
     """
     try:
-        subprocess.run(
+        proc = subprocess.run(
             ["git", "apply", "-R", "-"],
             cwd=str(engine_repo),
             input=patch_text, capture_output=True, text=True, timeout=60,
         )
+        if proc.returncode == 0:
+            return True
+        # Reverse-apply failed. Probe `git status --porcelain` to see if
+        # patched files are still dirty — if so, we have residual state.
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(engine_repo),
+            capture_output=True, text=True, timeout=10,
+        )
+        if status.stdout.strip():
+            # Anything dirty after a failed reverse = partial state
+            return False
+        return True  # reverse failed but tree is clean → safe (patch never applied)
     except (subprocess.TimeoutExpired, OSError):
-        # Defensive: if reverse fails, it usually means the patch never
-        # cleanly applied or has been backed out already. Don't crash the
-        # verifier — the next gate's `git apply --check` will catch any
-        # residual state.
-        pass
+        return False
 
 
 def _gate_poc_passes_post_patch(

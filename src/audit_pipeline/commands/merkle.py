@@ -11,6 +11,7 @@ Subcommands:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import click
@@ -26,14 +27,45 @@ from audit_pipeline.merkle import (
 
 console = Console()
 
+# FIX B-#27/28: cycle_id is operator-supplied (CLI arg) and flows directly
+# into filesystem path concatenation. Without validation, a malicious value
+# like `../../tmp/evil` could write merkle.json + sign it OUTSIDE the
+# workspace — turning the signing key into a notary for arbitrary content.
+# Accept only the formats this command actually issues: YYYYMMDD-HHMMSS
+# optionally suffixed by `-<sha7>` and/or `-<hex4>` collision-suffix.
+_CYCLE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _validate_cycle_id(cycle_id: str) -> None:
+    if not cycle_id or not _CYCLE_ID_RE.match(cycle_id) or len(cycle_id) > 128:
+        raise click.ClickException(
+            f"invalid cycle_id {cycle_id!r}: expected alphanumeric / dash / "
+            f"underscore, ≤128 chars"
+        )
+
 
 def _ws(ctx: click.Context) -> Path:
     return Path(ctx.obj["workspace"])
 
 
 def _merkle_path(workspace: Path, cycle_id: str) -> Path:
-    """Sidecar location: <workspace>/hunts/<cycle-id>/merkle.json."""
-    return workspace / "hunts" / cycle_id / "merkle.json"
+    """Sidecar location: <workspace>/hunts/<cycle-id>/merkle.json.
+
+    Validates the cycle_id and the resolved path stays inside the workspace.
+    """
+    _validate_cycle_id(cycle_id)
+    out = workspace / "hunts" / cycle_id / "merkle.json"
+    # Defense-in-depth: resolve both and ensure the merkle.json is under
+    # workspace/hunts/. Catches symlink shenanigans + obscure path tricks.
+    try:
+        resolved = out.resolve(strict=False)
+        anchor = (workspace / "hunts").resolve(strict=False)
+        resolved.relative_to(anchor)
+    except (ValueError, OSError) as e:
+        raise click.ClickException(
+            f"cycle_id {cycle_id!r} resolves outside workspace/hunts/: {e}"
+        )
+    return out
 
 
 def _findings_for_cycle(db, cycle_id: str) -> list[dict]:

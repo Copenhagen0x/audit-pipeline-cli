@@ -16,6 +16,7 @@ Subcommands:
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import shutil
 from datetime import datetime, timezone
@@ -58,6 +59,14 @@ def customer_cmd() -> None:
               help="Skip per-customer keypair derivation (you can rotate-key later).")
 @click.option("--platform-key", type=click.Path(path_type=Path), default=None,
               help="Platform private key (default: <workspace>/keys/jelleo.ed25519).")
+@click.option("--allow-guessable-id", is_flag=True, default=False,
+              help=(
+                  "Allow customer_id values that are short / dictionary-word "
+                  "(like 'demo' or 'ottersec'). Without this flag, customer_id "
+                  "must be at least 16 chars to prevent URL enumeration of "
+                  "the token-gated /customer/<id>/manifest.json endpoint. "
+                  "Pass an unguessable id like `cus_$(openssl rand -hex 16)`."
+              ))
 @click.pass_context
 def add_cmd(
     ctx: click.Context,
@@ -69,10 +78,28 @@ def add_cmd(
     contact_email: str | None,
     no_key: bool,
     platform_key: Path | None,
+    allow_guessable_id: bool,
 ) -> None:
     """Register a new customer and derive its signing keypair."""
     workspace = Path(ctx.obj["workspace"])
     today = datetime.now(timezone.utc).date().isoformat()
+
+    # FIX D-#3: customer_id flows into the URL path
+    # `api.jelleo.com/customer/<id>/manifest.json` which currently has no
+    # auth gate at the nginx layer. Defense: require the id be long enough
+    # to be enumeration-resistant (16+ chars of high-entropy hex/base32).
+    # `demo` and similarly-short ids are grandfathered ONLY via the
+    # `--allow-guessable-id` escape hatch — used for the public
+    # demo dashboard which IS intended to be publicly readable.
+    if not allow_guessable_id:
+        if len(customer_id) < 16 or not re.match(r"^[A-Za-z0-9_-]+$", customer_id):
+            raise click.ClickException(
+                f"refusing customer_id {customer_id!r}: must be 16+ chars of "
+                f"[A-Za-z0-9_-] (URL-enumeration resistant). Generate one via "
+                f"  $ python -c 'import secrets; print(\"cus_\" + secrets.token_hex(16))'\n"
+                f"or pass --allow-guessable-id if this is intentional (e.g. "
+                f"the public demo)."
+            )
 
     try:
         entry = customers_mod.add_customer(
