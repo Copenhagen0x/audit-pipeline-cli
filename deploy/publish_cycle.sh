@@ -231,6 +231,17 @@ if mkdir -p "$PUBLIC_CYCLE_DIR" 2>/dev/null; then
     chmod -R a+r "$PUBLIC_CYCLE_DIR" 2>/dev/null || true
 
     echo "publish_cycle: published to $PUBLIC_CYCLE_DIR"
+
+    # 4b. Regenerate the cycle archive index page so the new cycle shows up
+    # at https://api.jelleo.com/cycles/. Best-effort — non-fatal.
+    REGEN_SCRIPT="$REPO/deploy/regen_cycles_index.py"
+    if [ -x /usr/bin/python3 ] && [ -f "$REGEN_SCRIPT" ]; then
+        if python3 "$REGEN_SCRIPT" --docroot /var/www/jelleo.com >/dev/null 2>&1; then
+            echo "publish_cycle: regenerated /cycles/ index"
+        else
+            echo "publish_cycle: regen_cycles_index failed (non-fatal)"
+        fi
+    fi
 else
     echo "publish_cycle: could not create $PUBLIC_CYCLE_DIR — skipping public copy"
 fi

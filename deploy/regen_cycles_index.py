@@ -52,20 +52,43 @@ def _short_id(cid: str) -> str:
 
 
 def _scan_cycles(cycles_dir: Path) -> list[dict[str, str]]:
-    """Return a list of {cycle_id, signed_at, has_pdf} dicts, sorted newest-first."""
+    """Return a list of {cycle_id, signed_at, has_pdf, html_name, sig_name, pdf_name}
+    dicts, sorted newest-first.
+
+    Handles BOTH historical naming conventions:
+      - Legacy: cycle.html / cycle.pdf / cycle.html.sig
+      - Auto-publish: hunt_report.html / hunt_report.pdf / hunt_report.html.sig
+
+    Whichever pair exists in the cycle dir is the pair we link to.
+    """
     out: list[dict[str, str]] = []
     if not cycles_dir.is_dir():
         return out
     for child in cycles_dir.iterdir():
         if not child.is_dir() or child.name.startswith("."):
             continue
-        sig = child / "cycle.html.sig"
-        if not sig.is_file():
+        # Detect the signed HTML artefact (either naming convention).
+        sig: Path | None = None
+        html_name = ""
+        sig_name = ""
+        for candidate_html in ("cycle.html", "hunt_report.html"):
+            candidate_sig = child / f"{candidate_html}.sig"
+            if candidate_sig.is_file() and (child / candidate_html).is_file():
+                sig = candidate_sig
+                html_name = candidate_html
+                sig_name = candidate_sig.name
+                break
+        if sig is None:
             continue
+        # Optional PDF, same naming family as the HTML.
+        pdf_name = f"{html_name[:-5]}.pdf"  # strip .html, append .pdf
         out.append({
             "cycle_id":  child.name,
             "signed_at": _read_signed_at(sig) or "",
-            "has_pdf":   "y" if (child / "cycle.pdf").is_file() else "n",
+            "has_pdf":   "y" if (child / pdf_name).is_file() else "n",
+            "html_name": html_name,
+            "pdf_name":  pdf_name,
+            "sig_name":  sig_name,
         })
     out.sort(key=lambda r: r["cycle_id"], reverse=True)
     return out
@@ -75,16 +98,16 @@ def _row_html(row: dict[str, str]) -> str:
     cid = row["cycle_id"]
     label = _short_id(cid)
     pdf_cell = (
-        f'<a href="{cid}/cycle.pdf">PDF</a>'
+        f'<a href="{cid}/{row["pdf_name"]}">PDF</a>'
         if row["has_pdf"] == "y" else "<span class=\"muted\">—</span>"
     )
     signed_at = row["signed_at"] or "<span class=\"muted\">unknown</span>"
     return (
         f'<tr><td><a href="{cid}/">{label}</a></td>'
         f'<td class="muted">{signed_at}</td>'
-        f'<td><a href="{cid}/cycle.html">HTML</a></td>'
+        f'<td><a href="{cid}/{row["html_name"]}">HTML</a></td>'
         f'<td>{pdf_cell}</td>'
-        f'<td><a href="{cid}/cycle.html.sig">sig</a></td></tr>'
+        f'<td><a href="{cid}/{row["sig_name"]}">sig</a></td></tr>'
     )
 
 
