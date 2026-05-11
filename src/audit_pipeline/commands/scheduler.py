@@ -97,6 +97,22 @@ def scheduler_tick(
         return
 
     settings = NotifierSettings.load(workspace, dry_run=dry_run)
+    if settings.active_targets:
+        allow = set(settings.active_targets)
+        before = len(targets)
+        targets = [t for t in targets if t["name"] in allow]
+        skipped = before - len(targets)
+        if skipped:
+            console.print(
+                f"[dim]scheduler tick {cadence}: filtered to {len(targets)} active "
+                f"target(s) via notifier.json active_targets · skipped {skipped}[/dim]"
+            )
+        if not targets:
+            console.print(
+                f"[yellow]scheduler tick[/yellow] {cadence}: active_targets list "
+                f"{sorted(allow)} matched 0 targets in DB."
+            )
+            return
     fired_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     n_succeeded = n_failed = 0
 

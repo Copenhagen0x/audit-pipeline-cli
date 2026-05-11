@@ -1401,7 +1401,7 @@ hypotheses:
     scope_conditions: [zero_fill_path]
     target_file: src/percolator.rs
 
-  - id: M5-zero-fill-nonce-replay-via-write_req_nonce-after-restore
+  - id: M5-zero-fill-nonce-replay-via-write-req-nonce-after-restore
     class: state_transition
     severity: Medium
     bug_class: nonce-write-ordering-on-failed-path
@@ -1687,7 +1687,7 @@ hypotheses:
   - id: S13-after-hours-dynamic-fee-iterator-divergence-on-overflow
     class: state_transition
     severity: Medium
-    bug_class: dynamic-fee-iterator-saturation-return-Some
+    bug_class: dynamic-fee-iterator-saturation-return-some
     engine_function: absorb_protocol_loss
     claim: >
       `hyperp_dynamic_fee_bps` iterates up to 64 times. On overflow path

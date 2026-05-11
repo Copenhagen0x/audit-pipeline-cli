@@ -78,17 +78,27 @@ class NotifierSettings:
         cadence_24h       — daily rollup recipients
         cadence_weekly    — weekly rollup recipients
         cadence_monthly   — monthly rollup recipients
+
+    active_targets is an optional allow-list of target names. When present and
+    non-empty, the cadence scheduler will only fire reports for these targets
+    (instead of every target in the DB). Lets stale/internal scopes stay in
+    the DB without spamming the inbox.
     """
     recipients: dict[str, list[str]] = field(default_factory=dict)
+    active_targets: list[str] | None = None
     smtp: SmtpConfig | None = None
     dry_run: bool = False
 
     @classmethod
     def load(cls, workspace: Path, dry_run: bool = False) -> NotifierSettings:
         path = workspace / "notifier.json"
+        active_targets: list[str] | None = None
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
             recipients = {k: list(v) for k, v in (data.get("recipients") or {}).items()}
+            raw_targets = data.get("active_targets")
+            if isinstance(raw_targets, list) and raw_targets:
+                active_targets = [str(t) for t in raw_targets if isinstance(t, str)]
         else:
             recipients = {}
         smtp = None
@@ -97,7 +107,12 @@ class NotifierSettings:
                 smtp = SmtpConfig.from_env()
             except NotifierError:
                 smtp = None
-        return cls(recipients=recipients, smtp=smtp, dry_run=dry_run)
+        return cls(
+            recipients=recipients,
+            active_targets=active_targets,
+            smtp=smtp,
+            dry_run=dry_run,
+        )
 
     def recipients_for(self, channel: str) -> list[str]:
         return list(self.recipients.get(channel, []))

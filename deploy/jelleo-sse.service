@@ -1,0 +1,25 @@
+[Unit]
+Description=Jelleo SSE - live event stream for customer dashboards (P5 Y0)
+After=network.target
+Documentation=https://jelleo.com
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /root/jelleo-sse/jelleo-sse.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening: SSE service only needs to read the audit workspace + bind localhost
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadOnlyPaths=/root/audit_runs/percolator-live
+ReadWritePaths=
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+
+[Install]
+WantedBy=multi-user.target

@@ -204,7 +204,12 @@ if mkdir -p "$PUBLIC_CYCLE_DIR" 2>/dev/null; then
     # Render HTML -> PDF via chromium (if installed) and sign the PDF
     if [ -f "$PUBLIC_CYCLE_DIR/hunt_report.html" ]; then
         CHROMIUM_BIN=""
-        for c in chromium-browser chromium google-chrome; do
+        # NOTE: search order matters. chromium-browser on Ubuntu is the snap
+        # build, which is AppArmor-confined and silently fails to write to
+        # /var/www/ or /tmp (it writes inside the snap sandbox instead). The
+        # native google-chrome / google-chrome-stable / chromium debs work
+        # fine, so try them first.
+        for c in google-chrome google-chrome-stable chromium chromium-browser; do
             if command -v "$c" >/dev/null 2>&1; then CHROMIUM_BIN="$c"; break; fi
         done
         if [ -n "$CHROMIUM_BIN" ]; then

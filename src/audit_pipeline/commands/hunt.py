@@ -27,6 +27,7 @@ Required:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -221,6 +222,19 @@ console = Console()
         "pick up where the prior cycle stopped without re-running paid work."
     ),
 )
+@click.option(
+    "--auto-publish/--no-auto-publish",
+    default=True,
+    show_default=True,
+    help=(
+        "When the cycle finishes, run deploy/publish_cycle.sh: copies "
+        "artifacts to the public examples/ directory + git push, publishes "
+        "to /var/www/jelleo.com/cycles/<id>/, renders + signs PDF, and "
+        "emails Critical/High confirmed findings via notifier.json. "
+        "Silently no-ops if the script is not found on the host. Override "
+        "the script path via the JELLEO_PUBLISH_SCRIPT env var."
+    ),
+)
 @click.pass_context
 def hunt_cmd(
     ctx: click.Context,
@@ -248,6 +262,7 @@ def hunt_cmd(
     source_repo: str | None,
     source_sha: str | None,
     resume_cycle: str | None,
+    auto_publish: bool,
 ) -> None:
     """Autonomous full hunt cycle: recon -> debate -> PoC -> Kani -> report.
 
@@ -406,6 +421,7 @@ def hunt_cmd(
             resolved_sha=resolved_sha,
             engine_dir_for_cargo=engine_dir_for_cargo,
             resume_cycle=resume_cycle,
+            auto_publish=auto_publish,
         )
     finally:
         if snap_cm is not None:
@@ -440,6 +456,7 @@ def _hunt_run(
     resolved_sha: str,
     engine_dir_for_cargo: Path,
     resume_cycle: str | None = None,
+    auto_publish: bool = True,
 ) -> None:
     """Hunt cycle body, factored out so the snapshot lifecycle wraps it cleanly."""
 
@@ -511,7 +528,7 @@ def _hunt_run(
     )
 
     resume_marker = (
-        f"[yellow]RESUMING from prior partial state[/yellow]\n"
+        "[yellow]RESUMING from prior partial state[/yellow]\n"
         if resume_cycle else ""
     )
     console.print(
@@ -1408,6 +1425,58 @@ def _hunt_run(
             log("webhook_sent", url=webhook_url[:50])
         except Exception as e:  # noqa: BLE001
             log("webhook_failed", error=str(e))
+
+    # ---------- Auto-publish cycle artifacts + per-finding emails ----------
+    # Two steps:
+    #   1. `audit-pipeline report cycle` generates hunt_report.html in the
+    #      cycle dir. publish_cycle.sh's chromium-render step needs that file
+    #      as input; the hunt only writes hunt_report.md by default.
+    #   2. deploy/publish_cycle.sh then:
+    #      - Copies cycle to public examples/recent-hunts/ + git push
+    #      - Copies cycle to /var/www/jelleo.com/cycles/<id>/ for customer download
+    #      - Renders + signs PDF from hunt_report.html
+    #      - Emails Critical/High confirmed findings via notifier.json
+    #      - Telegram alert if HUNT_TELEGRAM_* env vars set
+    # Best-effort: failure does not fail the hunt. Skipped silently if the
+    # script is missing on this host (dev machines without /root/audit-pipeline-cli).
+    if auto_publish:
+        rc_html = _run([
+            _audit_pipeline_bin(), "--workspace", str(workspace),
+            "report", "cycle", "--cycle-id", cycle_id, "--public",
+        ], timeout=120)
+        log("auto_publish_html_rendered", rc=rc_html, cycle_id=cycle_id)
+        script_path = _resolve_publish_script()
+        if script_path is not None:
+            console.print()
+            console.print(f"[bold]Auto-publish:[/bold] [cyan]{script_path}[/cyan]")
+            rc_publish = _run(["bash", str(script_path)], timeout=600)
+            log("auto_publish", rc=rc_publish, script=str(script_path))
+        else:
+            log("auto_publish_skipped", reason="publish_cycle.sh not found")
+
+
+def _resolve_publish_script() -> Path | None:
+    """Locate publish_cycle.sh. Returns None if not found.
+
+    Search order:
+      1. $JELLEO_PUBLISH_SCRIPT (override)
+      2. /root/audit-pipeline-cli/deploy/publish_cycle.sh (VPS default)
+      3. <repo>/deploy/publish_cycle.sh (editable install / dev)
+    """
+    override = os.environ.get("JELLEO_PUBLISH_SCRIPT")
+    if override:
+        p = Path(override)
+        return p if p.is_file() else None
+    vps_default = Path("/root/audit-pipeline-cli/deploy/publish_cycle.sh")
+    if vps_default.is_file():
+        return vps_default
+    # Walk up from this file: src/audit_pipeline/commands/hunt.py -> repo root
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "deploy" / "publish_cycle.sh"
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 # ---------------------------------------------------------------------------

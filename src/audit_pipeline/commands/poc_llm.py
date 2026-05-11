@@ -113,7 +113,7 @@ def build_poc_authoring_prompt(
         ),
     }[strategy]
 
-    prompt = f"""You are authoring a Layer-2 Proof-of-Concept Rust test for the Jelleo audit engine. Your output will be compiled with `cargo test --features test` and the test will either FAIL (bug confirmed) or PASS (bug not reachable with the witness state you constructed).
+    return f"""You are authoring a Layer-2 Proof-of-Concept Rust test for the Jelleo audit engine. Your output will be compiled with `cargo test --features test` and the test will either FAIL (bug confirmed) or PASS (bug not reachable with the witness state you constructed).
 
 # Hypothesis under test
 
@@ -205,7 +205,6 @@ fn {finding_name}_sanity_no_op() {{
 5. If you cannot construct a meaningful witness state from the source code provided (e.g. needed functions are not exposed), output a Rust file with a single `#[ignore]` test that documents the limitation in a `// REASON:` comment. Do NOT fabricate APIs.
 6. Output ONLY the complete Rust file content. No explanatory prose around it. The file content must be valid Rust syntax from line 1 to EOF.
 """
-    return prompt
 
 
 def extract_rust_from_response(text: str) -> str:
@@ -328,8 +327,8 @@ def poc_llm_cmd(
         "logic", "path", "paths", "mode", "modes", "return", "returns",
         "update", "updates", "check", "checks", "gate", "gates",
         "forwarding", "unpack", "validation", "require",
-        # Rust keywords + common stdlib
-        "fn", "pub", "let", "mut", "if", "else", "match", "use", "mod",
+        # Rust keywords + common stdlib ("match" already in the English chaff block above)
+        "fn", "pub", "let", "mut", "if", "else", "use", "mod",
         "self", "impl", "struct", "enum", "trait", "where", "type",
         "ref", "in", "as", "of", "is", "or", "and", "not", "any",
         "ok", "err", "some", "vec", "box", "str", "u8", "u16", "u32",

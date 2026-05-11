@@ -846,7 +846,7 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       <span class="meta">Anatoly Yakovenko's perpetual DEX · engine + BPF wrapper · funded-state preview (today: v0.1 hunt loop, F7 disclosed)</span>
     </h1>
     <div class="id-status-block">
-      <div class="live-badge" style="color: var(--ok);"><span class="nav-pulse"></span>Live · auto-refresh 60s</div>
+      <div class="live-badge" id="jelleo-live-dot" data-state="offline" style="color: var(--ok);"><span class="nav-pulse"></span><span id="jelleo-live-label">Live · connecting…</span></div>
       <div>last scan · <span id="last-scan">just now</span></div>
     </div>
   </div>
@@ -1392,6 +1392,7 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   // page never looks broken — graceful degradation by design.
   const SNAPSHOT_URL = 'https://api.jelleo.com/snapshot.json';
   const MANIFEST_URL = 'https://api.jelleo.com/customer/demo/manifest.json';
+  const SSE_URL      = 'https://api.jelleo.com/events/demo';
 
   const SEVERITY_ORDER = ['Critical', 'High', 'Medium', 'Low', 'Info'];
   const STATUS_PILL_CLASS = {
@@ -1743,15 +1744,111 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   // -------------------- orchestration --------------------
 
   async function refreshAll() {
-    // run both in parallel
     await Promise.allSettled([patchFromSnapshot(), patchFromManifest()]);
-    setTimeout(refreshAll, 60000);
+  }
+
+  // Live event stream (SSE). Each engine event triggers a debounced refresh
+  // so snapshot.json + manifest.json get re-fetched within ~600ms of the
+  // event landing on the VPS. Falls back to 60s polling if SSE drops.
+  // Events that bump live counters without needing a full refetch are
+  // handled inline below for instant feedback.
+  let sseSource = null;
+  let sseRefreshTimer = null;
+  let sseRefreshPending = false;
+  let sseReconnectAttempt = 0;
+
+  function scheduleLiveRefresh() {
+    if (sseRefreshTimer) return;
+    sseRefreshPending = true;
+    sseRefreshTimer = setTimeout(() => {
+      sseRefreshTimer = null;
+      if (sseRefreshPending) {
+        sseRefreshPending = false;
+        refreshAll();
+      }
+    }, 600);
+  }
+
+  function setLiveStatus(state) {
+    const el = document.getElementById('jelleo-live-dot');
+    const lbl = document.getElementById('jelleo-live-label');
+    if (el) {
+      el.dataset.state = state;
+      el.style.color = state === 'connected' ? 'var(--ok)'
+                      : state === 'reconnecting' ? 'var(--ink-3)'
+                      : 'var(--ink-4)';
+      el.title = state === 'connected'
+        ? 'Live feed connected — events stream in real time'
+        : state === 'reconnecting'
+          ? 'Reconnecting to live feed…'
+          : 'Live feed offline — polling every 60s';
+    }
+    if (lbl) {
+      lbl.textContent = state === 'connected'
+        ? 'Live · streaming'
+        : state === 'reconnecting'
+          ? 'Live · connecting…'
+          : 'Live · 60s poll';
+    }
+  }
+
+  function handleSseEvent(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    const kind = payload.event;
+    // Events that change snapshot.json / manifest.json → debounced refetch
+    const REFETCH_EVENTS = new Set([
+      'recon_summary',
+      'finding_persisted',
+      'p2_finding',
+      'bundle_drafted',
+      'bundle_verified',
+      'merkle_root_computed',
+      'cycle_complete',
+      'hunt_complete',
+    ]);
+    if (REFETCH_EVENTS.has(kind)) scheduleLiveRefresh();
+  }
+
+  function connectSse() {
+    try {
+      if (sseSource) { try { sseSource.close(); } catch (_) {} }
+      sseSource = new EventSource(SSE_URL);
+      setLiveStatus('reconnecting');
+      sseSource.onopen = () => {
+        sseReconnectAttempt = 0;
+        setLiveStatus('connected');
+      };
+      sseSource.onmessage = (ev) => {
+        try {
+          const payload = JSON.parse(ev.data);
+          handleSseEvent(payload);
+        } catch (_) {}
+      };
+      sseSource.onerror = () => {
+        setLiveStatus('offline');
+        // EventSource auto-reconnects; cap exponential backoff is implicit.
+        sseReconnectAttempt = Math.min(sseReconnectAttempt + 1, 6);
+      };
+    } catch (_) {
+      setLiveStatus('offline');
+    }
+  }
+
+  // 60s safety-net poll — runs always, in case SSE drops silently.
+  function startSafetyPoll() {
+    setInterval(refreshAll, 60000);
+  }
+
+  function start() {
+    refreshAll();
+    connectSse();
+    startSafetyPoll();
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', refreshAll);
+    document.addEventListener('DOMContentLoaded', start);
   } else {
-    refreshAll();
+    start();
   }
 })();
 </script>

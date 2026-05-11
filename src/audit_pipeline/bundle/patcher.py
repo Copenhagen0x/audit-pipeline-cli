@@ -180,10 +180,7 @@ def is_unified_diff(text: str) -> bool:
         "copy from",
         "copy to",
     )
-    for marker in forbidden:
-        if marker in text:
-            return False
-    return True
+    return all(marker not in text for marker in forbidden)
 
 
 def files_touched(diff: str) -> list[str]:

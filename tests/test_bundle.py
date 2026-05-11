@@ -99,9 +99,11 @@ def _seed_passing_verification(workspace: Path, finding_id: int) -> None:
 
 
 def test_expected_phrase_includes_finding_and_patch_sha() -> None:
+    # B-#17: full 64-char patch_sha (or whatever string the caller passes)
+    # is bound into the phrase to close the 48-bit collision window.
     from audit_pipeline.bundle.auth import expected_phrase
     p = expected_phrase(123, "deadbeefcafebabe1234567890abcdef")
-    assert p == "yes-authorize-finding-123-deadbeefcafe"
+    assert p == "yes-authorize-finding-123-deadbeefcafebabe1234567890abcdef"
 
 
 def test_write_authorization_rejects_wrong_phrase(tmp_path: Path) -> None:
@@ -120,6 +122,9 @@ def test_write_authorization_rejects_wrong_phrase(tmp_path: Path) -> None:
 
 
 def test_write_authorization_rejects_when_verification_failing(tmp_path: Path) -> None:
+    # B-#15: all REQUIRED_GATES must be present AND all must pass. Seed all
+    # four so we exercise the failing-gate branch (one gate.passed=False),
+    # not the missing-gates branch.
     from audit_pipeline.bundle.auth import (
         AuthorizationInvalid,
         write_authorization,
@@ -129,12 +134,14 @@ def test_write_authorization_rejects_when_verification_failing(tmp_path: Path) -
     _seed_bundle(tmp_path, fid)
     verification_path(tmp_path, fid).write_text(
         json.dumps({"gates": {
-            "patch_well_formed": {"passed": True, "reason": "ok", "duration_s": 0},
-            "poc_fails_pre_patch": {"passed": False, "reason": "no", "duration_s": 0},
+            "patch_well_formed":     {"passed": True,  "reason": "ok", "duration_s": 0},
+            "poc_fails_pre_patch":   {"passed": False, "reason": "no", "duration_s": 0},
+            "poc_passes_post_patch": {"passed": True,  "reason": "ok", "duration_s": 0},
+            "tests_pass_post_patch": {"passed": True,  "reason": "ok", "duration_s": 0},
         }}),
         encoding="utf-8",
     )
-    # Even with the right phrase, failing gates block authorization
+    # Even with the right phrase, a failing gate blocks authorization.
     from audit_pipeline.bundle.auth import expected_phrase, file_sha256
     from audit_pipeline.bundle.paths import patch_path
     phrase = expected_phrase(fid, file_sha256(patch_path(tmp_path, fid)))
