@@ -28,8 +28,10 @@ console = Console()
 
 @click.command(name="health")
 @click.option("--shadow-log", type=click.Path(),
-              default="shadow/daemon.log", show_default=True,
-              help="Shadow daemon log path (relative to workspace)")
+              default="shadow/poll.log", show_default=True,
+              help="Shadow daemon log path (relative to workspace). FIX #14b: "
+                   "default switched from shadow/daemon.log (systemd stdout) "
+                   "to shadow/poll.log (the file shadow.py actively writes).")
 @click.option("--watch-log", type=click.Path(),
               default="watch/watch.log", show_default=True,
               help="Watch daemon log path (relative to workspace). FIX #14: "
