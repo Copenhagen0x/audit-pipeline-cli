@@ -675,10 +675,13 @@ def _hunt_run(
             challenger_resp = debate_out / f"{hyp_id}_challenger_response.md"
             # RESUME: skip per-hyp if challenger response already exists from
             # a prior run. The debate output file is written at the END of the
-            # debate command, so presence == completion.
+            # debate command, so presence == completion. Don't bill the
+            # flat-rate cost when we didn't actually call the LLM.
+            debate_was_skipped = False
             if resume_cycle and challenger_resp.exists() and challenger_resp.stat().st_size > 50:
                 log("debate_resumed_from_existing", hyp_id=hyp_id)
                 rc = 0
+                debate_was_skipped = True
             else:
                 debate_argv = [
                     _audit_pipeline_bin(), "--workspace", str(workspace),
@@ -720,13 +723,12 @@ def _hunt_run(
                 "demoted_by_debate": demoted,
             }
             log("debate_one", hypothesis_id=hyp_id, returncode=rc, promoted=verdict_changed)
-            # CALIBRATED 2026-05-11: real debate cost measured at ~$0.03
-            # per call (3k input + 1.2k output tokens @ Sonnet pricing).
-            # Previous $1.00 estimate was a 30x overestimate, causing the
-            # cycle to halt prematurely at the budget cap. Set to $0.05
-            # to keep a small cushion for outliers while not over-counting.
-            daily_cap.record_spend(0.05)
-            total_cost += 0.05
+            # Don't bill flat-rate cost on resumed (skipped) debates.
+            # CALIBRATED 2026-05-11: real debate cost ~$0.03 (3k in + 1.2k
+            # out @ Sonnet); flat-rate $0.05 includes small outlier cushion.
+            if not debate_was_skipped:
+                daily_cap.record_spend(0.05)
+                total_cost += 0.05
 
     # ---------- Layer 2: PoC scaffold + cargo test ----------
     poc_results: dict[str, dict[str, Any]] = {}
@@ -789,6 +791,7 @@ def _hunt_run(
                     "cargo_log_path": str(cargo_log_path),
                     "authoring_mode": "resumed",
                 }
+                # Don't bill flat-rate cost on resumed PoC — no LLM call made.
                 continue
             # FIX 1: Per-hyp LLM-authored PoC by default. Falls back to template
             # scaffolding if poc-llm fails. Template path remains for smoke /
