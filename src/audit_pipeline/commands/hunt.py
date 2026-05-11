@@ -743,21 +743,36 @@ def _hunt_run(
             if challenger_resp.exists():
                 txt = challenger_resp.read_text(encoding="utf-8", errors="replace").upper()
                 proposer_verdict = v.get("verdict")
-                if "DISAGREE" in txt or "NEEDS_LAYER_2" in txt:
-                    if proposer_verdict == "FALSE":
-                        # Challenger says the FALSE verdict is wrong — promote
-                        # to Layer 2 candidates list (legacy behavior).
-                        if v not in candidates:
-                            candidates.append(v)
-                            promoted_ids.add(hyp_id)
-                            verdict_changed = True
-                    elif proposer_verdict == "TRUE":
-                        # FIX 6: Challenger refutes the TRUE verdict — demote
-                        # from candidates list to avoid wasting Layer 2 cost on
-                        # a likely false positive. Verdict will be recorded as
-                        # TRUE but marked debate-demoted in the DB details.
-                        candidates[:] = [c for c in candidates if c is not v]
-                        demoted = True
+                # Distinguish challenger outcomes — "DISAGREE" means the
+                # challenger refutes the proposer; "NEEDS_LAYER_2" means the
+                # challenger could not decide and explicitly asks for empirical
+                # proof at Layer 2. The legacy code conflated them and demoted
+                # both, which silently dropped hyps the challenger wanted
+                # tested. Net effect on the 2026-05-11 Step 3 cycle: 108
+                # TRUE/HIGH-at-L1 hyps including the BR-F7-helper-conservation
+                # regression hyp got dropped without ever reaching Layer 2 PoC.
+                challenger_disagrees = "DISAGREE" in txt
+                challenger_needs_l2 = "NEEDS_LAYER_2" in txt
+                if proposer_verdict == "FALSE" and (challenger_disagrees or challenger_needs_l2):
+                    # Challenger says FALSE may be wrong — promote to L2.
+                    if v not in candidates:
+                        candidates.append(v)
+                        promoted_ids.add(hyp_id)
+                        verdict_changed = True
+                elif proposer_verdict == "TRUE" and challenger_needs_l2 and not challenger_disagrees:
+                    # Challenger asks for empirical proof. KEEP in candidates
+                    # so Layer 2 PoC fires. This is the whole point of Layer 2.
+                    if v not in candidates:
+                        candidates.append(v)
+                        promoted_ids.add(hyp_id)
+                    verdict_changed = True
+                elif proposer_verdict == "TRUE" and challenger_disagrees:
+                    # Challenger refutes the TRUE verdict — demote from
+                    # candidates to avoid wasting Layer 2 cost on a likely
+                    # false positive. Verdict recorded as TRUE but marked
+                    # debate-demoted in the DB details.
+                    candidates[:] = [c for c in candidates if c is not v]
+                    demoted = True
             debate_results[hyp_id] = {
                 "returncode": rc,
                 "challenger_response_path": str(challenger_resp),
