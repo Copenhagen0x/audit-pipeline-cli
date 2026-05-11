@@ -1,0 +1,961 @@
+# Percolator hypothesis library — ported from non-perp class libraries.
+#
+# This file ports UNIVERSALLY-APPLICABLE security patterns from
+# amm_cp_class.yaml, clmm_class.yaml, lending_class.yaml, lst_class.yaml,
+# and the non-Percolator parts of perp_dex_class.yaml.
+#
+# Many of the patterns those libraries encode (oracle confidence-interval
+# bypass, PDA bump malleability, account-discriminator / state-version
+# checks, token-program substitution, admin-handover races, account-close
+# state leaks, donation-style attacks, share/round-trip rounding direction)
+# are not AMM-specific or lending-specific — they apply to ANY Solana
+# program holding user funds. They had simply never been ported to the
+# Percolator-tagged set.
+#
+# ID convention: `P<n>-<short-slug>` ("P" for ported).
+# Each entry cites its source pattern in `source_hyp`.
+#
+# Patterns explicitly NOT ported (and why):
+#   - AMM K-invariant (no x*y=k curve in Percolator)
+#   - CLMM tick math, fee-growth, position NFTs (no concentrated-liquidity)
+#   - Lending borrow rate / utilization / cToken / e-mode (no borrowing)
+#   - LST exchange-rate / validator-set / withdraw-queue (no LST mechanic)
+#   - Saber stableswap / Newton iteration (no stableswap)
+#   - JLP vault share NAV (no LP-pool-backed perp model in Percolator)
+
+hypotheses:
+
+  # ─────────────────────────── 1. ORACLE-LEVEL UNIVERSAL ─────────────────────
+
+  - id: P1-oracle-confidence-interval-respected
+    class: authorization
+    severity: High
+    bug_class: oracle-confidence-bypass
+    claim: >
+      Every Percolator oracle read used for a risk decision rejects a Pyth
+      observation whose confidence band exceeds the configured per-leg
+      confidence floor (see `MAX_CONF_FILTER_BPS` and `oracle_leg_config_ok`).
+      No fallback path inside `read_pyth_price_e6`, `read_chainlink_price_e6`,
+      `read_raw_oracle_price_e6`, or `read_engine_price_e6` lets a wide-
+      confidence price drive a state mutation, regardless of whether
+      `last_oracle_price > 0` (fast path) or `last_oracle_price == 0`
+      (cold path).
+    applies_to: [percolator]
+    scope_conditions: [uses_pyth_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeCpi, TradeNoCpi, KeeperCrank, CatchupAccrue, DepositCollateral,
+      WithdrawCollateral, ResolvePermissionless, ResolveMarket
+    source_hyp: lending_class.yaml#LEND131-oracle-confidence-respected, perp_dex_class.yaml#PD16-oracle-confidence-respected
+
+  - id: P2-oracle-account-binding
+    class: authorization
+    severity: High
+    bug_class: oracle-substitution
+    claim: >
+      Each oracle account passed to a Percolator instruction is validated
+      against the per-leg `feed_id` recorded in `MarketConfig`
+      (`oracle_leg_feed_id`). A spoofed Pyth/Chainlink account, or an
+      account that decodes successfully but whose feed-id does not match
+      what InitMarket bound, is rejected before any price is consumed.
+      Substitution attempts cannot route the engine's oracle read through
+      attacker-controlled feed data.
+    applies_to: [percolator]
+    scope_conditions: [uses_pyth_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      read_pyth_price_e6, read_chainlink_price_e6, read_external_price_e6,
+      oracle_leg_config_ok
+    source_hyp: lending_class.yaml#LEND132-oracle-mint-binding
+
+  - id: P3-oracle-publish-time-monotone
+    class: invariant_property
+    severity: High
+    bug_class: oracle-monotonicity-violation
+    claim: >
+      Per-leg `last_oracle_publish_time` and `oracle_target_publish_time`
+      on the slab can only advance forward in slot/timestamp space. No
+      code path lets a second oracle read with a `publish_time` earlier
+      than the stored one overwrite the recorded timestamp. This guards
+      against oracle-replay attacks where an attacker-supplied stale
+      publish-time would lower an existing freshness baseline.
+    applies_to: [percolator]
+    scope_conditions: [uses_pyth_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      read_engine_price_e6, KeeperCrank, TradeCpi, CatchupAccrue,
+      ResolvePermissionless
+    source_hyp: lending_class.yaml#LEND134-oracle-update-monotone-clock, clmm_class.yaml#CLMM85-reward-rate-monotone-clock
+
+  - id: P4-oracle-twap-fallback-no-silent
+    class: state_transition
+    severity: Medium
+    bug_class: oracle-silent-fallback
+    claim: >
+      When Percolator's primary oracle read fails (stale, low confidence,
+      decode error), the engine does not silently fall back to a cached
+      `last_oracle_price` or `mark_ewma_e6` for risk decisions. Either
+      the instruction reverts, or the cached read is gated by an explicit
+      policy (e.g. ResolvePermissionless freezes new mutations).
+    applies_to: [percolator]
+    scope_conditions: [uses_pyth_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      read_engine_price_e6, get_engine_oracle_price_e6,
+      no_oracle_fee_sync_anchor
+    source_hyp: lending_class.yaml#LEND133-oracle-twap-fallback, perp_dex_class.yaml#PD17-oracle-twap-fallback-explicit
+
+  # ─────────────────────────── 2. PDA / ACCOUNT-IDENTITY UNIVERSAL ───────────
+
+  - id: P5-vault-authority-bump-canonical
+    class: authorization
+    severity: High
+    bug_class: pda-bump-malleability
+    claim: >
+      `derive_vault_authority_with_bump` always validates against the
+      canonical bump stored in `MarketConfig::vault_authority_bump` (set
+      at InitMarket via `find_program_address`). No instruction lets the
+      caller pass a non-canonical bump to derive a different PDA address
+      that would match a partially-controlled keypair. The check is
+      enforced on every signer-seeds CPI (deposit/withdraw/close-account
+      paths).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      derive_vault_authority_with_bump (line 2655), DepositCollateral,
+      WithdrawCollateral, TopUpInsurance, CloseAccount, CloseSlab,
+      WithdrawInsurance, WithdrawInsuranceLimited
+    source_hyp: lending_class.yaml#LEND210-account-bump-seed-validated, perp_dex_class.yaml#PD37-pda-bump-canonical
+
+  - id: P6-slab-magic-discriminator
+    class: authorization
+    severity: High
+    bug_class: account-discriminator-bypass
+    claim: >
+      Every mutating Percolator handler that operates on a slab account
+      calls `slab_guard` + `require_initialized`, which validates
+      `SlabHeader::magic == 0x504552434f4c4154` before any unsafe cast
+      to `RiskEngine`. No path lets the caller pass a wrong-type
+      account (e.g. an Anchor account from a different program, a token
+      account, or a stale System account) and have the program operate
+      on it as if it were an initialized slab.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      require_initialized (line 5320), slab_guard, all 30+ instruction
+      handlers
+    source_hyp: lending_class.yaml#LEND209-cpi-account-discriminator, clmm_class.yaml#CLMM155-account-discriminator-validated, perp_dex_class.yaml#PD36-account-discriminator-validated
+
+  - id: P7-double-init-rejected
+    class: authorization
+    severity: High
+    bug_class: pool-double-init
+    claim: >
+      InitMarket rejects re-initialization of an already-initialized
+      slab: `header.magic == MAGIC` produces `AlreadyInitialized` at
+      line 6164 BEFORE any state write. No path overwrites reserves,
+      admin keys, or fee config on a second init call.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      handle_init_market (line 6164: `if header.magic == MAGIC { return
+      Err(AlreadyInitialized) }`)
+    source_hyp: amm_cp_class.yaml#AMM30-init-no-double-init, lending_class.yaml#LEND6-reserve-init-once
+
+  - id: P8-vault-account-mint-binding
+    class: authorization
+    severity: High
+    bug_class: reserve-mint-spoofing
+    claim: >
+      The vault token account passed to every deposit/withdraw path is
+      validated to match the slab's configured `vault` pubkey AND has
+      its `mint` field cross-checked against the InitMarket-recorded
+      mint. No path lets an attacker-spoofed vault token account
+      receive deposits or pay withdrawals on behalf of the program.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      verify_vault_account (line ~5572), verify_user_token_account
+      (line ~5639), DepositCollateral, WithdrawCollateral,
+      TopUpInsurance, WithdrawInsurance, WithdrawInsuranceLimited
+    source_hyp: amm_cp_class.yaml#AMM61-token-account-mint-binding, lending_class.yaml#LEND7-reserve-mint-binding
+
+  - id: P9-token-program-pinned-spl-only
+    class: authorization
+    severity: High
+    bug_class: token-program-substitution
+    claim: >
+      Every CPI to the SPL Token program validates the program ID equals
+      `spl_token::ID` (line 5670) AND the account is `executable`. No
+      path lets an attacker substitute a fake token program (e.g. a
+      look-alike address or a different SPL variant) that could honor a
+      `transfer` call with different semantics.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      verify_token_program (line 5669), DepositCollateral,
+      WithdrawCollateral, TopUpInsurance, WithdrawInsurance,
+      WithdrawInsuranceLimited, CloseSlab vault-close path
+    source_hyp: amm_cp_class.yaml#AMM62-cpi-token-program-pinned, lending_class.yaml#LEND207-token-program-pinned, perp_dex_class.yaml#PD35-token-program-pinned
+
+  - id: P10-vault-authority-program-derived
+    class: authorization
+    severity: Critical
+    bug_class: token-vault-ownership
+    claim: >
+      The SPL Token authority on the program's vault is the PDA derived
+      at InitMarket from `[b"vault", slab_key]`. No path lets the
+      vault's `authority` field be reassigned to an attacker-owned PDA
+      after init, and no instruction lets a non-program account sign
+      transfers out of the vault.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      derive_vault_authority (line 2650), verify_vault_empty (line
+      ~5572), all withdraw/transfer paths
+    source_hyp: lending_class.yaml#LEND208-token-vault-not-attacker-owned, perp_dex_class.yaml#PD39-vault-authority-binding
+
+  - id: P11-account-close-zeroes-data
+    class: state_transition
+    severity: High
+    bug_class: account-close-state-leak
+    claim: >
+      `reclaim_empty_account_not_atomic` (engine) and InitMarket's
+      pre-init zero-fill (line 6170-6172) ensure that closing/recycling
+      an account-slot zeroes every byte of the state region. A
+      subsequent `materialize_at` on the same slab index cannot inherit
+      shadow state (PnL, capital, position basis, fee_credits) from the
+      prior owner.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      reclaim_empty_account_not_atomic, CloseAccount,
+      AdminForceCloseAccount, ForceCloseResolved, CloseSlab,
+      handle_init_market zero-fill loop
+    source_hyp: lending_class.yaml#LEND217-account-close-zeroes-data, perp_dex_class.yaml#PD38-account-close-zeroes-data, perp_dex_class.yaml#PD8-account-gc-state-leak
+
+  - id: P12-vault-close-data-len-frozen
+    class: authorization
+    severity: High
+    bug_class: post-spl-close-stale-data
+    claim: >
+      After a CPI to `spl_token::close_account` against the program's
+      vault, the wrapper does not subsequently read or mutate the
+      closed token-account's `data` buffer (`data_len` may be 0 or
+      reduced). All vault-close paths are end-of-instruction terminal —
+      no code reads vault state after the close CPI returns.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      CloseSlab vault-close (line ~8846: spl_token::instruction::close_account)
+    source_hyp: percolator_new_diff.yaml#A1-vault-close-data-len-shrink (recall; restated as a class hyp)
+
+  # ─────────────────────────── 3. AUTHORIZATION-LEVEL UNIVERSAL ──────────────
+
+  - id: P13-admin-instructions-gated
+    class: authorization
+    severity: Critical
+    bug_class: admin-gate-bypass
+    claim: >
+      Every admin-only Percolator instruction (UpdateConfig,
+      ResolveMarket, AdminForceCloseAccount, UpdateAuthority,
+      WithdrawInsurance) calls `require_admin(header.admin, signer)`
+      (line 5331) BEFORE any state mutation. `admin_ok` rejects when
+      `admin == [0u8; 32]` (burned) OR `admin != signer`. No path lets
+      a non-admin caller reach state mutations behind these handlers.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      UpdateConfig (8880), ResolveMarket (9218), AdminForceCloseAccount
+      (9740), UpdateAuthority (10237 -> handle_update_authority 5695),
+      WithdrawInsurance (9473), WithdrawInsuranceLimited (9567)
+    source_hyp: amm_cp_class.yaml#AMM51-admin-instructions-gated, lending_class.yaml#LEND150-admin-instructions-gated, perp_dex_class.yaml#PD28-admin-instructions-gated
+
+  - id: P14-authority-transfer-requires-both-signers
+    class: authorization
+    severity: Medium
+    bug_class: admin-handover-single-step
+    claim: >
+      `UpdateAuthority` (non-burn case) requires BOTH the current
+      authority of the chosen kind (signer check at line 5732) AND the
+      new authority pubkey (signer check at line 5732-5734) to sign in
+      the same transaction. A single-signer hand-over (only the current
+      authority specifies a new pubkey without that pubkey co-signing)
+      is rejected, eliminating the "lock admin at a wrong key" failure
+      mode that a one-step transfer enables.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      handle_update_authority (line 5695-5831, esp. signer check at
+      5731-5734)
+    source_hyp: amm_cp_class.yaml#AMM55-admin-handover-two-step, lending_class.yaml#LEND153-admin-handover-two-step, perp_dex_class.yaml#PD31-admin-handover-two-step
+
+  - id: P15-scoped-authority-disjoint
+    class: authorization
+    severity: High
+    bug_class: pause-authority-confusion
+    claim: >
+      The four authority kinds (`AUTHORITY_ADMIN`, `AUTHORITY_HYPERP_MARK`,
+      `AUTHORITY_INSURANCE`, `AUTHORITY_INSURANCE_OPERATOR`) are
+      structurally disjoint: each gate (`require_admin(header.admin)`,
+      `require_admin(header.insurance_authority)`, etc.) checks against
+      a distinct stored field, so holding one authority does not unlock
+      the others. In particular, `AUTHORITY_INSURANCE_OPERATOR` cannot
+      reach `WithdrawInsurance` (tag 20 / unbounded) — only `WithdrawInsuranceLimited`.
+    applies_to: [percolator]
+    scope_conditions: [has_insurance_pool]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      handle_update_authority (5695), WithdrawInsurance (9473),
+      WithdrawInsuranceLimited (9567), PushHyperpMark (9073)
+    source_hyp: amm_cp_class.yaml#AMM52-pause-only-by-pause-authority, lending_class.yaml#LEND155-pause-only-by-pause-authority
+
+  - id: P16-burn-authority-irrevocable
+    class: state_transition
+    severity: High
+    bug_class: admin-handover-single-step
+    claim: >
+      Burning an authority (`UpdateAuthority` with `new_pubkey == [0u8;32]`)
+      is irrevocable: once `header.admin == [0u8; 32]`, subsequent
+      `require_admin` calls always fail (`admin_ok` returns false when
+      `admin == [0u8; 32]`). No instruction lets an admin "un-burn" or
+      reassign a burned authority kind via a side path.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      admin_ok (line 463), handle_update_authority burn branch (5752-5782)
+    source_hyp: amm_cp_class.yaml#AMM55-admin-handover-two-step (irreversibility property)
+
+  - id: P17-burn-admin-requires-resolvability
+    class: authorization
+    severity: High
+    bug_class: pool-deletion-with-state
+    claim: >
+      Burning `AUTHORITY_ADMIN` is rejected if the market is not Resolved
+      AND either `permissionless_resolve_stale_slots == 0` OR
+      `force_close_delay_slots == 0` (line 5767-5771). If resolved with
+      remaining accounts, `force_close_delay_slots == 0` is also rejected
+      (line 5772-5774). No path lets an admin burn the admin authority
+      and strand user funds with no permissionless exit.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      handle_update_authority AUTHORITY_ADMIN burn branch (5752-5782)
+    source_hyp: amm_cp_class.yaml#AMM54-pool-deletion-gated (gated terminal-state changes)
+
+  - id: P18-hyperp-mark-burn-requires-bootstrap
+    class: authorization
+    severity: Medium
+    bug_class: admin-gate-bypass
+    claim: >
+      Burning `AUTHORITY_HYPERP_MARK` is rejected for Hyperp markets if
+      `mark_ewma_e6 == 0` (line 5794-5796). This ensures the mark source
+      cannot be permanently disabled while no settlement reference exists,
+      which would otherwise brick the market.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      handle_update_authority AUTHORITY_HYPERP_MARK branch (5784-5797)
+    source_hyp: "lst_class.yaml#LST124-pause-only-by-pause-authority (analog: gate authority changes by state)"
+
+  # ─────────────────────────── 4. STATE-VERSION / DESERIALIZE ────────────────
+
+  - id: P19-engine-state-shape-validated
+    class: authorization
+    severity: High
+    bug_class: state-version-mismatch
+    claim: >
+      `validate_raw_engine_state_shape` and `engine_ref` / `engine_mut`
+      validate the slab's byte layout (data length, enum-tag bounds,
+      market_mode in {0,1}) BEFORE any unsafe cast to `RiskEngine`. No
+      path lets a stale-version or corrupted slab be operated on with
+      current program logic.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      validate_raw_engine_state_shape (line 1556), engine_ref (1581),
+      engine_mut (1596), used by every instruction
+    source_hyp: amm_cp_class.yaml#AMM100-pool-state-version-pinned, clmm_class.yaml#CLMM61-swap-pool-state-version-pinned, lending_class.yaml#LEND10-reserve-version-pinned
+
+  - id: P20-matcher-abi-version-pinned
+    class: authorization
+    severity: High
+    bug_class: state-version-mismatch
+    claim: >
+      `validate_matcher_return` (line 1704) rejects matcher returns
+      whose `abi_version != MATCHER_ABI_VERSION` (constant 2). No CPI
+      matcher with a stale-or-future ABI version can drive a TradeCpi
+      to completion against the wrapper's current expectations.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      validate_matcher_return (line 1704, esp. 1711-1712:
+      `if ret.abi_version != MATCHER_ABI_VERSION return Err(InvalidABI)`)
+    source_hyp: amm_cp_class.yaml#AMM100-pool-state-version-pinned
+
+  - id: P21-cluster-restart-freezes-market
+    class: state_transition
+    severity: High
+    bug_class: oracle-staleness-bypass
+    claim: >
+      `cluster_restarted_since_init` (line 3817) returns true once any
+      observer sees `LastRestartSlot::get() > init_restart_slot`, and
+      this gate freezes the market for permissionless-resolve handling:
+      no new trades / new accruals / new oracle reads proceed at the
+      live path. Resolution / withdrawal still works under a degenerate
+      cached-price exit.
+    applies_to: [percolator]
+    scope_conditions: [uses_pyth_oracle]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      cluster_restarted_since_init (3817), restart_detected (3806),
+      read_engine_price_e6 cluster-restart branch (3789)
+    source_hyp: "lending_class.yaml#LEND12-reserve-frozen-blocks-borrow (analog: restart freeze)"
+
+  # ─────────────────────────── 5. ARITHMETIC / ROUNDING UNIVERSAL ────────────
+
+  - id: P22-rounding-direction-favors-pool-on-fee
+    class: arithmetic_overflow
+    severity: High
+    bug_class: rounding-direction-fee
+    claim: >
+      Trading-fee, maintenance-fee, and dynamic-fee rounding inside the
+      wrapper (`safe_mul_div_floor_u128`, `safe_mul_div_ceil_u128`,
+      `two_sided_trade_fee_paid_cap`, `current_trade_fee_paid_cap`) is
+      directed to favor the pool / insurance bucket — never the trader.
+      No path lets a trader benefit from rounding direction across any
+      fee computation reachable from TradeNoCpi, TradeCpi, KeeperCrank,
+      or the fee-sweep helpers.
+    applies_to: [percolator]
+    scope_conditions: [perpetual_funding]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      safe_mul_div_floor_u128 (4565), safe_mul_div_ceil_u128 (4578),
+      two_sided_trade_fee_paid_cap (1418), current_trade_fee_paid_cap (4543)
+    source_hyp: amm_cp_class.yaml#AMM44-rounding-direction-fee, clmm_class.yaml#CLMM51-swap-fee-rounding-favors-lp, lending_class.yaml#LEND180-share-conversion-rounding, perp_dex_class.yaml#PD34-rate-application-rounding
+
+  - id: P23-pnl-mark-multiplication-overflow-bounded
+    class: arithmetic_overflow
+    severity: High
+    bug_class: arithmetic-overflow-pnl-mark
+    claim: >
+      `pnl_delta = abs_basis * (K_now - K_snap) / (a_basis * POS_SCALE)`
+      and its analogue in funding-payment accrual fit in i128 across
+      all reachable inputs bounded by `MAX_VAULT_TVL`, `MAX_POSITION_ABS_Q`,
+      and `MAX_ABS_FUNDING_E9_PER_SLOT × MAX_ACCRUAL_DT_SLOTS`. No
+      cap-respecting K-walk produces a multiplication that wraps i128.
+    applies_to: [percolator]
+    scope_conditions: [perpetual_funding]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      compute_current_funding_rate_e9 (5205), effective_pos_q_checked
+      (4473), risk_notional_ceil (4535)
+    source_hyp: clmm_class.yaml#CLMM192-extreme-price-not-corruptive, perp_dex_class.yaml#PD32-pnl-accumulator-overflow
+
+  - id: P24-precision-loss-not-compounding
+    class: arithmetic_overflow
+    severity: High
+    bug_class: precision-loss-compounding
+    claim: >
+      Precision loss across any single Percolator operation (fee
+      computation, funding accrual, PnL roll-up, mark-EWMA update) is
+      bounded by 1 unit per token / per per-account write. No path
+      lets repeated dust trades or dust fee-sweeps compound into a
+      drain of vault / insurance balance via accumulated rounding bias.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      ewma_update (1348), funding_rate_e9_from_mark_index (665), all
+      *_mul_div_* helpers
+    source_hyp: amm_cp_class.yaml#AMM45-precision-loss-bounded, lending_class.yaml#LEND182-precision-loss-not-compounding, lst_class.yaml#LST181-precision-loss-bounded
+
+  - id: P25-config-update-bounded
+    class: authorization
+    severity: High
+    bug_class: rate-curve-out-of-bound
+    claim: >
+      Every admin-controlled `UpdateConfig` field is bounded by its
+      MAX_* constant or sanity range (e.g. `force_close_delay_slots <=
+      MAX_FORCE_CLOSE_DELAY_SLOTS`, `permissionless_resolve_stale_slots <=
+      MAX_PERMISSIONLESS_RESOLVE_STALE_SLOTS`, `unit_scale <= MAX_UNIT_SCALE`,
+      `mark_ewma_halflife_slots > 0`, `funding_max_e9_per_slot <=
+      MAX_ABS_FUNDING_E9_PER_SLOT`, `new_account_fee <= MAX_VAULT_TVL`).
+      Admin cannot set a value outside its declared envelope.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      UpdateConfig handler (line 8880-9072), init_market_scale_ok (1268),
+      permissionless_resolve_horizon_ok (1279)
+    source_hyp: amm_cp_class.yaml#AMM32-init-fee-config-bounded, lending_class.yaml#LEND151-rate-curve-update-bounded
+
+  # ─────────────────────────── 6. DEPOSIT/WITHDRAW UNIVERSAL ─────────────────
+
+  - id: P26-deposit-fee-collected-before-credit
+    class: state_transition
+    severity: Medium
+    bug_class: deposit-fee-bypass
+    claim: >
+      `new_account_fee` (and the `fee_payment` split into capital +
+      fee_credits at InitUser / InitLP) is debited BEFORE the
+      corresponding capital is credited to the engine account. No path
+      lets a depositor avoid the fee by partial / cancelled deposit.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      InitUser (6328 -> ~6463), InitLP (6464 -> ~6589), DepositCollateral
+      (6590 -> ~6707), DepositFeeCredits (9843)
+    source_hyp: amm_cp_class.yaml#AMM11-protocol-fee-collected-once, lst_class.yaml#LST25-deposit-fee-collected, lending_class.yaml#LEND27-protocol-fee-deducted-from-interest
+
+  - id: P27-zero-amount-deposit-rejected
+    class: authorization
+    severity: Low
+    bug_class: zero-input-edge-case
+    claim: >
+      Zero-amount `DepositCollateral`, `WithdrawCollateral`,
+      `TopUpInsurance`, and `DepositFeeCredits` are rejected at
+      instruction entry (or are no-ops with no fee charged). No
+      degenerate zero-amount path mutates the slab state or generates
+      a fee credit.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      DepositCollateral (6590), WithdrawCollateral (6708), TopUpInsurance
+      (8675), DepositFeeCredits (9843)
+    source_hyp: amm_cp_class.yaml#AMM4-zero-amount-swap-rejected, lending_class.yaml#LEND14-zero-deposit-rejected, lst_class.yaml#LST26-zero-amount-deposit-rejected
+
+  - id: P28-deposit-withdraw-symmetry
+    class: invariant_property
+    severity: High
+    bug_class: deposit-withdraw-asymmetry
+    claim: >
+      Depositing N units of collateral and immediately withdrawing the
+      full credited capital returns AT MOST N units, never more. The
+      round-trip is value-preserving or value-decreasing for the user;
+      no path lets the depositor extract value via the
+      deposit-then-withdraw sequence (modulo fees, which strictly
+      reduce the round-trip return).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      DepositCollateral, WithdrawCollateral, dust accounting in
+      base_to_units / units_to_base_checked (3089, 3100)
+    source_hyp: amm_cp_class.yaml#AMM22-deposit-withdraw-symmetry, clmm_class.yaml#CLMM55-swap-direction-axb-vs-bxa-symmetric, lst_class.yaml#LST184-share-conversion-symmetric
+
+  - id: P29-donation-attack-resistance
+    class: state_transition
+    severity: High
+    bug_class: donation-attack
+    claim: >
+      Direct SPL Token donations to the program vault (i.e. unsolicited
+      token-account transfers bypassing DepositCollateral) cannot change
+      capital-per-share / claim ratios in a way that lets an attacker
+      pre-donate, deposit at an inflated rate, and withdraw a larger
+      pro-rata share. The engine's `c_tot` counter tracks deposited
+      collateral via instruction-driven mutations, not via raw vault
+      balance reads.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      DepositCollateral, all WithdrawCollateral paths,
+      no spot uses spl_token::state::Account::unpack(vault).amount
+      for capital math
+    source_hyp: amm_cp_class.yaml#AMM23-donation-attack-resistance
+
+  - id: P30-cancelled-deposit-no-effect
+    class: state_transition
+    severity: Low
+    bug_class: partial-deposit-credit
+    claim: >
+      A `DepositCollateral` / `TopUpInsurance` / `InitUser` /
+      `InitLP` whose inner CPI transfer reverts produces NO state
+      mutation in the slab. Partial-credit paths (account record
+      created but transfer failed) do not exist; the instruction
+      reverts atomically.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      DepositCollateral, TopUpInsurance, InitUser, InitLP
+      (deposit::deposit at 4006)
+    source_hyp: amm_cp_class.yaml#AMM85-cancel-deposit-no-effect
+
+  # ─────────────────────────── 7. PAUSE / TERMINAL STATE ─────────────────────
+
+  - id: P31-resolved-mode-blocks-mutations
+    class: authorization
+    severity: High
+    bug_class: pool-pause-bypass
+    claim: >
+      When `engine.market_mode == MarketMode::Resolved`, every state-
+      mutating instruction that would advance positions (TradeNoCpi,
+      TradeCpi, DepositCollateral, KeeperCrank's trade-equivalent paths,
+      WithdrawCollateral non-exit, ConvertReleasedPnl) returns early
+      with the appropriate error. Only resolved-mode exit paths
+      (CloseAccount, ForceCloseResolved, AdminForceCloseAccount) and
+      idempotent fee/insurance moves remain reachable.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      DepositCollateral mode check (6357), WithdrawCollateral mode
+      check (6493), TradeNoCpi (6611), TradeCpi (6751)
+    source_hyp: amm_cp_class.yaml#AMM50-pool-pause-respected, lending_class.yaml#LEND11-reserve-paused-blocks-mutations, perp_dex_class.yaml#PD29-pause-respected
+
+  - id: P32-resolved-mode-emergency-withdraw-pro-rata
+    class: invariant_property
+    severity: High
+    bug_class: emergency-withdraw-non-pro-rata
+    claim: >
+      In Resolved mode, the per-account exit (`ForceCloseResolved`,
+      `CloseAccount`, `AdminForceCloseAccount`) observes pro-rata share
+      semantics against the residual vault + matured-PnL claim pool —
+      no caller can extract more than their pro-rata share of available
+      cash during the unwind, even under the haircut.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      CloseAccount (8481), AdminForceCloseAccount (9740),
+      ForceCloseResolved (10127), force_close_resolved_with_fee_not_atomic
+    source_hyp: amm_cp_class.yaml#AMM28-emergency-withdraw-pro-rata, lst_class.yaml#LST125-emergency-withdraw-pro-rata
+
+  - id: P33-resolved-mode-no-new-claim
+    class: implicit_invariant
+    severity: High
+    bug_class: resolved-state-pnl-leak
+    claim: >
+      Once the market enters Resolved mode, NO subsequent code path
+      can accrue new positive `pnl` against the residual that a later
+      claimant could withdraw — only pre-existing matured claims are
+      paid down. (Restates H9 / S2 / S3 in the Percolator base library
+      for cross-library propagation.)
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      ResolveMarket, ForceCloseResolved, ConvertReleasedPnl mode gates,
+      CloseAccount mode gates
+    source_hyp: lending_class.yaml#LEND43-obligation-borrow-blocked-when-unhealthy (analog), percolator.yaml#H9-resolved-mode-mature-claim
+
+  # ─────────────────────────── 8. EVENT / ORDER UNIVERSAL ────────────────────
+
+  - id: P34-trade-amount-positive
+    class: invariant_property
+    severity: Medium
+    bug_class: zero-amount-fill
+    claim: >
+      Every TradeNoCpi / TradeCpi instruction rejects `size == 0` AND
+      `size == i128::MIN` at instruction-entry, before any K-walk or
+      fee math runs. No degenerate zero-size or pathological-MIN fill
+      reaches the engine's `execute_trade_with_matcher` path.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeNoCpi (7512), TradeCpi (7742), MAX_TRADE_SIZE_Q validation
+    source_hyp: amm_cp_class.yaml#AMM4-zero-amount-swap-rejected, perp_dex_class.yaml#PD27-fill-event-amount-positive
+
+  - id: P35-trade-slippage-protection-respected
+    class: authorization
+    severity: High
+    bug_class: slippage-protection-bypass
+    claim: >
+      User-supplied band-bps / price-bound parameters on TradeCpi
+      (band check at `src/percolator.rs:6633-6655` per SH8) are
+      enforced atomically against the actual matched exec_price. No
+      inner CPI path lets the matcher widen the band or bypass the
+      bound after the wrapper records the user's constraint.
+    applies_to: [percolator]
+    scope_conditions: [clob_orderbook]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeCpi (7742), band-check at ~6633-6655 (SH8 reference)
+    source_hyp: amm_cp_class.yaml#AMM7-min-amount-out-respected, lst_class.yaml#LST141-router-min-amount-out-respected
+
+  - id: P36-cpi-callback-no-reentrancy
+    class: authorization
+    severity: Critical
+    bug_class: cpi-reentrancy
+    claim: >
+      The matcher CPI in TradeCpi cannot re-enter the Percolator
+      wrapper (or any other Percolator instruction) and modify slab /
+      engine state mid-instruction. The `is_cpi_in_progress` flag
+      (line 2991-3007) is set before the CPI and cleared after; any
+      re-entry into a wrapper handler observing the flag set is
+      rejected. (Bridges SH10 to the CPI-reentrancy class.)
+    applies_to: [percolator]
+    scope_conditions: [cross_program_invocation_heavy]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      is_cpi_in_progress / set_cpi_in_progress / clear_cpi_in_progress
+      (2991-3007), TradeCpi CPI sequence
+    source_hyp: amm_cp_class.yaml#AMM60-cpi-callback-no-reentrancy, clmm_class.yaml#CLMM60-swap-reentrancy-free, lending_class.yaml#LEND82-flash-no-reentrancy
+
+  - id: P37-matcher-tail-no-spoofed-signers
+    class: authorization
+    severity: Medium
+    bug_class: authorization-bypass
+    claim: >
+      The TradeCpi variadic-tail accounts (accounts[8..]) forwarded to
+      the matcher CPI either (a) have `is_signer = false` enforced
+      by the wrapper before forwarding, OR (b) are documented to
+      forward verbatim with the matcher responsible for re-validating.
+      Whichever choice the wrapper takes, the path is consistent
+      across the cross-program boundary.
+    applies_to: [percolator]
+    scope_conditions: [cross_program_invocation_heavy]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeCpi tail-forwarding (~7742-7900)
+    source_hyp: percolator_bounty_regression.yaml#BR-tradecpi-is-signer-forward (restated as class hyp)
+
+  # ─────────────────────────── 9. INSURANCE / FEE BUCKET ─────────────────────
+
+  - id: P38-insurance-fund-non-negative
+    class: invariant_property
+    severity: High
+    bug_class: fee-bucket-underflow
+    claim: >
+      `insurance_fund.balance` (the post-haircut residual counter) is
+      always non-negative across all reachable states. No withdrawal
+      / sweep / haircut path can underflow it; all decrements are
+      checked-subtractions that revert on underflow.
+    applies_to: [percolator]
+    scope_conditions: [has_insurance_pool]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      use_insurance_buffer, absorb_protocol_loss, WithdrawInsurance,
+      WithdrawInsuranceLimited
+    source_hyp: amm_cp_class.yaml#AMM14-fee-bucket-cannot-go-negative
+
+  - id: P39-fee-recipient-cannot-be-redirected
+    class: authorization
+    severity: Medium
+    bug_class: fee-receiver-redirect
+    claim: >
+      Insurance / fee withdrawals (`WithdrawInsurance`,
+      `WithdrawInsuranceLimited`) require a destination token account
+      whose `owner` matches the authorized destination — no path lets
+      the destination be redirected to an attacker-owned token account
+      via instruction-data tampering.
+    applies_to: [percolator]
+    scope_conditions: [has_insurance_pool]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      WithdrawInsurance (9473), WithdrawInsuranceLimited (9567),
+      destination-account validation
+    source_hyp: lending_class.yaml#LEND206-fee-receiver-validation, amm_cp_class.yaml#AMM13-fee-collection-recipient-authorized
+
+  - id: P40-insurance-withdraw-rate-limit
+    class: state_transition
+    severity: Medium
+    bug_class: fee-tier-frontrun
+    claim: >
+      `WithdrawInsuranceLimited` respects `insurance_withdraw_max_bps`
+      AND `insurance_withdraw_cooldown_slots` atomically — a fresh
+      call before the cooldown elapses is rejected, and the amount is
+      capped by `insurance_withdraw_max_bps × insurance_fund.balance /
+      10_000`. No multi-step path circumvents either guard.
+    applies_to: [percolator]
+    scope_conditions: [has_insurance_pool]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      WithdrawInsuranceLimited (9567), live_insurance_withdraw_*
+      (1283-1325)
+    source_hyp: "lending_class.yaml#LEND62-liquidation-respects-close-factor (analog: rate-limited bounded withdrawal)"
+
+  # ─────────────────────────── 10. MISC EDGE CASES ───────────────────────────
+
+  - id: P41-empty-market-trade-rejected
+    class: authorization
+    severity: Medium
+    bug_class: empty-pool-swap
+    claim: >
+      A TradeNoCpi or TradeCpi against a market with zero materialized
+      counterparty accounts (no LP or no opposing user) is rejected at
+      instruction entry; no degenerate fill / synthetic-counterparty
+      path produces a state mutation.
+    applies_to: [percolator]
+    scope_conditions: [clob_orderbook]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeNoCpi (7512), TradeCpi (7742), check_idx (5348)
+    source_hyp: amm_cp_class.yaml#AMM81-empty-pool-swap-rejected
+
+  - id: P42-trade-deposit-cap-circumvention
+    class: authorization
+    severity: High
+    bug_class: deposit-cap-circumvention
+    claim: >
+      Per-account open-interest caps (when configured via
+      RiskParams) are enforced atomically across multi-step paths
+      (split-and-recombine trades, cross-instruction sequencing). No
+      sequence pushes total open-interest on a side past the cap.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeNoCpi, TradeCpi, KeeperCrank, RiskParams cap enforcement
+    source_hyp: lending_class.yaml#LEND3-deposit-cap-circumvention, perp_dex_class.yaml#PD12-deposit-cap-circumvention
+
+  - id: P43-init-state-invariants-hold-immediately
+    class: invariant_property
+    severity: High
+    bug_class: pool-init-invariant
+    claim: >
+      Immediately after `handle_init_market` returns, the slab satisfies
+      every invariant `assert_public_postconditions` enforces on
+      subsequent mutating calls: `c_tot == 0`, `vault == 0` (or matches
+      the initial TopUpInsurance if seeded), `pnl_pos_tot == 0`,
+      `pnl_matured_pos_tot == 0`, no OI on either side, `magic == MAGIC`,
+      `market_mode == Live`, `vault_authority_bump` matches the canonical
+      bump, oracle initialized.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      handle_init_market (5833), write_init_header (5551)
+    source_hyp: amm_cp_class.yaml#AMM33-init-state-invariants
+
+  - id: P44-trade-tick-respects-unit-scale
+    class: authorization
+    severity: Medium
+    bug_class: sub-tick-price
+    claim: >
+      All price values consumed by Trade* / KeeperCrank / oracle reads
+      are scaled by `unit_scale` (validated via `init_market_scale_ok` /
+      `scale_price_e6`). Sub-scale residuals are tracked as dust
+      (`base_to_units` returns `(units, dust)`) and never silently
+      vanish into rounding.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      base_to_units (3089), units_to_base_checked (3100),
+      scale_price_e6 (1248), to_engine_price (1236)
+    source_hyp: perp_dex_class.yaml#PD41-price-tick-respects-tick-size
+
+  - id: P45-instruction-account-count-strict
+    class: authorization
+    severity: High
+    bug_class: account-discriminator-bypass
+    claim: >
+      Every instruction handler invokes `accounts::expect_len(accounts, N)`
+      (strict equality) before reading any account by index. Trailing
+      accounts that an attacker tacks on are rejected — no "extra
+      account at index K does something" mutation surface.
+      Exception: TradeCpi tail accounts use `expect_len_min` with a
+      documented forwarding contract (see P37).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      expect_len (2610), expect_len_min (2619), every handler
+    source_hyp: amm_cp_class.yaml#AMM61-token-account-mint-binding (account-shape strictness)
+
+  - id: P46-clock-monotone-forward-only
+    class: invariant_property
+    severity: High
+    bug_class: oracle-twap-clock-regression
+    claim: >
+      The engine's market clock (`last_market_slot`,
+      `last_good_oracle_slot`, mark-EWMA window, funding-accrual
+      anchor) advances strictly forward in slot space across all
+      observation points. No instruction can move any of these
+      timestamps backwards; clock regression is rejected (see
+      `accrual-clock-regression` analogue in lending).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      accrue_market_to, accrue_market_to_chunked, KeeperCrank,
+      CatchupAccrue, ewma_update
+    source_hyp: lending_class.yaml#LEND28-accrual-elapsed-positive, lst_class.yaml#LST7-rate-update-clock-monotone, clmm_class.yaml#CLMM85-reward-rate-monotone-clock
+
+  - id: P47-mint-decimals-immutable
+    class: invariant_property
+    severity: Medium
+    bug_class: reserve-decimals-mutation
+    claim: >
+      The vault SPL Token mint's `decimals` field is fixed at
+      InitMarket via the recorded mint pubkey, and no admin instruction
+      lets `unit_scale` or any related precision parameter retroactively
+      change the implicit per-unit scaling that prior balances were
+      recorded under.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      handle_init_market mint capture, UpdateConfig
+    source_hyp: lending_class.yaml#LEND5-reserve-collateral-decimal-pinned
+
+  - id: P48-overflow-on-large-deposits
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: deposit-arithmetic-overflow
+    claim: >
+      Deposits up to `MAX_VAULT_TVL` fit in u128 reserve-state arithmetic
+      and u64 token-amount fields; no path triggers wraparound at
+      max-funded amounts. All `c_tot += delta` writes are checked.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      DepositCollateral, TopUpInsurance, safe_mul_div_floor_u128
+    source_hyp: lending_class.yaml#LEND184-overflow-on-large-deposits, lst_class.yaml#LST183-pool-total-stake-fits-u64
+
+  - id: P49-repay-overpay-saturation
+    class: state_transition
+    severity: Medium
+    bug_class: repay-overpay-credit
+    claim: >
+      `ConvertReleasedPnl` and related paths that "repay" / convert
+      reserved or matured PnL into capital either revert when amount >
+      available, OR saturate (clamp to the available balance). No path
+      credits a phantom positive amount when the user requests more
+      than is owed.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      ConvertReleasedPnl (9935)
+    source_hyp: lending_class.yaml#LEND185-saturate-on-repay-overpay
+
+  - id: P50-account-slot-bound
+    class: authorization
+    severity: Medium
+    bug_class: obligation-slot-overflow
+    claim: >
+      The market account-table is bounded by `RiskParams.max_accounts`,
+      and `market_idx_within_capacity` enforces the bound on every
+      slot reference. No path lets an instruction reference index >=
+      max_accounts, and `InitUser` / `InitLP` fail when the table is
+      full rather than silently overwriting a slot.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      market_idx_within_capacity (853), check_idx (5348), InitUser,
+      InitLP, prepare_lazy_free_head (4612)
+    source_hyp: lending_class.yaml#LEND45-obligation-cap-on-deposits-and-borrows

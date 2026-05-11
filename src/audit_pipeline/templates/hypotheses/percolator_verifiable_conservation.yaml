@@ -1,0 +1,504 @@
+# Verifiable conservation laws + arithmetic invariants for Percolator.
+#
+# Authored 2026-05-10 as part of Tier C re-audit pass. Targets:
+# Kani / exhaustive bounds-check / symbolic-execution friendly invariants.
+# Surface: conservation laws + arithmetic invariants + edge bounds in
+# - C:\Users\btrco\percolator-audit\percolator\src\percolator.rs  (engine)
+# - C:\Users\btrco\percolator-audit\percolator\src\wide_math.rs   (256-bit math)
+# - C:\Users\btrco\percolator-audit\percolator-prog\src\percolator.rs (wrapper policy)
+#
+# F7 is encoded as V1 (the *strict* form). All hyps in this file are
+# precisely stateable as math claims and verifiable with bounded compute.
+
+hypotheses:
+
+  - id: V1-residual-conservation-strict
+    class: invariant_property
+    severity: Critical
+    bug_class: insurance-counter-vault-divergence
+    claim: >
+      Define R = vault - c_tot - insurance_fund.balance (the senior
+      residual, saturated at 0 on deficit). For every public _not_atomic
+      entrypoint E and every reachable pre-state S, if E(S) succeeds
+      yielding S', then R(S') == R(S) + delta where delta is exactly:
+      (capital_deposited - capital_withdrawn) + (insurance_topped_up -
+      insurance_withdrawn) summed over the call. In particular,
+      use_insurance_buffer / record_uninsured_protocol_loss MUST leave R
+      unchanged. Strict equality, not just check_conservation's
+      inequality V >= C+I.
+    applies_to: [percolator]
+    scope_conditions: [has_insurance_pool]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      use_insurance_buffer (2291), record_uninsured_protocol_loss (2319),
+      absorb_protocol_loss (2326), settle_flat_negative_pnl_not_atomic,
+      every callsite that mutates insurance_fund.balance.
+
+  - id: V2-haircut-redistribution-conservation
+    class: invariant_property
+    severity: Critical
+    bug_class: haircut-direction-violation
+    claim: >
+      Define paid_out(state) = sum over claimers of haircut_ratio.apply(claim).
+      For any two reachable states S1 -> S2 connected by a sequence of
+      effective_matured_pnl reads, sum_i effective_matured_pnl(i) <=
+      residual(state) AND <= pnl_matured_pos_tot(state). Haircut function
+      is monotone non-increasing in pnl_matured_pos_tot / non-decreasing
+      in residual.
+    applies_to: [percolator]
+    scope_conditions: [has_haircut_accounting]
+    target_file: src/percolator.rs
+
+  - id: V3-pnl-zero-sum
+    class: invariant_property
+    severity: Critical
+    bug_class: vault-balance-divergence
+    claim: >
+      Pre-haircut zero-sum: sum_i pnl_i only changes through
+      use_insurance_buffer / record_uninsured_protocol_loss. Over the
+      lifecycle of a trade pair, compute_trade_pnl returns (delta_a,
+      delta_b) with delta_a == -delta_b exactly (no rounding asymmetry).
+    applies_to: [percolator]
+    scope_conditions: [has_clob_or_perp]
+    target_file: src/percolator.rs
+
+  - id: V4-bilateral-oi-equality
+    class: invariant_property
+    severity: High
+    bug_class: oi-imbalance
+    claim: >
+      oi_eff_long_q == oi_eff_short_q after every public _not_atomic
+      entrypoint completes successfully. Enforced by
+      assert_public_postconditions but must be provably maintained INSIDE
+      every helper that mutates either side.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V5-matured-pos-bounded-by-pos-tot
+    class: invariant_property
+    severity: High
+    bug_class: pnl-accounting-corruption
+    claim: >
+      For every reachable state, pnl_matured_pos_tot <= pnl_pos_tot.
+      Every mutation site that touches either field re-validates this
+      strict ordering. Kani: prove no checked_add/checked_sub on either
+      side can produce matured > pos_tot without returning Err.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V6-reserve-bounded-by-pos-pnl
+    class: invariant_property
+    severity: High
+    bug_class: reserve-accounting-corruption
+    claim: >
+      For every account i, account.reserved_pnl_i <= max(account.pnl_i, 0).
+      You cannot reserve more PnL than the account actually has as
+      positive. Holds at the end of every public entrypoint.
+    applies_to: [percolator]
+    scope_conditions: [perpetual_with_warmup]
+    target_file: src/percolator.rs
+
+  - id: V7-reserve-bucket-sum-equals-reserved
+    class: invariant_property
+    severity: High
+    bug_class: reserve-bucket-divergence
+    claim: >
+      For every account, sched_remaining_q + pending_remaining_q ==
+      reserved_pnl whenever sched_present == 1 OR pending_present == 1.
+      Whenever both are absent, reserved_pnl == 0.
+    applies_to: [percolator]
+    scope_conditions: [perpetual_with_warmup]
+    target_file: src/percolator.rs
+
+  - id: V8-oi-long-equals-sum-positive-effective
+    class: invariant_property
+    severity: High
+    bug_class: oi-aggregate-divergence
+    claim: >
+      oi_eff_long_q == sum_{i: effective_pos_q(i) > 0} effective_pos_q(i)
+      + phantom_dust_residue_long. Verify every mutation site preserves
+      this O(1) ↔ O(N) reconciliation.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V9-stored-pos-count-equals-population
+    class: invariant_property
+    severity: Medium
+    bug_class: stored-count-divergence
+    claim: >
+      stored_pos_count_long == |{i: side_of_i128(account.position_basis_q)
+      == Long AND adl_epoch_snap_i == adl_epoch_long}|. The O(1)
+      per-side population counters must reconcile with O(N) enumeration.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V10-f-side-envelope-bound
+    class: arithmetic_overflow
+    severity: High
+    bug_class: arithmetic-overflow-funding
+    claim: >
+      For every accrue_market_to call respecting the per-call envelope,
+      neither f_long_num nor f_short_num overflows i128. Kani: prove no
+      envelope-valid sequence of accrues drives f_*_num to overflow
+      before min_funding_lifetime_slots elapse.
+    applies_to: [percolator]
+    scope_conditions: [perpetual_funding]
+    target_file: src/percolator.rs
+
+  - id: V11-k-side-envelope-bound
+    class: arithmetic_overflow
+    severity: High
+    bug_class: arithmetic-overflow-mark
+    claim: >
+      For every accrue_market_to call respecting envelope,
+      adl_coeff_long and adl_coeff_short stay in i128. Cumulative K must
+      fit i128. Verify: no sequence of envelope-valid price oscillations
+      between adversary-chosen (p_min, p_max) drives K out of bounds.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V12-funding-rate-sign-symmetric
+    class: invariant_property
+    severity: Medium
+    bug_class: funding-rate-asymmetry
+    claim: >
+      funding_rate_e9_from_mark_index is sign-symmetric: swapping (mark,
+      index) negates the result, modulo asymmetric clamping. Verify the
+      saturating_mul + integer division preserves this for all (u64, u64)
+      inputs.
+    applies_to: [percolator]
+    scope_conditions: [perpetual_funding]
+    target_file: src/percolator.rs
+
+  - id: V13-funding-rate-zero-on-zero-inputs
+    class: arithmetic_overflow
+    severity: Low
+    bug_class: funding-rate-divide-by-zero
+    claim: >
+      funding_rate_e9_from_mark_index returns Some(0) when mark==0 OR
+      index==0 OR funding_horizon_slots==0, returns None when
+      funding_max_premium_bps < 0 OR funding_max_e9_per_slot < 0. Never
+      panics, never divides by zero.
+    applies_to: [percolator]
+    scope_conditions: [perpetual_funding]
+    target_file: src/percolator.rs
+
+  - id: V14-fee-collected-eq-insurance-delta
+    class: invariant_property
+    severity: High
+    bug_class: fee-accounting-divergence
+    claim: >
+      In every successful charge_fee_to_insurance call: (1)
+      insurance_fund.balance grew by exactly fee_paid; (2) account.capital
+      shrank by exactly fee_paid; (3) account.fee_credits dropped by
+      collectible fee_debt portion; (4) fee_paid + equity_impact_above_cash
+      + dropped == fee (input); (5) vault is unchanged. Senior residual
+      grows by exactly equity_impact.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V15-fee-debt-monotone-non-positive
+    class: invariant_property
+    severity: Medium
+    bug_class: fee-credits-sign-violation
+    claim: >
+      account.fee_credits is always in [-(i128::MAX), 0]. No mutation
+      site can make it positive (it's debt, not credit).
+      charge_fee_to_insurance only subtracts; fee_debt_sweep and
+      deposit_fee_credits only ever add up to debt magnitude, capped at
+      zero.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V16-fee-debt-eq-collectible
+    class: invariant_property
+    severity: Low
+    bug_class: fee-credits-overflow
+    claim: >
+      For every account, fee_debt_u128_checked(fee_credits) returns
+      |fee_credits| when fee_credits < 0, else 0. Cannot overflow even on
+      i128::MIN.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V17-vault-bounded-by-tvl
+    class: arithmetic_overflow
+    severity: High
+    bug_class: vault-tvl-overflow
+    claim: >
+      vault <= MAX_VAULT_TVL = 1e16 in every reachable state. Every
+      mutation site that can grow vault (deposit_not_atomic,
+      top_up_insurance_fund, deposit_fee_credits) pre-validates
+      v_candidate <= MAX_VAULT_TVL.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V18-position-bounded-by-max-abs-q
+    class: arithmetic_overflow
+    severity: High
+    bug_class: position-overflow
+    claim: >
+      |account.position_basis_q| <= MAX_POSITION_ABS_Q for every account
+      in every reachable state. Verify that dust flush + side-mode reset
+      paths cannot violate this temporarily.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V19-oi-side-bounded-by-max-oi-side
+    class: arithmetic_overflow
+    severity: High
+    bug_class: oi-side-overflow
+    claim: >
+      oi_eff_long_q and oi_eff_short_q each stay <= MAX_OI_SIDE_Q = 1e14.
+      Every entrypoint that increases either side pre-validates against
+      this. Phantom dust additions do NOT count against cap if dust
+      tracking is correct.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V20-stored-pos-count-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: active-positions-cap-violation
+    claim: >
+      stored_pos_count_long <= max_active_positions_per_side AND
+      stored_pos_count_short <= max_active_positions_per_side. No
+      instruction can push either count over the cap. Pre-trade net-delta
+      check correctly handles transient cap+1 spike during
+      taker-replaces-maker swaps.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V21-clamp-toward-bounded-by-cap-x-dt
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: oracle-clamp-violation
+    claim: >
+      |clamp_toward_engine_dt(p_last, target, cap_bps, dt) - p_last| <=
+      p_last * cap_bps * dt / 10_000 (with saturation, never panic).
+      Already partly proven — extend to full u64 domain with composition
+      over multi-call sequences.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V22-ewma-bounded-by-monotone-mix
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: ewma-overflow
+    claim: >
+      ewma_update output is always min(old, price) <= result <= max(old,
+      price) EXCEPT for the (old==0) bootstrap branch. Result cannot
+      overshoot input interval.
+    applies_to: [percolator]
+    scope_conditions: [mark_ewma]
+    target_file: src/percolator.rs
+
+  - id: V23-ewma-effective-alpha-bounded
+    class: arithmetic_overflow
+    severity: Low
+    bug_class: ewma-alpha-overflow
+    claim: >
+      ewma_effective_alpha_bps returns a value in [0, alpha_bps]. Never
+      overflows u128. Verify alpha_bps * fee_paid does not overflow u128
+      for valid alpha_bps <= 10_000 and fee_paid <= u64::MAX.
+    applies_to: [percolator]
+    scope_conditions: [mark_ewma]
+    target_file: src/percolator.rs
+
+  - id: V24-price-move-bps-ceil-monotone
+    class: arithmetic_overflow
+    severity: Low
+    bug_class: price-move-overflow
+    claim: >
+      price_move_bps_ceil(old, new) is symmetric in (old, new) and
+      returns None only when (new - old) * 10_000 overflows u128, else
+      Some(value) that fits u64.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V25-hyperp-dynamic-fee-bps-converges
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: dynamic-fee-divergence
+    claim: >
+      hyperp_dynamic_fee_bps fixed-point iteration terminates within 64
+      steps with result <= MAX_DYNAMIC_TRADE_FEE_BPS, OR returns None.
+      Never panics, never overflows u128. Verify the function is
+      monotone non-decreasing in fee_bps each iteration.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_market]
+    target_file: src/percolator.rs
+
+  - id: V26-compute-trade-pnl-no-i128-min
+    class: arithmetic_overflow
+    severity: High
+    bug_class: signed-overflow-trade-pnl
+    claim: >
+      compute_trade_pnl(size_q, price_diff) for size_q in (0,
+      MAX_TRADE_SIZE_Q] and price_diff in [-(MAX_ORACLE_PRICE as i128),
+      MAX_ORACLE_PRICE as i128] always returns Ok(v) with |v| <= i128::MAX
+      (never i128::MIN). compute_trade_pnl(s, d) + compute_trade_pnl(-s,
+      d) EQUALS 0 when both succeed. Verify rounding-toward-floor doesn't
+      create a 1-unit asymmetry between buyer and seller.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V27-effective-pos-q-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: effective-pos-overflow
+    claim: >
+      effective_pos_q(idx) for any used idx returns a value in [-i128::MAX,
+      i128::MAX] (never i128::MIN). For |basis| <= MAX_POSITION_ABS_Q and
+      a_side, a_basis in their valid ranges, mul_div_floor_u128 cannot
+      overflow u128 AND result <= i128::MAX.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V28-kf-pnl-delta-i256-fits-i128
+    class: arithmetic_overflow
+    severity: High
+    bug_class: pnl-delta-overflow
+    claim: >
+      compute_kf_pnl_delta(abs_basis, k_snap, k_side, f_snap, f_side, den)
+      always succeeds for envelope-valid inputs. Result fits in i128.
+      Computed via I256 throughout. Kani: prove no choice of bounded
+      inputs produces an Err(Overflow).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V29-empty-market-surplus-sweep-correct
+    class: invariant_property
+    severity: High
+    bug_class: terminal-state-leak
+    claim: >
+      sweep_empty_market_surplus_to_insurance preserves: vault_post ==
+      vault_pre AND insurance_post == vault_pre. Fires only when
+      num_used_accounts == 0 AND c_tot == 0 AND pnl_pos_tot == 0 AND
+      pnl_matured_pos_tot == 0 AND oi_*_q == 0. Verify no path can reach
+      those preconditions with vault < insurance.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V30-resolved-mode-monotone-c-tot
+    class: invariant_property
+    severity: High
+    bug_class: resolved-state-leak
+    claim: >
+      After resolve_market_not_atomic completes, c_tot can only decrease
+      (via force_close_resolved_not_atomic + sweep_empty), never increase.
+      No deposit / top-up / fee-credit path is reachable on Resolved
+      markets.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V31-slot-monotonicity-globally
+    class: invariant_property
+    severity: Medium
+    bug_class: slot-rewind
+    claim: >
+      For every public _not_atomic entrypoint accepting now_slot,
+      function returns Err if now_slot < current_slot OR now_slot <
+      last_market_slot. After successful return, current_slot and
+      last_market_slot are monotone non-decreasing.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V32-mul-div-floor-u128-no-overflow-on-typed-inputs
+    class: arithmetic_overflow
+    severity: High
+    bug_class: mul-div-panic
+    claim: >
+      mul_div_floor_u128(a, b, d) panics when a*b overflows u128. Verify
+      every callsite passes (a, b) pairs whose product is provably bounded
+      by u128::MAX. One callsite in policy::ewma_update mixes alpha_bps *
+      (u64 fee) — verify alpha_bps * fee_paid * u64::MAX fits.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/wide_math.rs
+
+  - id: V33-wide-mul-div-result-fits-u128
+    class: arithmetic_overflow
+    severity: High
+    bug_class: wide-truncation
+    claim: >
+      wide_mul_div_floor_u128(a, b, d) panics if the U256 intermediate
+      result exceeds u128 after the division. Verify every callsite —
+      specifically effective_matured_pnl (haircut) — has a provable bound.
+    applies_to: [percolator]
+    scope_conditions: [has_haircut_accounting]
+    target_file: src/wide_math.rs
+
+  - id: V34-checked-u128-mul-i128-rejects-i128-min
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: i128-min-panic
+    claim: >
+      checked_u128_mul_i128(a, b) returns Err if b == i128::MIN. For all
+      valid (a in [0, u128::MAX], b in (i128::MIN, i128::MAX]), it
+      returns Ok if and only if the result fits in i128. Prove: no
+      envelope-valid sequence of K-walk arithmetic can produce b ==
+      i128::MIN at a callsite of this function.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V35-insurance-withdraw-cap-bps-bounded
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: insurance-withdraw-cap-overflow
+    claim: >
+      For every (insurance_balance <= MAX_VAULT_TVL,
+      insurance_withdraw_max_bps in [0, 10_000]), the computation
+      insurance_withdraw_max_bps * insurance_balance / 10_000 never
+      overflows u128 AND never exceeds insurance_balance.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V36-account-idx-bounded-by-max-accounts
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: account-idx-oob
+    claim: >
+      Every public entrypoint accepting idx: u16 returns Err if (idx as
+      usize) >= MAX_ACCOUNTS. The cast u16 -> usize is safe. With
+      small/medium feature flags, MAX_ACCOUNTS is 256/1024 — verify the
+      bounds check rejects out-of-range BEFORE indexing
+      self.accounts[idx as usize].
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+
+  - id: V37-keeper-cursor-wrap-monotone
+    class: invariant_property
+    severity: Low
+    bug_class: keeper-cursor-rewind
+    claim: >
+      The keeper's gc_cursor advances modulo MAX_ACCOUNTS and never
+      rewinds within a single sweep. After a full cycle, every
+      materialized account has been visited at least once before any
+      account is visited twice.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs

@@ -1,0 +1,545 @@
+# Cross-instruction state-machine hypothesis library for Percolator.
+#
+# Authored 2026-05-10 as part of Tier C re-audit pass. Targets specific
+# pairs (or chains) of instructions and the state field that desyncs
+# when they interact in: same-tx, cross-tx in same block, CPI callback,
+# or admin-concurrent contention windows.
+#
+# Methodology: enumerated all 24 dispatched Instructions in
+# /c/Users/btrco/percolator-audit/percolator-prog/src/percolator.rs
+# (HEAD e2ed66cc), enumerated state mutations of each, then looked for
+# (A, B) pairs where the in-tx atomicity model breaks an invariant.
+#
+# Companion: cross-instruction interaction matrix in
+# percolator_new_diff_review.md (Tier C addendum section).
+
+hypotheses:
+
+  - id: X1-pushhyperpmark-tradecpi-mark-window
+    class: state_transition
+    severity: Critical
+    bug_class: mark-price-manipulation
+    claim: >
+      In a Hyperp market, calling PushHyperpMark immediately followed by
+      TradeCpi in the SAME transaction lets the hyperp_authority imprint
+      a mark price that the EWMA observes as the new baseline before any
+      independent fill arrives. PushHyperpMark stamps config.mark_ewma_e6
+      (line 9205) and config.mark_ewma_last_slot (line 9214); the next
+      TradeCpi reads config.mark_ewma_e6 as old_ewma_cpi (line 8356) and
+      computes a clamped exec around it, so a colluding matcher +
+      authority can drive mark arbitrarily far from oracle within one tx
+      — bypassing the EWMA's intended smoothing window. The clamp base
+      for TradeCpi's EWMA path is config.last_effective_price_e6 (the
+      INDEX), but EWMA uses the pushed mark directly, so a push at the
+      cap admits an exec at the cap on the same slot.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_mode, hyperp_auth_collusion, same_tx_chain]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      PushHyperpMark (handler line 9073) writes config.hyperp_mark_e6,
+      config.mark_ewma_e6, config.mark_ewma_last_slot,
+      config.last_mark_push_slot.
+      TradeCpi (line 7742) reads these into old_ewma_cpi.
+
+  - id: X2-pushhyperpmark-doubled-same-slot
+    class: state_transition
+    severity: High
+    bug_class: mark-price-manipulation
+    claim: >
+      Two PushHyperpMark calls in same tx (or different txs same slot)
+      compose multiplicatively on mark_ewma but the per-slot price-move
+      cap only clamps each push against the INDEX (last_effective_price_e6,
+      line 9199). If hyperp_target_price flushes the index toward the mark
+      on the first push (line 9132–9141) then the SECOND push's clamp_base
+      sees the freshly-moved index, allowing a second cap-width step on
+      the same slot. Net mark move per slot bounded by 2 ×
+      max_price_move_bps_per_slot, not 1×.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_mode, same_slot_repeated_push]
+    target_file: src/percolator.rs
+
+  - id: X3-tradenocpi-pushhyperpmark-resolved-band
+    class: state_transition
+    severity: High
+    bug_class: settlement-manipulation
+    claim: >
+      A TradeNoCpi cannot execute on Hyperp markets (line 7550 rejects
+      HyperpTradeNoCpiDisabled), but in non-Hyperp markets the
+      hyperp_authority may still hold a stale signer key from a prior
+      market reconfig. If config.hyperp_mark_e6 is non-zero after a
+      market-type switch, stale Hyperp mark leaks into a non-Hyperp
+      settlement path on later ResolveMarket.
+    applies_to: [percolator]
+    scope_conditions: [market_type_switch_via_updateconfig]
+    target_file: src/percolator.rs
+
+  - id: X4-matcher-cpi-mutates-tail-engine-oracle
+    class: state_transition
+    severity: Critical
+    bug_class: oracle-manipulation
+    claim: >
+      TradeCpi's matcher CPI receives a VARIADIC TAIL of accounts
+      (lp_pda_ix+1.., line 7905) whose signer/writable flags mirror the
+      outer tx. If the matcher tail includes the slab's oracle account
+      (Pyth PriceUpdateV2) marked writable, the matcher can mutate the
+      oracle account's data DURING the CPI. After the CPI returns, the
+      wrapper re-uses the `price` it read BEFORE the CPI (line 7984) for
+      off-band check and engine accrual, but the matcher already burned
+      an updated Pyth price into the same account that downstream
+      same-block instructions will read — a cross-instruction oracle
+      desync. The slab_guard cannot block this because the oracle is not
+      the slab.
+    applies_to: [percolator]
+    scope_conditions: [matcher_tail_writable_oracle]
+    target_file: src/percolator.rs
+
+  - id: X5-matcher-cpi-mutates-tail-user-ata
+    class: state_transition
+    severity: High
+    bug_class: token-flow-manipulation
+    claim: >
+      A trader's signed TradeCpi can include the trader's own user_ata as
+      a writable tail account. The matcher CPI is then authorized to
+      spl-transfer tokens out of user_ata using the user's outer
+      signature. Engine accounting in execute_trade_with_matcher uses
+      `engine.accounts[user_idx].capital`, which is decoupled from
+      user_ata balance — so a matcher draining user_ata pre-trade and the
+      wrapper crediting engine.capital from the (still positive) vault
+      produces a doubled position.
+    applies_to: [percolator]
+    scope_conditions: [matcher_tail_includes_user_ata_writable]
+    target_file: src/percolator.rs
+
+  - id: X6-matcher-cpi-mutates-tail-vault-pda
+    class: state_transition
+    severity: Critical
+    bug_class: vault-drain
+    claim: >
+      If the matcher tail includes the slab's vault token account or its
+      PDA-authority signer, the matcher cannot sign for the PDA (only
+      this program can), but it can READ the vault and choose
+      exec_size/exec_price to drive a vault drain through the engine's
+      trade accounting. The off-band cap (line 8214–8238) gates
+      exec_price vs oracle but not exec_size, so the matcher can pump
+      size to MAX_TRADE_SIZE_Q.
+    applies_to: [percolator]
+    scope_conditions: [matcher_tail_includes_vault]
+    target_file: src/percolator.rs
+
+  - id: X7-matcher-zero-fill-clock-roll
+    class: state_transition
+    severity: Critical
+    bug_class: clock-rollback
+    claim: >
+      When the matcher returns exec_size == 0 with FLAG_PARTIAL_OK,
+      TradeCpi takes the zero-fill path (line 8149) which restores most
+      of config_pre_oracle BUT preserves only a hand-picked set of fields
+      (line 8184–8190). ANY OTHER config field mutated between the
+      pre-oracle snapshot and the zero-fill path is silently reverted,
+      including mark_ewma_e6, mark_ewma_last_slot, and
+      last_mark_push_slot. A same-tx PushHyperpMark+TradeCpi where
+      TradeCpi zero-fills would undo the PushHyperpMark's EWMA write.
+    applies_to: [percolator]
+    scope_conditions: [zero_fill_after_config_mutation]
+    target_file: src/percolator.rs
+
+  - id: X8-cpi-flag-cleared-before-trade-executes
+    class: state_transition
+    severity: High
+    bug_class: reentrancy
+    claim: >
+      The CPI reentrancy flag is set at line 8045 BEFORE invoke_signed_trade
+      and cleared at line 8061 immediately after the CPI returns —
+      crucially BEFORE execute_trade_with_matcher runs at line 8333.
+      Cross-tx in same block can observe the engine's pre-trade
+      capital/pnl picture without the trade applied. Cross-tx attacker
+      reads vault, decides to drain insurance via WithdrawInsuranceLimited
+      based on pre-trade-fee insurance balance even though trade fees
+      would raise it.
+    applies_to: [percolator]
+    scope_conditions: [cross_tx_observability]
+    target_file: src/percolator.rs
+
+  - id: X9-deposit-trade-withdraw-atomic-rinse
+    class: state_transition
+    severity: High
+    bug_class: margin-bypass
+    claim: >
+      DepositCollateral + TradeNoCpi + WithdrawCollateral in a single tx
+      forms a "borrow inside one tx" pattern. The deposit raises capital,
+      the trade opens a position whose IM is funded by the new capital,
+      and the withdraw removes the capital based on a health check done
+      AFTER settle_pair_then_sync_fee_current (line 6823). IM enforcement
+      is via withdraw_not_atomic (line 6835) which requires post-withdraw
+      health, BUT the trade's fee_credits/pnl have not been settled
+      against capital yet, so a fast-collapse trade can be opened with
+      capital that is then withdrawn within the same tx.
+    applies_to: [percolator]
+    scope_conditions: [same_tx_deposit_trade_withdraw]
+    target_file: src/percolator.rs
+
+  - id: X10-initaccount-trade-close-ghost
+    class: state_transition
+    severity: Critical
+    bug_class: account-lifecycle
+    claim: >
+      InitUser + TradeNoCpi + CloseAccount in one tx creates a "ghost
+      account": at InitUser the slot is materialized
+      (prepare_lazy_free_head line 6450, set generation line 6462),
+      TradeNoCpi opens a position, CloseAccount closes the slot — all
+      within one tx. The account_generation counter advances. Repeating
+      this pattern lets an attacker churn through the generation table,
+      eventually hitting EngineOverflow on next_mat_counter. Risk-buffer
+      may also retain entries pointing at freed slots.
+    applies_to: [percolator]
+    scope_conditions: [same_tx_init_trade_close]
+    target_file: src/percolator.rs
+
+  - id: X11-deposit-fee-credits-convert-released-pnl-double-spend
+    class: state_transition
+    severity: High
+    bug_class: pnl-conversion
+    claim: >
+      DepositFeeCredits + ConvertReleasedPnl in one tx: DepositFeeCredits
+      pays down fee_credits debt with vault tokens (line 9921) but then
+      ConvertReleasedPnl converts released PnL into capital at line 10022.
+      If the fee-credit repayment changes the account's released_pnl
+      reconciliation in ways that the same-tx ConvertReleasedPnl does not
+      re-sync, the user can double-count: pay down fee debt with cash,
+      then convert PnL into more capital without the fee-current sync
+      re-charging the now-flat fee cursor.
+    applies_to: [percolator]
+    scope_conditions: [same_tx_depfeecreds_convertpnl]
+    target_file: src/percolator.rs
+
+  - id: X12-topup-withdraw-insurance-roundtrip
+    class: state_transition
+    severity: Medium
+    bug_class: insurance-fund-bypass
+    claim: >
+      In deposits_only insurance-withdraw mode, TopUpInsurance increments
+      insurance_withdraw_deposit_remaining (line 8746) and
+      WithdrawInsuranceLimited decrements it (line 9710). Same-tx
+      TopUpInsurance(X) then WithdrawInsuranceLimited(X) by the operator:
+      the operator effectively round-trips tokens through insurance using
+      ANY user's funds, bypassing the cooldown gate (line 9651) because
+      the first last_insurance_withdraw_slot is 0.
+    applies_to: [percolator]
+    scope_conditions: [deposits_only_insurance_withdraw_mode]
+    target_file: src/percolator.rs
+
+  - id: X13-keepercrank-trade-cpi-double-fee
+    class: state_transition
+    severity: Medium
+    bug_class: fee-double-charge
+    claim: >
+      KeeperCrank sweeps maintenance fees via sweep_maintenance_fees
+      (line 7247) and updates each account's last_fee_slot; immediately
+      after, a same-tx TradeCpi runs settle_pair_then_sync_fee_current
+      (line 8257) which would attempt to charge fees AGAIN for an
+      account whose last_fee_slot was just advanced. If the
+      sync_account_fee helper does not noop on equal-slot input, the
+      trade pays double maintenance fees.
+    applies_to: [percolator]
+    scope_conditions: [same_tx_crank_trade]
+    target_file: src/percolator.rs
+
+  - id: X14-keepercrank-trade-cursor-double-advance
+    class: state_transition
+    severity: High
+    bug_class: scan-cursor-corruption
+    claim: >
+      KeeperCrank advances risk_buffer.scan_cursor AND mutates risk_buffer
+      entries. A same-tx TradeCpi updates risk_buffer entries again at
+      line 8469. If both instructions race on the same combined position
+      update (a position closed during crank, then re-opened during trade
+      in the same slot), the scan_cursor may point past the just-removed
+      entry — next crank scans from a stale cursor.
+    applies_to: [percolator]
+    scope_conditions: [same_tx_crank_trade_same_idx]
+    target_file: src/percolator.rs
+
+  - id: X15-keepercrank-pre-and-post-resolve-race
+    class: state_transition
+    severity: Critical
+    bug_class: settlement-bypass
+    claim: >
+      A KeeperCrank that begins evaluation on a Live market and a
+      same-block ResolveMarket: if ResolveMarket runs FIRST in tx
+      ordering, KeeperCrank's early branch at line 6902 detects Resolved
+      and returns Ok(()), skipping risk_buffer cleanup. Any
+      caller-supplied candidates are dropped silently. State desync:
+      risk_buffer stale entries persist after market resolution.
+    applies_to: [percolator]
+    scope_conditions: [same_block_crank_resolve]
+    target_file: src/percolator.rs
+
+  - id: X16-keepercrank-self-reward-self-rescue
+    class: state_transition
+    severity: High
+    bug_class: liquidation-bypass
+    claim: >
+      KeeperCrank's caller_idx receives a 50% sweep_delta reward AFTER
+      the crank's liquidation pass (line 7267–7301). A same-tx pattern of
+      TradeNoCpi (degrade caller_idx's health) + KeeperCrank (caller_idx
+      == own_idx) can have the crank's own liquidation phase target
+      caller_idx. If liquidation only partially closes caller_idx,
+      idx_used_in_market remains true and the caller is rewarded from
+      insurance even after being partially liquidated — moving attacker's
+      bad-debt loss into insurance.
+    applies_to: [percolator]
+    scope_conditions: [non_permissionless_self_crank]
+    target_file: src/percolator.rs
+
+  - id: X17-keepercrank-permissionless-frontrun
+    class: state_transition
+    severity: Medium
+    bug_class: keeper-frontrun
+    claim: >
+      KeeperCrank with caller_idx == CRANK_NO_CALLER (permissionless)
+      doesn't pay the reward, so it has no incentive to run. A
+      permissionless crank in tx N can be FRONT-RUN by an attacker who
+      issues TradeCpi/TradeNoCpi in tx N-1 same block, knowing the
+      crank's funding_rate_e9_pre captured BEFORE oracle read (line 6947)
+      is now stale by one tx of OI change. Funding payments accrue
+      against the wrong rate window.
+    applies_to: [percolator]
+    scope_conditions: [permissionless_crank_frontrun]
+    target_file: src/percolator.rs
+
+  - id: X18-resolvepermissionless-tradenocpi-same-block
+    class: state_transition
+    severity: Critical
+    bug_class: settlement-bypass
+    claim: >
+      ResolvePermissionless line 10039 sets MarketMode::Resolved at
+      engine.last_oracle_price. A TradeNoCpi in tx N-1 same block as
+      ResolvePermissionless in tx N: the trade updates
+      engine.last_oracle_price (via read_price_and_stamp line 7558 and
+      execute_trade_not_atomic), so ResolvePermissionless settles at the
+      just-pushed price. A colluding signer can therefore pick the
+      settlement price by issuing a same-block TradeNoCpi at the desired
+      price.
+    applies_to: [percolator]
+    scope_conditions: [permissionless_stale_matured, same_block_trade_resolve]
+    target_file: src/percolator.rs
+
+  - id: X19-resolvemarket-tradecpi-zero-fill-mark-leak
+    class: state_transition
+    severity: High
+    bug_class: settlement-manipulation
+    claim: >
+      In Hyperp mode, ResolveMarket (Ordinary) uses settlement_price =
+      config.mark_ewma_e6 (line 9379–9383). A same-block sequence:
+      TradeCpi with matcher returning exec_size == 0 + ResolveMarket. The
+      zero-fill path preserves `last_effective_price_e6` and
+      `last_hyperp_index_slot` but does NOT preserve mark_ewma_e6. An
+      attacker can "freeze" EWMA by repeatedly zero-filling a colluding
+      matcher.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_mode_zero_fill_resolve]
+    target_file: src/percolator.rs
+
+  - id: X20-resolved-close-account-double-claim
+    class: state_transition
+    severity: Critical
+    bug_class: payout-double-spend
+    claim: >
+      CloseAccount on resolved market uses
+      force_close_resolved_with_fee_not_atomic (line 8580) which returns
+      ResolvedCloseResult::ProgressOnly OR Closed(payout). If
+      ProgressOnly, the wrapper returns Ok(()) at line 8589 without
+      touching the vault. Cross-tx: tx N CloseAccount returns
+      ProgressOnly (Phase 1 reconciliation), tx N+1 in the same block
+      another participant calls ForceCloseResolved on a DIFFERENT idx
+      that re-triggers force_close_resolved_with_fee_not_atomic.
+      Partial reconciliation may be applied twice.
+    applies_to: [percolator]
+    scope_conditions: [resolved_market_cross_tx_close]
+    target_file: src/percolator.rs
+
+  - id: X21-adminforceclose-withdraw-insurance-race
+    class: state_transition
+    severity: High
+    bug_class: insurance-drain
+    claim: >
+      AdminForceCloseAccount (line 9740) drains residual capital from a
+      resolved-market account. WithdrawInsurance (line 9473) checks
+      engine.num_used_accounts == 0 (line 9528) before payout. If the
+      admin issues AdminForceClose during a partial-resolved cascade, the
+      slot may be in an intermediate state where num_used_accounts has
+      flipped to 0 in one tx but back to nonzero by the next.
+    applies_to: [percolator]
+    scope_conditions: [partial_resolve_cross_tx]
+    target_file: src/percolator.rs
+
+  - id: X22-resolvemarket-pending-trade-pnl
+    class: state_transition
+    severity: Critical
+    bug_class: settlement-snapshot
+    claim: >
+      ResolveMarket sets the resolution slot and snapshots
+      settlement_price. A TradeCpi pending in the mempool that lands in
+      the SAME block as ResolveMarket but in an EARLIER tx: the trade
+      executes against a live market, opens a position; then
+      ResolveMarket runs and settles at a price chosen by the caller. The
+      pre-resolution trade becomes irreversibly entangled with
+      post-resolution pricing — the trader can be forced into a
+      settlement loss they could not foresee. Lack of a "trade lockout
+      window" before resolution is a state-machine gap.
+    applies_to: [percolator]
+    scope_conditions: [pre_resolve_trade_no_lockout]
+    target_file: src/percolator.rs
+
+  - id: X23-updateconfig-trade-mid-block
+    class: state_transition
+    severity: High
+    bug_class: param-flip-window
+    claim: >
+      UpdateConfig (line 8880) mutates funding_horizon_slots,
+      funding_k_bps, funding_max_premium_bps, funding_max_e9_per_slot,
+      tvl_insurance_cap_mult. A same-block sequence: tx N UpdateConfig
+      raises the funding cap; tx N+1 KeeperCrank computes funding against
+      the just-raised cap; tx N+2 admin lowers the cap back. Admin can
+      sandwich a single block to pump funding payments in their favor.
+    applies_to: [percolator]
+    scope_conditions: [admin_concurrent_updateconfig]
+    target_file: src/percolator.rs
+
+  - id: X24-updateauthority-trade-burn-window
+    class: state_transition
+    severity: High
+    bug_class: admin-burn-race
+    claim: >
+      UpdateAuthority { kind: AUTHORITY_HYPERP_MARK, burn } sets
+      config.hyperp_authority = [0; 32] (line 5817), permanently disabling
+      PushHyperpMark. Same-block: tx N PushHyperpMark (admin pushes mark
+      X), tx N+1 UpdateAuthority burns hyperp. Effect: admin pumps mark
+      immediately before burning, locking the EWMA in attacker's favor.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_mode_admin_burn]
+    target_file: src/percolator.rs
+
+  - id: X25-updateauthority-admin-burn-mid-resolve
+    class: state_transition
+    severity: Critical
+    bug_class: admin-burn-race
+    claim: >
+      Admin burn via UpdateAuthority(AUTHORITY_ADMIN, zero) requires
+      `resolved` OR (permissionless_resolve_stale_slots > 0 AND
+      force_close_delay_slots > 0). Same-tx: tx N UpdateConfig sets
+      permissionless_resolve_stale_slots to some tiny value, tx N+1
+      UpdateAuthority burns admin. After burn, admin can no longer fix
+      the misconfigured stale window.
+    applies_to: [percolator]
+    scope_conditions: [admin_burn_with_tiny_stale_window]
+    target_file: src/percolator.rs
+
+  - id: X26-tradecpi-tradecpi-same-tx-nonces
+    class: state_transition
+    severity: Medium
+    bug_class: nonce-replay
+    claim: >
+      TradeCpi reads req_nonce at line 7845, computes req_id, then writes
+      nonce at line 8461 AFTER the trade. Two TradeCpi instructions in
+      same tx: tx1 reads nonce N, sets req_id N+1, performs CPI; tx2
+      reads nonce N (still — not yet written by tx1). Verify all paths
+      commit nonce write before another instruction observes it.
+    applies_to: [percolator]
+    scope_conditions: [same_tx_multiple_tradecpi]
+    target_file: src/percolator.rs
+
+  - id: X27-trade-matcher-replay-via-tail-ctx-mutation
+    class: state_transition
+    severity: High
+    bug_class: matcher-replay
+    claim: >
+      TradeCpi's read_matcher_return reads matcher_ctx data at line 8064.
+      Cross-tx in same block: tx N TradeCpi leaves matcher_ctx with a
+      valid MatcherReturn; tx N+1 TradeCpi is initiated and the matcher's
+      CPI fails/aborts WITHOUT writing matcher_ctx; the wrapper then reads
+      STALE matcher_ctx data. The abi_ok check (line 8077) compares
+      ret.req_id against the JUST-COMPUTED req_id. Verify req_id check is
+      uncircumventable.
+    applies_to: [percolator]
+    scope_conditions: [matcher_silent_no_op]
+    target_file: src/percolator.rs
+
+  - id: X28-trade-keepercrank-riskbuf-stale
+    class: state_transition
+    severity: High
+    bug_class: risk-buffer-stale
+    claim: >
+      TradeCpi/TradeNoCpi update risk_buffer entries at trade time using
+      the trade's price. Same tx TradeNoCpi/TradeCpi then
+      ConvertReleasedPnl: ConvertReleasedPnl doesn't update risk_buffer —
+      leaving notionals computed at pre-trade price. Cross-tx in same
+      block, a same-slot KeeperCrank sees stale risk buffer until Phase
+      B/C re-scans.
+    applies_to: [percolator]
+    scope_conditions: [same_tx_trade_convertpnl]
+    target_file: src/percolator.rs
+
+  - id: X29-keepercrank-rr-cursor-double-scan
+    class: state_transition
+    severity: Medium
+    bug_class: rr-cursor-rotation
+    claim: >
+      Two KeeperCrank calls in same tx: each advances rr_cursor and
+      buf.scan_cursor. If candidates are empty in BOTH cranks, a same-tx
+      double-crank gets DOUBLE the scan budget per block, potentially
+      DoSing other keepers' fair-share.
+    applies_to: [percolator]
+    scope_conditions: [same_tx_double_crank]
+    target_file: src/percolator.rs
+
+  - id: X30-matcher-cpi-clock-via-tail
+    class: state_transition
+    severity: Medium
+    bug_class: clock-manipulation
+    claim: >
+      TradeCpi reads Clock from a_clock (line 7947) BEFORE the matcher
+      CPI. Inside the CPI, the matcher can still call its OWN nested CPIs
+      that read Clock via Clock::get(). The wrapper doesn't read Clock
+      again after the CPI returns. If the matcher records a future-slot
+      timestamp into matcher_ctx and the wrapper trusts ret.oracle_price_e6
+      (validates only equality at line 8077), then a clock-aware matcher
+      can desync state when the next instruction in the same block reads
+      matcher_ctx for its own purposes.
+    applies_to: [percolator]
+    scope_conditions: [matcher_clock_get_during_cpi]
+    target_file: src/percolator.rs
+
+  - id: X31-matcher-cpi-back-reentry-via-different-program
+    class: state_transition
+    severity: High
+    bug_class: indirect-reentrancy
+    claim: >
+      The CPI reentrancy guard (FLAG_CPI_IN_PROGRESS) blocks any direct
+      re-entry into the wrapper. The matcher can mutate ANY writable
+      account in the outer tx's accounts list including oracle accounts
+      (Pyth/Chainlink) that the wrapper trusts to be untampered. After CPI
+      returns, the wrapper trusts `price` it read pre-CPI — safe — but if
+      a same-tx FOLLOWING instruction re-reads the oracle, it sees
+      matcher-tampered data.
+    applies_to: [percolator]
+    scope_conditions: [matcher_third_program_cpi]
+    target_file: src/percolator.rs
+
+  - id: X32-forceclose-resolved-partial-keepercrank-reentry
+    class: state_transition
+    severity: High
+    bug_class: partial-cascade-reentry
+    claim: >
+      ForceCloseResolved returns ProgressOnly when the engine's cascade
+      requires additional reconciliation rounds. KeeperCrank on resolved
+      market returns Ok(()) without doing anything. During a partial
+      cascade across a block, each tx of ForceCloseResolved makes
+      progress, but a same-block KeeperCrank does NOT contribute progress
+      — the cascade is bottlenecked on ForceCloseResolved calls per tx.
+      An attacker who jams the block with KeeperCrank txs (cheap,
+      permissionless on resolved) blocks ForceCloseResolved from landing
+      — DoS.
+    applies_to: [percolator]
+    scope_conditions: [resolved_cascade_dos]
+    target_file: src/percolator.rs

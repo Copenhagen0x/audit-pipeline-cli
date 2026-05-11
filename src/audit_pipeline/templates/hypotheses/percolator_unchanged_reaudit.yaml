@@ -1,0 +1,1222 @@
+# Tier-C unchanged-code re-audit for Percolator perpetual DEX.
+#
+# Authored 2026-05-10 against HEAD e2ed66cc63bcb95da55f2e3955c7cae1419093ec.
+# Targets the ~5,800 lines of `src/percolator.rs` UNCHANGED since F7 baseline
+# c3c941eb. Those lines were audited when the existing 165 percolator-tagged
+# hyps were written, but new findings (F7 itself + 138 diff-targeted hyps
+# written today) revealed bug-class patterns the prior library does not
+# encode at the granularity these surfaces deserve.
+#
+# Methodology: read 165 existing hyps + 138 new-diff hyps, then re-read
+# unchanged code regions looking for instruction-pair interactions,
+# admin-path state-machine seams, resolved-mode branches, account
+# lifecycle init->close->reinit paths, sysvar handling, and arithmetic
+# boundary cases that the prior library treats only at the "engine
+# invariant" level (V*, P*, O*, etc.) without binding to specific
+# wrapper call sites.
+#
+# ID prefix: U for unchanged-code re-audit. Each entry names a specific
+# function or code path, is falsifiable via LiteSVM, and does NOT
+# duplicate an existing hyp's claim.
+
+hypotheses:
+
+  # ===================================================================
+  # FAMILY U-admin — Admin-path state-machine seams
+  # Surface: UpdateConfig, ResolveMarket, TopUpInsurance,
+  # WithdrawInsurance, WithdrawInsuranceLimited, UpdateAuthority,
+  # CloseSlab, AdminForceCloseAccount, PushHyperpMark
+  # ===================================================================
+
+  - id: U1-updateconfig-tvl-cap-mult-zero-disables-cap-mid-flight
+    class: state_transition
+    severity: High
+    bug_class: admin-config-mid-flight-invariant-shift
+    claim: >
+      UpdateConfig at src/percolator.rs:8880-9071 mutates
+      config.tvl_insurance_cap_mult without any check that in-flight
+      DepositCollateral/InitUser/InitLP calls (which read this cap at lines
+      6418, 6661) cannot be sandwich-bypassed by an admin who lowers the
+      cap_mult to zero in a slot between the user's read and write.
+      Specifically: there is no per-tx atomicity binding the cap_mult value
+      seen at deposit-time risk gate to the cap_mult committed at engine
+      mutation time. Admin sets cap_mult = X at slot N; user submits
+      Deposit reading cap_mult at slot N+1; admin sets cap_mult = 0 at
+      slot N+2; user's deposit executes at N+3 with stale-read cap that
+      no longer reflects current admin intent. The admin can only TIGHTEN
+      via this path (config is written by admin, not user), but the
+      sequence admits SURPRISE FROZEN-DEPOSIT race that strands user funds
+      mid-tx.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      UpdateConfig (8880-9071), DepositCollateral cap check (6661-6674),
+      InitUser cap check (6418-6437)
+
+  - id: U2-updateconfig-funding-params-stale-in-flight-trades
+    class: state_transition
+    severity: High
+    bug_class: admin-config-mid-flight-invariant-shift
+    claim: >
+      UpdateConfig mutates funding_horizon_slots, funding_k_bps,
+      funding_max_premium_bps, funding_max_e9_per_slot (9060-9064)
+      AFTER compute_current_funding_rate_e9 captured the pre-change rate
+      at line 8946. The captured rate is used for catchup_accrue +
+      accrue_market_to at 9046-9049. But any TRADE submitted between
+      slot of capture and slot of commit reads a different rate from the
+      same config fields — there is no version counter binding "rate
+      captured for accrue X" to "rate visible to in-flight trades."
+      Cross-instruction sequence: admin UpdateConfig at slot N captures
+      rate R; a trade at slot N+1 reads new params and computes rate R';
+      attacker chooses to fill into the gap where engine accrued at R
+      but trade priced at R', extracting the funding delta.
+    applies_to: [percolator]
+    scope_conditions: [perpetual_funding]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      UpdateConfig lines 8946-9070, compute_current_funding_rate_e9,
+      TradeNoCpi/TradeCpi funding_rate_e9 capture
+
+  - id: U3-pushhyperp-mark-uses-Clock-get-not-clock-account
+    class: implicit_invariant
+    severity: Medium
+    bug_class: sysvar-source-divergence
+    claim: >
+      PushHyperpMark at src/percolator.rs:9112 calls Clock::get()
+      (syscall) whereas every other instruction reads Clock from a
+      passed AccountInfo via Clock::from_account_info(a_clock). Two
+      different code paths read the SAME sysvar two different ways.
+      The two paths are functionally equivalent today but diverge when
+      Solana runtime alters sysvar account-vs-syscall semantics (e.g.,
+      account-based reads may include skipped-leader transitional
+      slots whereas syscall reads may not). A wrapper that uses both
+      patterns introduces a hidden asymmetry. Verify: PushHyperpMark
+      mark-stale gate at 9113 vs ResolveMarket gate at 9306 — do they
+      agree on which "slot" matures the market?
+    applies_to: [percolator]
+    scope_conditions: [hyperp_mode]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      PushHyperpMark (9073-9215), UpdateAuthority (5723), ResolveMarket
+      (9254), other instructions all use Clock::from_account_info
+
+  - id: U4-resolvepermissionless-no-signer-required
+    class: authorization
+    severity: Medium
+    bug_class: keeper-cursor-budget-bypass
+    claim: >
+      ResolvePermissionless at src/percolator.rs:10055-10125 calls
+      accounts::expect_len(2) but does NOT call expect_signer on either
+      slab or clock. The instruction can be triggered by a transaction
+      where the fee-payer is the attacker — fine for permissionless,
+      but the instruction MUTATES engine state (sets MarketMode::Resolved,
+      writes hyperp_mark_e6) at line 10122-10124. There is no signer
+      providing intent-to-resolve. Combined with the lack of a CU-burn
+      precondition, an attacker can resolve EVERY market reaching the
+      hard-timeout in a single tx by listing them all sequentially.
+      Verify: is there a non-trivial per-market cost (CU, account-lock
+      contention) that prevents mass-resolve griefing of all markets
+      hit by an oracle outage?
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      ResolvePermissionless (10039-10125)
+
+  - id: U5-withdrawinsurancelimited-cooldown-bypass-on-first-call
+    class: state_transition
+    severity: High
+    bug_class: cooldown-bypass-first-call
+    claim: >
+      WithdrawInsuranceLimited at line 9651-9656 bypasses cooldown when
+      last_insurance_withdraw_slot == 0 (first call after init). After
+      ResolveMarket clears the live insurance state (or operator was
+      newly created via UpdateAuthority AUTHORITY_INSURANCE_OPERATOR
+      after a long idle period), config.last_insurance_withdraw_slot
+      remains at 0 if no prior call was made — letting a fresh operator
+      with no cooldown burn drain bps_cap in the first slot. Verify: a
+      market that initialized with insurance_withdraw_max_bps > 0 but
+      where no live withdrawal ever fired, then transferred operator
+      authority — can the new operator make an UNCAPPED-by-cooldown
+      first call?
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      WithdrawInsuranceLimited (9567-9738), specifically 9651-9656
+      cooldown check + UpdateAuthority AUTHORITY_INSURANCE_OPERATOR
+      path at 5798-5807
+
+  - id: U6-withdraw-insurance-limited-min-floor-vs-cooldown-amplifies
+    class: state_transition
+    severity: High
+    bug_class: liveness-vs-drain-asymmetry
+    claim: >
+      WithdrawInsuranceLimited at 9669-9672 uses
+      cap = max(bps_cap, MIN_WITHDRAW_FLOOR_UNITS=10), clamped to insurance.
+      The MIN_FLOOR is intentional anti-Zeno. But the cooldown at 9653
+      gates on TOTAL slots elapsed since last call, not on dt-since-last
+      AND amount-drained-since-anchor. An operator can therefore drain
+      MIN_FLOOR=10 every cooldown_slots window indefinitely, even when
+      bps × insurance < 10 (i.e., insurance is so small the cap would
+      otherwise be sub-1-unit). Combined with U5 (first-call cooldown
+      bypass), an operator can grief-drain a near-empty insurance pool
+      to zero in O(insurance/10) tx with cooldown-amortized cost.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      WithdrawInsuranceLimited (9567-9738), constant
+      MIN_WITHDRAW_FLOOR_UNITS = 10 (9587)
+
+  - id: U7-updateauthority-burn-admin-bypasses-mark-init
+    class: authorization
+    severity: Medium
+    bug_class: admin-burn-config-irreversible
+    claim: >
+      UpdateAuthority AUTHORITY_HYPERP_MARK burn path at
+      src/percolator.rs:5794-5796 requires mark_ewma_e6 != 0 before
+      allowing burn. But the gate is on mark_ewma_e6, not on
+      hyperp_mark_e6 or last_mark_push_slot. A fresh Hyperp market with
+      one PushHyperpMark (setting hyperp_mark_e6 and mark_ewma_e6 via
+      ewma_update) can satisfy the gate. After burn, no further
+      PushHyperpMark is possible — the market relies on existing mark
+      to bootstrap EWMA via subsequent trades. If mark_ewma_e6 was set
+      to the first push but trade activity is insufficient to keep
+      max(mark_ewma_last_slot, last_mark_push_slot) within
+      3×max_staleness_secs, ResolveMarket on Ordinary settles at stale
+      EWMA — admin set a one-shot price then locked it in. Verify the
+      burn invariant captures the LIVE liveness signal not just
+      bootstrap-of-EWMA.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_mode]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      handle_update_authority AUTHORITY_HYPERP_MARK burn path
+      (5784-5797), PushHyperpMark EWMA write (9205-9214)
+
+  - id: U8-closeslab-stranded-vault-tokens-routed-to-admin-not-insurance
+    class: state_transition
+    severity: Medium
+    bug_class: terminal-cleanup-routes-funds-to-admin
+    claim: >
+      CloseSlab at src/percolator.rs:8815-8833 drains stranded vault
+      tokens (vault.amount > engine.vault.is_zero() residue —
+      unsolicited transfers, sub-scale dust) to admin's ATA, not to
+      remaining users via pro-rata distribution. Admin captures stranded
+      funds at terminal step. Spec frame: "stranded = unsolicited
+      transfers + dust" — but in practice the engine's c_tot tracking
+      could disagree with vault.amount by amounts users contributed
+      pre-resolve (e.g., a deposit whose engine credit failed
+      post-SPL-transfer). Verify: does any flow exist where a user's
+      funds become "stranded" in the vault sense AND are not refunded
+      before CloseSlab? If so, admin can extract them.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      CloseSlab (8750-8869), drain logic (8810-8834)
+
+  - id: U9-resolvemarket-degenerate-deviation-band-bypass
+    class: state_transition
+    severity: High
+    bug_class: oracle-deviation-band-bypass
+    claim: >
+      ResolveMarket mode=1 (Degenerate) at src/percolator.rs:9263-9301
+      settles at engine.last_oracle_price with rate=0, with NO
+      resolve_price_deviation_bps check on the chosen settlement price
+      vs anything (because p_last is the engine's own anchor by
+      construction). But a non-Hyperp market where the LAST live oracle
+      read happened years ago could have a p_last orders of magnitude
+      from current market reality. The Degenerate arm is intentional
+      "dead oracle" recovery, but it admits admin to FORCE a stale
+      settlement price by withholding oracle reads while liquidity
+      drains naturally — then declaring Degenerate. Verify there is
+      no admin path to pre-position p_last advantageously then declare
+      Degenerate. Hard-timeout gate at 9265 only rejects Live calls;
+      Degenerate is explicit opt-in past the gate.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      ResolveMarket mode=1 branch (9263-9301), Degenerate arm of
+      resolve_market_not_atomic
+
+  - id: U10-topupinsurance-dust-into-insurance-ceiling-bypass
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: insurance-ceiling-uncapped-bypass
+    claim: >
+      TopUpInsurance at src/percolator.rs:8675-8748 has no upper bound
+      on insurance_fund.balance — only the SPL transfer succeeds-or-not
+      gates the size. A whale could push insurance arbitrarily high,
+      which in turn raises the tvl_insurance_cap_mult cap and allows
+      proportionally larger deposits across the market. If
+      tvl_insurance_cap_mult was set large at init (say 100), pumping
+      insurance by X opens (cap × X) of new TVL admission. Insurance
+      cannot directly drain to capital, but the asymmetry creates a
+      manipulation surface: a market with very high insurance and a
+      tight cap_mult ratio may admit deposits that the market's risk
+      machinery is not sized for (e.g., max_active_positions_per_side
+      sized to a smaller TVL than the cap admits).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TopUpInsurance (8675-8748), DepositCollateral cap check
+      (6661-6674), InitUser cap check (6418-6437)
+
+  - id: U11-admin-force-close-clock-unused-but-still-required
+    class: implicit_invariant
+    severity: Low
+    bug_class: unused-account-required-via-stale-signature
+    claim: >
+      AdminForceCloseAccount at src/percolator.rs:9784 reads
+      Clock::from_account_info(&accounts[6])? but binds the value to
+      `_clock` (unused). The clock is required at the account-list
+      level (length-7 enforced at 9744), but never consulted. Admin
+      can pass ANY account here (the helper only validates the sysvar
+      pubkey matches solana_sdk::sysvar::clock::id()). This is benign
+      today because the helper rejects mismatched pubkeys, BUT it
+      means future changes that want to gate AdminForceCloseAccount
+      on a slot-based timer must add the binding AND remove the
+      `_clock` discard. Smell-test: unused sysvars in instruction
+      bodies are red flags for incomplete gating.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      AdminForceCloseAccount (9740-9841), clock_unused_at (9784)
+
+  # ===================================================================
+  # FAMILY U-lifecycle — Per-account init -> trade -> close -> re-init
+  # ===================================================================
+
+  - id: U12-init-immediately-close-rent-extraction
+    class: state_transition
+    severity: Medium
+    bug_class: init-close-rent-rebate-asymmetry
+    claim: >
+      InitUser at src/percolator.rs:6328-6463 splits fee_payment into
+      new_account_fee (to insurance) and capital (to user). CloseAccount
+      at 8481-8674 returns capital + claimable_pnl - fee_credits debt.
+      The new_account_fee paid to insurance is NOT refunded on close.
+      A user who init-then-immediately-closes loses new_account_fee but
+      receives capital back. Compare against: a user who repeatedly
+      init-trades-loses-closes-reinits — the fee accumulates in
+      insurance, but the per-account-slot is freed and reused. An
+      attacker pre-funding a market with insurance via spamming
+      init-close cycles can effectively GIFT insurance from their
+      deposits, raising the tvl_insurance_cap_mult ceiling (see U10).
+      Cost: new_account_fee × N. Benefit: increased ceiling for other
+      attackers / themselves to deposit larger positions. Net: zero-
+      cost insurance pump if the same user is on both sides.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      InitUser (6328-6463), CloseAccount (8481-8674)
+
+  - id: U13-account-generation-counter-wraparound-on-extreme-reuse
+    class: arithmetic_overflow
+    severity: Low
+    bug_class: u64-counter-wraparound
+    claim: >
+      next_mat_counter at src/percolator.rs:2952-2980 returns
+      Option<u64>; the implementation increments u64 with checked_add
+      and returns None on overflow (which maps to EngineOverflow). The
+      counter is per-slab and is consumed on EVERY InitUser/InitLP.
+      A market that init-closes-reinits 2^64 times would brick the slab
+      (no further inits possible). Worth ~1e10 USD in tx fees to reach
+      at current rates — economically irrational, BUT a malicious
+      admin who wants to brick their own market post-fundraise has a
+      cheap path: open and close 2^64 accounts to make the slab
+      unusable, then claim "withdrawals are blocked." Verify graceful
+      degradation: does the EngineOverflow at next_mat_counter
+      saturation also affect WithdrawCollateral, CloseAccount, etc.?
+      Or does it only block new init? If only init is blocked, the
+      attack is benign.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      next_mat_counter (2952), InitUser (6460-6462), InitLP
+
+  - id: U14-prepare-lazy-free-head-rebuild-on-fresh-bitmap-injects-slot
+    class: state_transition
+    severity: High
+    bug_class: account-gc-state-leak
+    claim: >
+      prepare_lazy_free_head at src/percolator.rs:4612-4646 has a
+      fallback branch (4630-4642) that triggers when free_head's linked
+      list invariants are violated: it rebuilds the list head at idx ==
+      num_used_accounts. The rebuild zeros prev_free[idx] = u16::MAX
+      and sets next_free[idx] = idx+1 (or MAX). If an attacker can
+      cause the free-list to become INCONSISTENT (free_head points to
+      a slot whose prev_free/next_free contradicts head invariants),
+      the rebuild forces head = num_used_accounts — which may NOT be
+      a free slot. The check `engine_is_used(engine, idx)` at line 4618
+      returns Err on used slot, but the FALLBACK rebuild at 4630
+      doesn't re-check is_used after rebuild. Verify the fallback only
+      triggers when num_used_accounts is provably free.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      prepare_lazy_free_head (4612-4646), free_head invariants
+
+  - id: U15-set-wrapper-owner-pre-existing-owner-zero-leak
+    class: state_transition
+    severity: High
+    bug_class: account-ownership-takeover
+    claim: >
+      set_wrapper_owner at src/percolator.rs:5355-5366 rejects when
+      engine.accounts[idx].owner != [0u8; 32]. The check assumes a
+      reclaimed/freed slot has owner = [0u8; 32]. Verify across all
+      call paths into reclaim/free that owner is provably zeroed
+      BEFORE set_wrapper_owner is called on the same idx in a
+      subsequent InitUser. Specifically: engine.close_account_not_atomic
+      and reclaim_flat_zero_account_if_eligible must both zero the
+      owner. If either path leaves owner non-zero, the next InitUser
+      that hits this slot via prepare_lazy_free_head bails — but the
+      slot is now WEDGED (no other instruction zeroes owner, so no
+      future init can use the slot).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      set_wrapper_owner (5355), reclaim_flat_zero_account_if_eligible
+      (5177), engine.close_account_not_atomic, engine.reclaim_empty_account_not_atomic
+
+  - id: U16-closeaccount-resolved-path-no-fee-debt-forgiveness
+    class: state_transition
+    severity: High
+    bug_class: fee-debt-survives-close
+    claim: >
+      CloseAccount at src/percolator.rs:8481-8674 has TWO branches:
+      resolved (8579-8592) calls force_close_resolved_with_fee_not_atomic
+      which handles fees internally; live (8593-8627) calls
+      close_account_not_atomic after settle_account_then_sync_fee_current.
+      The resolved branch documents "do not pre-sync here or fees become
+      senior to same-account terminal losses" (8576-8578). Verify the
+      resolved engine call ACTUALLY zeros fee_credits — if it returns
+      ResolvedCloseResult::Closed but leaves fee_credits != 0, the slot
+      is freed (next_mat_counter advances) but the next InitUser on
+      this slot inherits fee_credits from a freshly-zeroed slot only
+      if zeroing happens IN the close path. Trace the engine call:
+      does force_close_resolved_with_fee_not_atomic + reclaim_empty_account_not_atomic
+      compose to zero ALL fields including fee_credits?
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      CloseAccount (8481-8674), force_close_resolved_with_fee_not_atomic,
+      reclaim_empty_account_not_atomic
+
+  - id: U17-init-after-close-stale-account-generation
+    class: state_transition
+    severity: Medium
+    bug_class: account-generation-replay
+    claim: >
+      InitUser writes account-generation via next_mat_counter at
+      src/percolator.rs:6460-6462. Generation is per-slab, monotone.
+      But a SLOT's generation table entry is updated to the new gen
+      ONLY when InitUser/InitLP runs on that slot. A slot freed via
+      CloseAccount has its generation entry preserved (read_account_generation
+      at 3071 reads from a fixed offset table, not slot data). On
+      re-init the slot inherits the OLD gen until 6462 fires. The
+      generation table acts as a per-instance identifier across slot
+      reuse — but there's a gap: between close and next-init, the
+      generation table entry is stale. Any reads against the stale gen
+      (e.g., off-chain client cached state, on-chain TradeCpi matchers
+      using gen to disambiguate) could conflate the post-close slot
+      with the pre-close instance.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      next_mat_counter (2952), write_account_generation (3077),
+      InitUser (6460), CloseAccount (no gen-table touch)
+
+  - id: U18-flat-account-reclaim-zeros-but-clock-not-touched
+    class: state_transition
+    severity: Medium
+    bug_class: stale-clock-cursor-on-reclaim
+    claim: >
+      reclaim_flat_zero_account_if_eligible at src/percolator.rs:5177-5203
+      calls engine.reclaim_empty_account_not_atomic if all fields are
+      zero. The check at 5187-5193 inspects capital, basis, pnl, reserved_pnl,
+      sched/pending_present, fee_credits. Notably absent:
+      account.last_fee_slot, account.adl_epoch_snap. After reclaim, if
+      these cursors are NOT zeroed, the next InitUser that hits this
+      slot via prepare_lazy_free_head inherits a non-zero last_fee_slot
+      / adl_epoch_snap. The next fee sync would compute "elapsed since
+      last_fee_slot" against a slot value that belonged to the prior
+      occupant — potentially back-charging or under-charging.
+      Spec contract is "new accounts seeded at materialization (no
+      back-charge)." Verify engine.reclaim_empty_account_not_atomic
+      zeroes EVERY field of Account including cursors.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      reclaim_flat_zero_account_if_eligible (5177), Account struct
+      cursors (last_fee_slot, adl_epoch_snap)
+
+  # ===================================================================
+  # FAMILY U-resolved — Resolved-mode branches (ForceCloseResolved,
+  # SettleAccount, ConvertReleasedPnl-in-Resolved, etc.)
+  # ===================================================================
+
+  - id: U19-force-close-resolved-no-signer-required
+    class: authorization
+    severity: Medium
+    bug_class: permissionless-write-with-no-signer
+    claim: >
+      ForceCloseResolved at src/percolator.rs:10127-10235 sets:
+      accounts::expect_writable(a_slab)? but NEVER calls
+      accounts::expect_signer on ANY account. The instruction performs
+      collateral::withdraw at 10227 (CPI to SPL Token transfer) to the
+      account's owner_ata, with the program's vault PDA signing. The
+      owner_ata is checked only via verify_token_account when
+      amt_units > 0 (10201-10202). An attacker can therefore submit
+      ForceCloseResolved against ANY user_idx (after the
+      force_close_delay window) and the user's funds get transferred
+      to their own ATA — benign for the user. BUT: there is no
+      requirement that the user's ATA exists at the destination
+      verified. If the user's ATA is closed (rent-recovered), the SPL
+      transfer reverts. The user is then stuck — anyone can repeatedly
+      submit ForceCloseResolved against them, perpetually failing on
+      ATA-missing while consuming the keeper's CU.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      ForceCloseResolved (10127-10235)
+
+  - id: U20-resolvedcrank-early-return-skips-recurring-fees
+    class: state_transition
+    severity: Medium
+    bug_class: resolved-fee-accumulation-skip
+    claim: >
+      KeeperCrank in resolved mode at src/percolator.rs:6902-6921
+      returns Ok(()) immediately after the resolved-context check
+      WITHOUT calling sync_account_fee_to_slot_not_atomic on any
+      account. Recurring maintenance fees CANNOT be charged in resolved
+      mode via the crank path. force_close_resolved_with_fee_not_atomic
+      DOES handle fees per-account on close — but a slab where users
+      delay closing past resolve indefinitely accumulates "free
+      storage" without fee debt advancing. Spec contract: "maintenance
+      fees are wrapper-owned, charged on every account-touching
+      instruction." Resolved-mode never touches accounts via crank, so
+      fees freeze at resolve_slot. Verify this is intentional (resolved
+      markets are read-only) vs. a fee-revenue leak (if maintenance
+      fees fund insurance, resolved-but-not-closed markets pay zero).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      KeeperCrank resolved early-return (6902-6921), recurring
+      fee accumulation in resolved mode
+
+  - id: U21-permissionless-resolve-bypass-engine-init-check
+    class: authorization
+    severity: Medium
+    bug_class: init-state-resolve-bypass
+    claim: >
+      ResolvePermissionless at src/percolator.rs:10039-10125 calls
+      slab_guard + require_initialized + market_mode != Resolved + then
+      checks engine.last_oracle_price != 0 at 10109-10112. But there's
+      no check that the market has any USED ACCOUNTS, no check that
+      hyperp_mark_e6 is set for Hyperp markets, and no upper bound on
+      how many concurrent ResolvePermissionless calls a single
+      transaction can chain. The instruction is intentionally
+      permissionless for hard-timeout safety, but the only economic
+      cost to the caller is the tx fee (no per-call CU cost beyond the
+      single resolve). Verify the cost of permissionless resolve
+      cannot be amortized to grief-resolve a portfolio of markets
+      hitting timeout simultaneously (mass oracle outage scenario).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      ResolvePermissionless (10039-10125)
+
+  - id: U22-convert-released-pnl-resolved-not-blocked
+    class: state_transition
+    severity: High
+    bug_class: resolved-state-write-bypass
+    claim: >
+      ConvertReleasedPnl at src/percolator.rs:9935-10037 rejects when
+      market_mode == Resolved at 9948-9949. But the rejection is in
+      the LIVE path. The reject is at the top of the instruction body
+      before any oracle read, so it's correct as a gate. Sanity check:
+      verify NO other resolved-mode path leads into convert_released_pnl_not_atomic
+      via a state machine that did NOT explicitly re-check Resolved
+      mode AFTER an oracle-set or fee-sync side effect.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      ConvertReleasedPnl (9935-10037), engine.convert_released_pnl_not_atomic
+
+  - id: U23-withdraw-insurance-resolved-only-but-num-used-check-late
+    class: state_transition
+    severity: High
+    bug_class: resolved-withdraw-with-residual-state
+    claim: >
+      WithdrawInsurance (tag 20) at src/percolator.rs:9473-9565
+      requires engine_is_resolved AND engine.num_used_accounts == 0
+      (9528-9529). The num_used check happens AFTER signer/admin
+      verification but BEFORE engine.withdraw_resolved_insurance_not_atomic
+      at 9533. The order is correct, BUT: between resolve and this
+      call, ForceCloseResolved at 10127 can close accounts which
+      decrement num_used_accounts via reclaim. Verify that an account
+      with positive_pnl pending claim (e.g., haircut not yet applied)
+      cannot leave num_used_accounts == 0 while terminal_residual
+      tracking still owes funds. If a haircut leaves residual that
+      the engine still tracks (pnl_pos_tot != 0) AFTER num_used == 0,
+      withdraw_resolved_insurance could pull funds owed to a
+      now-unrecorded claimant.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      WithdrawInsurance (9473-9565), ForceCloseResolved
+      reclaim path
+
+  - id: U24-resolved-update-authority-non-burn-only-pre-timeout
+    class: authorization
+    severity: Medium
+    bug_class: post-resolve-config-mutation
+    claim: >
+      UpdateAuthority at src/percolator.rs:5722-5728 hard-timeout-gates
+      non-burn updates only. After ResolveMarket sets MarketMode::Resolved
+      (at any slot before the hard timeout), admin can STILL transfer
+      authority to a new pubkey via UpdateAuthority because the
+      permissionless_stale_matured gate only fires post-hard-timeout
+      slot. Verify that authority handover post-resolve doesn't open
+      attack surface (e.g., new admin executes WithdrawInsurance under
+      a freshly-resolved market where num_used_accounts is briefly
+      non-zero between ForceCloseResolved calls).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      UpdateAuthority (5695-5831), specifically 5722-5728
+
+  # ===================================================================
+  # FAMILY U-edge — Specific edge cases (zero, MAX, signed overflow,
+  # rounding boundary)
+  # ===================================================================
+
+  - id: U25-init-user-fee-payment-eq-fee-base-boundary
+    class: state_transition
+    severity: Medium
+    bug_class: off-by-one-boundary-rejection
+    claim: >
+      InitUser at src/percolator.rs:6406-6408 rejects when
+      fee_payment <= fee_base. The boundary fee_payment == fee_base
+      is rejected — meaning a user paying EXACTLY the fee gets no
+      capital and is correctly rejected. But fee_payment = fee_base + 1
+      passes and credits 1 BASE unit of capital. If unit_scale > 1,
+      base_to_units(1, scale) returns (0, 1) — capital_units == 0
+      triggers the explicit reject at 6445-6447. So the genuine
+      reject window is fee_base < fee_payment <= fee_base + (scale-1)
+      where dust_check at 6386-6391 also fires. Verify the three
+      rejection paths (6406, 6389, 6446) are jointly exhaustive — no
+      narrow boundary admits zero-capital InitUser.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      InitUser (6328-6463), boundary checks 6386-6391, 6406-6408,
+      6445-6447
+
+  - id: U26-withdrawcollateral-amount-equals-vault-bypass-mm-via-rounding
+    class: arithmetic_overflow
+    severity: High
+    bug_class: rounding-favors-user-on-withdraw
+    claim: >
+      WithdrawCollateral at src/percolator.rs:6799-6803 enforces
+      amount % unit_scale == 0, then converts via
+      base_to_units(amount, scale) = (amount/scale, 0). The exact
+      division means no dust. Engine reads units_requested as u128
+      and passes to withdraw_not_atomic. Verify the engine's MM check
+      is performed at unit granularity (not base granularity) — if
+      unit_scale > 1 and the MM check rounds units_requested DOWN
+      before checking equity, a withdraw of (k * scale) units could
+      pass even when a withdraw of (k * scale) + 1 base units would
+      fail. The asymmetry only matters when scale > 1, in which case
+      the wrapper-level alignment check forces clean unit boundaries.
+      Sanity-verify: does the engine's withdraw_not_atomic agree with
+      the wrapper's unit-aligned semantic, or does it re-floor?
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      WithdrawCollateral (6708-6870), engine.withdraw_not_atomic
+
+  - id: U27-tradenocpi-size-min-equals-trade-size-q-boundary
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: max-trade-size-boundary
+    claim: >
+      TradeNoCpi at src/percolator.rs:7525-7530 rejects size == 0,
+      size == i128::MIN, and size.unsigned_abs() > MAX_TRADE_SIZE_Q.
+      Boundary: size.unsigned_abs() == MAX_TRADE_SIZE_Q is admitted.
+      Trade execution flows through execute_trade_with_matcher at 5217
+      which passes size to engine.execute_trade_not_atomic. Verify the
+      engine's internal arithmetic (size × price × fee_bps) doesn't
+      overflow at this exact boundary. Specifically: at MAX_TRADE_SIZE_Q
+      ≈ MAX_POSITION_ABS_Q? With MAX_PRICE ≈ 1e16 (engine constant),
+      the product size * price ~ MAX_POSITION_ABS_Q * MAX_PRICE may
+      overflow i128 if either constant is close to its type bound.
+      Boundary-test at MAX_TRADE_SIZE_Q.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeNoCpi size validation (7525-7530), MAX_TRADE_SIZE_Q
+      constant, execute_trade_with_matcher (5217)
+
+  - id: U28-deposit-amount-eq-zero-rejected-but-tvl-cap-saturating-mul
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: saturating-mul-elision
+    claim: >
+      DepositCollateral cap check at src/percolator.rs:6670 computes
+      cap = ins.saturating_mul(tvl_insurance_cap_mult as u128). With
+      max-value inputs (ins close to u128::MAX, cap_mult = u128::MAX),
+      cap saturates to u128::MAX and any deposit is admitted. The
+      saturating direction FAVORS the user (more deposits admitted).
+      Boundary: ins * mult overflows when ins > u128::MAX / mult. At
+      ins = MAX_VAULT_TVL = 1e16, mult = 100 → product = 1e18 (fits in
+      u128). Verify cap_mult is bounded at admin-config layer
+      (UpdateConfig + InitMarket) such that ins * mult cannot saturate
+      under any reachable state. If admin can set cap_mult = u128::MAX,
+      the cap effectively disables the TVL gate.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      DepositCollateral (6661-6674), InitMarket cap_mult validation,
+      UpdateConfig tvl_insurance_cap_mult (9064)
+
+  - id: U29-hyperp-mark-push-zero-after-stale-allowed
+    class: state_transition
+    severity: Medium
+    bug_class: zero-push-after-stale-readmission
+    claim: >
+      PushHyperpMark at src/percolator.rs:9146-9147 rejects price_e6
+      == 0 (after Clock::get and stale check). But the stale check at
+      9113 only rejects if permissionless_stale_matured is TRUE — i.e.,
+      past the hard timeout. A market within max_staleness_secs * 3 of
+      max stale (the soft-stale window for Hyperp at 9420-9429) can
+      still receive a PushHyperpMark that ratchets last_mark_push_slot
+      forward, even though the EWMA hasn't been refreshed by a trade.
+      Cheap re-arm: admin pushes price_e6 = current_mark every soft-
+      stale window minus 1 slot to indefinitely block ResolvePermissionless
+      without trading volume. Verify the cheap-mark-push rearm doesn't
+      indefinitely delay terminal-stale resolution.
+    applies_to: [percolator]
+    scope_conditions: [hyperp_mode]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      PushHyperpMark (9073-9215), ResolveMarket Hyperp stale gate
+      (9420-9429)
+
+  - id: U30-deposit-fee-credits-zero-debt-after-sync-still-succeeds
+    class: state_transition
+    severity: Medium
+    bug_class: zero-debt-zero-effect-side-channel
+    claim: >
+      DepositFeeCredits at src/percolator.rs:9843-9933 reads debt at
+      9906 (fc < 0 ? fc.unsigned_abs() : 0). If sync_account_fee_bounded_to_market
+      at 9901 fully retires fee debt (debt == 0 after sync), the
+      instruction proceeds to Phase 2 dust check at 9912-9914 (which
+      rejects units == 0). For a non-zero amount, the check at
+      9916-9918 rejects units > debt_units = 0 → instruction rejects.
+      So zero-debt + non-zero amount fails correctly. But what about
+      the SPL transfer at 9921 vs the rejection at 9916? The
+      sequencing is: sync (writes), drop borrow, parse units, then
+      reject. If sync_account_fee_bounded_to_market wrote state that
+      MUST persist (e.g., advanced last_fee_slot), that write is
+      committed even when the instruction returns Err. Verify the
+      no-op-from-user perspective DOES commit fee-sync side effects
+      on the account, OR that ProgramError causes a full tx revert
+      that rolls back the engine_mut write.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      DepositFeeCredits (9843-9933),
+      sync_account_fee_bounded_to_market (4350)
+
+  # ===================================================================
+  # FAMILY U-cross-ix — Cross-instruction state-machine interactions
+  # ===================================================================
+
+  - id: U31-deposit-then-resolve-permissionless-pre-empt
+    class: state_transition
+    severity: High
+    bug_class: deposit-then-resolve-fund-trap
+    claim: >
+      Cross-instruction: DepositCollateral at src/percolator.rs:6590
+      gates on permissionless_stale_matured (6640) BEFORE SPL transfer.
+      But the gate reads config.last_good_oracle_slot — which is
+      updated by other ix on read_price_and_stamp. If a user's deposit
+      tx and a separate ResolvePermissionless tx land in adjacent
+      slots (same leader), the deposit could pass the stale gate at
+      slot N (because last_good_oracle_slot was just updated at N-1
+      by a passing crank), and ResolvePermissionless at slot N+1
+      observes the same last_good_oracle_slot and rejects (the gate is
+      only TRUE past the hard timeout). The race window between
+      stale-check-and-actual-stale is bounded by max_accrual_dt_slots
+      — small, but non-zero. Verify: a user can deposit funds into a
+      market 1 slot before someone else's ResolvePermissionless
+      succeeds, after which the deposit is stuck (no live withdraw,
+      only resolved-mode close which haircuts positive PnL).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      DepositCollateral (6590-6707), ResolvePermissionless (10039)
+
+  - id: U32-keeper-crank-permissionless-fee-sweep-griefing
+    class: state_transition
+    severity: Medium
+    bug_class: permissionless-crank-griefing
+    claim: >
+      KeeperCrank at src/percolator.rs:6872-? supports
+      caller_idx == u16::MAX (permissionless mode). The
+      permissionless caller pays tx fee but receives no crank reward
+      (caller is not materialized as an account). Permissionless mode
+      exists for liveness — anyone can advance the market. But a
+      malicious permissionless caller can also REPEATEDLY crank with
+      empty candidates and no real progress, just to consume the
+      market's CU envelope. Crank cost is non-zero but small; the
+      attack is grief-class (deny keepers their reward by burning
+      every per-slot crank slot first). Verify the engine's
+      keeper_crank_not_atomic returns ProgressOnly when no real work
+      is done, AND that no fee-sweep-reward is paid to permissionless
+      callers (which would also enable a reward-extraction attack).
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      KeeperCrank permissionless mode (6883-6886)
+
+  - id: U33-withdraw-then-trade-flash-extract-via-no-cpi-back
+    class: state_transition
+    severity: High
+    bug_class: flash-extract-no-cpi
+    claim: >
+      Cross-instruction: a single Solana tx can contain
+      DepositCollateral → TradeNoCpi → WithdrawCollateral. The deposit
+      raises capital; the trade opens a position; the withdraw must
+      pass MM check on remaining capital. Verify the entire chain is
+      atomic — specifically, the engine's mark_ewma_e6 update from
+      the trade (at 7680-7704) writes to config which is read by the
+      withdraw's health check. If the trade's EWMA write causes a
+      mark divergence that suddenly INVALIDATES the withdraw's MM
+      check, the whole tx reverts and the deposit is refunded. Good.
+      BUT: if the trade EWMA write opens new admission (mark moves
+      FAVORABLY for the user's position), the user can extract more
+      via withdraw than they could in two separate tx. This is the
+      "flash trade then withdraw" attack pattern.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      DepositCollateral (6590), TradeNoCpi mark EWMA update
+      (7680-7704), WithdrawCollateral (6708)
+
+  - id: U34-init-user-fee-then-immediate-tvl-cap-disabled-by-admin
+    class: state_transition
+    severity: Medium
+    bug_class: cross-tx-admin-poison
+    claim: >
+      Cross-tx sequence: InitUser at slot N with cap_mult = K admits
+      capital C. Admin at slot N+1 sets cap_mult = 0 via UpdateConfig.
+      The cap_mult = 0 disables the cap going forward, but the
+      already-admitted C is locked under the assumption that
+      insurance × K >= c_tot. Verify no instruction relies on the
+      INVARIANT that cap_mult is non-decreasing — if any downstream
+      math assumes cap_mult > 0 implies c_tot < ins × cap_mult, the
+      admin-set-to-zero breaks the invariant for existing positions
+      without recourse. Likely no downstream math reads cap_mult (only
+      InitUser/Deposit do), but verify.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      UpdateConfig tvl_insurance_cap_mult (9064), DepositCollateral
+      cap check (6661-6674)
+
+  - id: U35-tradecpi-write-req-nonce-then-deposit-replay-window
+    class: state_transition
+    severity: High
+    bug_class: nonce-replay-cross-instruction
+    claim: >
+      TradeCpi at src/percolator.rs:7742-? consumes the req_nonce
+      (write_req_nonce at state). A subsequent DepositCollateral does
+      not touch req_nonce. A subsequent TradeCpi with the SAME nonce
+      would be rejected. But a TradeCpi that calls invoke_signed_trade
+      and the matcher returns a result that fails validate_matcher_return
+      — does the wrapper restore req_nonce or leave the failed-nonce
+      consumed? If consumed, the matcher controls a denial vector:
+      every TradeCpi attempt burns a nonce. If restored, an attacker
+      can replay the (req_id, ctx, oracle_price) tuple. Verify the
+      semantics of nonce_on_failure (1) vs nonce_on_success (1)
+      around TradeCpi's matcher CPI path.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeCpi (7742+), policy::nonce_on_success / nonce_on_failure
+      (508, 514), state::write_req_nonce
+
+  - id: U36-resolved-keepercrank-after-account-close-bridge
+    class: state_transition
+    severity: Medium
+    bug_class: resolved-crank-stale-after-close
+    claim: >
+      Resolved KeeperCrank at src/percolator.rs:6902-6921 returns
+      Ok(()) immediately. If an attacker chains
+      ForceCloseResolved(idx=A) → KeeperCrank → ForceCloseResolved(idx=B)
+      within a single tx, the crank between them is a no-op. Verify
+      that the crank's no-op behavior CANNOT be exploited to skip a
+      state finalization that other instructions assume happens at
+      crank slot. Specifically: does ForceCloseResolved depend on
+      stale "current_slot" in engine state? engine.current_slot is
+      frozen at resolve in resolved mode (6900-6901 comment). If
+      ForceCloseResolved's force_close_delay_elapsed check at 10158
+      uses clock.slot (correct), it's safe. If it ever read
+      engine.current_slot (frozen), the delay would be measured from
+      resolve_slot which is also frozen — perpetual zero-delay. The
+      current code reads clock.slot which is correct.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      KeeperCrank resolved early-return (6902), ForceCloseResolved
+      (10127), force_close_delay_elapsed (902)
+
+  - id: U37-init-market-immediate-close-slab-trap-stranded-token
+    class: state_transition
+    severity: Medium
+    bug_class: init-close-no-user-stranded-route
+    claim: >
+      A market's lifecycle path: InitMarket → (no users join) →
+      ResolveMarket → CloseSlab. CloseSlab at src/percolator.rs:8797-8805
+      requires engine.vault.is_zero() AND insurance.is_zero() AND
+      num_used_accounts == 0. If the admin TopUpInsurance'd before
+      ResolveMarket and then resolved, insurance is non-zero —
+      blocking CloseSlab. Admin must call WithdrawInsurance first.
+      But WithdrawInsurance at 9528-9529 requires num_used_accounts == 0
+      — true in this scenario. So flow works. Verify the inverse:
+      what if a user InitUsered then admin ResolveMarket'd them out via
+      AdminForceCloseAccount → all users closed → num_used == 0 →
+      admin WithdrawInsurance → insurance = 0 → CloseSlab.
+      Each step is gated by admin; the user has no recourse if
+      AdminForceCloseAccount happens at a price unfavorable to them.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      InitMarket, ResolveMarket, AdminForceCloseAccount, WithdrawInsurance,
+      CloseSlab end-to-end lifecycle
+
+  # ===================================================================
+  # FAMILY U-cpi-reentry — CPI surfaces + reentrancy
+  # ===================================================================
+
+  - id: U38-collateral-deposit-spl-cpi-no-reentrancy-guard-on-receive
+    class: implicit_invariant
+    severity: Medium
+    bug_class: spl-cpi-reentrancy-guard-only-write-path
+    claim: >
+      collateral::deposit at src/percolator.rs:4006-4033 invokes
+      spl_token::transfer via solana_program::invoke. The wrapper
+      asserts slab_guard at the caller-level which rejects
+      is_cpi_in_progress. But is_cpi_in_progress is set ONLY by
+      set_cpi_in_progress (line 2996) — used by TradeCpi's matcher
+      CPI path, NOT by collateral CPIs. So a spl_token CPI from
+      DepositCollateral that re-entered percolator (impossible today
+      because spl_token doesn't CPI back) would NOT be caught by the
+      reentrancy guard. Defense-in-depth: if a future SPL Token
+      version introduces a hook or transfer-fee CPI, the reentrancy
+      guard becomes load-bearing on collateral path too. Verify the
+      design contract.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      collateral::deposit (4006), collateral::withdraw (4035),
+      state::set_cpi_in_progress (2996), state::is_cpi_in_progress
+      (2991)
+
+  - id: U39-tradecpi-tail-account-signer-flag-forwarded
+    class: authorization
+    severity: Medium
+    bug_class: matcher-tail-signer-impersonation
+    claim: >
+      TradeCpi forwards tail accounts (accounts[8..]) to the matcher
+      CPI verbatim, preserving is_signer flags (Solana runtime gates
+      effective signer power, but flag visibility passes through).
+      Verify the wrapper either zeros is_signer on tail accounts
+      before invoke_signed_trade, OR validates that no tail account
+      claiming is_signer is a known program account (slab, vault,
+      oracle), OR explicitly documents matcher responsibility for
+      key validation. This is partially covered by BR-tradecpi-is-signer-forward
+      in the regression library but the focus there is on the matcher's
+      own validation — not on the wrapper-side responsibility to
+      strip signer flags. Verify file:line for the tail-account
+      forwarding logic in TradeCpi.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeCpi tail account forwarding (around 7742-8479),
+      invoke_signed_trade (1628)
+
+  - id: U40-tradecpi-matcher-context-not-revalidated-post-cpi
+    class: state_transition
+    severity: High
+    bug_class: post-cpi-matcher-context-substitution
+    claim: >
+      TradeCpi loads matcher_context at LP-init time and stores in
+      engine.accounts[lp_idx].matcher_context (16-byte field). On
+      every TradeCpi the wrapper passes this stored pubkey to
+      matcher_identity_ok validation (line 470-489). But the
+      account_info's actual key is what gets passed into invoke_signed_trade.
+      If the matcher_context AccountInfo was substituted by the
+      caller (key in instruction != stored matcher_context) the
+      wrapper rejects. Verify that POST-CPI the wrapper doesn't
+      RE-READ matcher_context from the same AccountInfo (because the
+      matcher could have written to it). The matcher_return blob is
+      read post-CPI at line 1679+; verify that read uses a fresh
+      borrow against an AccountInfo whose key was validated PRE-CPI
+      and re-validated POST-CPI is not needed.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      TradeCpi handler, matcher_identity_ok (470), read_matcher_return
+      (1679), validate_matcher_return (1704)
+
+  - id: U41-spl-transfer-error-not-reverted-cleanly-on-engine-already-updated
+    class: state_transition
+    severity: High
+    bug_class: state-then-cpi-ordering-error
+    claim: >
+      WithdrawCollateral at src/percolator.rs:6835-6863 calls
+      engine.withdraw_not_atomic BEFORE collateral::withdraw (SPL
+      transfer). If the SPL transfer fails (e.g., user_ata frozen,
+      insufficient vault balance due to dust drift, mint paused),
+      the engine state is already mutated. Solana's ProgramResult Err
+      reverts the entire tx, so engine state should roll back
+      atomically — but if the wrapper catches the Err and converts to
+      Ok in any path, the divergence is observable. Verify: every ?
+      after engine mutation either propagates Err to caller or has a
+      manual rollback. Inspect specifically the path
+      6835-6863 + 8665-8672 (CloseAccount withdraw branch). All
+      visible code is ? -propagating, but defense-in-depth verify no
+      intermediate match arm swallows the Err.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      WithdrawCollateral state-then-CPI (6835-6863), CloseAccount
+      state-then-CPI (8617-8672), WithdrawInsurance (9532-9564),
+      WithdrawInsuranceLimited (9700-9737)
+
+  - id: U42-token-program-substitution-spl-vs-token-2022
+    class: authorization
+    severity: High
+    bug_class: token-program-substitution
+    claim: >
+      verify_token_program at src/percolator.rs:5669-5677 enforces
+      a_token.key == spl_token::ID (the original SPL Token, not
+      Token-2022). All deposit/withdraw CPIs pin to spl_token::ID.
+      But the vault's mint at InitMarket is unpacked using
+      spl_token::state::Mint — incompatible with Token-2022 mints
+      (transfer fee, interest-bearing, etc.). If admin tries to use
+      a Token-2022 mint, InitMarket fails at 5892 (a_mint.owner !=
+      spl_token::ID). Good. But for established markets with
+      legitimate SPL Token mints, verify there's no path to swap
+      mint or vault to a Token-2022 variant post-init (e.g., via
+      admin UpdateConfig). Mint pubkey is set at init and immutable
+      via config; verify no admin instruction allows mint update.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      verify_token_program (5669), InitMarket mint validation
+      (5887-5901), UpdateConfig fields (no mint mutation)
+
+  # ===================================================================
+  # FAMILY U-arithmetic — Subtle arithmetic + rounding boundary
+  # ===================================================================
+
+  - id: U43-units-to-base-checked-saturation-to-u64
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: units-to-base-truncation
+    claim: >
+      units_to_base_checked at src/percolator.rs:3100 returns
+      Option<u64> after units × scale check. WithdrawInsurance at
+      9542-9546 explicitly try_into::<u64>() the units before
+      units_to_base_checked. If units (u128) > u64::MAX, the
+      try_into fails with EngineOverflow. If units fits in u64 but
+      units * scale overflows u64, units_to_base_checked returns
+      None → EngineOverflow. The double-bound is correct. BUT: the
+      engine returns insurance balance in u128. If
+      engine.withdraw_resolved_insurance_not_atomic returns a value
+      > u64::MAX × scale, the user can't extract the full balance
+      in one call. Verify there's a path to extract the residual
+      (e.g., multiple calls), or whether the asymmetry strands
+      insurance > u64::MAX × scale forever.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      units_to_base_checked (3100), WithdrawInsurance try_into
+      (9542-9546)
+
+  - id: U44-base-to-units-zero-scale-passes-through-creates-cap-bypass
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: zero-scale-degenerate-mode
+    claim: >
+      base_to_units at src/percolator.rs:3088-3095 returns (base, 0)
+      when scale == 0. InitMarket validates unit_scale via
+      init_market_scale_ok at 1268 — verify the predicate REJECTS
+      scale = 0. If scale = 0 is admitted, every base-to-units
+      conversion is identity, but unit_scale is also used in
+      tvl_insurance_cap_mult math, fee-credit conversion, etc. A
+      scale = 0 market has no dust check (dust always 0 at line
+      6388-6391 and similar), and could short-circuit MM checks if
+      the engine expects unit space != base space. Verify
+      init_market_scale_ok rejects zero.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      base_to_units (3088), units_to_base_checked (3100),
+      init_market_scale_ok (1268)
+
+  - id: U45-funding-rate-i128-bounds-at-extreme-mark-index-divergence
+    class: arithmetic_overflow
+    severity: High
+    bug_class: funding-rate-overflow-edge
+    claim: >
+      compute_current_funding_rate_e9 at src/percolator.rs:5205 calls
+      policy::funding_rate_e9_from_mark_index. The math is
+      mark / index - 1 × funding_k_bps × MAX_PREMIUM cap, in fixed-
+      point. At extreme mark vs index divergence (e.g., mark = 1e16
+      max-price, index = 1 — both at extreme bounds), the intermediate
+      mark × funding_k_bps × scaling factor may overflow i128 even
+      after the cap. Verify the helper either uses u256 intermediates
+      OR provably stays within i128 across all (mark, index) ∈ [0,
+      MAX_ORACLE_PRICE]² that the engine permits.
+    applies_to: [percolator]
+    scope_conditions: [perpetual_funding]
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      compute_current_funding_rate_e9 (5205),
+      policy::funding_rate_e9_from_mark_index (665)
+
+  - id: U46-clamp-oracle-price-rounding-direction-at-1-bps
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: clamp-rounding-favors-user
+    claim: >
+      clamp_oracle_price at src/percolator.rs:3662 clamps raw_price
+      to within max_change_bps of last_price. At max_change_bps = 1
+      (the lowest non-zero cap), the allowed band is ±0.01% per slot.
+      The intermediate computation involves last_price × bps / 10_000.
+      For last_price near 1 (rounded units), the band collapses to 0
+      and clamp_oracle_price returns last_price unchanged regardless
+      of raw_price. This is fine for tiny prices but for prices in
+      the 100-1000 range with bps = 1, the band is 0.01-0.1 units —
+      potentially fractional. Verify the rounding direction (floor)
+      doesn't admit a 1-unit adverse move that the spec'd cap rejected.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      clamp_oracle_price (3662), max_price_move_bps_per_slot
+      RiskParam
+
+  # ===================================================================
+  # FAMILY U-dust — Dust accumulation in vault without engine accounting
+  # ===================================================================
+
+  - id: U47-spl-transfer-fee-token-vault-drift
+    class: invariant_property
+    severity: High
+    bug_class: vault-engine-drift-via-transfer-fee
+    claim: >
+      Percolator pins token_program = spl_token::ID (legacy, no
+      transfer fees). But the vault is a regular spl_token::Account
+      pegged to a specific mint. The wrapper never re-validates the
+      vault's mint after init; if the mint were ever migrated (which
+      SPL Token does not support directly), or if a future Solana
+      runtime change allowed transfer-fee on legacy SPL Token, the
+      vault.amount tracked by engine.vault could drift from
+      vault_token.amount. CloseSlab drains the difference to admin
+      (8810-8834). Verify the assumption "SPL Token has no transfer
+      fee" holds across all reachable mint configurations admin can
+      pass at init.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      InitMarket mint validation (5887-5901), CloseSlab vault drain
+      (8810-8834)
+
+  - id: U48-dust-on-init-user-new-account-fee-not-aligned-to-scale
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: dust-strand-on-misaligned-fee
+    claim: >
+      InitMarket at src/percolator.rs:6011-6013 rejects when
+      unit_scale > 0 AND new_account_fee % unit_scale != 0. This
+      prevents per-account dust leak. But unit_scale could be set to
+      0 (the policy disables this check by branching on > 0). Verify
+      init_market_scale_ok prohibits scale = 0; if it doesn't, the
+      misalignment check is skipped and new_account_fee can be any
+      value, but base_to_units(scale=0) returns identity so no dust
+      is created. The interaction is benign at scale = 0 but verify
+      the joint invariant.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      InitMarket (6011-6013), init_market_scale_ok (1268)
+
+  - id: U49-keeper-crank-reward-rounding-floor-to-keeper
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: keeper-reward-rounding-favors-keeper
+    claim: >
+      KeeperCrank reward at src/percolator.rs:7236+ pays
+      CRANK_REWARD_BPS = 50% of fee sweep delta to caller as capital.
+      Reward = sweep_delta × 5000 / 10_000. The integer division
+      floors. For sweep_delta = 1 unit, reward = 0 (rounds against
+      keeper). For sweep_delta = 2, reward = 1. For sweep_delta = 3,
+      reward = 1 (floors). The remaining (sweep_delta - reward) stays
+      in insurance. The rounding direction favors INSURANCE on small
+      deltas — keeper gets less than 50% on odd deltas. Verify no
+      attacker can exploit by submitting cranks at odd sweep_delta
+      values to maximize insurance retention; verify also no path
+      where rounding accumulates to deny keeper a non-trivial reward.
+    applies_to: [percolator]
+    scope_conditions: []
+    target_file: src/percolator.rs
+    relevant_instructions: |
+      KeeperCrank reward computation (7236+), CRANK_REWARD_BPS
+      constant
