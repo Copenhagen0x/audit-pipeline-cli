@@ -8,3 +8,10 @@
 {"ts": "2026-05-11T14:14:05+00:00", "event": "layer1_summary", "n_total": 3, "n_true": 0, "n_needs_l2": 0, "n_false_high": 3, "cost_layer1": 0.0594}
 {"ts": "2026-05-11T14:14:05+00:00", "event": "merkle_signed", "cycle_id": "20260511-141242", "rc": 0}
 {"ts": "2026-05-11T14:14:05+00:00", "event": "hunt_done", "elapsed": 0.009341001510620117, "n_confirmed": 0, "cost": 0.0594}
+{"ts": "2026-05-11T14:14:08+00:00", "event": "auto_publish", "rc": 0, "script": "/root/audit-pipeline-cli/deploy/publish_cycle.sh"}
+{"ts": "2026-05-11T14:15:38+00:00", "event": "hunt_start", "engine_sha": "6cd742f25a9bcebeb9adc01136b129b5996397dd", "wrapper_sha": "873ac1304275276cef89bb9dc89b17bc3cfa8de8", "target": "default", "source_mode": "local", "source_repo": null, "daily_remaining_usd": Infinity}
+{"ts": "2026-05-11T14:15:38+00:00", "event": "layer1_resumed_from_existing", "path": "/root/audit_runs/percolator-live/hunts/20260511-141242/recon/recon_summary.json"}
+{"ts": "2026-05-11T14:15:38+00:00", "event": "layer1_summary", "n_total": 3, "n_true": 0, "n_needs_l2": 0, "n_false_high": 3, "cost_layer1": 0.0594}
+{"ts": "2026-05-11T14:15:39+00:00", "event": "merkle_signed", "cycle_id": "20260511-141242", "rc": 0}
+{"ts": "2026-05-11T14:15:39+00:00", "event": "hunt_done", "elapsed": 0.007832765579223633, "n_confirmed": 0, "cost": 0.0594}
+{"ts": "2026-05-11T14:15:39+00:00", "event": "auto_publish_html_rendered", "rc": 0, "cycle_id": "20260511-141242"}

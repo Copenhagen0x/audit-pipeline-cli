@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JELLEO · default · cycle 20260511-141242</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:           #050504;
+  --bg-2:         #0a0908;
+  --bg-3:         #100e0c;
+  --surface:      rgba(245,243,237,0.025);
+  --surface-2:    rgba(245,243,237,0.045);
+  --surface-3:    rgba(245,243,237,0.08);
+
+  --ink:          #f5f3ed;
+  --ink-2:        rgba(245,243,237,0.72);
+  --ink-3:        rgba(245,243,237,0.46);
+  --ink-4:        rgba(245,243,237,0.28);
+  --ink-5:        rgba(245,243,237,0.12);
+
+  --rule:         rgba(245,243,237,0.08);
+  --rule-2:       rgba(245,243,237,0.16);
+
+  --amber:        #f5b800;
+  --amber-2:      #ffce4a;
+  --amber-glow:   rgba(245,184,0,0.4);
+
+  --text:         #f5f3ed;       /* legacy alias */
+  --text-2:       rgba(245,243,237,0.72);
+  --text-3:       rgba(245,243,237,0.46);
+  --border:       rgba(245,243,237,0.08);
+  --border-2:     rgba(245,243,237,0.16);
+  --accent:       #f5b800;
+
+  --ok:           #4ade80;
+  --warn:         #fbbf24;
+  --critical:     #ef4444;
+  --high:         #f97316;
+  --medium:       #eab308;
+  --low:          #60a5fa;
+  --info:         #71717a;
+
+  --font:         'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono:         'JetBrains Mono', 'SF Mono', 'Cascadia Code', Menlo, Monaco, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv02','cv03','cv04','cv11','ss01';
+}
+
+a { color: var(--amber); text-decoration: none; border-bottom: 1px solid rgba(245,184,0,0.3); }
+a:hover { border-bottom-color: var(--amber); }
+
+code, pre, .mono {
+  font-family: var(--mono);
+  font-size: .92em;
+}
+code {
+  background: var(--surface);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+}
+pre {
+  background: var(--bg-2); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 18px 20px; overflow-x: auto;
+  line-height: 1.55; color: var(--ink-2); font-size: 12.5px;
+  margin: 18px 0;
+}
+pre code { background: none; border: none; padding: 0; color: inherit; }
+
+::selection { background: var(--amber); color: var(--bg); }
+
+/* ============================== LAYOUT ============================== */
+
+.shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 40px 80px;
+}
+
+/* ============================== TOPBAR ============================== */
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 40px;
+  border-bottom: 1px solid var(--rule);
+  background: rgba(5,5,4,.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  display: flex; align-items: center; gap: 14px;
+}
+.brand .mark {
+  position: relative; width: 28px; height: 28px;
+  display: inline-block;
+}
+.brand .mark::before, .brand .mark::after {
+  content: ''; position: absolute;
+  width: 12px; height: 12px;
+  border: 2px solid var(--amber);
+  filter: drop-shadow(0 0 6px var(--amber-glow));
+}
+.brand .mark::before { top: 0; right: 0; border-left: none; border-bottom: none; }
+.brand .mark::after  { bottom: 0; left: 0; border-right: none; border-top: none; }
+.brand .wordmark { font-weight: 800; letter-spacing: .04em; font-size: 18px; color: var(--ink); }
+.brand .tagline {
+  color: var(--ink-3); font-size: 11px; letter-spacing: .14em; margin-left: 10px;
+  border-left: 1px solid var(--rule-2); padding-left: 12px; text-transform: uppercase;
+  font-family: var(--mono);
+}
+
+.status {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .14em;
+  font-family: var(--mono);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot.ok       { background: var(--ok);       box-shadow: 0 0 12px rgba(74,222,128,.6); }
+.dot.warn     { background: var(--warn);     box-shadow: 0 0 12px rgba(251,191,36,.6); }
+.dot.critical { background: var(--critical); box-shadow: 0 0 12px rgba(239,68,68,.6); }
+
+/* ============================== TYPOGRAPHY ============================== */
+
+h1 {
+  font-size: 32px; font-weight: 700; letter-spacing: -0.02em;
+  margin: 0 0 6px; color: var(--ink);
+}
+h2 {
+  font-size: 12px; font-weight: 500; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--amber);
+  margin: 44px 0 16px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 12px;
+}
+h2::before {
+  content: ''; width: 24px; height: 1px;
+  background: var(--amber); box-shadow: 0 0 6px var(--amber-glow);
+}
+h3 {
+  font-size: 16px; font-weight: 600; margin: 0 0 6px; color: var(--ink);
+}
+.subhead {
+  color: var(--ink-2);
+  font-size: 14px;
+  margin: 0 0 32px;
+  font-family: var(--mono);
+}
+.subhead code { font-size: 12.5px; color: var(--amber); border-color: rgba(245,184,0,0.2); }
+
+/* ============================== KPI GRID ============================== */
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin: 0 0 12px;
+}
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 8px;
+  transition: border-color .15s ease;
+}
+.kpi:hover { border-color: var(--rule-2); }
+.kpi .label {
+  font-size: 10px; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .18em; font-weight: 500;
+  font-family: var(--mono);
+}
+.kpi .value {
+  font-size: 32px; font-weight: 700; line-height: 1;
+  letter-spacing: -0.02em; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.kpi.danger { border-color: rgba(239,68,68,.4); background: linear-gradient(180deg, rgba(239,68,68,.05), transparent); }
+.kpi.danger .value { color: var(--critical); }
+.kpi.warn   { border-color: rgba(249,115,22,.4); }
+.kpi.warn   .value { color: var(--high); }
+.kpi.ok     .value { color: var(--ok); }
+.kpi .delta { font-size: 11px; color: var(--ink-3); font-family: var(--mono); }
+
+/* ============================== TABLES ============================== */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13px;
+}
+th, td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+tbody tr:last-child td { border-bottom: none; }
+th {
+  background: var(--surface-2);
+  font-weight: 500;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: .14em;
+  font-family: var(--mono);
+}
+tr:hover td { background: rgba(245,243,237,.012); }
+td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; font-family: var(--mono); }
+td strong { color: var(--ink); }
+
+/* ============================== SEVERITY ============================== */
+
+.sev {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+.sev.critical { background: rgba(239,68,68,.14); color: var(--critical); border-color: rgba(239,68,68,.3); }
+.sev.high     { background: rgba(249,115,22,.14); color: var(--high);    border-color: rgba(249,115,22,.3); }
+.sev.medium   { background: rgba(234,179,8,.14); color: var(--medium);   border-color: rgba(234,179,8,.3); }
+.sev.low      { background: rgba(96,165,250,.12); color: var(--low);     border-color: rgba(96,165,250,.25); }
+.sev.info     { background: rgba(113,113,122,.14); color: var(--info);   border-color: rgba(113,113,122,.3); }
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  background: var(--surface-2); color: var(--ink-2);
+  border: 1px solid var(--rule);
+}
+.status-pill.confirmed { background: rgba(239,68,68,.1);  color: var(--critical); border-color: rgba(239,68,68,.3); }
+.status-pill.disclosed { background: rgba(96,165,250,.1); color: var(--low);      border-color: rgba(96,165,250,.25); }
+.status-pill.fixed     { background: rgba(74,222,128,.1); color: var(--ok);       border-color: rgba(74,222,128,.3); }
+.status-pill.verified  { background: rgba(74,222,128,.18); color: var(--ok);      border-color: rgba(74,222,128,.4); }
+.status-pill.rejected  { background: var(--surface-2); color: var(--ink-3); }
+
+/* Severity bar */
+.sev-bar {
+  display: flex; height: 8px; border-radius: 4px; overflow: hidden;
+  background: var(--surface-2); border: 1px solid var(--rule);
+  margin: 14px 0 8px;
+}
+.sev-bar > span { display: block; height: 100%; }
+.sev-bar .b-critical { background: var(--critical); }
+.sev-bar .b-high     { background: var(--high); }
+.sev-bar .b-medium   { background: var(--medium); }
+.sev-bar .b-low      { background: var(--low); }
+.sev-bar .b-info     { background: var(--info); }
+.sev-bar-legend {
+  display: flex; gap: 18px; font-size: 11px; color: var(--ink-3);
+  flex-wrap: wrap; font-family: var(--mono); letter-spacing: .04em;
+}
+.sev-bar-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sev-bar-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+
+/* Empty state */
+.empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--ink-3);
+  background: var(--surface);
+  border: 1px dashed var(--rule-2);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+/* ============================== FOOTER ============================== */
+
+.footer {
+  margin-top: 60px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+  display: flex; justify-content: space-between; align-items: center;
+  color: var(--ink-3); font-size: 11px;
+  letter-spacing: .04em;
+  font-family: var(--mono);
+  flex-wrap: wrap; gap: 12px;
+}
+.footer .muted { color: var(--ink-4); }
+.footer a { color: var(--ink-3); }
+.footer a:hover { color: var(--amber); }
+
+/* ============================== COVER PAGE ============================== */
+/* 3-row grid: logo / hero (centered) / footer. No page-level decorative
+   brackets — the logo carries the bracket motif. Tight, structured spacing. */
+
+.cover {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 56px;
+  padding: 72px 64px 56px;
+  position: relative;
+  page-break-after: always;
+  break-after: page;
+}
+
+/* Logo: brackets wrap AROUND the JELLEO wordmark (matches nav-logo pattern
+   from index.html). Wordmark + tagline are inline; tagline is divided by
+   a thin rule. Width is just-enough for the word + tagline. */
+.cover-logo {
+  display: inline-flex; align-items: center;
+  position: relative;
+  height: 64px;
+  padding: 0 32px;
+  align-self: start;
+  justify-self: start;
+}
+.cover-logo::before, .cover-logo::after {
+  content: ''; position: absolute;
+  width: 22px; height: 22px;
+  border: 2.5px solid var(--amber);
+  filter: drop-shadow(0 0 8px var(--amber-glow));
+  pointer-events: none;
+}
+.cover-logo::before { top: 0; right: 0; border-left: none; border-bottom: none; }
+.cover-logo::after  { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+.cover-wordmark {
+  font-size: 38px; font-weight: 800; letter-spacing: .03em; color: var(--ink);
+  line-height: 1;
+}
+.cover-tagline {
+  margin-left: 18px; padding-left: 18px;
+  border-left: 1px solid var(--rule-2);
+  font-family: var(--mono); font-size: 12px;
+  letter-spacing: .22em; text-transform: uppercase;
+  color: var(--ink-3); line-height: 1.4;
+}
+
+/* Hero: vertically-centered block holding eyebrow / title / meta / severity */
+.cover-hero {
+  display: flex; flex-direction: column;
+  justify-content: center;
+  align-self: center;
+  width: 100%;
+  max-width: 920px;
+}
+
+.cover-eyebrow {
+  font-family: var(--mono); font-size: 14px;
+  letter-spacing: .28em; text-transform: uppercase; color: var(--amber);
+  margin-bottom: 28px; display: flex; align-items: center; gap: 16px;
+  font-weight: 500;
+}
+.cover-eyebrow::before {
+  content: ''; width: 32px; height: 1.5px;
+  background: var(--amber); box-shadow: 0 0 8px var(--amber-glow);
+}
+
+.cover-title {
+  font-size: clamp(56px, 6.4vw, 88px); font-weight: 700; letter-spacing: -0.025em;
+  line-height: 1.04; color: var(--ink); margin-bottom: 44px; max-width: 16ch;
+}
+.cover-title .accent {
+  background: linear-gradient(135deg, var(--amber), var(--amber-2));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.cover-meta-grid {
+  display: grid; grid-template-columns: 180px 1fr; gap: 14px 36px;
+  font-size: 17px; line-height: 1.5;
+  margin-bottom: 44px;
+}
+.cover-meta-grid .label {
+  font-family: var(--mono); font-size: 13px; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--ink-3); padding-top: 4px;
+  font-weight: 500;
+}
+.cover-meta-grid .value { color: var(--ink); font-weight: 500; font-size: 17px; }
+.cover-meta-grid .value code {
+  font-size: 15px; padding: 3px 10px; color: var(--amber);
+  border-color: rgba(245,184,0,0.2);
+}
+
+.cover-summary {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--surface); overflow: hidden;
+}
+.cover-summary-cell {
+  padding: 24px 18px; text-align: center;
+  border-right: 1px solid var(--rule);
+}
+.cover-summary-cell:last-child { border-right: none; }
+.cover-summary-cell .num {
+  font-size: 40px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+  letter-spacing: -0.02em;
+}
+.cover-summary-cell .label {
+  display: block; margin-top: 12px;
+  font-size: 12px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--ink-3); font-family: var(--mono); font-weight: 500;
+}
+.cover-summary-cell.crit .num { color: var(--critical); }
+.cover-summary-cell.high .num { color: var(--high); }
+.cover-summary-cell.med .num  { color: var(--medium); }
+.cover-summary-cell.low .num  { color: var(--low); }
+
+/* Caption + status breakdown — shown directly under the severity strip
+   to explain that the headline counts are CONFIRMED findings only, with
+   the rest of the lifecycle pipeline visible underneath. */
+.cover-summary-caption {
+  margin-top: 14px; margin-bottom: 0;
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--ink-3); text-align: center;
+}
+.cover-status-breakdown {
+  margin-top: 22px;
+  display: flex; gap: 0;
+  border-top: 1px solid var(--rule);
+  padding-top: 18px;
+  flex-wrap: wrap;
+  font-family: var(--mono); font-size: 13px;
+  color: var(--ink-2);
+  justify-content: space-between;
+  row-gap: 8px;
+}
+.cover-status-breakdown .pipe-stage {
+  display: inline-flex; align-items: baseline; gap: 8px;
+}
+.cover-status-breakdown .pipe-num {
+  font-size: 18px; font-weight: 700; color: var(--ink);
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+.cover-status-breakdown .pipe-label {
+  font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.cover-status-breakdown .pipe-stage.confirmed .pipe-num { color: var(--ok); }
+.cover-status-breakdown .pipe-stage.disclosed .pipe-num { color: var(--low); }
+.cover-status-breakdown .pipe-stage.new       .pipe-num { color: var(--medium); }
+.cover-status-breakdown .pipe-stage.rejected  .pipe-num { color: var(--ink-3); }
+
+/* Footer: receipt + meta side-by-side */
+.cover-bottom {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 36px;
+  border-top: 1px solid var(--rule); padding-top: 32px;
+  align-self: end;
+}
+.cover-receipt {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber); border-radius: 0 6px 6px 0;
+  padding: 20px 24px;
+}
+.cover-receipt .header {
+  font-size: 12px; letter-spacing: .24em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 14px; font-family: var(--mono);
+  font-weight: 500;
+}
+.cover-receipt .pubkey {
+  font-size: 13px; color: var(--ink-2); font-family: var(--mono);
+  word-break: break-all; line-height: 1.55;
+}
+.cover-receipt .verify {
+  margin-top: 16px; padding-top: 14px;
+  border-top: 1px dashed var(--rule);
+  font-size: 12px; color: var(--ink-3); font-family: var(--mono);
+  line-height: 1.7;
+}
+.cover-receipt .verify code {
+  font-size: 11.5px; padding: 2px 6px; color: var(--ink-2);
+  border-color: var(--rule);
+}
+
+/* Right-column platform card — mirrors .cover-receipt styling exactly */
+.cover-info {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  border-radius: 0 6px 6px 0;
+  padding: 20px 24px;
+}
+.cover-info .header {
+  font-size: 12px; letter-spacing: .24em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 14px; font-family: var(--mono);
+  font-weight: 500;
+}
+.cover-info .body {
+  font-size: 13px; line-height: 1.85; color: var(--ink-2);
+  font-family: var(--mono);
+}
+.cover-info .body strong { color: var(--ink); font-weight: 700; }
+.cover-info .body a { color: var(--amber); }
+.cover-info .body .row {
+  display: flex; gap: 8px; align-items: baseline;
+  padding-top: 4px;
+}
+.cover-info .body .row .key {
+  color: var(--ink-3); min-width: 100px;
+  font-size: 11.5px; letter-spacing: .04em;
+}
+.cover-info .body .footer-row {
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px dashed var(--rule);
+  font-size: 12px; color: var(--ink-3);
+}
+
+/* ============================== PRINT RULES ============================== */
+/* Rendered by Chrome --print-to-pdf, weasyprint, wkhtmltopdf, etc.
+   Hides sticky topbar, forces dark background to render, controls
+   page breaks for tables and sections, repeats table headers per page. */
+
+@page {
+  size: letter;
+  margin: 0.75in;
+  background: #050504;
+}
+
+@media print {
+  html, body {
+    background: #050504 !important;
+    color: var(--ink) !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+  .topbar { display: none !important; }    /* sticky chrome doesn't print */
+
+  .shell { padding: 0 !important; max-width: 100% !important; }
+
+  /* Cover layout — switch from grid to block for print.
+     Chromium headless --print-to-pdf doesn't reliably support 100vh in print,
+     which makes grid-template-rows: auto 1fr auto collapse to zero on the
+     1fr row. With align-self: start/center/end on the three children, that
+     collapse stacks all three sections at the same y-coordinate (the bug
+     where logo + hero + bottom render on top of each other).
+     Solution: drop grid in print, use natural flow with explicit gaps,
+     keep page-break-after so the rest of the report starts on page 2. */
+  .cover {
+    display: block !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0.5in 0.5in 0.6in;
+    page-break-after: always;
+    break-after: page;
+  }
+  .cover > .cover-logo {
+    display: inline-flex !important;
+    align-self: auto !important;
+    justify-self: auto !important;
+    margin-bottom: 56px;
+  }
+  .cover > .cover-hero {
+    align-self: auto !important;
+    margin-bottom: 56px;
+  }
+  .cover > .cover-bottom {
+    align-self: auto !important;
+    margin-bottom: 0;
+  }
+  .cover-title { font-size: 72px !important; }
+
+  /* Avoid breaking inside cards, KPIs, and table rows */
+  .kpi, .card, .empty, .cover-receipt, .cover-summary { page-break-inside: avoid; break-inside: avoid; }
+  table { page-break-inside: auto; }
+  tr    { page-break-inside: avoid; break-inside: avoid; }
+  thead { display: table-header-group; }   /* repeat headers on each page */
+  tfoot { display: table-footer-group; }
+
+  /* Section headings travel with their first child */
+  h1, h2, h3 { page-break-after: avoid; break-after: avoid; }
+
+  /* Hyperlinks render as text + URL in print */
+  a { color: var(--amber) !important; border-bottom: none !important; }
+
+  /* Hide elements explicitly tagged no-print */
+  .no-print { display: none !important; }
+}
+</style>
+</head><body>
+
+
+    <div class="topbar no-print">
+      <div class="brand">
+        <span class="mark"></span>
+        <span class="wordmark">JELLEO</span>
+        <span class="tagline">Autonomous Solana audit</span>
+      </div>
+      <div class="status">
+        <span class="dot ok"></span>
+        <span>Cycle complete · no confirmed Critical/High</span>
+      </div>
+    </div>
+    
+
+
+    <section class="cover">
+      <div class="cover-logo">
+        <span class="cover-wordmark">JELLEO</span>
+        <span class="cover-tagline">Autonomous Solana audit</span>
+      </div>
+
+      <div class="cover-hero">
+        <div class="cover-eyebrow">Audit report · cycle 20260511-141242</div>
+        <h1 class="cover-title">Hunt cycle · <span class="accent">default.</span></h1>
+
+        <div class="cover-meta-grid">
+          <div class="label">Auditor</div><div class="value">Kirill Sakharuk &middot; <a href="mailto:kirill@jelleo.com">kirill@jelleo.com</a></div>
+          <div class="label">Customer</div><div class="value">default</div>
+          <div class="label">Window</div><div class="value">cycle 20260511-141242</div>
+          <div class="label">Cycle</div><div class="value"><code>20260511-141242</code></div>
+          <div class="label">Engine SHA</div><div class="value"><code>6cd742f25a</code></div>
+          <div class="label">Wrapper SHA</div><div class="value"><code>873ac13042</code></div>
+          <div class="label">Generated</div><div class="value"><code>2026-05-11T14:15:39+00:00</code></div>
+        </div>
+
+        <div class="cover-summary">
+          <div class="cover-summary-cell crit"><div class="num">0</div><span class="label">Critical</span></div>
+          <div class="cover-summary-cell high"><div class="num">0</div><span class="label">High</span></div>
+          <div class="cover-summary-cell med"><div class="num">0</div><span class="label">Medium</span></div>
+          <div class="cover-summary-cell low"><div class="num">0</div><span class="label">Low</span></div>
+          <div class="cover-summary-cell"><div class="num">0</div><span class="label">Info</span></div>
+        </div>
+
+        <div class="cover-summary-caption">
+          confirmed · disclosed · fixed · verified
+        </div>
+
+        <div class="cover-status-breakdown"><span class="pipe-stage rejected"><span class="pipe-num">3</span><span class="pipe-label">Rejected (false positive)</span></span></div>
+      </div>
+
+      <div class="cover-bottom">
+        <div class="cover-receipt">
+          <div class="header">Signed · Ed25519</div>
+          <div class="pubkey">MCowBQYDK2VwAyEAvCFSLBecPuNClei48PWjHuelHlBX9uYZo4wELbQ7b+k=</div>
+          <div class="verify">
+            verify with <code>audit-pipeline sign verify &lt;file&gt; &lt;file&gt;.sig --pubkey jelleo.ed25519.pub</code><br>
+            public key at <a href="https://jelleo.com/keys/jelleo.ed25519.pub">https://jelleo.com/keys/jelleo.ed25519.pub</a>
+          </div>
+        </div>
+        <div class="cover-info">
+          <div class="header">Platform · v0.1</div>
+          <div class="body">
+            <strong>JELLEO</strong> · The underwriting layer for Solana DeFi.
+            <div class="row"><span class="key">Methodology</span><a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a></div>
+            <div class="row"><span class="key">Disclosure</span><a href="https://jelleo.com/security.html">jelleo.com/security.html</a></div>
+            <div class="row"><span class="key">Source</span><a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a></div>
+            <div class="footer-row">
+              Apache-2.0 · contact <a href="mailto:security@jelleo.com">security@jelleo.com</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    
+
+<div class="shell">
+
+  <h1>default · hunt cycle</h1>
+  <p class="subhead">
+    <code>20260511-141242</code> &middot;
+    started 2026-05-11T14:12:42+00:00 &middot;
+    engine <code>6cd742f25a</code> &middot;
+    wrapper <code>873ac13042</code>
+    &middot; merkle <code>005eda23a77ace29&hellip;</code>
+  </p>
+
+  <h2>01 &mdash; Cycle summary</h2>
+
+  <div class="kpi-grid">
+    <div class="kpi ok">
+      <div class="label">Critical</div><div class="value">0</div></div>
+    <div class="kpi ok">
+      <div class="label">High</div><div class="value">0</div></div>
+    <div class="kpi"><div class="label">Medium</div><div class="value">0</div></div>
+    <div class="kpi"><div class="label">Confirmed</div><div class="value">0</div></div>
+    <div class="kpi"><div class="label">Total verdicts</div><div class="value">3</div></div>
+  </div>
+
+  
+    <div class="sev-bar">
+      <span class="b-critical" style="width:0.0%"></span>
+      <span class="b-high"     style="width:0.0%"></span>
+      <span class="b-medium"   style="width:0.0%"></span>
+      <span class="b-low"      style="width:100.0%"></span>
+      <span class="b-info"     style="width:0.0%"></span>
+    </div>
+    <div class="sev-bar-legend">
+      <span><i style="background:var(--critical)"></i>Critical 0</span>
+      <span><i style="background:var(--high)"></i>High 0</span>
+      <span><i style="background:var(--medium)"></i>Medium 0</span>
+      <span><i style="background:var(--low)"></i>Low 3</span>
+      <span><i style="background:var(--info)"></i>Info 0</span>
+    </div>
+
+  <h2>02 &mdash; Findings</h2>
+  
+    <table>
+      <thead><tr>
+        <th>Severity</th><th>Hypothesis</th><th>Title</th>
+        <th>Verdict</th><th>Status</th><th>PoC</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="sev low">Low</span></td>
+          <td><code>SMOKE1-pre-fire-chain-test-noop</code></td>
+          <td style="max-width:520px">Smoke probe (must be false): every function in src/percolator.rs returns the literal string &quot;SMOKE_TEST_PROBE_NEVER_PRES</td>
+          <td>FALSE <span style="color:var(--text-3)">/ HIGH</span></td>
+          <td><span class="status-pill rejected">rejected</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
+        </tr>
+        <tr>
+          <td><span class="sev low">Low</span></td>
+          <td><code>SMOKE2-pre-fire-chain-test-trivial</code></td>
+          <td style="max-width:520px">Smoke probe (must be false): the file src/percolator.rs contains the literal byte sequence &quot;NEVER_MATCH_THIS_TOKEN_qwert</td>
+          <td>FALSE <span style="color:var(--text-3)">/ HIGH</span></td>
+          <td><span class="status-pill rejected">rejected</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
+        </tr>
+        <tr>
+          <td><span class="sev low">Low</span></td>
+          <td><code>SMOKE3-pre-fire-chain-test-bind</code></td>
+          <td style="max-width:520px">Smoke probe (must be false): pub fn names in src/percolator.rs all begin with the prefix &quot;smoke_probe_&quot;. Trivially false</td>
+          <td>FALSE <span style="color:var(--text-3)">/ HIGH</span></td>
+          <td><span class="status-pill rejected">rejected</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
+        </tr></tbody>
+    </table>
+
+  
+  
+
+  <h2>A &mdash; Severity rubric</h2>
+  <table>
+    <thead><tr><th style="width:120px">Tier</th><th>Definition</th></tr></thead>
+    <tbody><tr><td><span class="sev critical">Critical</span></td><td style="color:var(--text-2)">Direct loss of user funds or full protocol takeover with no meaningful preconditions. Reachable from a permissionless instruction by any signer. Must be patched immediately.</td></tr><tr><td><span class="sev high">High</span></td><td style="color:var(--text-2)">Significant loss of user funds or protocol invariant violation under realistic preconditions (specific market state, signer with limited but obtainable role). Patch should ship in next release.</td></tr><tr><td><span class="sev medium">Medium</span></td><td style="color:var(--text-2)">Hardening issue, partial loss possible, or invariant violation requiring privileged signer or improbable state. Worth fixing in normal cadence.</td></tr><tr><td><span class="sev low">Low</span></td><td style="color:var(--text-2)">Minor issue with no plausible path to fund loss. Code-quality or defense-in-depth concern.</td></tr><tr><td><span class="sev info">Info</span></td><td style="color:var(--text-2)">Informational. No security impact. Documentation or style suggestion.</td></tr></tbody>
+  </table>
+
+  <h2>B &mdash; Methodology</h2>
+  <p style="color:var(--text-2)">
+    This cycle was produced by Jelleo's continuous, hypothesis-driven Solana audit loop.
+    Every finding originates as a falsifiable invariant claim from a per-protocol
+    hypothesis library, dispatched to multi-agent recon (Layer 1), promoted on
+    contested verdicts via adversarial debate (Layer 1.5), and confirmed empirically
+    via a <code>cargo test</code> proof-of-concept (Layer 2) before transitioning to
+    <code>confirmed</code>. Confirmed findings auto-fire structural sibling derivation
+    and cross-protocol propagation hooks, then move through a restricted lifecycle
+    (<code>new &rarr; triaged &rarr; confirmed &rarr; disclosed &rarr; fixed &rarr; verified</code>).
+    Every cycle is signed Ed25519 against the platform key — see the cover-page receipt.
+  </p>
+  <p style="color:var(--text-2)">
+    Full spec: <a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology">docs/methodology/</a>
+    (eleven sections, &sect;01&ndash;&sect;10) &middot;
+    Live reference: <a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a> &middot;
+    Inaugural disclosure: <a href="https://github.com/aeyakovenko/percolator-prog/pull/39">aeyakovenko/percolator-prog#39</a> (F7, 2026-04)
+  </p>
+
+  
+    <div class="footer">
+      <span>JELLEO · The underwriting layer for Solana DeFi · <a href="https://jelleo.com">jelleo.com</a></span>
+      <span class="muted">Cycle 20260511-141242</span>
+    </div>
+    
+
+</div>
+</body></html>

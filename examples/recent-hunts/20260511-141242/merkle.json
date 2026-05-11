@@ -28,7 +28,7 @@
       "wrapper_sha"
     ]
   },
-  "merkle_root": "23e3882e904265346e7125f590f5c3c46eaa10d85ee2771dd040f09adf4ffe81",
+  "merkle_root": "005eda23a77ace29b30b9fa4d6a6f1d18588dbbfbf8c698a307a39af23a81467",
   "n_findings": 3,
   "n_leaves": 4,
   "schema": "jelleo-cycle-merkle-v3"
