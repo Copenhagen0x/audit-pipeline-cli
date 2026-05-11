@@ -95,8 +95,13 @@ console = Console()
 )
 @click.option(
     "--daily-cap-usd",
-    type=float, default=50.0, show_default=True, envvar="AUDIT_DAILY_CAP_USD",
-    help="Total Claude spend cap PER DAY across all cycles. Hunt aborts if exceeded.",
+    type=float, default=0.0, show_default=True, envvar="AUDIT_DAILY_CAP_USD",
+    help=(
+        "Total Claude spend cap PER DAY across all cycles. Pass 0 (default) "
+        "to disable the daily cap entirely — the per-cycle --budget-cap-usd "
+        "is the only limit. Pass a positive value to enforce a daily ceiling "
+        "(hunt aborts at start if today's spend + cycle budget would exceed)."
+    ),
 )
 @click.option(
     "--max-concurrent",
@@ -424,7 +429,9 @@ def _hunt_run(
 
     # ---------- Daily cap check ----------
     daily_cap = DailyCap(workspace / ".daily_spend.json", daily_cap_usd)
-    if daily_cap.remaining_today() < budget_cap_usd:
+    # Skip pre-flight check when daily cap is disabled (cap_usd <= 0).
+    # DailyCap.unlimited semantics: remaining_today() returns math.inf.
+    if not daily_cap.unlimited and daily_cap.remaining_today() < budget_cap_usd:
         raise click.ClickException(
             f"Daily cap exhausted: spent ${daily_cap.today_spend():.2f} of "
             f"${daily_cap_usd:.2f} today, only ${daily_cap.remaining_today():.2f} "
@@ -475,7 +482,7 @@ def _hunt_run(
             f"Wrapper SHA:  {config['wrapper']['sha'][:10]}\n"
             f"Hypotheses:   {hypotheses}\n"
             f"Budget cap:   ${budget_cap_usd:.2f} (cycle) / "
-            f"${daily_cap_usd:.2f} (day, ${daily_cap.remaining_today():.2f} left)\n"
+            f"{'unlimited (no daily cap)' if daily_cap.unlimited else f'${daily_cap_usd:.2f} (day, ${daily_cap.remaining_today():.2f} left)'}\n"
             f"Concurrent:   {max_concurrent}\n"
             f"Skip debate:  {skip_debate}\n"
             f"Skip PoC:     {skip_poc}\n"
