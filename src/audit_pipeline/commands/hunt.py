@@ -208,6 +208,19 @@ console = Console()
         "cycle and across parallel agents."
     ),
 )
+@click.option(
+    "--resume-cycle",
+    default=None,
+    help=(
+        "Resume a partial hunt cycle by ID (e.g. 20260511-032554). Reuses the "
+        "existing <workspace>/hunts/<cycle-id>/ directory. Each layer's per-hyp "
+        "loop checks for already-completed artifacts and skips them: "
+        "Layer 1 skips entirely if recon_summary.json exists; Layer 1.5 / 2 / 3 "
+        "/ 4 skip per-hyp where their output file is present. P2/P3/P4 always "
+        "re-run (idempotent). Use this after Ctrl-C, OOM, or hunt.py crash to "
+        "pick up where the prior cycle stopped without re-running paid work."
+    ),
+)
 @click.pass_context
 def hunt_cmd(
     ctx: click.Context,
@@ -234,6 +247,7 @@ def hunt_cmd(
     engine_only: bool,
     source_repo: str | None,
     source_sha: str | None,
+    resume_cycle: str | None,
 ) -> None:
     """Autonomous full hunt cycle: recon -> debate -> PoC -> Kani -> report.
 
@@ -391,6 +405,7 @@ def hunt_cmd(
             source_repo=source_repo,
             resolved_sha=resolved_sha,
             engine_dir_for_cargo=engine_dir_for_cargo,
+            resume_cycle=resume_cycle,
         )
     finally:
         if snap_cm is not None:
@@ -424,6 +439,7 @@ def _hunt_run(
     source_repo: str | None,
     resolved_sha: str,
     engine_dir_for_cargo: Path,
+    resume_cycle: str | None = None,
 ) -> None:
     """Hunt cycle body, factored out so the snapshot lifecycle wraps it cleanly."""
 
@@ -450,28 +466,43 @@ def _hunt_run(
 
     hunts_dir = workspace / "hunts"
     hunts_dir.mkdir(parents=True, exist_ok=True)
-    base_cycle_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    # When in snapshot mode, suffix with SHA short-form for pinning / traceability
-    if source_repo and resolved_sha:
-        cycle_id = f"{base_cycle_id}-{resolved_sha[:7]}"
-    else:
-        cycle_id = base_cycle_id
-    cycle_dir = hunts_dir / cycle_id
-    # FIX C7: collision-safe cycle ID. If two cycles fire within the same UTC
-    # second (watch + manual, or double-fire), append a 4-char random suffix.
-    if cycle_dir.exists():
-        import secrets
-        cycle_id = f"{cycle_id}-{secrets.token_hex(2)}"
-        cycle_dir = hunts_dir / cycle_id
-    cycle_dir.mkdir(parents=True, exist_ok=True)
 
-    db.insert_cycle(
-        target_id=target_id,
-        cycle_id=cycle_id,
-        engine_sha=resolved_sha,
-        wrapper_sha=config.get("wrapper", {}).get("sha"),
-        summary_json_path=str(cycle_dir / "hunt_summary.json"),
-    )
+    if resume_cycle:
+        # RESUME PATH: reuse the existing cycle dir + DB record. Per-layer
+        # loops below check for already-completed artifacts and skip them.
+        cycle_id = resume_cycle
+        cycle_dir = hunts_dir / cycle_id
+        if not cycle_dir.is_dir():
+            raise click.ClickException(
+                f"--resume-cycle {resume_cycle} requested but {cycle_dir} "
+                f"does not exist. Available cycles: "
+                f"{sorted(p.name for p in hunts_dir.iterdir() if p.is_dir())[-5:]}"
+            )
+        # The DB already has this cycle inserted from the prior run; skip insert
+        # (db.insert_cycle may not be idempotent — safer to omit).
+    else:
+        base_cycle_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        # When in snapshot mode, suffix with SHA short-form for traceability
+        if source_repo and resolved_sha:
+            cycle_id = f"{base_cycle_id}-{resolved_sha[:7]}"
+        else:
+            cycle_id = base_cycle_id
+        cycle_dir = hunts_dir / cycle_id
+        # FIX C7: collision-safe cycle ID. If two cycles fire within the same
+        # UTC second, append a 4-char random suffix.
+        if cycle_dir.exists():
+            import secrets
+            cycle_id = f"{cycle_id}-{secrets.token_hex(2)}"
+            cycle_dir = hunts_dir / cycle_id
+        cycle_dir.mkdir(parents=True, exist_ok=True)
+
+        db.insert_cycle(
+            target_id=target_id,
+            cycle_id=cycle_id,
+            engine_sha=resolved_sha,
+            wrapper_sha=config.get("wrapper", {}).get("sha"),
+            summary_json_path=str(cycle_dir / "hunt_summary.json"),
+        )
 
     source_mode_line = (
         f"Source mode:  snapshot ({source_repo}@{resolved_sha[:10]})"
@@ -479,9 +510,14 @@ def _hunt_run(
         else f"Source mode:  local clone ({engine_dir_for_cargo})"
     )
 
+    resume_marker = (
+        f"[yellow]RESUMING from prior partial state[/yellow]\n"
+        if resume_cycle else ""
+    )
     console.print(
         Panel.fit(
-            f"[bold]Hunt cycle [cyan]{cycle_id}[/cyan][/bold]  ({target})\n\n"
+            f"[bold]Hunt cycle [cyan]{cycle_id}[/cyan][/bold]  ({target})\n"
+            f"{resume_marker}\n"
             f"Workspace:    {workspace}\n"
             f"{source_mode_line}\n"
             f"Engine SHA:   {resolved_sha[:10]}\n"
@@ -521,27 +557,37 @@ def _hunt_run(
     console.print("[bold]Layer 1 - multi-agent recon[/bold]")
     recon_out = cycle_dir / "recon"
     recon_out.mkdir(parents=True, exist_ok=True)
-
-    # Cap recon spend at min(budget_cap, daily_remaining)
-    recon_cap = min(budget_cap_usd, daily_cap.remaining_today())
-
-    recon_argv = [
-        _audit_pipeline_bin(), "--workspace", str(workspace),
-        "recon",
-        "--hypotheses", hypotheses,
-        "--output", str(recon_out),
-        "--auto",
-        "--max-concurrent", str(max_concurrent),
-        "--budget-cap-usd", str(recon_cap),
-        "--refinement-rounds", str(refinement_rounds),
-        "--ground-code" if ground_code else "--no-ground-code",
-    ]
-    if source_repo:
-        recon_argv += ["--source-repo", source_repo, "--source-sha", resolved_sha]
-    rc = _run(recon_argv)
-    log("layer1_done", returncode=rc)
-
     summary_path = recon_out / "recon_summary.json"
+
+    # RESUME: if recon_summary.json already exists and is non-empty, skip
+    # Layer 1 entirely. The recon command writes the summary at the END of
+    # its work, so presence == completion.
+    if resume_cycle and summary_path.exists() and summary_path.stat().st_size > 50:
+        log("layer1_resumed_from_existing", path=str(summary_path))
+        console.print(
+            f"[green]Layer 1 SKIPPED — resuming from existing recon_summary.json "
+            f"({summary_path.stat().st_size} bytes)[/green]"
+        )
+    else:
+        # Cap recon spend at min(budget_cap, daily_remaining)
+        recon_cap = min(budget_cap_usd, daily_cap.remaining_today())
+
+        recon_argv = [
+            _audit_pipeline_bin(), "--workspace", str(workspace),
+            "recon",
+            "--hypotheses", hypotheses,
+            "--output", str(recon_out),
+            "--auto",
+            "--max-concurrent", str(max_concurrent),
+            "--budget-cap-usd", str(recon_cap),
+            "--refinement-rounds", str(refinement_rounds),
+            "--ground-code" if ground_code else "--no-ground-code",
+        ]
+        if source_repo:
+            recon_argv += ["--source-repo", source_repo, "--source-sha", resolved_sha]
+        rc = _run(recon_argv)
+        log("layer1_done", returncode=rc)
+
     if not summary_path.exists():
         log("layer1_no_summary", path=str(summary_path))
         console.print(f"[red]Layer 1 did not produce a summary at {summary_path}[/red]")
@@ -626,18 +672,26 @@ def _hunt_run(
             proposer_path = recon_out / f"{hyp_id}_response.md"
             if not proposer_path.exists():
                 continue
-            debate_argv = [
-                _audit_pipeline_bin(), "--workspace", str(workspace),
-                "debate",
-                "--hypothesis-id", hyp_id,
-                "--proposer-verdict", str(proposer_path),
-                "--hypotheses-file", hypotheses,
-                "--output", str(debate_out),
-                "--auto",
-            ]
-            if source_repo:
-                debate_argv += ["--source-repo", source_repo, "--source-sha", resolved_sha]
-            rc = _run(debate_argv)
+            challenger_resp = debate_out / f"{hyp_id}_challenger_response.md"
+            # RESUME: skip per-hyp if challenger response already exists from
+            # a prior run. The debate output file is written at the END of the
+            # debate command, so presence == completion.
+            if resume_cycle and challenger_resp.exists() and challenger_resp.stat().st_size > 50:
+                log("debate_resumed_from_existing", hyp_id=hyp_id)
+                rc = 0
+            else:
+                debate_argv = [
+                    _audit_pipeline_bin(), "--workspace", str(workspace),
+                    "debate",
+                    "--hypothesis-id", hyp_id,
+                    "--proposer-verdict", str(proposer_path),
+                    "--hypotheses-file", hypotheses,
+                    "--output", str(debate_out),
+                    "--auto",
+                ]
+                if source_repo:
+                    debate_argv += ["--source-repo", source_repo, "--source-sha", resolved_sha]
+                rc = _run(debate_argv)
             challenger_resp = debate_out / f"{hyp_id}_challenger_response.md"
             verdict_changed = False
             demoted = False
@@ -693,6 +747,49 @@ def _hunt_run(
             hyp_id = v["hypothesis_id"]
             finding_name = _slugify(hyp_id)
             scaffold_path = poc_out / f"test_{finding_name}.rs"
+            cargo_log_path = poc_out / f"cargo_{finding_name}.log"
+            # RESUME: if both scaffold AND cargo log exist from a prior run,
+            # reload the outcome and skip both LLM authoring AND cargo test.
+            # The cargo log is written at the END of the test run, so its
+            # presence == completion.
+            if (
+                resume_cycle
+                and scaffold_path.exists()
+                and cargo_log_path.exists()
+                and cargo_log_path.stat().st_size > 100
+            ):
+                log("poc_resumed_from_existing", hypothesis_id=hyp_id,
+                    finding=finding_name)
+                combined = cargo_log_path.read_text(encoding="utf-8", errors="replace")
+                looks_compile_failed = (
+                    "could not compile" in combined
+                    or "error[E" in combined.split("test result:")[0]
+                    or "did not match any tests" in combined
+                    or "no test target" in combined.lower()
+                )
+                looks_test_fired = (
+                    "test result: FAILED" in combined
+                    or "panicked at" in combined
+                    or "assertion failed" in combined
+                )
+                if looks_compile_failed:
+                    fired, outcome = False, "compile_error"
+                elif looks_test_fired:
+                    fired, outcome = True, "test_failed_bug_reproduced"
+                elif "test result: ok" in combined:
+                    fired, outcome = False, "test_passed_no_bug"
+                else:
+                    fired, outcome = False, "unknown_resumed"
+                poc_results[hyp_id] = {
+                    "scaffold_path": str(scaffold_path),
+                    "scaffold_rc": 0,
+                    "compile_test_rc": 0 if not looks_compile_failed else 101,
+                    "fired": fired,
+                    "outcome": outcome,
+                    "cargo_log_path": str(cargo_log_path),
+                    "authoring_mode": "resumed",
+                }
+                continue
             # FIX 1: Per-hyp LLM-authored PoC by default. Falls back to template
             # scaffolding if poc-llm fails. Template path remains for smoke /
             # legacy compatibility via --poc-mode template.
@@ -853,13 +950,21 @@ def _hunt_run(
         for v in fired_for_litesvm:
             hyp_id = v["hypothesis_id"]
             finding_name = _slugify(hyp_id)
-            rc_author = _run([
-                _audit_pipeline_bin(), "--workspace", str(workspace),
-                "litesvm", "author",
-                "--finding", finding_name,
-                "--template", "litesvm_bound_analysis",
-                "--output", str(litesvm_out),
-            ])
+            litesvm_file = litesvm_out / f"test_{finding_name}_bound_analysis.rs"
+            # RESUME: if the LiteSVM author wrote its output already, skip the
+            # author call (it would error on "file exists" with C4 fix
+            # converting that to a yellow notice; still cheaper to skip).
+            if resume_cycle and litesvm_file.exists():
+                log("litesvm_resumed_from_existing", hypothesis_id=hyp_id)
+                rc_author = 0
+            else:
+                rc_author = _run([
+                    _audit_pipeline_bin(), "--workspace", str(workspace),
+                    "litesvm", "author",
+                    "--finding", finding_name,
+                    "--template", "litesvm_bound_analysis",
+                    "--output", str(litesvm_out),
+                ])
             dispatch_rc: int | None = None
             if rc_author == 0 and dispatch_script.exists():
                 # Test naming convention from litesvm.py: test_<finding>_bound_analysis
@@ -902,6 +1007,21 @@ def _hunt_run(
             meta = hyp_meta.get(hyp_id, {})
             invariant = meta.get("claim", f"invariant for {hyp_id}")[:500]
             engine_function = meta.get("engine_function", "absorb_protocol_loss")
+            harness_name = f"{_slugify(hyp_id)}_invariant"
+            kani_file = kani_out / f"proofs_{harness_name}.rs"
+            # RESUME: if the Kani harness file already exists from a prior
+            # run, skip the synth-kani LLM call + cargo kani re-run. cargo
+            # kani is expensive (5-30 min per harness) so this is the most
+            # important skip.
+            if resume_cycle and kani_file.exists():
+                log("kani_resumed_from_existing", hypothesis_id=hyp_id,
+                    harness_name=harness_name)
+                kani_results[hyp_id] = {
+                    "returncode": 0,
+                    "harness_dir": str(kani_out),
+                    "resumed": True,
+                }
+                continue
             # FIX 4: synth-kani --auto authors the harness AND runs `cargo check`
             # to compile-verify. With --run-kani it ALSO runs `cargo kani` to
             # actually formally verify (5-30 min per harness; budget ~$0.50
