@@ -772,19 +772,6 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
 <body>
 <a href="#main" class="skip-link">Skip to main content</a>
 
-<div class="demo-banner" style="background: rgba(245,184,0,0.08); border-bottom: 1px solid rgba(245,184,0,0.5); padding: 10px 16px; font-size: 12px; letter-spacing: 0.04em;">
-  <span class="badge" style="background: #f5b800; color: #000; font-weight: 700; padding: 2px 8px; border-radius: 3px; margin-right: 8px;">LIVE</span>
-  <!-- FIX D-M6: hardcoded "8 protocols · 229 disclosed" was visibly wrong
-       (snapshot.json has no .stats block; real values are 1 protocol · 1
-       disclosed today). Numbers now driven directly from snapshot fields
-       that DO exist (cycles_total, receipts_signed). -->
-  <span data-snapshot-key="cycles_total">—</span> signed cycles ·
-  <span data-snapshot-key="receipts_signed">—</span> attestations ·
-  auto-refresh every 60s ·
-  signed with <code style="font-size: 10px; padding: 1px 4px;"><a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">jelleo.ed25519.pub</a></code> ·
-  <span style="color: var(--ink-3);">aspirational sections (1,500-invariant target, 27-protocol cluster, etc.) labeled as <strong style="color: var(--ink-2);">Y1 target</strong></span>
-</div>
-
 <nav class="topnav">
   <a href="/" class="nav-logo">jelleo</a>
   <div class="nav-divider"></div>
