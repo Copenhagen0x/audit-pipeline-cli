@@ -666,12 +666,13 @@ def _hunt_run(
                 "demoted_by_debate": demoted,
             }
             log("debate_one", hypothesis_id=hyp_id, returncode=rc, promoted=verdict_changed)
-            # FIX #3: debate ~= one Sonnet round with full proposer verdict
-            # + class template + grounded code in the prompt. Real cost is
-            # $0.50-2.00 (avg ~$1.00). The legacy $0.20 estimate undercounted
-            # by 5x and made the cycle think it had budget when it didn't.
-            daily_cap.record_spend(1.00)
-            total_cost += 1.00
+            # CALIBRATED 2026-05-11: real debate cost measured at ~$0.03
+            # per call (3k input + 1.2k output tokens @ Sonnet pricing).
+            # Previous $1.00 estimate was a 30x overestimate, causing the
+            # cycle to halt prematurely at the budget cap. Set to $0.05
+            # to keep a small cushion for outliers while not over-counting.
+            daily_cap.record_spend(0.05)
+            total_cost += 0.05
 
     # ---------- Layer 2: PoC scaffold + cargo test ----------
     poc_results: dict[str, dict[str, Any]] = {}
@@ -706,12 +707,13 @@ def _hunt_run(
                     "--engine-root", str(engine_dir_for_cargo),
                     "--output", str(poc_out),
                 ])
-                # FIX #4: poc-llm prompt is large (claim + grounded source +
-                # template scaffold). Real cost is $0.20-0.50 per hyp depending
-                # on source complexity. Use $0.30 as the realistic average; the
-                # legacy $0.15 undercounted by 2x.
-                daily_cap.record_spend(0.30)
-                total_cost += 0.30
+                # CALIBRATED 2026-05-11: real poc-llm cost measured at
+                # ~$0.03 per hyp (4k input + 0.8k output @ Sonnet pricing).
+                # Previous $0.30 estimate was a 10x overestimate. Set to
+                # $0.05 for small cushion. Real outliers (large grounded
+                # source) might hit $0.10 — still well under the buffer.
+                daily_cap.record_spend(0.05)
+                total_cost += 0.05
                 log("poc_llm_authored", hypothesis_id=hyp_id, finding=finding_name,
                     bug_class=bug_class, returncode=rc)
                 # If LLM authoring failed, fall back to template scaffolding so
