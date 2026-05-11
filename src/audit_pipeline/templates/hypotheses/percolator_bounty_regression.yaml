@@ -34,6 +34,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: insurance-counter-vault-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       use_insurance_buffer at percolator.rs:4811 debits insurance without
       debiting vault. The function-level invariant is violated as
@@ -54,6 +55,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: clock-advance-without-touch
+    engine_function: absorb_protocol_loss
     claim: >
       TradeNoCpi advances market clock + applies fresh K updates without
       running partial-liquidation cascade on accounts other than the two
@@ -67,6 +69,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: clock-advance-without-touch
+    engine_function: absorb_protocol_loss
     claim: >
       TradeCpi zero-fill path (matcher returns exec_size=0 with
       FLAG_PARTIAL_OK) advances market clock without touching accounts.
@@ -80,6 +83,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: clock-advance-without-touch
+    engine_function: absorb_protocol_loss
     claim: >
       KeeperCrank in-budget else-branch uses
       ensure_market_accrued_to_now_with_policy without
@@ -93,6 +97,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: clock-advance-without-touch
+    engine_function: absorb_protocol_loss
     claim: >
       LiquidateAtOracle against zero-position decoy account advances
       market clock + K updates without running partial-liquidation
@@ -106,6 +111,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: clock-advance-without-touch
+    engine_function: absorb_protocol_loss
     claim: >
       WithdrawCollateral bypasses partial-liquidation cascade —
       advances state without touching candidates. Verify at current
@@ -123,6 +129,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: funding-rate-self-bias
+    engine_function: absorb_protocol_loss
     claim: >
       KeeperCrank Phase 2 round-robin takes ~64 cranks to cycle through
       all account slots. During this window, untouched accounts
@@ -139,6 +146,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: funding-rate-self-bias
+    engine_function: absorb_protocol_loss
     claim: >
       Attacker-deployed CPI matcher drives mark_e via repeated trades
       that walk the K accumulator while leaving accounts untouched.
@@ -153,6 +161,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: keeper-cursor-budget-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       keeper_crank_not_atomic cursor-wrap atomic consumption-budget
       reset: caller can repeatedly trigger keeper_crank with carefully
@@ -173,6 +182,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: liquidation-incentive-overpayment
+    engine_function: absorb_protocol_loss
     claim: >
       Caller account materialized in same slot as crank pays no own-fee
       debt during bitmap sweep but receives 50% of candidate-sync'd
@@ -187,6 +197,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: keeper-cursor-budget-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       sweep_delta captured AFTER candidate sync. On populated risk
       buffer, candidate sync charges fees first then bitmap sweep is
@@ -205,6 +216,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: clock-advance-without-touch
+    engine_function: absorb_protocol_loss
     claim: >
       catchup_accrue early-returns when funding_rate_e9==0 (or OI
       sides zero, or fund_px_last==0). When early-return fires,
@@ -218,6 +230,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: clock-advance-without-touch
+    engine_function: absorb_protocol_loss
     claim: >
       CatchupAccrue partial-mode rollback restores config_pre but only
       preserves last_good_oracle_slot, NOT last_oracle_publish_time.
@@ -231,6 +244,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: init-state-invariant-violation
+    engine_function: absorb_protocol_loss
     claim: >
       TopUpInsurance, ReclaimEmptyAccount, DepositFeeCredits run on
       no-oracle accrue branch and clamp now_slot. Silent admission
@@ -249,6 +263,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: funding-rate-self-bias
+    engine_function: absorb_protocol_loss
     claim: >
       Wrapper feeding sub-maximal price steps under per-slot cap can
       stair-step engine forward, accumulating mark-vs-oracle divergence
@@ -262,6 +277,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: arithmetic-overflow-pnl-mark
+    engine_function: absorb_protocol_loss
     claim: >
       TradeNoCpi/TradeCpi rejects only zero and i128::MIN sizes at entry.
       Oversized but valid (non-MIN) i128 size reaches wrapper fee-cap
@@ -276,6 +292,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: keeper-cursor-budget-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       KeeperCrank defer_phase2 path zeros Phase-2 RR window when
       deferred candidate is unhealthy. Attacker can repeatedly submit
@@ -290,6 +307,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: authorization-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       TradeCpi variadic tail (accounts[8..]) forwards is_signer flags
       verbatim to matcher CPI. Solana runtime gates effective signer

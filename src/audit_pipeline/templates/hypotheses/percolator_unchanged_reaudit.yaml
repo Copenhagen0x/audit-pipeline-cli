@@ -32,6 +32,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: admin-config-mid-flight-invariant-shift
+    engine_function: check
     claim: >
       UpdateConfig at src/percolator.rs:8880-9071 mutates
       config.tvl_insurance_cap_mult without any check that in-flight
@@ -58,6 +59,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: admin-config-mid-flight-invariant-shift
+    engine_function: UpdateConfig
     claim: >
       UpdateConfig mutates funding_horizon_slots, funding_k_bps,
       funding_max_premium_bps, funding_max_e9_per_slot (9060-9064)
@@ -82,6 +84,7 @@ hypotheses:
     class: implicit_invariant
     severity: Medium
     bug_class: sysvar-source-divergence
+    engine_function: PushHyperpMark
     claim: >
       PushHyperpMark at src/percolator.rs:9112 calls Clock::get()
       (syscall) whereas every other instruction reads Clock from a
@@ -105,6 +108,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: keeper-cursor-budget-bypass
+    engine_function: ResolvePermissionless
     claim: >
       ResolvePermissionless at src/percolator.rs:10055-10125 calls
       accounts::expect_len(2) but does NOT call expect_signer on either
@@ -128,6 +132,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: cooldown-bypass-first-call
+    engine_function: WithdrawInsuranceLimited
     claim: >
       WithdrawInsuranceLimited at line 9651-9656 bypasses cooldown when
       last_insurance_withdraw_slot == 0 (first call after init). After
@@ -152,6 +157,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: liveness-vs-drain-asymmetry
+    engine_function: WithdrawInsuranceLimited
     claim: >
       WithdrawInsuranceLimited at 9669-9672 uses
       cap = max(bps_cap, MIN_WITHDRAW_FLOOR_UNITS=10), clamped to insurance.
@@ -174,6 +180,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: admin-burn-config-irreversible
+    engine_function: path
     claim: >
       UpdateAuthority AUTHORITY_HYPERP_MARK burn path at
       src/percolator.rs:5794-5796 requires mark_ewma_e6 != 0 before
@@ -200,6 +207,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: terminal-cleanup-routes-funds-to-admin
+    engine_function: logic
     claim: >
       CloseSlab at src/percolator.rs:8815-8833 drains stranded vault
       tokens (vault.amount > engine.vault.is_zero() residue —
@@ -222,6 +230,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: oracle-deviation-band-bypass
+    engine_function: resolve_market_not_atomic
     claim: >
       ResolveMarket mode=1 (Degenerate) at src/percolator.rs:9263-9301
       settles at engine.last_oracle_price with rate=0, with NO
@@ -247,6 +256,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: insurance-ceiling-uncapped-bypass
+    engine_function: check
     claim: >
       TopUpInsurance at src/percolator.rs:8675-8748 has no upper bound
       on insurance_fund.balance — only the SPL transfer succeeds-or-not
@@ -271,6 +281,7 @@ hypotheses:
     class: implicit_invariant
     severity: Low
     bug_class: unused-account-required-via-stale-signature
+    engine_function: clock_unused_at
     claim: >
       AdminForceCloseAccount at src/percolator.rs:9784 reads
       Clock::from_account_info(&accounts[6])? but binds the value to
@@ -297,6 +308,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: init-close-rent-rebate-asymmetry
+    engine_function: InitUser
     claim: >
       InitUser at src/percolator.rs:6328-6463 splits fee_payment into
       new_account_fee (to insurance) and capital (to user). CloseAccount
@@ -322,6 +334,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Low
     bug_class: u64-counter-wraparound
+    engine_function: next_mat_counter
     claim: >
       next_mat_counter at src/percolator.rs:2952-2980 returns
       Option<u64>; the implementation increments u64 with checked_add
@@ -347,6 +360,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: account-gc-state-leak
+    engine_function: prepare_lazy_free_head
     claim: >
       prepare_lazy_free_head at src/percolator.rs:4612-4646 has a
       fallback branch (4630-4642) that triggers when free_head's linked
@@ -370,6 +384,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: account-ownership-takeover
+    engine_function: close_account_not_atomic
     claim: >
       set_wrapper_owner at src/percolator.rs:5355-5366 rejects when
       engine.accounts[idx].owner != [0u8; 32]. The check assumes a
@@ -393,6 +408,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: fee-debt-survives-close
+    engine_function: force_close_resolved_with_fee_not_atomic
     claim: >
       CloseAccount at src/percolator.rs:8481-8674 has TWO branches:
       resolved (8579-8592) calls force_close_resolved_with_fee_not_atomic
@@ -418,6 +434,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: account-generation-replay
+    engine_function: next_mat_counter
     claim: >
       InitUser writes account-generation via next_mat_counter at
       src/percolator.rs:6460-6462. Generation is per-slab, monotone.
@@ -443,6 +460,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: stale-clock-cursor-on-reclaim
+    engine_function: reclaim_flat_zero_account_if_eligible
     claim: >
       reclaim_flat_zero_account_if_eligible at src/percolator.rs:5177-5203
       calls engine.reclaim_empty_account_not_atomic if all fields are
@@ -473,6 +491,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: permissionless-write-with-no-signer
+    engine_function: ForceCloseResolved
     claim: >
       ForceCloseResolved at src/percolator.rs:10127-10235 sets:
       accounts::expect_writable(a_slab)? but NEVER calls
@@ -499,6 +518,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: resolved-fee-accumulation-skip
+    engine_function: return
     claim: >
       KeeperCrank in resolved mode at src/percolator.rs:6902-6921
       returns Ok(()) immediately after the resolved-context check
@@ -524,6 +544,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: init-state-resolve-bypass
+    engine_function: ResolvePermissionless
     claim: >
       ResolvePermissionless at src/percolator.rs:10039-10125 calls
       slab_guard + require_initialized + market_mode != Resolved + then
@@ -547,6 +568,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: resolved-state-write-bypass
+    engine_function: convert_released_pnl_not_atomic
     claim: >
       ConvertReleasedPnl at src/percolator.rs:9935-10037 rejects when
       market_mode == Resolved at 9948-9949. But the rejection is in
@@ -565,6 +587,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: resolved-withdraw-with-residual-state
+    engine_function: WithdrawInsurance
     claim: >
       WithdrawInsurance (tag 20) at src/percolator.rs:9473-9565
       requires engine_is_resolved AND engine.num_used_accounts == 0
@@ -590,6 +613,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: post-resolve-config-mutation
+    engine_function: cases
     claim: >
       UpdateAuthority at src/percolator.rs:5722-5728 hard-timeout-gates
       non-burn updates only. After ResolveMarket sets MarketMode::Resolved
@@ -615,6 +639,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: off-by-one-boundary-rejection
+    engine_function: InitUser
     claim: >
       InitUser at src/percolator.rs:6406-6408 rejects when
       fee_payment <= fee_base. The boundary fee_payment == fee_base
@@ -638,6 +663,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: rounding-favors-user-on-withdraw
+    engine_function: withdraw_not_atomic
     claim: >
       WithdrawCollateral at src/percolator.rs:6799-6803 enforces
       amount % unit_scale == 0, then converts via
@@ -662,6 +688,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: max-trade-size-boundary
+    engine_function: execute_trade_with_matcher
     claim: >
       TradeNoCpi at src/percolator.rs:7525-7530 rejects size == 0,
       size == i128::MIN, and size.unsigned_abs() > MAX_TRADE_SIZE_Q.
@@ -685,6 +712,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: saturating-mul-elision
+    engine_function: tvl_insurance_cap_mult
     claim: >
       DepositCollateral cap check at src/percolator.rs:6670 computes
       cap = ins.saturating_mul(tvl_insurance_cap_mult as u128). With
@@ -708,6 +736,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: zero-push-after-stale-readmission
+    engine_function: gate
     claim: >
       PushHyperpMark at src/percolator.rs:9146-9147 rejects price_e6
       == 0 (after Clock::get and stale check). But the stale check at
@@ -731,6 +760,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: zero-debt-zero-effect-side-channel
+    engine_function: sync_account_fee_bounded_to_market
     claim: >
       DepositFeeCredits at src/percolator.rs:9843-9933 reads debt at
       9906 (fc < 0 ? fc.unsigned_abs() : 0). If sync_account_fee_bounded_to_market
@@ -762,6 +792,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: deposit-then-resolve-fund-trap
+    engine_function: DepositCollateral
     claim: >
       Cross-instruction: DepositCollateral at src/percolator.rs:6590
       gates on permissionless_stale_matured (6640) BEFORE SPL transfer.
@@ -788,6 +819,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: permissionless-crank-griefing
+    engine_function: mode
     claim: >
       KeeperCrank at src/percolator.rs:6872-? supports
       caller_idx == u16::MAX (permissionless mode). The
@@ -812,6 +844,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: flash-extract-no-cpi
+    engine_function: update
     claim: >
       Cross-instruction: a single Solana tx can contain
       DepositCollateral → TradeNoCpi → WithdrawCollateral. The deposit
@@ -837,6 +870,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: cross-tx-admin-poison
+    engine_function: tvl_insurance_cap_mult
     claim: >
       Cross-tx sequence: InitUser at slot N with cap_mult = K admits
       capital C. Admin at slot N+1 sets cap_mult = 0 via UpdateConfig.
@@ -859,6 +893,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: nonce-replay-cross-instruction
+    engine_function: nonce_on_failure
     claim: >
       TradeCpi at src/percolator.rs:7742-? consumes the req_nonce
       (write_req_nonce at state). A subsequent DepositCollateral does
@@ -882,6 +917,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: resolved-crank-stale-after-close
+    engine_function: return
     claim: >
       Resolved KeeperCrank at src/percolator.rs:6902-6921 returns
       Ok(()) immediately. If an attacker chains
@@ -908,6 +944,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: init-close-no-user-stranded-route
+    engine_function: InitMarket
     claim: >
       A market's lifecycle path: InitMarket → (no users join) →
       ResolveMarket → CloseSlab. CloseSlab at src/percolator.rs:8797-8805
@@ -937,6 +974,7 @@ hypotheses:
     class: implicit_invariant
     severity: Medium
     bug_class: spl-cpi-reentrancy-guard-only-write-path
+    engine_function: deposit
     claim: >
       collateral::deposit at src/percolator.rs:4006-4033 invokes
       spl_token::transfer via solana_program::invoke. The wrapper
@@ -962,6 +1000,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: matcher-tail-signer-impersonation
+    engine_function: forwarding
     claim: >
       TradeCpi forwards tail accounts (accounts[8..]) to the matcher
       CPI verbatim, preserving is_signer flags (Solana runtime gates
@@ -986,6 +1025,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: post-cpi-matcher-context-substitution
+    engine_function: matcher_identity_ok
     claim: >
       TradeCpi loads matcher_context at LP-init time and stores in
       engine.accounts[lp_idx].matcher_context (16-byte field). On
@@ -1011,6 +1051,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: state-then-cpi-ordering-error
+    engine_function: WithdrawCollateral
     claim: >
       WithdrawCollateral at src/percolator.rs:6835-6863 calls
       engine.withdraw_not_atomic BEFORE collateral::withdraw (SPL
@@ -1037,6 +1078,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: token-program-substitution
+    engine_function: verify_token_program
     claim: >
       verify_token_program at src/percolator.rs:5669-5677 enforces
       a_token.key == spl_token::ID (the original SPL Token, not
@@ -1065,6 +1107,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: units-to-base-truncation
+    engine_function: units_to_base_checked
     claim: >
       units_to_base_checked at src/percolator.rs:3100 returns
       Option<u64> after units × scale check. WithdrawInsurance at
@@ -1090,6 +1133,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: zero-scale-degenerate-mode
+    engine_function: base_to_units
     claim: >
       base_to_units at src/percolator.rs:3088-3095 returns (base, 0)
       when scale == 0. InitMarket validates unit_scale via
@@ -1112,6 +1156,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: funding-rate-overflow-edge
+    engine_function: compute_current_funding_rate_e9
     claim: >
       compute_current_funding_rate_e9 at src/percolator.rs:5205 calls
       policy::funding_rate_e9_from_mark_index. The math is
@@ -1133,6 +1178,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: clamp-rounding-favors-user
+    engine_function: clamp_oracle_price
     claim: >
       clamp_oracle_price at src/percolator.rs:3662 clamps raw_price
       to within max_change_bps of last_price. At max_change_bps = 1
@@ -1159,6 +1205,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: vault-engine-drift-via-transfer-fee
+    engine_function: validation
     claim: >
       Percolator pins token_program = spl_token::ID (legacy, no
       transfer fees). But the vault is a regular spl_token::Account
@@ -1182,6 +1229,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: dust-strand-on-misaligned-fee
+    engine_function: init_market_scale_ok
     claim: >
       InitMarket at src/percolator.rs:6011-6013 rejects when
       unit_scale > 0 AND new_account_fee % unit_scale != 0. This
@@ -1202,6 +1250,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: keeper-reward-rounding-favors-keeper
+    engine_function: computation
     claim: >
       KeeperCrank reward at src/percolator.rs:7236+ pays
       CRANK_REWARD_BPS = 50% of fee sweep delta to caller as capital.

@@ -19,6 +19,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: mark-price-manipulation
+    engine_function: PushHyperpMark
     claim: >
       In a Hyperp market, calling PushHyperpMark immediately followed by
       TradeCpi in the SAME transaction lets the hyperp_authority imprint
@@ -45,6 +46,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: mark-price-manipulation
+    engine_function: absorb_protocol_loss
     claim: >
       Two PushHyperpMark calls in same tx (or different txs same slot)
       compose multiplicatively on mark_ewma but the per-slot price-move
@@ -62,6 +64,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: settlement-manipulation
+    engine_function: absorb_protocol_loss
     claim: >
       A TradeNoCpi cannot execute on Hyperp markets (line 7550 rejects
       HyperpTradeNoCpiDisabled), but in non-Hyperp markets the
@@ -77,6 +80,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: oracle-manipulation
+    engine_function: absorb_protocol_loss
     claim: >
       TradeCpi's matcher CPI receives a VARIADIC TAIL of accounts
       (lp_pda_ix+1.., line 7905) whose signer/writable flags mirror the
@@ -97,6 +101,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: token-flow-manipulation
+    engine_function: absorb_protocol_loss
     claim: >
       A trader's signed TradeCpi can include the trader's own user_ata as
       a writable tail account. The matcher CPI is then authorized to
@@ -114,6 +119,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: vault-drain
+    engine_function: absorb_protocol_loss
     claim: >
       If the matcher tail includes the slab's vault token account or its
       PDA-authority signer, the matcher cannot sign for the PDA (only
@@ -130,6 +136,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: clock-rollback
+    engine_function: absorb_protocol_loss
     claim: >
       When the matcher returns exec_size == 0 with FLAG_PARTIAL_OK,
       TradeCpi takes the zero-fill path (line 8149) which restores most
@@ -147,6 +154,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: reentrancy
+    engine_function: absorb_protocol_loss
     claim: >
       The CPI reentrancy flag is set at line 8045 BEFORE invoke_signed_trade
       and cleared at line 8061 immediately after the CPI returns —
@@ -164,6 +172,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: margin-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       DepositCollateral + TradeNoCpi + WithdrawCollateral in a single tx
       forms a "borrow inside one tx" pattern. The deposit raises capital,
@@ -182,6 +191,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: account-lifecycle
+    engine_function: absorb_protocol_loss
     claim: >
       InitUser + TradeNoCpi + CloseAccount in one tx creates a "ghost
       account": at InitUser the slot is materialized
@@ -199,6 +209,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: pnl-conversion
+    engine_function: absorb_protocol_loss
     claim: >
       DepositFeeCredits + ConvertReleasedPnl in one tx: DepositFeeCredits
       pays down fee_credits debt with vault tokens (line 9921) but then
@@ -216,6 +227,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: insurance-fund-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       In deposits_only insurance-withdraw mode, TopUpInsurance increments
       insurance_withdraw_deposit_remaining (line 8746) and
@@ -232,6 +244,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: fee-double-charge
+    engine_function: absorb_protocol_loss
     claim: >
       KeeperCrank sweeps maintenance fees via sweep_maintenance_fees
       (line 7247) and updates each account's last_fee_slot; immediately
@@ -248,6 +261,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: scan-cursor-corruption
+    engine_function: absorb_protocol_loss
     claim: >
       KeeperCrank advances risk_buffer.scan_cursor AND mutates risk_buffer
       entries. A same-tx TradeCpi updates risk_buffer entries again at
@@ -263,6 +277,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: settlement-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       A KeeperCrank that begins evaluation on a Live market and a
       same-block ResolveMarket: if ResolveMarket runs FIRST in tx
@@ -278,6 +293,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: liquidation-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       KeeperCrank's caller_idx receives a 50% sweep_delta reward AFTER
       the crank's liquidation pass (line 7267–7301). A same-tx pattern of
@@ -295,6 +311,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: keeper-frontrun
+    engine_function: absorb_protocol_loss
     claim: >
       KeeperCrank with caller_idx == CRANK_NO_CALLER (permissionless)
       doesn't pay the reward, so it has no incentive to run. A
@@ -311,6 +328,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: settlement-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       ResolvePermissionless line 10039 sets MarketMode::Resolved at
       engine.last_oracle_price. A TradeNoCpi in tx N-1 same block as
@@ -328,6 +346,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: settlement-manipulation
+    engine_function: absorb_protocol_loss
     claim: >
       In Hyperp mode, ResolveMarket (Ordinary) uses settlement_price =
       config.mark_ewma_e6 (line 9379–9383). A same-block sequence:
@@ -344,6 +363,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: payout-double-spend
+    engine_function: absorb_protocol_loss
     claim: >
       CloseAccount on resolved market uses
       force_close_resolved_with_fee_not_atomic (line 8580) which returns
@@ -362,6 +382,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: insurance-drain
+    engine_function: absorb_protocol_loss
     claim: >
       AdminForceCloseAccount (line 9740) drains residual capital from a
       resolved-market account. WithdrawInsurance (line 9473) checks
@@ -377,6 +398,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: settlement-snapshot
+    engine_function: absorb_protocol_loss
     claim: >
       ResolveMarket sets the resolution slot and snapshots
       settlement_price. A TradeCpi pending in the mempool that lands in
@@ -395,6 +417,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: param-flip-window
+    engine_function: absorb_protocol_loss
     claim: >
       UpdateConfig (line 8880) mutates funding_horizon_slots,
       funding_k_bps, funding_max_premium_bps, funding_max_e9_per_slot,
@@ -410,6 +433,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: admin-burn-race
+    engine_function: absorb_protocol_loss
     claim: >
       UpdateAuthority { kind: AUTHORITY_HYPERP_MARK, burn } sets
       config.hyperp_authority = [0; 32] (line 5817), permanently disabling
@@ -424,6 +448,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: admin-burn-race
+    engine_function: absorb_protocol_loss
     claim: >
       Admin burn via UpdateAuthority(AUTHORITY_ADMIN, zero) requires
       `resolved` OR (permissionless_resolve_stale_slots > 0 AND
@@ -439,6 +464,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: nonce-replay
+    engine_function: absorb_protocol_loss
     claim: >
       TradeCpi reads req_nonce at line 7845, computes req_id, then writes
       nonce at line 8461 AFTER the trade. Two TradeCpi instructions in
@@ -453,6 +479,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: matcher-replay
+    engine_function: absorb_protocol_loss
     claim: >
       TradeCpi's read_matcher_return reads matcher_ctx data at line 8064.
       Cross-tx in same block: tx N TradeCpi leaves matcher_ctx with a
@@ -469,6 +496,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: risk-buffer-stale
+    engine_function: absorb_protocol_loss
     claim: >
       TradeCpi/TradeNoCpi update risk_buffer entries at trade time using
       the trade's price. Same tx TradeNoCpi/TradeCpi then
@@ -484,6 +512,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: rr-cursor-rotation
+    engine_function: absorb_protocol_loss
     claim: >
       Two KeeperCrank calls in same tx: each advances rr_cursor and
       buf.scan_cursor. If candidates are empty in BOTH cranks, a same-tx
@@ -497,6 +526,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: clock-manipulation
+    engine_function: absorb_protocol_loss
     claim: >
       TradeCpi reads Clock from a_clock (line 7947) BEFORE the matcher
       CPI. Inside the CPI, the matcher can still call its OWN nested CPIs
@@ -514,6 +544,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: indirect-reentrancy
+    engine_function: absorb_protocol_loss
     claim: >
       The CPI reentrancy guard (FLAG_CPI_IN_PROGRESS) blocks any direct
       re-entry into the wrapper. The matcher can mutate ANY writable
@@ -530,6 +561,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: partial-cascade-reentry
+    engine_function: absorb_protocol_loss
     claim: >
       ForceCloseResolved returns ProgressOnly when the engine's cascade
       requires additional reconciliation rounds. KeeperCrank on resolved

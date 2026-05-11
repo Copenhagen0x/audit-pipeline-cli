@@ -36,6 +36,7 @@ from audit_pipeline.commands import (
     notify,
     onboard,
     poc,
+    poc_llm,
     propagate,
     provision_vps,
     recon,
@@ -102,6 +103,7 @@ main.add_command(provision_vps.provision_vps_cmd)
 main.add_command(sync.sync_cmd)
 main.add_command(recon.recon_cmd)
 main.add_command(poc.poc_cmd)
+main.add_command(poc_llm.poc_llm_cmd)
 main.add_command(kani.kani_cmd)
 main.add_command(litesvm.litesvm_cmd)
 main.add_command(cross_check.cross_check_cmd)

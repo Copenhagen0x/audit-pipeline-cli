@@ -37,6 +37,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: post-cpi-stale-data-length
+    engine_function: invoke_signed_trade
     claim: >
       TradeCpi (src/percolator.rs:8049-8079) issues invoke_signed to a
       caller-supplied matcher program with caller-supplied a_matcher_ctx,
@@ -69,6 +70,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: post-cpi-stale-data-length
+    engine_function: handlers
     claim: >
       Every AccountInfo built by the bridge at src/percolator.rs:10341
       holds a Rc<RefCell<&mut [u8]>> whose slice length is frozen at
@@ -90,6 +92,7 @@ hypotheses:
     class: implicit_invariant
     severity: High
     bug_class: pinocchio-borrow-state-desync
+    engine_function: absorb_protocol_loss
     claim: >
       The bridge constructs `&mut u64` and `&mut [u8]` raw references via
       unsafe at src/percolator.rs:10322-10328 and wraps them in
@@ -108,6 +111,7 @@ hypotheses:
     class: implicit_invariant
     severity: High
     bug_class: rust-aliasing-rawmut-into-runtime-account
+    engine_function: absorb_protocol_loss
     claim: >
       Line 10322: `let lamports_ref = unsafe { &mut (*raw).lamports };`
       creates a `&mut u64` into the SVM-resident RuntimeAccount.lamports
@@ -126,6 +130,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: untested-production-path
+    engine_function: absorb_protocol_loss
     claim: >
       Cargo.toml line 13 sets `default = ["anchor-v2"]`. The Anchor v2
       bridge ships to mainnet by default (`cargo build-sbf` activates it
@@ -143,6 +148,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: rent-epoch-build-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       AccountInfo.rent_epoch is hardcoded to Epoch::default() = 0 at line
       10346. The legacy entrypoint passes the real rent_epoch from the
@@ -159,6 +165,7 @@ hypotheses:
     class: implicit_invariant
     severity: Medium
     bug_class: type-punning-version-drift
+    engine_function: absorb_protocol_loss
     claim: >
       Lines 10339-10340 transmute `&Address` into `&Pubkey` via raw
       pointer cast. solana_address::Address and solana_program v1.18.26's
@@ -175,6 +182,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: duplicate-account-detection-semantics
+    engine_function: absorb_protocol_loss
     claim: >
       `first_duplicate` (lines 10356-10366) detects duplicates by
       account_ptr equality. Pinocchio's serializer uses the borrow_state
@@ -192,6 +200,7 @@ hypotheses:
     class: implicit_invariant
     severity: High
     bug_class: rust-lifetime-extension-via-rc-clone
+    engine_function: absorb_protocol_loss
     claim: >
       The bridge's Rc<RefCell<&mut [u8]>> is cloned into AccountInfo
       structs. Inside the processor, AccountInfo is .clone()'d into CPI
@@ -210,6 +219,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: post-cpi-owner-mutation-via-assign
+    engine_function: absorb_protocol_loss
     claim: >
       The bridge sets AccountInfo.owner to a `&Pubkey` aliasing
       RuntimeAccount.owner (line 10340). Pinocchio's docs explicitly warn:
@@ -229,6 +239,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: feature-flag-runtime-assertion
+    engine_function: absorb_protocol_loss
     claim: >
       Cargo.toml line 52 enables `features = ["alloc", "guardrails"]` on
       anchor-lang-v2. The guardrails feature in anchor-lang-v2 may inject
@@ -246,6 +257,7 @@ hypotheses:
     class: authorization
     severity: Low
     bug_class: program-id-stack-allocation
+    engine_function: absorb_protocol_loss
     claim: >
       `Pubkey::new_from_array(program_id.to_bytes())` at line 10293
       heap-stacks a copy of the program ID rather than aliasing the SVM-
@@ -261,6 +273,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: post-spl-close-stale-data
+    engine_function: absorb_protocol_loss
     claim: >
       CloseSlab issues `spl_token::instruction::close_account` at line
       8846-8862. The SPL Token close instruction transfers lamports and
@@ -277,6 +290,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: error-discriminant-collision
+    engine_function: absorb_protocol_loss
     claim: >
       `map_legacy_error` at src/percolator.rs:10368-10408 exhaustively
       maps each LegacyProgramError variant to an AnchorProgramError
@@ -292,6 +306,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: zero-account-edge-case
+    engine_function: absorb_protocol_loss
     claim: >
       The bridge's process_with_legacy_account_infos accepts an empty
       `accounts` slice without explicit guard. Each instruction handler
@@ -305,6 +320,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: untested-bridge-code
+    engine_function: absorb_protocol_loss
     claim: >
       The bridge module at src/percolator.rs:10266-10410 is gated on
       `feature = "anchor-v2"`. Unit tests (`cargo test`) run with default
@@ -322,6 +338,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: stack-pressure-from-vec-allocation
+    engine_function: absorb_protocol_loss
     claim: >
       For each instruction, the bridge allocates 3 Vec<_>s (lamports,
       data, legacy_accounts) sized to accounts.len(). With MAX_TX_ACCOUNTS
@@ -338,6 +355,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: rc-refcell-borrow-collision
+    engine_function: absorb_protocol_loss
     claim: >
       The bridge wraps `&mut [u8]` data slices in Rc<RefCell<>>. Inside
       collateral::deposit at line 4027 the AccountInfo is .clone()'d
@@ -355,6 +373,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: account-creation-pre-bridged
+    engine_function: absorb_protocol_loss
     claim: >
       Searched src/percolator.rs for system_instruction::create_account
       and system_program::ID — no matches. Percolator does NOT itself
@@ -375,6 +394,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: oracle-monotonicity-violation
+    engine_function: read_external_price_e6
     claim: >
       `read_external_price_e6` returns `max_publish_time` derived only from the
       current read's leg publish times, but `clamp_external_price` then writes
@@ -399,6 +419,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: oracle-confidence-bypass
+    engine_function: read_external_price_e6
     claim: >
       The same-publish-time conflict check at `read_external_price_e6` is gated on
       `prev_time != 0` AND `prev_price != 0`. At init, all `oracle_leg_publish_times`
@@ -420,6 +441,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: oracle-composition-overflow
+    engine_function: compose_oracle_leg
     claim: >
       `compose_oracle_leg` in `divide` mode computes `acc * 1_000_000 / leg`. If
       attacker can make `leg_e6 == 1` (smallest non-zero), the composite price
@@ -441,6 +463,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: oracle-scale-mismatch
+    engine_function: read_external_price_e6
     claim: >
       `read_external_price_e6` composes legs via `compose_oracle_leg` (multiplies/
       divides at e6 scale) BEFORE applying `apply_engine_price_transform` (invert
@@ -463,6 +486,7 @@ hypotheses:
     class: authorization
     severity: Low
     bug_class: oracle-account-spoofing-noop
+    engine_function: oracle_account_count
     claim: >
       For Hyperp markets `oracle_account_count(config) == 1` (line 5379-5380), so
       all Hyperp-mode wrappers (InitMarket, TradeCpi, CloseAccount, etc.) require
@@ -483,6 +507,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: oracle-init-replay
+    engine_function: read_init_external_oracle_price
     claim: >
       `read_init_external_oracle_price` (lines 5398-5448) calls
       `read_external_price_e6` to seed init state. The returned `publish_time`
@@ -503,6 +528,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: oracle-account-confusion
+    engine_function: read_external_price_e6
     claim: >
       `read_external_price_e6` iterates `oracle_accounts[i]` and calls
       `read_raw_oracle_price_e6` with `oracle_leg_feed_id(config, i)` as the
@@ -522,6 +548,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: oracle-leg-disable-bypass
+    engine_function: oracle_leg_count
     claim: >
       `oracle_leg_config_ok` for non-Hyperp requires `leg1 != [0u8;32]` and, when
       `count >= 2`, `leg2 != [0u8;32]`. `oracle_leg_count(config)` tolerates
@@ -542,6 +569,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: oracle-replay-residual
+    engine_function: read_external_price_e6
     claim: >
       Per-leg same-timestamp conflict check (line 3635-3637): rejects when
       `publish_time == prev_time` AND `prev_price != 0` AND `price != prev_price`.
@@ -565,6 +593,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: oracle-flag-semantics
+    engine_function: absorb_protocol_loss
     claim: >
       `oracle_leg_flags` has 2 bits: `ORACLE_LEG_FLAG_DIVIDE_LEG2 = 1<<1` and
       `ORACLE_LEG_FLAG_DIVIDE_LEG3 = 1<<2`. Bit 0 is unused.
@@ -582,6 +611,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: oracle-init-config-error
+    engine_function: absorb_protocol_loss
     claim: >
       At init for non-Hyperp non-trivial-leg markets,
       `read_init_external_oracle_price` reads the composite oracle and stores
@@ -600,6 +630,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: oracle-cross-correlation-attack
+    engine_function: read_external_price_e6
     claim: >
       Multi-leg oracle: each leg has its own `publish_time`. For composite
       cross-rates (e.g. ETH/SOL via ETH/USD × USD/SOL), the two legs may update
@@ -621,6 +652,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Low
     bug_class: oracle-transform-double-apply
+    engine_function: absorb_protocol_loss
     claim: >
       `read_init_external_oracle_price` calls `read_external_price_e6`, which
       itself calls `apply_engine_price_transform` (line 3654) at the END applying
@@ -636,6 +668,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: oracle-config-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       `oracle_leg_config_ok` rejects `leg2 == leg1` (line 3550) and `leg3 == leg1
       || leg3 == leg2` (line 3557). But the check is on byte-arrays. If two
@@ -652,6 +685,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: oracle-composition-zero
+    engine_function: absorb_protocol_loss
     claim: >
       `compose_oracle_leg` divides at line 3567-3571: `acc * 1_000_000 / leg_e6`.
       With 3 legs, a precision-sensitive sequence produces a small intermediate
@@ -669,6 +703,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: oracle-staleness-per-leg
+    engine_function: absorb_protocol_loss
     claim: >
       `read_external_price_e6` uses `config.max_staleness_secs` for ALL legs
       uniformly (line 3626). Different oracle sources have different update
@@ -689,6 +724,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: dynamic-fee-bypass
+    engine_function: gate
     claim: >
       Dynamic Hyperp fee is enabled ONLY when `config.trade_fee_base_bps <
       engine.params.max_trading_fee_bps` (strict less-than at lines 8219, 8280).
@@ -710,6 +746,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: dynamic-fee-undercount
+    engine_function: absorb_protocol_loss
     claim: >
       In `hyperp_dynamic_fee_bps` callsite (lines 8281-8310),
       `mark_externality_notional` is computed using `price` (the anchor / oracle
@@ -729,6 +766,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: dynamic-fee-undercount
+    engine_function: absorb_protocol_loss
     claim: >
       Line 8287-8288: `max_side_oi_q = max(engine.oi_eff_long_q,
       engine.oi_eff_short_q)`. Used as the externality basis. But a real perp's
@@ -746,6 +784,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: dynamic-fee-dos
+    engine_function: absorb_protocol_loss
     claim: >
       `hyperp_dynamic_fee_bps` uses a hardcoded 64-iteration cap on the
       fixed-point solver (line 1467). Returns `None` if convergence fails;
@@ -765,6 +804,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: dynamic-fee-config-undercap
+    engine_function: absorb_protocol_loss
     claim: >
       At init (lines 6105-6124), `trade_fee_base_bps` is validated against
       `risk_params.max_trading_fee_bps` (must be `<=`). NO independent
@@ -781,6 +821,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: dynamic-fee-stale-snapshot
+    engine_function: absorb_protocol_loss
     claim: >
       Dynamic fee computation uses `config.mark_ewma_e6` (line 8300) and
       `config.last_effective_price_e6` (line 8283) as inputs. Read BEFORE
@@ -797,6 +838,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: matcher-band-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       For dynamic Hyperp markets, the anti-off-market band is changed from
       `max(2 * max_trading_fee_bps, 100)` to `max(max_price_move_bps_per_slot,
@@ -814,6 +856,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: dynamic-fee-coverage-gap
+    engine_function: absorb_protocol_loss
     claim: >
       Dynamic Hyperp fee is computed ONLY in `TradeCpi` path (line 8298).
       `TradeNoCpi` uses `config.trade_fee_base_bps` directly. Hyperp markets
@@ -831,6 +874,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: ewma-bias
+    engine_function: absorb_protocol_loss
     claim: >
       In dynamic-fee Hyperp TradeCpi: `current_fee_paid_cap =
       current_trade_fee_paid_cap(trade_size, exec_price, current_trade_fee_bps)`
@@ -847,6 +891,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: dynamic-fee-ewma-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       `hyperp_dynamic_fee_bps` calls `ewma_update` with `mark_min_fee` as
       fee-weighting threshold. If `mark_min_fee == 0`, every fee_paid value is
@@ -866,6 +911,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Low
     bug_class: dynamic-fee-rounding
+    engine_function: absorb_protocol_loss
     claim: >
       `hyperp_dynamic_fee_bps` ceiling-divides at multiple places (lines 1418-
       1428, 1480-1486). Each iteration uses PREVIOUS iteration's rounded-up
@@ -880,6 +926,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: matcher-band-stale
+    engine_function: absorb_protocol_loss
     claim: >
       Dynamic Hyperp TradeCpi off-market band check at lines 8214-8238 uses
       `engine_ref.params.max_price_move_bps_per_slot` for dynamic-Hyperp. The
@@ -897,6 +944,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: dynamic-fee-init-state
+    engine_function: absorb_protocol_loss
     claim: >
       `policy::ewma_update` first-update path: if `old == 0` and `mark_min_fee
       > 0 && fee_paid < mark_min_fee`, returns 0. Early-stage dynamic Hyperp
@@ -911,6 +959,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: dynamic-fee-stale-anchor
+    engine_function: absorb_protocol_loss
     claim: >
       Line 8282-8286: `clamped_exec =
       clamp_oracle_price(last_effective_price_e6, exec_price,
@@ -931,6 +980,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: keeper-candidate-inspection-budget-bypass
+    engine_function: dispatch
     claim: >
       In keeper_crank dispatch (src/percolator.rs:6992-7167) the `combined`
       vector is built in the order [risk_buffer entries] -> [Phase-2
@@ -954,6 +1004,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: keeper-cursor-budget-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       In the partial-catchup branch (src/percolator.rs:7073-7115, from
       3203c98), when `has_liquidation_hint` is true the wrapper hard-zeros
@@ -973,6 +1024,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: keeper-progress-slot-decoupling
+    engine_function: absorb_protocol_loss
     claim: >
       When partial_catchup + has_liquidation_hint, wrapper passes `now_slot =
       segment_slot` to `permissionless_progress_not_atomic`. The engine sets
@@ -989,6 +1041,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: keeper-cursor-budget-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       `append_phase2_fullclose_candidates` deduplicates via
       `candidate_list_contains`. But the risk buffer entry IS pushed to
@@ -1006,6 +1059,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: keeper-cursor-budget-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       `append_phase2_fullclose_candidates` scans starting from
       `engine.rr_cursor_position` (line 4965) and adds matching live nonzero
@@ -1023,6 +1077,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: liquidation-hint-stale
+    engine_function: absorb_protocol_loss
     claim: >
       `account_hint` (lines 7187-7190) set to `candidates.first()` else
       `combined.iter().next()`. When `candidates` empty but `combined` has a
@@ -1040,6 +1095,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: keeper-account-priority-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       `account_hint = candidates.first()` gives the caller direct control over
       which account the engine evaluates B-progress for FIRST, before any
@@ -1058,6 +1114,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: keeper-candidate-truncation
+    engine_function: absorb_protocol_loss
     claim: >
       `COMBINED_CAP = RISK_BUF_CAP + MAX_KEEPER_CANDIDATES +
       RR_WINDOW_WITH_CANDIDATES = 4 + 8 + 32 = 44`. With Phase-2 promotion at
@@ -1074,6 +1131,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: keeper-cursor-wrap-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       `append_phase2_fullclose_candidates` walks `i` from `rr_cursor_position`
       to `wrap_bound` and breaks WITHOUT wrapping back to 0. Engine's Phase-2
@@ -1092,6 +1150,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: keeper-state-leak
+    engine_function: absorb_protocol_loss
     claim: >
       `append_phase2_fullclose_candidates` calls `effective_pos_q_checked`
       on every used slot to filter zero-position accounts (line 4979). Reads
@@ -1110,6 +1169,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: keeper-arithmetic-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       `append_phase2_fullclose_candidates` increments `inspected` and `touched`
       with `checked_add(1)` returning EngineOverflow on overflow. Loop bound
@@ -1125,6 +1185,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: cu-exhaustion-dos
+    engine_function: absorb_protocol_loss
     claim: >
       Commit 036b51c made keeper CU tests tier-aware. Test passes iff
       `saw_structural_cursor_progress` is true. In production, before
@@ -1140,6 +1201,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: keeper-fee-skip
+    engine_function: absorb_protocol_loss
     claim: >
       `sweep_delta` calculation (src/percolator.rs:7223-7253) gates fee sync
       and reward on `!progress_was_crank || partial_catchup`. When
@@ -1156,6 +1218,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: keeper-candidate-budget-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       `append_phase2_fullclose_candidates` is gated on
       `!candidates.is_empty()`. In partial-catchup + has_liquidation_hint
@@ -1173,6 +1236,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: keeper-protective-progress-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       Engine `keeper_has_possible_protective_progress` returns true if ANY
       candidate index is `is_used` AND `< params.max_accounts` — without
@@ -1190,6 +1254,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: keeper-reclaim-loop-interaction
+    engine_function: absorb_protocol_loss
     claim: >
       Post-crank reclaim loop iterates `combined` and reclaims flat-zero
       accounts. `combined` includes Phase-2 promoted indices. If Phase-2
@@ -1208,6 +1273,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: keeper-budget-accounting
+    engine_function: absorb_protocol_loss
     claim: >
       `COMBINED_CAP = 4 + 8 + 32 = 44`. Engine's `max_candidate_inspections =
       min(MAX_TOUCHED, 32) = 32` — only first 32 inspected. Entries at
@@ -1221,6 +1287,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: oracle-price-rate-limit-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       Partial-catchup branch: `segment_price =
       effective_price_from_target(engine.last_oracle_price, raw_target,
@@ -1239,6 +1306,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: keeper-overflow-defensive
+    engine_function: absorb_protocol_loss
     claim: >
       Engine `combined_touch_budget = max_revalidations + rr_touch_limit` uses
       `saturating_add` then compares against MAX_TOUCHED_PER_INSTRUCTION.
@@ -1257,6 +1325,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: zero-fill-state-rollback-mark-corruption
+    engine_function: absorb_protocol_loss
     claim: >
       On a TradeCpi canonical zero-fill (exec_size==0,
       exec_price_e6==oracle_price_e6), wrapper at src/percolator.rs:8184–8191
@@ -1278,6 +1347,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: matcher-zero-fill-price-validation-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       Fix at src/percolator.rs:1760 requires `ret.exec_price_e6 ==
       oracle_price_e6` for zero-fill, but `oracle_price_e6` is the
@@ -1297,6 +1367,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: liveness-spoof-via-feeless-walk
+    engine_function: absorb_protocol_loss
     claim: >
       Hyperp market without permissionless resolution can have `mark_min_fee
       == 0` (F2 gate at 6139 only fires when both conditions are met). With
@@ -1316,6 +1387,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: zero-fill-bypassing-stuck-target-gate
+    engine_function: absorb_protocol_loss
     claim: >
       Zero-fill branch calls `reject_stuck_target_accrual` and
       `reject_account_limited_market_progress` BEFORE accruing, then restores
@@ -1333,6 +1405,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: nonce-write-ordering-on-failed-path
+    engine_function: absorb_protocol_loss
     claim: >
       Zero-fill branch writes `state::write_req_nonce(&mut data, req_id)` at
       src/percolator.rs:8192 AFTER restoring pre-oracle config but BEFORE any
@@ -1349,6 +1422,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: toctou-matcher-return-double-read
+    engine_function: absorb_protocol_loss
     claim: >
       Between `read_matcher_return(&ctx_data)` at src/percolator.rs:8065 and
       subsequent uses of `ret.exec_price_e6`/`ret.exec_size`/`ret.lp_account_id`
@@ -1371,6 +1445,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: dynamic-fee-mark-ratchet-self-deal
+    engine_function: absorb_protocol_loss
     claim: >
       New regression test at tests/test_tradecpi.rs:6866–6925 verifies
       `claim_after <= claim_before` for a SINGLE after-hours self-dealing
@@ -1395,6 +1470,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: cross-account-extraction
+    engine_function: absorb_protocol_loss
     claim: >
       `controlled_extractable_upper_bound` at tests/test_tradecpi.rs:6803–6810
       sums capital + max(pnl, 0) for ALL controlled accounts. Regression test
@@ -1413,6 +1489,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: fee-vs-loss-cycle-attacker-tax-arbitrage
+    engine_function: absorb_protocol_loss
     claim: >
       After-hours regression asserts `insurance_after >= insurance_before`
       which holds because dynamic fee at 1bps + mark-move-bps lands in
@@ -1433,6 +1510,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: clamp-base-asymmetry
+    engine_function: absorb_protocol_loss
     claim: >
       In TradeCpi non-zero-fill, dynamic-fee pre-flight at
       src/percolator.rs:8282 calls
@@ -1452,6 +1530,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: full-weight-observation-with-zero-min-fee
+    engine_function: absorb_protocol_loss
     claim: >
       New self-deal regression uses `init_hyperp_with_dynamic_fee(..., 1, 0)`
       — `mark_min_fee == 0`. With min_fee==0,
@@ -1471,6 +1550,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: halflife-zero-instant-mark
+    engine_function: absorb_protocol_loss
     claim: >
       `ewma_update` at src/percolator.rs:1369 returns `price` directly when
       `halflife_slots == 0`. `mark_ewma_halflife_slots` is admin-set at
@@ -1490,6 +1570,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: matcher-controlled-size-bypasses-margin
+    engine_function: absorb_protocol_loss
     claim: >
       `cpi_trade_size` at src/percolator.rs:527 returns `exec_size` and
       ignores `_requested_size`. Wrapper signs matcher CPI on behalf of user
@@ -1512,6 +1593,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: exec-price-band-vs-mark-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       Anti-off-market band at src/percolator.rs:8214–8237 compares
       `exec_price` to `price` (dt-capped oracle/index). For Hyperp
@@ -1530,6 +1612,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: tail-accounts-state-leak
+    engine_function: absorb_protocol_loss
     claim: >
       Matcher CPI forwards `a_tail` verbatim. A matcher trusted by LP owner
       can include LP's OWN slab via the tail, forcing wrapper's matcher_ctx
@@ -1547,6 +1630,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: self-deal-via-delegated-authority
+    engine_function: absorb_protocol_loss
     claim: >
       Wrapper's only self-deal block is `lp_idx != user_idx` at
       src/percolator.rs:7799. Different `owner` values for the two indices
@@ -1565,6 +1649,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: fee-paid-snapshot-loss-absorption-undercount
+    engine_function: absorb_protocol_loss
     claim: >
       `fee_paid_cpi` computed as `(insurance_after - insurance_before).min(
       current_fee_paid_cap)`. Comment acknowledges UNDERCOUNTS when loss
@@ -1584,6 +1669,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: fee-credit-vs-config-restore
+    engine_function: absorb_protocol_loss
     claim: >
       Zero-fill `restored = config_pre_oracle` write at 8184–8191 covers
       MarketConfig only. But preceding `reject_account_limited_market_progress`/
@@ -1602,6 +1688,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: dynamic-fee-iterator-saturation-return-Some
+    engine_function: absorb_protocol_loss
     claim: >
       `hyperp_dynamic_fee_bps` iterates up to 64 times. On overflow path
       returns None at multiple points. If iterator terminates by `needed <=
@@ -1619,6 +1706,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: paused-market-zero-fill-or-self-deal
+    engine_function: absorb_protocol_loss
     claim: >
       `permissionless_stale_matured` at start of TradeCpi rejects with
       `OracleStale` ONLY in specific arms. During "soft-stale" window (oracle
@@ -1638,6 +1726,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: cancel-replace-self-trade
+    engine_function: absorb_protocol_loss
     claim: >
       TradeCpi has no "cancel" instruction — orders atomic at matcher level.
       On wrapper, a matcher returning FLAG_REJECTED consumes one CPI's gas
@@ -1654,6 +1743,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: pre-touch-recurring-fee-on-zero-fill
+    engine_function: absorb_protocol_loss
     claim: >
       `reject_account_limited_market_progress` at 8153 may still settle
       per-account fee state on zero-fill path. If matcher returns canonical
@@ -1669,6 +1759,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: i128-min-size-validation-edge
+    engine_function: absorb_protocol_loss
     claim: >
       `validate_matcher_return` checks `ret.exec_size.unsigned_abs() >
       req_size.unsigned_abs()`. The `unsigned_abs()` of `i128::MIN` is `1 <<
@@ -1684,6 +1775,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: composite-oracle-leg-rollback-self-deal
+    engine_function: absorb_protocol_loss
     claim: >
       Commit d40edb5 introduces multi-leg oracle support (oracle_leg_count
       up to 3). Multi-leg composite oracles compose leg prices via
@@ -1702,6 +1794,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: trade-fee-paid-cap-saturation
+    engine_function: absorb_protocol_loss
     claim: >
       `current_trade_fee_paid_cap` multiplies `notional * trading_fee_bps /
       10000` then `* 2`. For after-hours max case
@@ -1718,6 +1811,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: resolved-market-frozen-state-trade-cpi
+    engine_function: absorb_protocol_loss
     claim: >
       TradeCpi rejects when `engine.market_mode == Resolved`. Resolved
       snapshot taken via immutable borrow BEFORE matcher CPI. If malicious
@@ -1739,6 +1833,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       `withdraw_not_atomic` gates the loss-stale positive-pnl lock behind
       `position_basis_q != 0` (engine src/percolator.rs lines 7463 and 7472).
@@ -1760,6 +1855,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       `account_equity_withdraw_raw` at engine line 5645 adds
       `effective_matured_pnl_checked(idx, false)` to capital. But `min(pnl,
@@ -1777,6 +1873,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       Engine line 7525-7531 widens `eq_withdraw - amount` and `im_req` into
       I256 to avoid wrapping when `min_nonzero_im_req > i128::MAX`. But
@@ -1796,6 +1893,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: account-spoof
+    engine_function: absorb_protocol_loss
     claim: >
       New `set_wrapper_owner` at src/percolator.rs line 5355 replaces
       `engine.set_owner` (engine line 7310) which calls
@@ -1814,6 +1912,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: account-spoof
+    engine_function: absorb_protocol_loss
     claim: >
       `close_account_not_atomic` (engine 9306) calls `free_slot` (engine
       2007) which marks slot unused but does NOT zero `accounts[idx].owner`.
@@ -1830,6 +1929,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: atomicity-violation
+    engine_function: absorb_protocol_loss
     claim: >
       Engine's `withdraw_not_atomic` does NOT call
       `ensure_no_active_bankrupt_close` (compare engine 7433-7543 vs
@@ -1847,6 +1947,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       `withdraw_not_atomic` checks `loss_stale_positive_pnl_lock_active` at
       line 7463 BEFORE `accrue_market_to`, AGAIN at line 7472 AFTER. Lock
@@ -1864,6 +1965,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       IM check at engine line 7505 conditional on `eff != 0`.
       `effective_pos_q_checked(idx, false)` can return Ok(0) for non-flat
@@ -1881,6 +1983,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: account-spoof
+    engine_function: absorb_protocol_loss
     claim: >
       New test `test_zero_payout_close_account_skips_destination_ata_validation`
       indicates CloseAccount on zero-capital account skips destination ATA
@@ -1898,6 +2001,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       WithdrawCollateral verifies `a_vault.owner == derived_pda` and mint
       matches `config.collateral_mint`, but does NOT verify engine slab
@@ -1920,6 +2024,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: market-grief
+    engine_function: absorb_protocol_loss
     claim: >
       New wrapper KeeperCrank path (src/percolator.rs 7187-7190) sets
       `account_hint` from `candidates.first()` — ATTACKER-CONTROLLED
@@ -1941,6 +2046,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: market-grief
+    engine_function: absorb_protocol_loss
     claim: >
       `validate_permissionless_p_last_recovery_reason` for
       `BIndexHeadroomExhausted` accepts when `b_long_num == u128::MAX ||
@@ -1958,6 +2064,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: market-grief
+    engine_function: absorb_protocol_loss
     claim: >
       `validate_permissionless_p_last_recovery_reason` for
       `ExplicitLossOrDustAuditOverflow` accepts when
@@ -1976,6 +2083,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       Wrapper KeeperCrank sets `resolved_scan_limit: 1` and
       `resolved_fee_rate_per_slot: config.maintenance_fee_per_slot`
@@ -1994,6 +2102,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: state-leak
+    engine_function: absorb_protocol_loss
     claim: >
       `try_permissionless_account_b_dispatch` runs BEFORE
       `GLOBAL_RECOVERY_PRIORITY` scan and BEFORE
@@ -2012,6 +2121,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       Deleted `bounded_keeper_policy_for_engine` degraded
       `LiquidationPolicy::FullClose` to touch-only on dense books
@@ -2028,6 +2138,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       Deleted `account_provably_nonnegative_after_accrual` and
       `account_provably_above_maintenance_after_accrual` previews rejected
@@ -2047,6 +2158,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       KeeperCrank reward path caps reward by `ins_now =
       engine.insurance_fund.balance.get()` AFTER `sweep_maintenance_fees`,
@@ -2064,6 +2176,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: state-leak
+    engine_function: absorb_protocol_loss
     claim: >
       Inside KeeperCrank, when `partial_target.is_some()`, wrapper sets
       `partial_catchup = true` and forwards to
@@ -2082,6 +2195,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: state-leak
+    engine_function: absorb_protocol_loss
     claim: >
       Lines 7305-7311: after `permissionless_progress_not_atomic`, wrapper
       checks `engine.market_mode == Resolved` and if so, bails early from
@@ -2104,6 +2218,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: arithmetic-saturation-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       InitUser/InitLP/DepositCollateral perform TVL:insurance cap check
       with `ins.saturating_mul(tvl_insurance_cap_mult as u128)` at
@@ -2121,6 +2236,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: vault-insurance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       InitUser at percolator.rs:6440 transfers `fee_payment` (capital + fee)
       to vault BEFORE calling `deposit_not_atomic` (6452) and
@@ -2138,6 +2254,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: vault-insurance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       DepositFeeCredits at percolator.rs:9843 transfers `amount` base tokens
       to vault at line 9921 BEFORE booking `units2` units in engine at 9930.
@@ -2154,6 +2271,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: cross-program-invariant-violation
+    engine_function: absorb_protocol_loss
     claim: >
       A1 regression tests prove `attacker_delta <= ROUNDING_TOLERANCE` for
       two-account matched pair within SINGLE market. They do NOT test
@@ -2171,6 +2289,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: missing-test-scenario
+    engine_function: absorb_protocol_loss
     claim: >
       test_a1_hyperp_mark_siphon_defended runs WITHOUT matched pair because
       TradeNoCpi is disabled on Hyperp. Note at line 313: "without any open
@@ -2188,6 +2307,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: matcher-program-trust-boundary
+    engine_function: absorb_protocol_loss
     claim: >
       test_a1_tradecpi_siphon_defended covers well-behaved matcher. Does
       NOT cover ADVERSARIAL matcher_program that satisfies ABI echo +
@@ -2204,6 +2324,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: fee-counter-vault-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       test_attack_fee_cycling_wash_trades_no_rebate_siphon verifies fees
       route to insurance, not to wash-trade traders. Does NOT cover path
@@ -2220,6 +2341,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: missing-envelope-check
+    engine_function: absorb_protocol_loss
     claim: >
       test_envelope_gate.rs covers TopUpInsurance and InitUser rejection on
       permissionless_stale_matured. Does NOT cover WithdrawInsuranceLimited
@@ -2237,6 +2359,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: init-time-prevalidation-gap
+    engine_function: absorb_protocol_loss
     claim: >
       test_envelope_gate.rs verifies InitMarket rejects
       max_price_move_bps_per_slot==0 and ResolveMarket rejects mode==2.
@@ -2253,6 +2376,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: instruction-decode-default-arm
+    engine_function: absorb_protocol_loss
     claim: >
       test_envelope_gate.rs verifies ResolveMarket mode=2 rejects via
       InvalidInstructionData (parser-level). Does NOT test that mode=1
@@ -2268,6 +2392,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: adl-residual-drain
+    engine_function: absorb_protocol_loss
     claim: >
       test_attack_zero_insurance_self_liquidation_no_net_extraction asserts
       no net extraction when insurance is zero. Uses one weak long + one
@@ -2285,6 +2410,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: residual-claim-across-slot-boundary
+    engine_function: absorb_protocol_loss
     claim: >
       test_attack_whipsaw_profit_recycling_no_net_extraction runs user-side
       whipsaw within one continuous crank sequence. Does NOT cover case
@@ -2302,6 +2428,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: rounding-accumulation-across-markets
+    engine_function: absorb_protocol_loss
     claim: >
       test_attack_min_position_whipsaw_no_rounding_mint and
       test_attack_many_one_unit_trades_no_rounding_accumulation cover SINGLE
@@ -2317,6 +2444,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: residual-double-claim
+    engine_function: absorb_protocol_loss
     claim: >
       test_attack_sequential_winner_exits_after_whipsaw_no_double_spend
       tests TWO attacker-controlled longs + ONE short across one reversal.
@@ -2333,6 +2461,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: confused-deputy
+    engine_function: absorb_protocol_loss
     claim: >
       test_attack_unmatured_pnl_keeper_branch_matrix_no_extraction verifies
       wrong-owner self-crank rejects. Does NOT test owner self-crank
@@ -2348,6 +2477,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: arithmetic-saturation-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       DepositCollateral at 6708 has tvl_insurance_cap_mult check around
       6654-6672 using `ins.saturating_mul`. Same root as
@@ -2364,6 +2494,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: zero-value-edge-case
+    engine_function: absorb_protocol_loss
     claim: >
       InitUser at 6406-6408 rejects `fee_payment <= fee_base`. Does NOT
       consider case `fee_payment > fee_base BUT capital_base rounds to
@@ -2380,6 +2511,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: assertion-branch-uncovered
+    engine_function: absorb_protocol_loss
     claim: >
       test_attack_unmatured_pnl_public_interface_matrix_no_extraction
       asserts DepositFeeCredits rejects "when no fee debt exists". Asserts
@@ -2396,6 +2528,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: target-effective-price-lag-bypass
+    engine_function: absorb_protocol_loss
     claim: >
       test_attack_target_lag_withdraw_rejected_atomically verifies
       WithdrawCollateral rejects during target/effective price lag. Does
@@ -2413,6 +2546,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: cross-instruction-state-race
+    engine_function: absorb_protocol_loss
     claim: >
       A1b test runs PushHyperpMark in isolation. Does NOT test transaction
       containing PushHyperpMark immediately FOLLOWED by TradeCpi in SAME
@@ -2428,6 +2562,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: terminal-state-residue-capture
+    engine_function: absorb_protocol_loss
     claim: >
       WithdrawInsurance (tag 20) at line 9473 includes comment at 9586
       "tag 20 (whose terminal-surplus sweep also folds residue into
@@ -2444,6 +2579,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: state-modification-in-early-return
+    engine_function: absorb_protocol_loss
     claim: >
       test_attack_unmatured_pnl_keeper_branch_matrix_no_extraction verifies
       "resolved KeeperCrank early-return branch should succeed" with
@@ -2461,6 +2597,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: vault-authority-collision
+    engine_function: absorb_protocol_loss
     claim: >
       test_envelope_gate.rs verifies one InitMarket field prevalidation.
       Does NOT verify that two markets with same collateral_mint and same
@@ -2477,6 +2614,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: fee-counter-vault-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       sync_account_fee_bounded_to_market at 4350 is canonical accrual sync
       for fee_credits. Called in DepositFeeCredits Phase 1 and

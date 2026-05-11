@@ -16,6 +16,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: insurance-counter-vault-divergence
+    engine_function: settle_flat_negative_pnl_not_atomic
     claim: >
       Define R = vault - c_tot - insurance_fund.balance (the senior
       residual, saturated at 0 on deficit). For every public _not_atomic
@@ -38,6 +39,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: haircut-direction-violation
+    engine_function: absorb_protocol_loss
     claim: >
       Define paid_out(state) = sum over claimers of haircut_ratio.apply(claim).
       For any two reachable states S1 -> S2 connected by a sequence of
@@ -53,6 +55,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       Pre-haircut zero-sum: sum_i pnl_i only changes through
       use_insurance_buffer / record_uninsured_protocol_loss. Over the
@@ -66,6 +69,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: oi-imbalance
+    engine_function: absorb_protocol_loss
     claim: >
       oi_eff_long_q == oi_eff_short_q after every public _not_atomic
       entrypoint completes successfully. Enforced by
@@ -79,6 +83,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: pnl-accounting-corruption
+    engine_function: absorb_protocol_loss
     claim: >
       For every reachable state, pnl_matured_pos_tot <= pnl_pos_tot.
       Every mutation site that touches either field re-validates this
@@ -92,6 +97,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: reserve-accounting-corruption
+    engine_function: absorb_protocol_loss
     claim: >
       For every account i, account.reserved_pnl_i <= max(account.pnl_i, 0).
       You cannot reserve more PnL than the account actually has as
@@ -104,6 +110,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: reserve-bucket-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       For every account, sched_remaining_q + pending_remaining_q ==
       reserved_pnl whenever sched_present == 1 OR pending_present == 1.
@@ -116,6 +123,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: oi-aggregate-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       oi_eff_long_q == sum_{i: effective_pos_q(i) > 0} effective_pos_q(i)
       + phantom_dust_residue_long. Verify every mutation site preserves
@@ -128,6 +136,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: stored-count-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       stored_pos_count_long == |{i: side_of_i128(account.position_basis_q)
       == Long AND adl_epoch_snap_i == adl_epoch_long}|. The O(1)
@@ -140,6 +149,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: arithmetic-overflow-funding
+    engine_function: absorb_protocol_loss
     claim: >
       For every accrue_market_to call respecting the per-call envelope,
       neither f_long_num nor f_short_num overflows i128. Kani: prove no
@@ -153,6 +163,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: arithmetic-overflow-mark
+    engine_function: absorb_protocol_loss
     claim: >
       For every accrue_market_to call respecting envelope,
       adl_coeff_long and adl_coeff_short stay in i128. Cumulative K must
@@ -166,6 +177,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: funding-rate-asymmetry
+    engine_function: absorb_protocol_loss
     claim: >
       funding_rate_e9_from_mark_index is sign-symmetric: swapping (mark,
       index) negates the result, modulo asymmetric clamping. Verify the
@@ -179,6 +191,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Low
     bug_class: funding-rate-divide-by-zero
+    engine_function: absorb_protocol_loss
     claim: >
       funding_rate_e9_from_mark_index returns Some(0) when mark==0 OR
       index==0 OR funding_horizon_slots==0, returns None when
@@ -192,6 +205,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: fee-accounting-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       In every successful charge_fee_to_insurance call: (1)
       insurance_fund.balance grew by exactly fee_paid; (2) account.capital
@@ -207,6 +221,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: fee-credits-sign-violation
+    engine_function: absorb_protocol_loss
     claim: >
       account.fee_credits is always in [-(i128::MAX), 0]. No mutation
       site can make it positive (it's debt, not credit).
@@ -221,6 +236,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: fee-credits-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       For every account, fee_debt_u128_checked(fee_credits) returns
       |fee_credits| when fee_credits < 0, else 0. Cannot overflow even on
@@ -233,6 +249,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: vault-tvl-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       vault <= MAX_VAULT_TVL = 1e16 in every reachable state. Every
       mutation site that can grow vault (deposit_not_atomic,
@@ -246,6 +263,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: position-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       |account.position_basis_q| <= MAX_POSITION_ABS_Q for every account
       in every reachable state. Verify that dust flush + side-mode reset
@@ -258,6 +276,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: oi-side-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       oi_eff_long_q and oi_eff_short_q each stay <= MAX_OI_SIDE_Q = 1e14.
       Every entrypoint that increases either side pre-validates against
@@ -271,6 +290,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: active-positions-cap-violation
+    engine_function: absorb_protocol_loss
     claim: >
       stored_pos_count_long <= max_active_positions_per_side AND
       stored_pos_count_short <= max_active_positions_per_side. No
@@ -285,6 +305,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: oracle-clamp-violation
+    engine_function: absorb_protocol_loss
     claim: >
       |clamp_toward_engine_dt(p_last, target, cap_bps, dt) - p_last| <=
       p_last * cap_bps * dt / 10_000 (with saturation, never panic).
@@ -298,6 +319,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: ewma-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       ewma_update output is always min(old, price) <= result <= max(old,
       price) EXCEPT for the (old==0) bootstrap branch. Result cannot
@@ -310,6 +332,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Low
     bug_class: ewma-alpha-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       ewma_effective_alpha_bps returns a value in [0, alpha_bps]. Never
       overflows u128. Verify alpha_bps * fee_paid does not overflow u128
@@ -322,6 +345,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Low
     bug_class: price-move-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       price_move_bps_ceil(old, new) is symmetric in (old, new) and
       returns None only when (new - old) * 10_000 overflows u128, else
@@ -334,6 +358,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: dynamic-fee-divergence
+    engine_function: absorb_protocol_loss
     claim: >
       hyperp_dynamic_fee_bps fixed-point iteration terminates within 64
       steps with result <= MAX_DYNAMIC_TRADE_FEE_BPS, OR returns None.
@@ -347,6 +372,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: signed-overflow-trade-pnl
+    engine_function: absorb_protocol_loss
     claim: >
       compute_trade_pnl(size_q, price_diff) for size_q in (0,
       MAX_TRADE_SIZE_Q] and price_diff in [-(MAX_ORACLE_PRICE as i128),
@@ -362,6 +388,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: effective-pos-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       effective_pos_q(idx) for any used idx returns a value in [-i128::MAX,
       i128::MAX] (never i128::MIN). For |basis| <= MAX_POSITION_ABS_Q and
@@ -375,6 +402,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: pnl-delta-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       compute_kf_pnl_delta(abs_basis, k_snap, k_side, f_snap, f_side, den)
       always succeeds for envelope-valid inputs. Result fits in i128.
@@ -388,6 +416,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: terminal-state-leak
+    engine_function: absorb_protocol_loss
     claim: >
       sweep_empty_market_surplus_to_insurance preserves: vault_post ==
       vault_pre AND insurance_post == vault_pre. Fires only when
@@ -402,6 +431,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: resolved-state-leak
+    engine_function: absorb_protocol_loss
     claim: >
       After resolve_market_not_atomic completes, c_tot can only decrease
       (via force_close_resolved_not_atomic + sweep_empty), never increase.
@@ -415,6 +445,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: slot-rewind
+    engine_function: absorb_protocol_loss
     claim: >
       For every public _not_atomic entrypoint accepting now_slot,
       function returns Err if now_slot < current_slot OR now_slot <
@@ -428,6 +459,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: mul-div-panic
+    engine_function: absorb_protocol_loss
     claim: >
       mul_div_floor_u128(a, b, d) panics when a*b overflows u128. Verify
       every callsite passes (a, b) pairs whose product is provably bounded
@@ -441,6 +473,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: wide-truncation
+    engine_function: absorb_protocol_loss
     claim: >
       wide_mul_div_floor_u128(a, b, d) panics if the U256 intermediate
       result exceeds u128 after the division. Verify every callsite —
@@ -453,6 +486,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: i128-min-panic
+    engine_function: absorb_protocol_loss
     claim: >
       checked_u128_mul_i128(a, b) returns Err if b == i128::MIN. For all
       valid (a in [0, u128::MAX], b in (i128::MIN, i128::MAX]), it
@@ -467,6 +501,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: insurance-withdraw-cap-overflow
+    engine_function: absorb_protocol_loss
     claim: >
       For every (insurance_balance <= MAX_VAULT_TVL,
       insurance_withdraw_max_bps in [0, 10_000]), the computation
@@ -480,6 +515,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: account-idx-oob
+    engine_function: absorb_protocol_loss
     claim: >
       Every public entrypoint accepting idx: u16 returns Err if (idx as
       usize) >= MAX_ACCOUNTS. The cast u16 -> usize is safe. With
@@ -494,6 +530,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: keeper-cursor-rewind
+    engine_function: absorb_protocol_loss
     claim: >
       The keeper's gc_cursor advances modulo MAX_ACCOUNTS and never
       rewinds within a single sweep. After a full cycle, every

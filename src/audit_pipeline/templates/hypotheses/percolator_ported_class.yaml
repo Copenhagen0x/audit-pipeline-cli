@@ -31,6 +31,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: oracle-confidence-bypass
+    engine_function: TradeCpi
     claim: >
       Every Percolator oracle read used for a risk decision rejects a Pyth
       observation whose confidence band exceeds the configured per-leg
@@ -52,6 +53,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: oracle-substitution
+    engine_function: absorb_protocol_loss
     claim: >
       Each oracle account passed to a Percolator instruction is validated
       against the per-leg `feed_id` recorded in `MarketConfig`
@@ -72,6 +74,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: oracle-monotonicity-violation
+    engine_function: KeeperCrank
     claim: >
       Per-leg `last_oracle_publish_time` and `oracle_target_publish_time`
       on the slab can only advance forward in slot/timestamp space. No
@@ -91,6 +94,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: oracle-silent-fallback
+    engine_function: absorb_protocol_loss
     claim: >
       When Percolator's primary oracle read fails (stale, low confidence,
       decode error), the engine does not silently fall back to a cached
@@ -111,6 +115,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: pda-bump-malleability
+    engine_function: derive_vault_authority_with_bump
     claim: >
       `derive_vault_authority_with_bump` always validates against the
       canonical bump stored in `MarketConfig::vault_authority_bump` (set
@@ -132,6 +137,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: account-discriminator-bypass
+    engine_function: require_initialized
     claim: >
       Every mutating Percolator handler that operates on a slab account
       calls `slab_guard` + `require_initialized`, which validates
@@ -152,6 +158,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: pool-double-init
+    engine_function: handle_init_market
     claim: >
       InitMarket rejects re-initialization of an already-initialized
       slab: `header.magic == MAGIC` produces `AlreadyInitialized` at
@@ -169,6 +176,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: reserve-mint-spoofing
+    engine_function: verify_vault_account
     claim: >
       The vault token account passed to every deposit/withdraw path is
       validated to match the slab's configured `vault` pubkey AND has
@@ -188,6 +196,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: token-program-substitution
+    engine_function: verify_token_program
     claim: >
       Every CPI to the SPL Token program validates the program ID equals
       `spl_token::ID` (line 5670) AND the account is `executable`. No
@@ -207,6 +216,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: token-vault-ownership
+    engine_function: derive_vault_authority
     claim: >
       The SPL Token authority on the program's vault is the PDA derived
       at InitMarket from `[b"vault", slab_key]`. No path lets the
@@ -225,6 +235,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: account-close-state-leak
+    engine_function: reclaim_empty_account_not_atomic
     claim: >
       `reclaim_empty_account_not_atomic` (engine) and InitMarket's
       pre-init zero-fill (line 6170-6172) ensure that closing/recycling
@@ -245,6 +256,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: post-spl-close-stale-data
+    engine_function: close
     claim: >
       After a CPI to `spl_token::close_account` against the program's
       vault, the wrapper does not subsequently read or mutate the
@@ -264,6 +276,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: admin-gate-bypass
+    engine_function: UpdateConfig
     claim: >
       Every admin-only Percolator instruction (UpdateConfig,
       ResolveMarket, AdminForceCloseAccount, UpdateAuthority,
@@ -284,6 +297,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: admin-handover-single-step
+    engine_function: handle_update_authority
     claim: >
       `UpdateAuthority` (non-burn case) requires BOTH the current
       authority of the chosen kind (signer check at line 5732) AND the
@@ -304,6 +318,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: pause-authority-confusion
+    engine_function: handle_update_authority
     claim: >
       The four authority kinds (`AUTHORITY_ADMIN`, `AUTHORITY_HYPERP_MARK`,
       `AUTHORITY_INSURANCE`, `AUTHORITY_INSURANCE_OPERATOR`) are
@@ -324,6 +339,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: admin-handover-single-step
+    engine_function: admin_ok
     claim: >
       Burning an authority (`UpdateAuthority` with `new_pubkey == [0u8;32]`)
       is irrevocable: once `header.admin == [0u8; 32]`, subsequent
@@ -341,6 +357,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: pool-deletion-with-state
+    engine_function: branch
     claim: >
       Burning `AUTHORITY_ADMIN` is rejected if the market is not Resolved
       AND either `permissionless_resolve_stale_slots == 0` OR
@@ -359,6 +376,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: admin-gate-bypass
+    engine_function: branch
     claim: >
       Burning `AUTHORITY_HYPERP_MARK` is rejected for Hyperp markets if
       `mark_ewma_e6 == 0` (line 5794-5796). This ensures the mark source
@@ -377,6 +395,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: state-version-mismatch
+    engine_function: validate_raw_engine_state_shape
     claim: >
       `validate_raw_engine_state_shape` and `engine_ref` / `engine_mut`
       validate the slab's byte layout (data length, enum-tag bounds,
@@ -395,6 +414,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: state-version-mismatch
+    engine_function: validate_matcher_return
     claim: >
       `validate_matcher_return` (line 1704) rejects matcher returns
       whose `abi_version != MATCHER_ABI_VERSION` (constant 2). No CPI
@@ -412,6 +432,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: oracle-staleness-bypass
+    engine_function: cluster_restarted_since_init
     claim: >
       `cluster_restarted_since_init` (line 3817) returns true once any
       observer sees `LastRestartSlot::get() > init_restart_slot`, and
@@ -433,6 +454,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: rounding-direction-fee
+    engine_function: safe_mul_div_floor_u128
     claim: >
       Trading-fee, maintenance-fee, and dynamic-fee rounding inside the
       wrapper (`safe_mul_div_floor_u128`, `safe_mul_div_ceil_u128`,
@@ -453,6 +475,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: arithmetic-overflow-pnl-mark
+    engine_function: compute_current_funding_rate_e9
     claim: >
       `pnl_delta = abs_basis * (K_now - K_snap) / (a_basis * POS_SCALE)`
       and its analogue in funding-payment accrual fit in i128 across
@@ -471,6 +494,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: precision-loss-compounding
+    engine_function: ewma_update
     claim: >
       Precision loss across any single Percolator operation (fee
       computation, funding accrual, PnL roll-up, mark-EWMA update) is
@@ -489,6 +513,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: rate-curve-out-of-bound
+    engine_function: handler
     claim: >
       Every admin-controlled `UpdateConfig` field is bounded by its
       MAX_* constant or sanity range (e.g. `force_close_delay_slots <=
@@ -511,6 +536,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: deposit-fee-bypass
+    engine_function: InitUser
     claim: >
       `new_account_fee` (and the `fee_payment` split into capital +
       fee_credits at InitUser / InitLP) is debited BEFORE the
@@ -528,6 +554,7 @@ hypotheses:
     class: authorization
     severity: Low
     bug_class: zero-input-edge-case
+    engine_function: DepositCollateral
     claim: >
       Zero-amount `DepositCollateral`, `WithdrawCollateral`,
       `TopUpInsurance`, and `DepositFeeCredits` are rejected at
@@ -546,6 +573,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: deposit-withdraw-asymmetry
+    engine_function: units_to_base_checked
     claim: >
       Depositing N units of collateral and immediately withdrawing the
       full credited capital returns AT MOST N units, never more. The
@@ -565,6 +593,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: donation-attack
+    engine_function: unpack
     claim: >
       Direct SPL Token donations to the program vault (i.e. unsolicited
       token-account transfers bypassing DepositCollateral) cannot change
@@ -586,6 +615,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: partial-deposit-credit
+    engine_function: DepositCollateral
     claim: >
       A `DepositCollateral` / `TopUpInsurance` / `InitUser` /
       `InitLP` whose inner CPI transfer reverts produces NO state
@@ -606,6 +636,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: pool-pause-bypass
+    engine_function: check
     claim: >
       When `engine.market_mode == MarketMode::Resolved`, every state-
       mutating instruction that would advance positions (TradeNoCpi,
@@ -626,6 +657,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: emergency-withdraw-non-pro-rata
+    engine_function: force_close_resolved_with_fee_not_atomic
     claim: >
       In Resolved mode, the per-account exit (`ForceCloseResolved`,
       `CloseAccount`, `AdminForceCloseAccount`) observes pro-rata share
@@ -644,6 +676,7 @@ hypotheses:
     class: implicit_invariant
     severity: High
     bug_class: resolved-state-pnl-leak
+    engine_function: ResolveMarket
     claim: >
       Once the market enters Resolved mode, NO subsequent code path
       can accrue new positive `pnl` against the residual that a later
@@ -664,6 +697,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: zero-amount-fill
+    engine_function: TradeNoCpi
     claim: >
       Every TradeNoCpi / TradeCpi instruction rejects `size == 0` AND
       `size == i128::MIN` at instruction-entry, before any K-walk or
@@ -680,6 +714,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: slippage-protection-bypass
+    engine_function: TradeCpi
     claim: >
       User-supplied band-bps / price-bound parameters on TradeCpi
       (band check at `src/percolator.rs:6633-6655` per SH8) are
@@ -697,6 +732,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: cpi-reentrancy
+    engine_function: clear_cpi_in_progress
     claim: >
       The matcher CPI in TradeCpi cannot re-enter the Percolator
       wrapper (or any other Percolator instruction) and modify slab /
@@ -716,6 +752,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: authorization-bypass
+    engine_function: forwarding
     claim: >
       The TradeCpi variadic-tail accounts (accounts[8..]) forwarded to
       the matcher CPI either (a) have `is_signer = false` enforced
@@ -736,6 +773,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: fee-bucket-underflow
+    engine_function: WithdrawInsurance
     claim: >
       `insurance_fund.balance` (the post-haircut residual counter) is
       always non-negative across all reachable states. No withdrawal
@@ -753,6 +791,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: fee-receiver-redirect
+    engine_function: WithdrawInsurance
     claim: >
       Insurance / fee withdrawals (`WithdrawInsurance`,
       `WithdrawInsuranceLimited`) require a destination token account
@@ -771,6 +810,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: fee-tier-frontrun
+    engine_function: WithdrawInsuranceLimited
     claim: >
       `WithdrawInsuranceLimited` respects `insurance_withdraw_max_bps`
       AND `insurance_withdraw_cooldown_slots` atomically — a fresh
@@ -791,6 +831,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: empty-pool-swap
+    engine_function: check_idx
     claim: >
       A TradeNoCpi or TradeCpi against a market with zero materialized
       counterparty accounts (no LP or no opposing user) is rejected at
@@ -807,6 +848,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: deposit-cap-circumvention
+    engine_function: TradeNoCpi
     claim: >
       Per-account open-interest caps (when configured via
       RiskParams) are enforced atomically across multi-step paths
@@ -823,6 +865,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: pool-init-invariant
+    engine_function: handle_init_market
     claim: >
       Immediately after `handle_init_market` returns, the slab satisfies
       every invariant `assert_public_postconditions` enforces on
@@ -842,6 +885,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: sub-tick-price
+    engine_function: base_to_units
     claim: >
       All price values consumed by Trade* / KeeperCrank / oracle reads
       are scaled by `unit_scale` (validated via `init_market_scale_ok` /
@@ -860,6 +904,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: account-discriminator-bypass
+    engine_function: expect_len
     claim: >
       Every instruction handler invokes `accounts::expect_len(accounts, N)`
       (strict equality) before reading any account by index. Trailing
@@ -878,6 +923,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: oracle-twap-clock-regression
+    engine_function: KeeperCrank
     claim: >
       The engine's market clock (`last_market_slot`,
       `last_good_oracle_slot`, mark-EWMA window, funding-accrual
@@ -897,6 +943,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: reserve-decimals-mutation
+    engine_function: UpdateConfig
     claim: >
       The vault SPL Token mint's `decimals` field is fixed at
       InitMarket via the recorded mint pubkey, and no admin instruction
@@ -914,6 +961,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: deposit-arithmetic-overflow
+    engine_function: DepositCollateral
     claim: >
       Deposits up to `MAX_VAULT_TVL` fit in u128 reserve-state arithmetic
       and u64 token-amount fields; no path triggers wraparound at
@@ -929,6 +977,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: repay-overpay-credit
+    engine_function: ConvertReleasedPnl
     claim: >
       `ConvertReleasedPnl` and related paths that "repay" / convert
       reserved or matured PnL into capital either revert when amount >
@@ -946,6 +995,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: obligation-slot-overflow
+    engine_function: market_idx_within_capacity
     claim: >
       The market account-table is bounded by `RiskParams.max_accounts`,
       and `market_idx_within_capacity` enforces the bound on every

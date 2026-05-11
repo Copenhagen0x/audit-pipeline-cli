@@ -112,8 +112,48 @@ console = Console()
     help="Skip Layer-2 PoC scaffolding + cargo test (faster, no empirical proof)",
 )
 @click.option(
-    "--skip-kani", is_flag=True, default=True, show_default=True,
-    help="Skip Layer-3 Kani harness synthesis (default ON: Kani is slow)",
+    "--skip-kani/--no-skip-kani", default=False, show_default=True,
+    help=(
+        "Skip Layer-3 Kani harness synthesis. Default OFF: every PoC-fired "
+        "finding gets a Kani harness. Pass --skip-kani for faster cycles "
+        "(e.g. smoke tests). VPS must have Kani installed."
+    ),
+)
+@click.option(
+    "--debate-scope",
+    type=click.Choice(["false_high", "all_high", "all"]),
+    default="all_high",
+    show_default=True,
+    help=(
+        "Which verdicts to send to Layer 1.5 adversarial debate. "
+        "false_high = only convergent rejections (legacy behavior, fast). "
+        "all_high = HIGH confidence verdicts on BOTH sides (catches convergent "
+        "acceptance too). all = every verdict (most rigorous, expensive)."
+    ),
+)
+@click.option(
+    "--poc-mode",
+    type=click.Choice(["template", "llm"]),
+    default="llm",
+    show_default=True,
+    help=(
+        "Layer-2 PoC authoring mode. "
+        "template = scaffold the F7 template with placeholders (fast, weak). "
+        "llm = ask Claude to author a complete per-hyp PoC from source "
+        "code + claim (slower, strong; default)."
+    ),
+)
+@click.option(
+    "--skip-propagate/--no-skip-propagate", default=False, show_default=True,
+    help="Skip Pillar 2 cross-protocol propagation on Med+ confirmed findings.",
+)
+@click.option(
+    "--skip-bundle/--no-skip-bundle", default=False, show_default=True,
+    help="Skip Pillar 3 fix-bundle authoring on Med+ confirmed findings.",
+)
+@click.option(
+    "--skip-merkle/--no-skip-merkle", default=False, show_default=True,
+    help="Skip Pillar 4 Merkle attestation at end of cycle.",
 )
 @click.option(
     "--skip-litesvm", is_flag=True, default=False, show_default=True,
@@ -176,7 +216,12 @@ def hunt_cmd(
     skip_debate: bool,
     skip_poc: bool,
     skip_kani: bool,
+    debate_scope: str,
+    poc_mode: str,
     skip_litesvm: bool,
+    skip_propagate: bool,
+    skip_bundle: bool,
+    skip_merkle: bool,
     skip_narrative: bool,
     refinement_rounds: int,
     ground_code: bool,
@@ -327,7 +372,12 @@ def hunt_cmd(
             skip_debate=skip_debate,
             skip_poc=skip_poc,
             skip_kani=skip_kani,
+            debate_scope=debate_scope,
+            poc_mode=poc_mode,
             skip_litesvm=skip_litesvm,
+            skip_propagate=skip_propagate,
+            skip_bundle=skip_bundle,
+            skip_merkle=skip_merkle,
             skip_narrative=skip_narrative,
             refinement_rounds=refinement_rounds,
             ground_code=ground_code,
@@ -355,7 +405,12 @@ def _hunt_run(
     skip_debate: bool,
     skip_poc: bool,
     skip_kani: bool,
+    debate_scope: str,
+    poc_mode: str,
     skip_litesvm: bool,
+    skip_propagate: bool,
+    skip_bundle: bool,
+    skip_merkle: bool,
     skip_narrative: bool,
     refinement_rounds: int,
     ground_code: bool,
@@ -493,10 +548,24 @@ def _hunt_run(
     hyp_meta = {h["id"]: h for h in hyp_meta_list}
 
     candidates = [v for v in verdicts if v.get("verdict") in ("TRUE", "NEEDS_LAYER_2_TO_DECIDE")]
-    contested_for_debate = [
-        v for v in verdicts
-        if v.get("verdict") == "FALSE" and v.get("confidence") == "HIGH"
-    ]
+    # FIX 6: Debate scope expanded. Legacy behavior only debated FALSE/HIGH
+    # ("convergent rejection" — might be a missed bug). New default also debates
+    # TRUE/HIGH ("convergent acceptance" — might be a false positive that
+    # looked rigorous). debate_scope=all debates every verdict regardless of
+    # confidence (most rigorous, expensive).
+    if debate_scope == "false_high":
+        contested_for_debate = [
+            v for v in verdicts
+            if v.get("verdict") == "FALSE" and v.get("confidence") == "HIGH"
+        ]
+    elif debate_scope == "all_high":
+        contested_for_debate = [
+            v for v in verdicts
+            if v.get("confidence") == "HIGH"
+            and v.get("verdict") in ("TRUE", "FALSE")
+        ]
+    else:  # "all"
+        contested_for_debate = list(verdicts)
 
     log("layer1_summary",
         n_total=len(verdicts),
@@ -540,16 +609,30 @@ def _hunt_run(
             rc = _run(debate_argv)
             challenger_resp = debate_out / f"{hyp_id}_challenger_response.md"
             verdict_changed = False
+            demoted = False
             if challenger_resp.exists():
                 txt = challenger_resp.read_text(encoding="utf-8", errors="replace").upper()
+                proposer_verdict = v.get("verdict")
                 if "DISAGREE" in txt or "NEEDS_LAYER_2" in txt:
-                    verdict_changed = True
-                    candidates.append(v)
-                    promoted_ids.add(hyp_id)
+                    if proposer_verdict == "FALSE":
+                        # Challenger says the FALSE verdict is wrong — promote
+                        # to Layer 2 candidates list (legacy behavior).
+                        if v not in candidates:
+                            candidates.append(v)
+                            promoted_ids.add(hyp_id)
+                            verdict_changed = True
+                    elif proposer_verdict == "TRUE":
+                        # FIX 6: Challenger refutes the TRUE verdict — demote
+                        # from candidates list to avoid wasting Layer 2 cost on
+                        # a likely false positive. Verdict will be recorded as
+                        # TRUE but marked debate-demoted in the DB details.
+                        candidates[:] = [c for c in candidates if c is not v]
+                        demoted = True
             debate_results[hyp_id] = {
                 "returncode": rc,
                 "challenger_response_path": str(challenger_resp),
                 "promoted_to_layer2": verdict_changed,
+                "demoted_by_debate": demoted,
             }
             log("debate_one", hypothesis_id=hyp_id, returncode=rc, promoted=verdict_changed)
             # debate ~= one Sonnet round; assume ~$0.20 average; record best-effort
@@ -574,24 +657,66 @@ def _hunt_run(
         for v in candidates:
             hyp_id = v["hypothesis_id"]
             finding_name = _slugify(hyp_id)
-            rc = _run([
-                _audit_pipeline_bin(), "--workspace", str(workspace),
-                "poc",
-                "--finding", finding_name,
-                "--template", "engine_state_conservation_poc",
-                "--engine-function", "absorb_protocol_loss",
-                "--invariant-description",
-                f"hunt-cycle {cycle_id} candidate {hyp_id}",
-                "--output", str(poc_out),
-            ])
             scaffold_path = poc_out / f"test_{finding_name}.rs"
+            # FIX 1: Per-hyp LLM-authored PoC by default. Falls back to template
+            # scaffolding if poc-llm fails. Template path remains for smoke /
+            # legacy compatibility via --poc-mode template.
+            if poc_mode == "llm":
+                meta = hyp_meta.get(hyp_id, {})
+                bug_class = meta.get("bug_class", "unknown")
+                rc = _run([
+                    _audit_pipeline_bin(), "--workspace", str(workspace),
+                    "poc-llm",
+                    "--hypothesis-id", hyp_id,
+                    "--hypotheses", hypotheses,
+                    "--engine-root", str(engine_dir_for_cargo),
+                    "--output", str(poc_out),
+                ])
+                # poc-llm bills its own API call — estimate $0.10-0.20 per hyp
+                daily_cap.record_spend(0.15)
+                total_cost += 0.15
+                log("poc_llm_authored", hypothesis_id=hyp_id, finding=finding_name,
+                    bug_class=bug_class, returncode=rc)
+                # If LLM authoring failed, fall back to template scaffolding so
+                # the chain doesn't break. The template-only fallback is the
+                # legacy F7-shaped scaffold (weak but always produces a file).
+                if rc != 0 or not scaffold_path.exists():
+                    log("poc_llm_fallback_to_template", hypothesis_id=hyp_id)
+                    engine_function = meta.get("engine_function", "absorb_protocol_loss")
+                    rc = _run([
+                        _audit_pipeline_bin(), "--workspace", str(workspace),
+                        "poc",
+                        "--finding", finding_name,
+                        "--template", "engine_state_conservation_poc",
+                        "--engine-function", engine_function,
+                        "--invariant-description",
+                        f"hunt-cycle {cycle_id} candidate {hyp_id}",
+                        "--output", str(poc_out),
+                    ])
+            else:
+                # Legacy template-only path. Reads engine_function from hyp meta
+                # (FIX 2 added the field) instead of always falling back to F7.
+                meta = hyp_meta.get(hyp_id, {})
+                engine_function = meta.get("engine_function", "absorb_protocol_loss")
+                rc = _run([
+                    _audit_pipeline_bin(), "--workspace", str(workspace),
+                    "poc",
+                    "--finding", finding_name,
+                    "--template", "engine_state_conservation_poc",
+                    "--engine-function", engine_function,
+                    "--invariant-description",
+                    f"hunt-cycle {cycle_id} candidate {hyp_id}",
+                    "--output", str(poc_out),
+                ])
             poc_results[hyp_id] = {
                 "scaffold_path": str(scaffold_path),
                 "scaffold_rc": rc,
                 "compile_test_rc": None,
                 "fired": False,
+                "authoring_mode": poc_mode,
             }
-            log("poc_scaffold", hypothesis_id=hyp_id, finding=finding_name, returncode=rc)
+            log("poc_scaffold", hypothesis_id=hyp_id, finding=finding_name,
+                returncode=rc, mode=poc_mode)
 
             if scaffold_path.exists() and (engine_dir / "Cargo.toml").exists():
                 test_dest = engine_dir / "tests" / f"test_{finding_name}.rs"
@@ -624,26 +749,48 @@ def _hunt_run(
     if not skip_litesvm and fired_for_litesvm:
         console.print()
         console.print(
-            f"[bold]Layer 4 - LiteSVM exploit-chain authoring on "
+            f"[bold]Layer 4 - LiteSVM exploit-chain authoring + dispatch on "
             f"{len(fired_for_litesvm)} PoC-fired findings[/bold]"
         )
         litesvm_out = cycle_dir / "litesvm"
         litesvm_out.mkdir(parents=True, exist_ok=True)
+        # FIX 3: After authoring, actually invoke dispatch_litesvm.sh to run
+        # the LiteSVM test on the VPS. Legacy behavior only wrote the file.
+        vps_host = config.get("vps", {}).get("host")
+        vps_key = config.get("vps", {}).get("ssh_key")
+        from audit_pipeline import __file__ as pkg_init_path
+        dispatch_script = Path(pkg_init_path).parent / "scripts" / "dispatch_litesvm.sh"
         for v in fired_for_litesvm:
             hyp_id = v["hypothesis_id"]
             finding_name = _slugify(hyp_id)
-            rc = _run([
+            rc_author = _run([
                 _audit_pipeline_bin(), "--workspace", str(workspace),
                 "litesvm", "author",
                 "--finding", finding_name,
                 "--template", "litesvm_bound_analysis",
                 "--output", str(litesvm_out),
             ])
+            dispatch_rc: int | None = None
+            if (
+                rc_author == 0
+                and vps_host
+                and vps_key
+                and dispatch_script.exists()
+            ):
+                # Test naming convention from litesvm.py: test_<finding>_bound_analysis
+                test_name = f"test_{finding_name}_bound_analysis"
+                dispatch_rc = _run(
+                    ["bash", str(dispatch_script), vps_host, vps_key, test_name],
+                    timeout=600,
+                )
+                log("litesvm_dispatched", hypothesis_id=hyp_id,
+                    test=test_name, returncode=dispatch_rc)
             litesvm_results[hyp_id] = {
-                "returncode": rc,
+                "returncode": rc_author,
+                "dispatch_returncode": dispatch_rc,
                 "scaffold_dir": str(litesvm_out),
             }
-            log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc)
+            log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc_author)
 
     # ---------- Layer 3: Kani harness (only on PoC-fired) ----------
     fired_for_kani = [
@@ -667,6 +814,10 @@ def _hunt_run(
             meta = hyp_meta.get(hyp_id, {})
             invariant = meta.get("claim", f"invariant for {hyp_id}")[:500]
             engine_function = meta.get("engine_function", "absorb_protocol_loss")
+            # FIX 4: synth-kani --auto authors the harness AND runs `cargo check`
+            # to compile-verify. With --run-kani it ALSO runs `cargo kani` to
+            # actually formally verify (5-30 min per harness; budget ~$0.50
+            # API spend + compute time).
             rc = _run([
                 _audit_pipeline_bin(), "--workspace", str(workspace),
                 "synth-kani",
@@ -675,7 +826,8 @@ def _hunt_run(
                 "--harness-name", f"{_slugify(hyp_id)}_invariant",
                 "--output", str(kani_out),
                 "--auto",
-            ])
+                "--run-kani",
+            ], timeout=1800)  # 30 min per harness
             kani_results[hyp_id] = {
                 "returncode": rc,
                 "harness_dir": str(kani_out),
@@ -811,6 +963,118 @@ def _hunt_run(
             log("narrative_generated", hypothesis_id=hyp_id, returncode=rc)
             daily_cap.record_spend(0.10)
             total_cost += 0.10
+
+    # ---------- FIX 5: Chain P2 propagate + P3 bundle + P4 merkle ----------
+    # Med+ confirmed findings (Critical / High / Medium) trigger:
+    #  - P2 propagate search: sweep sibling protocols for the same bug class
+    #  - P3 bundle draft + verify: author a fix patch and run verification
+    #    gates. NEVER opens upstream PRs (per memory's HARD RULE on PR
+    #    authorization — engine never auto-opens; user explicitly authorizes).
+    #  - P4 merkle compute --sign: produce signed attestation for this cycle
+    pillar_results: dict[str, Any] = {"propagate": {}, "bundle": {}, "merkle": None}
+    med_plus_severities = {"Critical", "High", "Medium"}
+
+    def _confirmed_med_plus() -> list[dict[str, Any]]:
+        med_plus = []
+        for c in confirmed:
+            hyp_id = c["hypothesis_id"]
+            meta = hyp_meta.get(hyp_id, {})
+            sev = derive_severity(
+                hypothesis_class=meta.get("class", "implicit_invariant"),
+                verdict=c.get("verdict"),
+                poc_fired=True,
+                debate_promoted=hyp_id in promoted_ids,
+                explicit=meta.get("severity"),
+            )
+            if sev.value in med_plus_severities:
+                med_plus.append({**c, "severity": sev.value})
+        return med_plus
+
+    med_plus_findings = _confirmed_med_plus()
+
+    if med_plus_findings and not skip_propagate:
+        console.print()
+        console.print(
+            f"[bold]Pillar 2 - propagate {len(med_plus_findings)} "
+            f"Med+ finding(s) across sibling protocols[/bold]"
+        )
+        for c in med_plus_findings:
+            hyp_id = c["hypothesis_id"]
+            # Look up DB finding id (needed by `propagate search`)
+            findings_for_hyp = [
+                f for f in db.list_findings(target_id=target_id, limit=200)
+                if f.get("cycle_id") == cycle_id and f.get("hypothesis_id") == hyp_id
+            ]
+            if not findings_for_hyp:
+                pillar_results["propagate"][hyp_id] = {"error": "finding not in db"}
+                continue
+            finding_id = findings_for_hyp[0]["id"]
+            rc = _run([
+                _audit_pipeline_bin(), "--workspace", str(workspace),
+                "propagate", "search",
+                "--finding-id", str(finding_id),
+            ], timeout=600)
+            pillar_results["propagate"][hyp_id] = {
+                "finding_id": finding_id, "returncode": rc,
+            }
+            log("propagate_done", hypothesis_id=hyp_id, finding_id=finding_id, rc=rc)
+            daily_cap.record_spend(1.50)
+            total_cost += 1.50
+
+    if med_plus_findings and not skip_bundle:
+        console.print()
+        console.print(
+            f"[bold]Pillar 3 - bundle draft + verify on "
+            f"{len(med_plus_findings)} Med+ finding(s) "
+            f"(does NOT open PRs)[/bold]"
+        )
+        for c in med_plus_findings:
+            hyp_id = c["hypothesis_id"]
+            findings_for_hyp = [
+                f for f in db.list_findings(target_id=target_id, limit=200)
+                if f.get("cycle_id") == cycle_id and f.get("hypothesis_id") == hyp_id
+            ]
+            if not findings_for_hyp:
+                pillar_results["bundle"][hyp_id] = {"error": "finding not in db"}
+                continue
+            finding_id = findings_for_hyp[0]["id"]
+            rc_draft = _run([
+                _audit_pipeline_bin(), "--workspace", str(workspace),
+                "bundle", "draft",
+                "--finding-id", str(finding_id),
+            ], timeout=900)
+            rc_verify = None
+            if rc_draft == 0:
+                rc_verify = _run([
+                    _audit_pipeline_bin(), "--workspace", str(workspace),
+                    "bundle", "verify",
+                    "--finding-id", str(finding_id),
+                ], timeout=600)
+            pillar_results["bundle"][hyp_id] = {
+                "finding_id": finding_id,
+                "draft_rc": rc_draft,
+                "verify_rc": rc_verify,
+            }
+            log("bundle_done", hypothesis_id=hyp_id, finding_id=finding_id,
+                draft_rc=rc_draft, verify_rc=rc_verify)
+            daily_cap.record_spend(5.00)
+            total_cost += 5.00
+
+    # Pillar 4: always sign Merkle root for the cycle (cheap, no API spend)
+    if not skip_merkle:
+        console.print()
+        console.print("[bold]Pillar 4 - compute + sign Merkle root for this cycle[/bold]")
+        rc_merkle = _run([
+            _audit_pipeline_bin(), "--workspace", str(workspace),
+            "merkle", "compute", cycle_id, "--sign",
+        ], timeout=120)
+        pillar_results["merkle"] = {"cycle_id": cycle_id, "returncode": rc_merkle}
+        log("merkle_signed", cycle_id=cycle_id, rc=rc_merkle)
+
+    # Persist pillar results as a cycle artifact
+    (cycle_dir / "pillars.json").write_text(
+        json.dumps(pillar_results, indent=2), encoding="utf-8"
+    )
 
     db.finish_cycle(
         cycle_id=cycle_id,

@@ -32,6 +32,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, marginfi]
     scope_conditions: [has_insurance_pool, has_haircut_accounting]
     bug_class: insurance-counter-vault-divergence
+    engine_function: absorb_protocol_loss
     target_file: src/percolator.rs
     relevant_constants: |
       MAX_VAULT_TVL = 1e16
@@ -49,6 +50,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: [has_haircut_accounting]
     bug_class: haircut-direction-violation
+    engine_function: absorb_protocol_loss
 
   - id: H3-self-trade-cash-flow
     class: state_transition
@@ -59,6 +61,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: [clob_orderbook]
     bug_class: self-trade-cash-flow-violation
+    engine_function: absorb_protocol_loss
 
   - id: H4-vault-balance-conservation
     class: invariant_property
@@ -70,6 +73,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, marginfi]
     scope_conditions: [has_insurance_pool]
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
 
   - id: H5-permissionless-trigger-surface
     class: authorization
@@ -81,6 +85,7 @@ hypotheses:
     applies_to: [percolator]
     scope_conditions: [has_insurance_pool]
     bug_class: insurance-buffer-permissionless-trigger
+    engine_function: absorb_protocol_loss
 
   - id: H6-funding-rate-mark-bias
     class: state_transition
@@ -92,6 +97,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: [perpetual_funding]
     bug_class: funding-rate-self-bias
+    engine_function: absorb_protocol_loss
 
   - id: H7-catchup-touch-account-pairing
     class: state_transition
@@ -104,6 +110,7 @@ hypotheses:
     applies_to: [percolator]
     scope_conditions: []
     bug_class: clock-advance-without-touch
+    engine_function: absorb_protocol_loss
 
   - id: H8-keeper-crank-cursor-consumption
     class: state_transition
@@ -115,6 +122,7 @@ hypotheses:
     applies_to: [percolator]
     scope_conditions: []
     bug_class: keeper-cursor-budget-bypass
+    engine_function: absorb_protocol_loss
 
   - id: H9-resolved-mode-mature-claim
     class: implicit_invariant
@@ -126,6 +134,7 @@ hypotheses:
     applies_to: [percolator]
     scope_conditions: []
     bug_class: resolved-state-pnl-leak
+    engine_function: absorb_protocol_loss
 
   - id: H10-init-state-invariants
     class: invariant_property
@@ -137,6 +146,7 @@ hypotheses:
     applies_to: [percolator]
     scope_conditions: []
     bug_class: init-state-invariant-violation
+    engine_function: absorb_protocol_loss
 
   - id: H11-account-gc-state-leak
     class: state_transition
@@ -148,6 +158,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, marginfi]
     scope_conditions: []
     bug_class: account-gc-state-leak
+    engine_function: absorb_protocol_loss
 
   - id: H12-arithmetic-bounds-on-mature
     class: arithmetic_overflow
@@ -161,3 +172,4 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: [perpetual_funding]
     bug_class: arithmetic-overflow-pnl-mark
+    engine_function: absorb_protocol_loss

@@ -29,6 +29,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, jupiter-perps]
     scope_conditions: [perpetual_funding]
     bug_class: funding-rate-self-bias
+    engine_function: absorb_protocol_loss
     relevant_instructions: |
       place_perp_order, settle_funding, fill_match, accrue_funding
 
@@ -43,6 +44,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, jupiter-perps]
     scope_conditions: [uses_pyth_oracle, uses_switchboard_oracle]
     bug_class: oracle-staleness-bypass
+    engine_function: absorb_protocol_loss
 
   - id: PD3-liquidation-pricing-fairness
     class: state_transition
@@ -55,6 +57,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, jupiter-perps]
     scope_conditions: [liquidation_engine, uses_pyth_oracle]
     bug_class: liquidation-price-skim
+    engine_function: absorb_protocol_loss
 
   - id: PD4-residual-conservation
     class: invariant_property
@@ -69,6 +72,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, jupiter-perps]
     scope_conditions: [has_insurance_pool, has_haircut_accounting]
     bug_class: insurance-counter-vault-divergence
+    engine_function: absorb_protocol_loss
 
   - id: PD5-self-trade-cash-flow-neutral
     class: state_transition
@@ -80,6 +84,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: [clob_orderbook]
     bug_class: self-trade-cash-flow-violation
+    engine_function: absorb_protocol_loss
 
   - id: PD6-vault-balance-conservation
     class: invariant_property
@@ -91,6 +96,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, jupiter-perps]
     scope_conditions: [has_insurance_pool]
     bug_class: vault-balance-divergence
+    engine_function: absorb_protocol_loss
 
   - id: PD7-pnl-mark-bound
     class: arithmetic_overflow
@@ -104,6 +110,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: [perpetual_funding]
     bug_class: arithmetic-overflow-pnl-mark
+    engine_function: absorb_protocol_loss
 
   - id: PD8-account-gc-state-leak
     class: state_transition
@@ -115,6 +122,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, marginfi]
     scope_conditions: []
     bug_class: account-gc-state-leak
+    engine_function: absorb_protocol_loss
 
   - id: PD9-haircut-direction-monotonic
     class: implicit_invariant
@@ -126,6 +134,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: [has_haircut_accounting]
     bug_class: haircut-direction-violation
+    engine_function: absorb_protocol_loss
 
   - id: PD10-cross-margin-health-monotone
     class: invariant_property
@@ -137,6 +146,7 @@ hypotheses:
     applies_to: [drift, mango, jupiter-perps]
     scope_conditions: [perpetual_funding, multi_collateral]
     bug_class: cross-margin-health-monotonicity
+    engine_function: absorb_protocol_loss
 
   - id: PD11-fill-event-ordering
     class: state_transition
@@ -148,6 +158,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [clob_orderbook, perpetual_funding]
     bug_class: fill-event-ordering
+    engine_function: absorb_protocol_loss
 
   - id: PD12-deposit-cap-circumvention
     class: authorization
@@ -159,6 +170,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, jupiter-perps]
     scope_conditions: []
     bug_class: deposit-cap-circumvention
+    engine_function: absorb_protocol_loss
 
   - id: PD13-stop-loss-reentry
     class: authorization
@@ -170,6 +182,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [clob_orderbook]
     bug_class: conditional-order-reentry
+    engine_function: absorb_protocol_loss
 
   - id: PD14-loss-socialization-floor
     class: invariant_property
@@ -181,6 +194,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [has_insurance_pool, has_haircut_accounting]
     bug_class: loss-socialization-pro-rata
+    engine_function: absorb_protocol_loss
 
   - id: PD15-jlp-pool-share-mint-burn
     class: invariant_property
@@ -192,6 +206,7 @@ hypotheses:
     applies_to: [jupiter-perps]
     scope_conditions: []
     bug_class: lp-share-inflation
+    engine_function: absorb_protocol_loss
 
   # ─────────────────────────── ADDITIONAL: ORACLE & FUNDING ──────────────────
 
@@ -205,6 +220,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, jupiter-perps]
     scope_conditions: [uses_pyth_oracle]
     bug_class: oracle-confidence-bypass
+    engine_function: absorb_protocol_loss
 
   - id: PD17-oracle-twap-fallback-explicit
     class: state_transition
@@ -215,6 +231,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [uses_pyth_oracle]
     bug_class: oracle-silent-fallback
+    engine_function: absorb_protocol_loss
 
   - id: PD18-funding-rate-bound
     class: arithmetic_overflow
@@ -225,6 +242,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: [perpetual_funding]
     bug_class: funding-rate-cap-bypass
+    engine_function: absorb_protocol_loss
 
   - id: PD19-mark-price-clamped-around-oracle
     class: state_transition
@@ -235,6 +253,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [perpetual_funding]
     bug_class: mark-price-clamp-bypass
+    engine_function: absorb_protocol_loss
 
   # ─────────────────────────── ADDITIONAL: MARGIN ────────────────────────────
 
@@ -247,6 +266,7 @@ hypotheses:
     applies_to: [drift, mango, jupiter-perps]
     scope_conditions: []
     bug_class: margin-init-invariant
+    engine_function: absorb_protocol_loss
 
   - id: PD21-leverage-cap-bounded
     class: authorization
@@ -257,6 +277,7 @@ hypotheses:
     applies_to: [drift, mango, jupiter-perps]
     scope_conditions: [perpetual_funding]
     bug_class: leverage-cap-bypass
+    engine_function: absorb_protocol_loss
 
   - id: PD22-im-mm-ordering
     class: invariant_property
@@ -267,6 +288,7 @@ hypotheses:
     applies_to: [drift, mango, jupiter-perps]
     scope_conditions: [perpetual_funding]
     bug_class: im-mm-ordering
+    engine_function: absorb_protocol_loss
 
   - id: PD23-isolated-mode-no-cross
     class: authorization
@@ -277,6 +299,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: []
     bug_class: isolated-cross-bleed
+    engine_function: absorb_protocol_loss
 
   # ─────────────────────────── ADDITIONAL: ORDERS ────────────────────────────
 
@@ -289,6 +312,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [clob_orderbook]
     bug_class: cancel-replace-non-atomic
+    engine_function: absorb_protocol_loss
 
   - id: PD25-post-only-truly-post-only
     class: state_transition
@@ -299,6 +323,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [clob_orderbook]
     bug_class: post-only-crosses-spread
+    engine_function: absorb_protocol_loss
 
   - id: PD26-conditional-order-trigger-once
     class: state_transition
@@ -309,6 +334,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [clob_orderbook]
     bug_class: conditional-order-reentry
+    engine_function: absorb_protocol_loss
 
   - id: PD27-fill-event-amount-positive
     class: invariant_property
@@ -319,6 +345,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [clob_orderbook]
     bug_class: zero-amount-fill
+    engine_function: absorb_protocol_loss
 
   # ─────────────────────────── ADDITIONAL: AUTHORIZATION ─────────────────────
 
@@ -331,6 +358,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, jupiter-perps]
     scope_conditions: []
     bug_class: admin-gate-bypass
+    engine_function: absorb_protocol_loss
 
   - id: PD29-pause-respected
     class: authorization
@@ -341,6 +369,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: []
     bug_class: pause-bypass
+    engine_function: absorb_protocol_loss
 
   - id: PD30-multisig-threshold-respected
     class: authorization
@@ -350,6 +379,7 @@ hypotheses:
     applies_to: [drift, mango, jupiter-perps]
     scope_conditions: []
     bug_class: multisig-threshold-bypass
+    engine_function: absorb_protocol_loss
 
   - id: PD31-admin-handover-two-step
     class: authorization
@@ -359,6 +389,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: []
     bug_class: admin-handover-single-step
+    engine_function: absorb_protocol_loss
 
   # ─────────────────────────── ADDITIONAL: ARITHMETIC ────────────────────────
 
@@ -371,6 +402,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: [perpetual_funding]
     bug_class: pnl-accumulator-overflow
+    engine_function: absorb_protocol_loss
 
   - id: PD33-collateral-amount-fits-u64
     class: arithmetic_overflow
@@ -381,6 +413,7 @@ hypotheses:
     applies_to: [drift, mango, jupiter-perps]
     scope_conditions: []
     bug_class: collateral-amount-overflow
+    engine_function: absorb_protocol_loss
 
   - id: PD34-rate-application-rounding
     class: arithmetic_overflow
@@ -391,6 +424,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: [perpetual_funding]
     bug_class: rate-application-rounding
+    engine_function: absorb_protocol_loss
 
   # ─────────────────────────── ADDITIONAL: SECURITY ──────────────────────────
 
@@ -403,6 +437,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, jupiter-perps]
     scope_conditions: []
     bug_class: token-program-substitution
+    engine_function: absorb_protocol_loss
 
   - id: PD36-account-discriminator-validated
     class: authorization
@@ -413,6 +448,7 @@ hypotheses:
     applies_to: [drift, mango, jupiter-perps]
     scope_conditions: []
     bug_class: account-discriminator-bypass
+    engine_function: absorb_protocol_loss
 
   - id: PD37-pda-bump-canonical
     class: authorization
@@ -423,6 +459,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: []
     bug_class: pda-bump-malleability
+    engine_function: absorb_protocol_loss
 
   - id: PD38-account-close-zeroes-data
     class: state_transition
@@ -433,6 +470,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: []
     bug_class: account-close-state-leak
+    engine_function: absorb_protocol_loss
 
   - id: PD39-vault-authority-binding
     class: authorization
@@ -443,6 +481,7 @@ hypotheses:
     applies_to: [percolator, drift, mango, jupiter-perps]
     scope_conditions: []
     bug_class: vault-authority-leak
+    engine_function: absorb_protocol_loss
 
   # ─────────────────────────── ADDITIONAL: EDGE CASES ────────────────────────
 
@@ -455,6 +494,7 @@ hypotheses:
     applies_to: [percolator, drift, mango]
     scope_conditions: []
     bug_class: zero-position-state-leak
+    engine_function: absorb_protocol_loss
 
   - id: PD41-price-tick-respects-tick-size
     class: authorization
@@ -465,6 +505,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [clob_orderbook]
     bug_class: sub-tick-price
+    engine_function: absorb_protocol_loss
 
   - id: PD42-amount-respects-lot-size
     class: authorization
@@ -475,6 +516,7 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [clob_orderbook]
     bug_class: sub-lot-amount
+    engine_function: absorb_protocol_loss
 
   - id: PD43-event-queue-no-overflow
     class: state_transition
@@ -485,3 +527,4 @@ hypotheses:
     applies_to: [drift, mango]
     scope_conditions: [clob_orderbook]
     bug_class: event-queue-overflow
+    engine_function: absorb_protocol_loss
