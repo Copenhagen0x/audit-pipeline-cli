@@ -620,7 +620,14 @@ def _hunt_run(
         ]
         if source_repo:
             recon_argv += ["--source-repo", source_repo, "--source-sha", resolved_sha]
-        rc = _run(recon_argv)
+        # Layer 1 budget: 4 hours. The default _run() timeout is 30 min
+        # which is too short for a 471-hyp library at 4-concurrent (each
+        # API call is 30-90s). A timeout here aborts the entire recon
+        # subprocess, returns rc=124, leaves the cycle without a
+        # recon_summary.json so all downstream layers get skipped, AND
+        # wastes whatever Layer 1 budget already spent. Set a wide upper
+        # bound; real cost is gated by --budget-cap-usd anyway.
+        rc = _run(recon_argv, timeout=14400)
         log("layer1_done", returncode=rc)
 
     if not summary_path.exists():

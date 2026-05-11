@@ -279,13 +279,19 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
         # with the live count of *_response.md files in the cycle's recon/
         # dir so the dashboard counter ticks up every snapshot tick instead
         # of staying at 0 for an hour.
-        if not entry["finished_at"]:
-            prog = _in_progress_cycle_progress(workspace, c.get("cycle_id"))
-            if prog:
-                entry["in_progress"] = True
-                entry["n_dispatched"] = prog["n_responses"]
-                entry["n_planned"] = prog["n_prompts"]
-                entry["progress_pct"] = prog["pct_complete"]
+        # Treat the cycle as "in progress" whenever its recon/ dir exists
+        # but recon_summary.json hasn't been written yet — i.e. Layer 1 is
+        # still walking through hyps. We can't trust cycles.finished_at
+        # alone: a prior run that hit the recon timeout writes finished_at
+        # then the operator resumes, and during the resume window the DB
+        # row still claims finished. Filesystem state is authoritative.
+        prog = _in_progress_cycle_progress(workspace, c.get("cycle_id"))
+        if prog and prog["n_responses"] < prog["n_prompts"]:
+            entry["in_progress"] = True
+            entry["n_dispatched"] = prog["n_responses"]
+            entry["n_planned"] = prog["n_prompts"]
+            entry["progress_pct"] = prog["pct_complete"]
+            entry["finished_at"] = None  # don't render stale 'finished X ago'
         recent_cycles.append(entry)
 
     # Public stats reflect only-disclosed surface. The full counts (including
@@ -715,13 +721,19 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
             "n_confirmed": c.get("n_confirmed"),
             "receipt_fingerprint": _read_receipt_fingerprint(c.get("cycle_id")),
         }
-        if not entry["finished_at"]:
-            prog = _in_progress_cycle_progress(workspace, c.get("cycle_id"))
-            if prog:
-                entry["in_progress"] = True
-                entry["n_dispatched"] = prog["n_responses"]
-                entry["n_planned"] = prog["n_prompts"]
-                entry["progress_pct"] = prog["pct_complete"]
+        # Treat the cycle as "in progress" whenever its recon/ dir exists
+        # but recon_summary.json hasn't been written yet — i.e. Layer 1 is
+        # still walking through hyps. We can't trust cycles.finished_at
+        # alone: a prior run that hit the recon timeout writes finished_at
+        # then the operator resumes, and during the resume window the DB
+        # row still claims finished. Filesystem state is authoritative.
+        prog = _in_progress_cycle_progress(workspace, c.get("cycle_id"))
+        if prog and prog["n_responses"] < prog["n_prompts"]:
+            entry["in_progress"] = True
+            entry["n_dispatched"] = prog["n_responses"]
+            entry["n_planned"] = prog["n_prompts"]
+            entry["progress_pct"] = prog["pct_complete"]
+            entry["finished_at"] = None  # don't render stale 'finished X ago'
         recent_cycles.append(entry)
 
     # G28: per-customer propagation slice. Counts are scoped to findings

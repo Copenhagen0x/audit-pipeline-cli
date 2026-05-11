@@ -463,9 +463,38 @@ Notes:        {hyp.get("notes", "(none)")}
         except Exception as e:  # noqa: BLE001 — surface every failure as data
             return hyp_id, {"ok": False, "error": str(e)}
 
+    # Resume support: if a previous recon left behind <hyp_id>_response.md in
+    # the output dir (e.g. cycle hit a timeout), load that response into the
+    # results dict and skip the paid API call. Cost is preserved across the
+    # stop/fix/resume protocol.
+    n_resumed = 0
+    for hyp_id, _prompt_text in rendered_prompts:
+        existing = output / f"{hyp_id}_response.md"
+        if existing.is_file() and existing.stat().st_size > 0:
+            try:
+                results[hyp_id] = {
+                    "ok": True,
+                    "text": existing.read_text(encoding="utf-8"),
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "n_rounds": 1,
+                    "model": "resumed-from-disk",
+                    "stop_reason": "resumed",
+                }
+                n_resumed += 1
+            except OSError:
+                pass  # fall through; will re-dispatch
+    if n_resumed:
+        console.print(
+            f"[cyan]resume[/cyan] reloaded {n_resumed} existing response.md files; "
+            f"will dispatch only the {len(rendered_prompts) - n_resumed} missing hyps"
+        )
+
     with ThreadPoolExecutor(max_workers=max_concurrent) as ex:
         future_map = {}
         for hyp_id, prompt_text in rendered_prompts:
+            if hyp_id in results:
+                continue  # resumed from disk; don't re-pay
             # Pre-check budget (rough estimate: assume max 30k tokens out per call)
             est_cost = (
                 len(prompt_text) / 4 * COST_PER_INPUT_TOKEN
