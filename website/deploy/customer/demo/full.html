@@ -856,20 +856,20 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       <div class="id-value mono" id="id-wrapper-sha">c447686</div>
     </div>
     <div class="id-cell">
-      <div class="id-label">Invariants verified</div>
-      <div class="id-value amber"><span id="inv-verified">1,487</span> / 1,500</div>
+      <div class="id-label">Hyps dispatched <span style="color: var(--ink-4); font-size: 10px; letter-spacing: 0.04em;">· latest cycle</span></div>
+      <div class="id-value amber"><span id="id-hyps-dispatched">—</span></div>
     </div>
     <div class="id-cell">
       <div class="id-label">Open findings</div>
-      <div class="id-value" id="id-open-findings">7 open <span style="color: var(--ink-3); font-weight: 400; font-size: 12px;">(of 12 total) · open distribution: 1 H · 4 M · 1 L · 1 I</span></div>
+      <div class="id-value" id="id-open-findings">— open</div>
     </div>
     <div class="id-cell">
-      <div class="id-label">Disclosed · Y1 cumulative (target)</div>
-      <div class="id-value">23 · <span style="color: var(--ok); font-weight: 400; font-size: 12px;">today: 1 (F7) · regression-locked</span></div>
+      <div class="id-label">Disclosed · cumulative</div>
+      <div class="id-value" id="id-disclosed">—</div>
     </div>
     <div class="id-cell">
       <div class="id-label">Coverage tier</div>
-      <div class="id-value amber">Ceiling</div>
+      <div class="id-value amber" id="id-tier">—</div>
     </div>
   </div>
 </section>
@@ -1065,110 +1065,59 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   <!-- RIGHT: sidebar -->
   <div class="right">
 
-    <!-- Cluster activity for this protocol -->
+    <!-- Operations · live -->
     <div class="panel">
       <div class="panel-head">
         <span class="panel-pulse amber"></span>
-        <span class="panel-title">Cluster activity · Percolator</span>
-        <span class="panel-meta">live</span>
+        <span class="panel-title">Operations · live</span>
+        <span class="panel-meta" id="ops-meta">live · today</span>
       </div>
       <div class="panel-body">
         <div class="cluster-grid">
           <div class="cluster-cell">
-            <div class="cluster-label">Invocation rate</div>
-            <div class="cluster-value" id="invocation-rate">1,500</div>
-            <div class="cluster-sub">hyps / day · Ceiling tier</div>
+            <div class="cluster-label">Hyps · latest cycle</div>
+            <div class="cluster-value" id="ops-hyps-latest">—</div>
+            <div class="cluster-sub" id="ops-hyps-sub">dispatched</div>
           </div>
           <div class="cluster-cell">
-            <div class="cluster-label">Hunts in-flight</div>
-            <div class="cluster-value" id="hunts-inflight">8</div>
-            <div class="cluster-sub">23 queued · 1,289 today</div>
+            <div class="cluster-label">Services up</div>
+            <div class="cluster-value" id="ops-services-up">—</div>
+            <div class="cluster-sub" id="ops-services-sub">of 8 platform units</div>
+          </div>
+          <div class="cluster-cell">
+            <div class="cluster-label">Cycles completed</div>
+            <div class="cluster-value" id="ops-cycles-total">—</div>
+            <div class="cluster-sub" id="ops-cycles-sub">total signed receipts</div>
           </div>
           <div class="cluster-cell">
             <div class="cluster-label">Cluster nodes</div>
-            <div class="cluster-value ink">3 / 12</div>
-            <div class="cluster-sub">node-07 primary · node-04 + node-12 secondary</div>
-          </div>
-          <div class="cluster-cell">
-            <div class="cluster-label">API spend rate</div>
-            <div class="cluster-value">$<span id="spend-rate">69.40</span><span style="font-size: 13px; color: var(--ink-3);"> /h</span></div>
-            <div class="cluster-sub"><span id="spend-today">$1,180</span> today · <span id="spend-mtd">$36,740</span> MTD</div>
+            <div class="cluster-value ink" id="ops-nodes">1 / 1</div>
+            <div class="cluster-sub" style="color: var(--ink-4);"><span style="color: var(--amber); font-weight: 600;">Y1 target:</span> 12 nodes</div>
           </div>
         </div>
-        <div style="padding: 14px 16px; border-top: 1px solid var(--rule);">
-          <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); font-family: var(--mono); margin-bottom: 8px;">
-            <span>Daily compute · $1,670 / day budget · ~$50K / month (Ceiling tier)</span>
-            <span style="color: var(--amber); font-weight: 700;" id="spend-pct">71%</span>
-          </div>
-          <div class="spend-bar"><div class="spend-bar-fill" id="spend-bar" style="width: 71%;"></div></div>
+        <div style="padding: 14px 16px; border-top: 1px solid var(--rule); font-size: 11px; color: var(--ink-3); font-family: var(--mono);">
+          <span>Loop uptime · <span id="ops-uptime" style="color: var(--ink-2);">—</span></span>
+          <span style="float: right; color: var(--ink-4);">API spend tracking · <span style="color: var(--amber); font-weight: 600;">Y1 funded</span></span>
         </div>
       </div>
     </div>
 
-    <!-- Attestation registry -->
+    <!-- Cycle attestations -->
     <div class="panel">
       <div class="panel-head">
         <span class="panel-pulse amber"></span>
-        <span class="panel-title">On-chain attestations</span>
-        <span class="panel-meta">last 6 cycles</span>
+        <span class="panel-title">Signed cycle attestations</span>
+        <span class="panel-meta" id="attest-meta">last cycles</span>
       </div>
       <div class="panel-body">
-        <div class="attest-list">
-
-          <div class="attest-row">
-            <span class="ar-time">2m ago</span>
-            <span class="ar-detail">
-              <div class="ar-line1">slot <strong>312,847,219</strong> · 31 invariants verified</div>
-              <div class="ar-line2">merkle 0xb39fd2c8…e1ad99 · Ed25519 4c7e…a8f1</div>
-            </span>
-            <a class="ar-tx" href="https://solscan.io" target="_blank" rel="noopener noreferrer">5KqPv2…wM3rT8 ↗</a>
+        <div class="attest-list" data-cycle-attestations>
+          <!-- populated by JS from manifest.recent_cycles[] + snapshot.cycle_merkle_roots[] -->
+          <div style="padding: 24px 20px; text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;">
+            Loading cycle attestations…
           </div>
-
-          <div class="attest-row">
-            <span class="ar-time">14m</span>
-            <span class="ar-detail">
-              <div class="ar-line1">slot <strong>312,845,840</strong> · 28 invariants verified</div>
-              <div class="ar-line2">merkle 0x7a3fef28…9c1b04 · Ed25519 4c7e…a8f1</div>
-            </span>
-            <a class="ar-tx" href="https://solscan.io" target="_blank" rel="noopener noreferrer">9c12v8…3b2dJ4 ↗</a>
-          </div>
-
-          <div class="attest-row">
-            <span class="ar-time">31m</span>
-            <span class="ar-detail">
-              <div class="ar-line1">slot <strong>312,843,711</strong> · 31 invariants verified</div>
-              <div class="ar-line2">merkle 0x4d1a8f02…77ce93 · Ed25519 4c7e…a8f1</div>
-            </span>
-            <a class="ar-tx" href="https://solscan.io" target="_blank" rel="noopener noreferrer">4f7e2r…a8f1Pq ↗</a>
-          </div>
-
-          <div class="attest-row">
-            <span class="ar-time">1h 8m</span>
-            <span class="ar-detail">
-              <div class="ar-line1">slot <strong>312,839,447</strong> · 14 invariants <span style="color: var(--warn);">(re-verify on PERC-31 fix)</span></div>
-              <div class="ar-line2">merkle 0xe2c094a1…bf3318 · Ed25519 4c7e…a8f1</div>
-            </span>
-            <a class="ar-tx" href="https://solscan.io" target="_blank" rel="noopener noreferrer">8b3dk7…f719Wa ↗</a>
-          </div>
-
-          <div class="attest-row">
-            <span class="ar-time">2h</span>
-            <span class="ar-detail">
-              <div class="ar-line1">slot <strong>312,832,100</strong> · 31 invariants verified</div>
-              <div class="ar-line2">merkle 0x9f7d22c8…14a805 · Ed25519 4c7e…a8f1</div>
-            </span>
-            <a class="ar-tx" href="https://solscan.io" target="_blank" rel="noopener noreferrer">2a5fp9…cc4f12 ↗</a>
-          </div>
-
-          <div class="attest-row">
-            <span class="ar-time">3h 12m</span>
-            <span class="ar-detail">
-              <div class="ar-line1">slot <strong>312,824,902</strong> · 31 invariants verified</div>
-              <div class="ar-line2">merkle 0x183bef60…02d919 · Ed25519 4c7e…a8f1</div>
-            </span>
-            <a class="ar-tx" href="https://solscan.io" target="_blank" rel="noopener noreferrer">6fa2u4…b8e3Mn ↗</a>
-          </div>
-
+        </div>
+        <div style="padding: 12px 16px; border-top: 1px solid var(--rule); font-size: 11px; color: var(--ink-4); font-family: var(--mono); letter-spacing: 0.04em;">
+          Each cycle Ed25519-signed off-chain · <span style="color: var(--amber); font-weight: 600;">Y1 funded:</span> Anchor program publishes roots to mainnet
         </div>
       </div>
     </div>
@@ -1178,7 +1127,7 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       <div class="panel-head">
         <span class="panel-pulse"></span>
         <span class="panel-title">Alert routing</span>
-        <span class="panel-meta">3 active routes</span>
+        <span class="panel-meta">customer config · 3 active routes</span>
       </div>
       <div class="panel-body">
         <div class="routes">
@@ -1211,8 +1160,8 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     <div class="panel">
       <div class="panel-head">
         <span class="panel-pulse"></span>
-        <span class="panel-title">Reports</span>
-        <span class="panel-meta">auto-emailed · signed PDFs</span>
+        <span class="panel-title">Reports · cadence config</span>
+        <span class="panel-meta">delivery schedule · signed PDFs</span>
       </div>
       <div class="panel-body">
         <div class="reports">
@@ -1460,6 +1409,13 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  // Shared state — snapshot and manifest race in parallel, but the
+  // attestations panel needs both (cycle metadata from manifest, merkle
+  // roots from snapshot). Renders trigger after both land or whichever
+  // finishes first if the other 404s.
+  let snapshotData = null;
+  let manifestData = null;
+
   // -------------------- snapshot.json (public, aggregate) --------------------
 
   async function patchFromSnapshot() {
@@ -1470,6 +1426,8 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       data = await res.json();
     } catch (_) { return; }
     if (!data || data.platform !== 'jelleo') return;
+
+    snapshotData = data;
 
     // data-snapshot-key patcher (banner stats, etc.)
     document.querySelectorAll('[data-snapshot-key]').forEach((el) => {
@@ -1484,6 +1442,10 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     if (lastScanEl && data.generated_at) {
       lastScanEl.textContent = relativeTime(data.generated_at);
     }
+
+    // If manifest has already landed, re-render attestations now that
+    // we have merkle roots to join against.
+    if (manifestData) renderAttestationsPanel();
   }
 
   // -------------------- manifest.json (customer-private) --------------------
@@ -1551,6 +1513,13 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
       if (engShaEl && latestCycle.engine_sha) engShaEl.textContent = String(latestCycle.engine_sha);
     }
 
+    // hyps dispatched in latest cycle
+    const hypsEl = document.getElementById('id-hyps-dispatched');
+    if (hypsEl) {
+      const n = latestCycle ? latestCycle.n_dispatched : null;
+      hypsEl.textContent = (n != null) ? String(n) : '—';
+    }
+
     // open findings count + distribution (open = triaged/confirmed, not yet disclosed/fixed/verified)
     const OPEN_STATUSES = new Set(['triaged', 'confirmed', 'new']);
     const openFindings = findings.filter(f => OPEN_STATUSES.has(f.status));
@@ -1566,6 +1535,114 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     if (ofEl) {
       ofEl.innerHTML = `${open} open <span style="color: var(--ink-3); font-weight: 400; font-size: 12px;">(of ${total} total)${distStr ? ' · open: ' + distStr : ''}</span>`;
     }
+
+    // Disclosed cumulative — sum of by_severity_disclosed
+    const disclosedEl = document.getElementById('id-disclosed');
+    if (disclosedEl) {
+      const sd = (manifest.stats && manifest.stats.by_severity_disclosed) || {};
+      const disclosedTotal = Object.values(sd).reduce((acc, n) => acc + (n || 0), 0);
+      if (disclosedTotal > 0) {
+        disclosedEl.innerHTML = `${disclosedTotal} <span style="color: var(--ok); font-weight: 400; font-size: 12px;">disclosed to upstream</span>`;
+      } else {
+        disclosedEl.innerHTML = `0 <span style="color: var(--ink-3); font-weight: 400; font-size: 12px;">disclosed (F7 closed upstream · awaiting authorization on others)</span>`;
+      }
+    }
+
+    // Coverage tier — direct from customer block
+    const tierEl = document.getElementById('id-tier');
+    if (tierEl && manifest.customer && manifest.customer.tier) {
+      tierEl.textContent = String(manifest.customer.tier);
+    }
+  }
+
+  function updateOperationsPanel(manifest) {
+    const recentCycles = manifest.recent_cycles || [];
+    const latestCycle = recentCycles[0];
+    const services = manifest.services || [];
+
+    const hypsEl = document.getElementById('ops-hyps-latest');
+    if (hypsEl) hypsEl.textContent = latestCycle ? String(latestCycle.n_dispatched || 0) : '—';
+
+    const hypsSubEl = document.getElementById('ops-hyps-sub');
+    if (hypsSubEl && latestCycle && latestCycle.finished_at) {
+      hypsSubEl.textContent = `dispatched · ${relativeTime(latestCycle.finished_at)}`;
+    }
+
+    const upCount = services.filter(s => s.state === 'up').length;
+    const total = services.length || 8;
+    const svcEl = document.getElementById('ops-services-up');
+    if (svcEl) svcEl.textContent = `${upCount} / ${total}`;
+    const svcSubEl = document.getElementById('ops-services-sub');
+    if (svcSubEl) svcSubEl.textContent = `of ${total} platform units`;
+
+    const cyclesEl = document.getElementById('ops-cycles-total');
+    if (cyclesEl) cyclesEl.textContent = String(manifest.cycles_total != null ? manifest.cycles_total : '—');
+    const cyclesSubEl = document.getElementById('ops-cycles-sub');
+    if (cyclesSubEl && manifest.receipts_signed != null) {
+      cyclesSubEl.textContent = `${manifest.receipts_signed} signed receipts`;
+    }
+
+    const uptimeEl = document.getElementById('ops-uptime');
+    if (uptimeEl && manifest.loop_uptime_human) {
+      uptimeEl.textContent = String(manifest.loop_uptime_human);
+    }
+  }
+
+  function renderAttestationsPanel() {
+    const container = document.querySelector('[data-cycle-attestations]');
+    if (!container) return;
+    if (!manifestData) return;
+
+    const cycles = manifestData.recent_cycles || [];
+    if (cycles.length === 0) {
+      container.innerHTML = `<div style="padding: 24px 20px; text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;">
+        No cycles yet · engine has not produced a signed cycle for this protocol.
+      </div>`;
+      return;
+    }
+
+    // Build cycle_id -> merkle_root map from snapshot.cycle_merkle_roots
+    const merkleByCycleId = {};
+    if (snapshotData && Array.isArray(snapshotData.cycle_merkle_roots)) {
+      snapshotData.cycle_merkle_roots.forEach(m => {
+        if (m.cycle_id && m.merkle_root) {
+          merkleByCycleId[m.cycle_id] = {
+            root: m.merkle_root,
+            n_findings: m.n_findings,
+          };
+        }
+      });
+    }
+
+    const N = 6;
+    const rows = cycles.slice(0, N).map(c => {
+      const cycleId = c.cycle_id || '—';
+      const finishedAt = c.finished_at || c.started_at;
+      const age = finishedAt ? relativeTime(finishedAt) : '—';
+      const merkle = merkleByCycleId[cycleId];
+      const rootHash = merkle ? merkle.root : null;
+      const rootShort = rootHash ? `${rootHash.slice(0, 8)}…${rootHash.slice(-6)}` : 'merkle pending';
+      const detailHref = rootHash ? `/cycles/cycle.html?root=${encodeURIComponent(rootHash)}` : null;
+      const findingsLabel = (c.n_confirmed != null && c.n_dispatched != null)
+        ? `${c.n_confirmed} confirmed · ${c.n_dispatched} dispatched`
+        : (c.n_dispatched != null ? `${c.n_dispatched} hyps dispatched` : 'no candidates this cycle');
+      const linkOrSpan = detailHref
+        ? `<a class="ar-tx" href="${detailHref}">${escapeHtml(rootShort)} →</a>`
+        : `<span class="ar-tx" style="color: var(--ink-4);">${escapeHtml(rootShort)}</span>`;
+      return `<div class="attest-row">
+        <span class="ar-time">${escapeHtml(age)}</span>
+        <span class="ar-detail">
+          <div class="ar-line1">cycle <strong>${escapeHtml(cycleId)}</strong> · ${escapeHtml(findingsLabel)}</div>
+          <div class="ar-line2">engine ${escapeHtml((c.engine_sha || '').slice(0, 10))} · Ed25519 signed off-chain</div>
+        </span>
+        ${linkOrSpan}
+      </div>`;
+    }).join('');
+    container.innerHTML = rows;
+
+    // Update panel meta to reflect actual cycle count
+    const metaEl = document.getElementById('attest-meta');
+    if (metaEl) metaEl.textContent = `last ${Math.min(N, cycles.length)} of ${cycles.length} cycles`;
   }
 
   function renderFindingsFeed(findings) {
@@ -1599,9 +1676,13 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     } catch (_) { return; }
     if (!data) return;
 
+    manifestData = data;
+
     renderFindingsFeed(data.public_findings || []);
     updateSeverityChips(data.public_findings || []);
     updateIdentityStrip(data);
+    updateOperationsPanel(data);
+    renderAttestationsPanel();  // safe to call: gates on snapshot internally
   }
 
   // -------------------- orchestration --------------------
