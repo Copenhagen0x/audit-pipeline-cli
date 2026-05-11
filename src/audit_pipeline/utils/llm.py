@@ -12,7 +12,11 @@ import os
 from dataclasses import dataclass
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
-DEFAULT_MAX_TOKENS = 8192
+DEFAULT_MAX_TOKENS = 16384  # bumped from 8192: recon responses on complex
+                            # hyps were running out mid-analysis and producing
+                            # truncated outputs with no verdict line, which
+                            # parsed as UNKNOWN. Sonnet 4.6 supports up to
+                            # ~64k output tokens; 16k gives plenty of room.
 DEFAULT_TIMEOUT_SECONDS = 600
 
 

@@ -652,60 +652,88 @@ def _parse_verdict(text: str) -> tuple[str, str]:
     """Extract (verdict, confidence) from an agent response.
 
     Strategy:
-      1. Find the LAST `## Verdict` section (agents often write multiple
-         while reasoning; only the final one is the actual verdict).
-      2. Within that section, parse only the FIRST 800 chars after the
-         header — that's where the verdict declaration lives. Looser
-         matches against the full body produced false positives (e.g.
-         "this is true for opening orders" leaking into the verdict).
-      3. Use word-boundary regexes for TRUE/FALSE/NEEDS_LAYER_2 instead of
-         loose substring contains.
+      1. Find the LAST verdict-header heading (`## Verdict`, `### Verdict`,
+         etc — any heading level). Agents often write multiple verdict
+         blocks while reasoning; only the FINAL one is the actual verdict.
+      2. Bound the section by the next heading AT THE SAME OR HIGHER LEVEL
+         (fewer-or-equal `#`). FIX: previously used `##+` which also
+         matched sub-headings (`### Claim sub-parts:`), truncating the
+         verdict section to empty and defaulting the parse to UNKNOWN.
+         The original regression buried 21 likely-TRUE and 22
+         NEEDS_LAYER_2_TO_DECIDE verdicts as UNKNOWN on a 492-hyp Step 3
+         cycle (2026-05-11). Same-level matching keeps subheadings
+         inside the section so the verdict body is parsed in full.
+      3. Within the section, parse the FIRST 2000 chars (enough for tables
+         and per-claim breakdowns).
+      4. Use word-boundary regexes for TRUE/FALSE/NEEDS_LAYER_2.
+      5. FALLBACK: scan the full text for `**Overall verdict: X**` /
+         `Final verdict: X` patterns — many agents render the conclusion
+         as a bolded sentence rather than a heading.
     """
     import re
 
-    # All `## Verdict` matches, take the last
     matches = list(re.finditer(
-        r"(?im)^\s*##+\s*(?:final\s+)?verdict\b.*$",
+        r"(?im)^(?P<hashes>#+)\s*(?:final\s+)?verdict\b.*$",
         text,
     ))
-    if not matches:
-        return "UNKNOWN", "UNKNOWN"
-    last = matches[-1]
-    # Slice from the matched header to the next ## or end-of-text
-    section_start = last.end()
-    next_header = re.search(r"(?im)^\s*##+\s+\S", text[section_start:])
-    section_end = section_start + next_header.start() if next_header else len(text)
-    block = text[section_start:section_end][:1000].upper()
-
-    # Verdict match — order matters: NEEDS_LAYER_2 wins over bare TRUE/FALSE.
-    # FIX #5: tightened TRUE/FALSE matching. Legacy code fell through to bare
-    # `\bTRUE\b` / `\bFALSE\b` substring match, which mis-classified responses
-    # like "this assumption is TRUE for opening orders but FALSE for closes"
-    # as TRUE verdicts. New order:
-    #   1. Anchored `VERDICT: TRUE/FALSE` (preferred form per template)
-    #   2. Token on its own line (`^\s*TRUE\s*$`) — emphasized verdict
-    #   3. Strict tokens at top of block only (first 200 chars)
     verdict = "UNKNOWN"
-    block_head = block[:200]
-    if re.search(r"NEEDS[_\s]LAYER[_\s]2", block):
-        verdict = "NEEDS_LAYER_2_TO_DECIDE"
-    elif re.search(r"\bVERDICT\s*[:=\-]\s*TRUE\b", block):
-        verdict = "TRUE"
-    elif re.search(r"\bVERDICT\s*[:=\-]\s*FALSE\b", block):
-        verdict = "FALSE"
-    elif re.search(r"(?m)^\s*\*?\*?TRUE\*?\*?\s*$", block):
-        verdict = "TRUE"
-    elif re.search(r"(?m)^\s*\*?\*?FALSE\*?\*?\s*$", block):
-        verdict = "FALSE"
-    elif re.search(r"\bTRUE\b", block_head):
-        verdict = "TRUE"
-    elif re.search(r"\bFALSE\b", block_head):
-        verdict = "FALSE"
+    block = ""
+    if matches:
+        last = matches[-1]
+        n_hashes = len(last.group("hashes"))
+        section_start = last.end()
+        next_header_re = re.compile(
+            rf"(?im)^#{{1,{n_hashes}}}\s+\S",
+        )
+        nm = next_header_re.search(text[section_start:])
+        section_end = section_start + nm.start() if nm else len(text)
+        block = text[section_start:section_end][:2000].upper()
 
-    # Confidence — also word-boundary
+        block_head = block[:200]
+        if re.search(r"NEEDS[_\s]LAYER[_\s]2", block):
+            verdict = "NEEDS_LAYER_2_TO_DECIDE"
+        elif re.search(r"\bVERDICT\s*[:=\-]\s*TRUE\b", block):
+            verdict = "TRUE"
+        elif re.search(r"\bVERDICT\s*[:=\-]\s*FALSE\b", block):
+            verdict = "FALSE"
+        elif re.search(r"(?m)^\s*\*{0,2}TRUE\*{0,2}\s*$", block):
+            verdict = "TRUE"
+        elif re.search(r"(?m)^\s*\*{0,2}FALSE\*{0,2}\s*$", block):
+            verdict = "FALSE"
+        elif re.search(r"\bTRUE\b", block_head):
+            verdict = "TRUE"
+        elif re.search(r"\bFALSE\b", block_head):
+            verdict = "FALSE"
+
+    # Fallback: scan the whole text for strong verdict-declaration patterns.
+    # Tries from most specific (least likely to false-positive) to broadest.
+    if verdict == "UNKNOWN":
+        FALLBACKS = (
+            # **Verdict: X** with bold emphasis on both sides (strongest signal)
+            r"(?im)\*{2}\s*verdict\s*[:=\-]\s*(NEEDS[_\s]LAYER[_\s]2(?:[_\s]TO[_\s]DECIDE)?|TRUE|FALSE)\b\s*\*{2}",
+            # Overall/Final verdict: X
+            r"(?im)\*{0,2}(?:overall|final)\s+verdict\*{0,2}\s*[:=\-]\s*\*{0,2}\s*(NEEDS[_\s]LAYER[_\s]2(?:[_\s]TO[_\s]DECIDE)?|TRUE|FALSE)\b",
+            # Verdict: X (Confidence: ...) — parenthetical confidence next to it
+            r"(?i)\bverdict\s*[:=\-]\s*(NEEDS[_\s]LAYER[_\s]2(?:[_\s]TO[_\s]DECIDE)?|TRUE|FALSE)\b\s*\(?\s*confidence",
+            # Recommendation: ... is/should be ... TRUE/FALSE (within a sentence)
+            r"(?im)\brecommendation\b[^.]{0,200}?\b(?:is|should\s+be)\b[^.]{0,80}?\b(TRUE|FALSE)\b",
+        )
+        for pat in FALLBACKS:
+            m = re.search(pat, text)
+            if m:
+                tok = m.group(1).upper().replace(" ", "_")
+                if "NEEDS" in tok:
+                    verdict = "NEEDS_LAYER_2_TO_DECIDE"
+                else:
+                    verdict = tok
+                break
+
+    # Confidence — search block first (typed near the verdict), else
+    # whole text as fallback.
     confidence = "UNKNOWN"
+    haystack = block if block else text.upper()
     for c in ("HIGH", "MED", "LOW"):
-        if re.search(rf"\b{c}\b", block):
+        if re.search(rf"\b{c}\b", haystack):
             confidence = c
             break
 

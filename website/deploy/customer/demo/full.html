@@ -1525,9 +1525,12 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
 
     const hypsEl = document.getElementById('ops-hyps-latest');
     if (hypsEl) {
-      if (latestCycle && latestCycle.in_progress && latestCycle.n_planned) {
-        // Mid-flight Layer 1: show "68 / 492" so the counter ticks each
-        // 60s snapshot tick instead of staying at 0 for an hour.
+      if (latestCycle && latestCycle.in_progress && latestCycle.phase_total) {
+        // Mid-flight: show "N / total" for the CURRENT phase
+        // (recon / debate / poc / kani / litesvm).
+        hypsEl.textContent = `${latestCycle.phase_done || 0} / ${latestCycle.phase_total}`;
+      } else if (latestCycle && latestCycle.in_progress && latestCycle.n_planned) {
+        // Legacy back-compat
         hypsEl.textContent = `${latestCycle.n_dispatched || 0} / ${latestCycle.n_planned}`;
       } else {
         hypsEl.textContent = latestCycle ? String(latestCycle.n_dispatched || 0) : '—';
@@ -1537,10 +1540,12 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     const hypsSubEl = document.getElementById('ops-hyps-sub');
     if (hypsSubEl && latestCycle) {
       if (latestCycle.in_progress && latestCycle.started_at) {
+        // "Layer 1.5 debate · 30.6% · started 47 min ago"
+        const layerName = latestCycle.phase_label || 'dispatching';
         const pct = latestCycle.progress_pct != null
           ? ` · ${latestCycle.progress_pct}%`
           : '';
-        hypsSubEl.textContent = `dispatching${pct} · started ${relativeTime(latestCycle.started_at)}`;
+        hypsSubEl.textContent = `${layerName}${pct} · started ${relativeTime(latestCycle.started_at)}`;
       } else if (latestCycle.finished_at) {
         hypsSubEl.textContent = `dispatched · ${relativeTime(latestCycle.finished_at)}`;
       } else if (latestCycle.started_at) {

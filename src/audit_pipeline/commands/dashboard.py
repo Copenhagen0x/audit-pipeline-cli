@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import html
 import http.server
+import json
 import socketserver
 from datetime import datetime, timezone
 from pathlib import Path
@@ -279,19 +280,34 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
         # with the live count of *_response.md files in the cycle's recon/
         # dir so the dashboard counter ticks up every snapshot tick instead
         # of staying at 0 for an hour.
-        # Treat the cycle as "in progress" whenever its recon/ dir exists
-        # but recon_summary.json hasn't been written yet — i.e. Layer 1 is
-        # still walking through hyps. We can't trust cycles.finished_at
-        # alone: a prior run that hit the recon timeout writes finished_at
-        # then the operator resumes, and during the resume window the DB
-        # row still claims finished. Filesystem state is authoritative.
+        # Phase-aware in-progress detection (filesystem authoritative — DB
+        # finished_at can be stale from a prior failed run that has since
+        # been resumed). If the cycle has reached "publishing" phase
+        # (hunt_summary.json present), it's fully done and we leave the
+        # DB-state alone. Otherwise we surface phase + counters so the
+        # dashboard can render "Layer 1.5 debate · 87 / 284 · 30.6%"
+        # instead of just "0 dispatched · 18 hours ago".
         prog = _in_progress_cycle_progress(workspace, c.get("cycle_id"))
-        if prog and prog["n_responses"] < prog["n_prompts"]:
+        if prog and prog.get("phase") and prog["phase"] != "publishing":
             entry["in_progress"] = True
-            entry["n_dispatched"] = prog["n_responses"]
-            entry["n_planned"] = prog["n_prompts"]
+            entry["phase"] = prog["phase"]
+            entry["phase_label"] = prog["phase_label"]
+            entry["phase_done"] = prog["phase_done"]
+            entry["phase_total"] = prog["phase_total"]
+            # Keep n_dispatched / n_planned for back-compat with old JS that
+            # only knew about Layer 1. Map them to the current phase so the
+            # headline counter stays correct as phases advance.
+            entry["n_dispatched"] = prog["phase_done"]
+            entry["n_planned"] = prog["phase_total"]
             entry["progress_pct"] = prog["pct_complete"]
-            entry["finished_at"] = None  # don't render stale 'finished X ago'
+            entry["finished_at"] = None
+            # Richer per-layer counters for the dashboard
+            entry["n_contested"] = prog.get("n_contested", 0)
+            entry["n_true_layer1"] = prog.get("n_true_layer1", 0)
+            entry["n_debate_done"] = prog.get("n_debate_done", 0)
+            entry["n_poc_logs"] = prog.get("n_poc_logs", 0)
+            entry["n_kani_harnesses"] = prog.get("n_kani_harnesses", 0)
+            entry["n_litesvm"] = prog.get("n_litesvm", 0)
         recent_cycles.append(entry)
 
     # Public stats reflect only-disclosed surface. The full counts (including
@@ -721,19 +737,34 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
             "n_confirmed": c.get("n_confirmed"),
             "receipt_fingerprint": _read_receipt_fingerprint(c.get("cycle_id")),
         }
-        # Treat the cycle as "in progress" whenever its recon/ dir exists
-        # but recon_summary.json hasn't been written yet — i.e. Layer 1 is
-        # still walking through hyps. We can't trust cycles.finished_at
-        # alone: a prior run that hit the recon timeout writes finished_at
-        # then the operator resumes, and during the resume window the DB
-        # row still claims finished. Filesystem state is authoritative.
+        # Phase-aware in-progress detection (filesystem authoritative — DB
+        # finished_at can be stale from a prior failed run that has since
+        # been resumed). If the cycle has reached "publishing" phase
+        # (hunt_summary.json present), it's fully done and we leave the
+        # DB-state alone. Otherwise we surface phase + counters so the
+        # dashboard can render "Layer 1.5 debate · 87 / 284 · 30.6%"
+        # instead of just "0 dispatched · 18 hours ago".
         prog = _in_progress_cycle_progress(workspace, c.get("cycle_id"))
-        if prog and prog["n_responses"] < prog["n_prompts"]:
+        if prog and prog.get("phase") and prog["phase"] != "publishing":
             entry["in_progress"] = True
-            entry["n_dispatched"] = prog["n_responses"]
-            entry["n_planned"] = prog["n_prompts"]
+            entry["phase"] = prog["phase"]
+            entry["phase_label"] = prog["phase_label"]
+            entry["phase_done"] = prog["phase_done"]
+            entry["phase_total"] = prog["phase_total"]
+            # Keep n_dispatched / n_planned for back-compat with old JS that
+            # only knew about Layer 1. Map them to the current phase so the
+            # headline counter stays correct as phases advance.
+            entry["n_dispatched"] = prog["phase_done"]
+            entry["n_planned"] = prog["phase_total"]
             entry["progress_pct"] = prog["pct_complete"]
-            entry["finished_at"] = None  # don't render stale 'finished X ago'
+            entry["finished_at"] = None
+            # Richer per-layer counters for the dashboard
+            entry["n_contested"] = prog.get("n_contested", 0)
+            entry["n_true_layer1"] = prog.get("n_true_layer1", 0)
+            entry["n_debate_done"] = prog.get("n_debate_done", 0)
+            entry["n_poc_logs"] = prog.get("n_poc_logs", 0)
+            entry["n_kani_harnesses"] = prog.get("n_kani_harnesses", 0)
+            entry["n_litesvm"] = prog.get("n_litesvm", 0)
         recent_cycles.append(entry)
 
     # G28: per-customer propagation slice. Counts are scoped to findings
@@ -925,29 +956,134 @@ def _customer_propagation_slice(
 def _in_progress_cycle_progress(
     workspace: Path | None, cycle_id: str | None
 ) -> dict | None:
-    """For a cycle whose finished_at is null, scan its recon/ dir to derive
-    live mid-flight progress: how many prompts were dispatched and how many
-    responses have come back. Returns None if workspace / cycle_id missing,
-    or if the recon dir doesn't exist (cycle not at Layer 1 yet)."""
+    """For a cycle that isn't yet fully published, derive live mid-flight
+    progress: current PHASE (recon / debate / poc / kani / litesvm /
+    publishing) plus how many per-hyp artifacts have landed vs how many
+    are expected for that phase.
+
+    Phase detection is filesystem-driven so the answer is correct even
+    when the DB rows are stale from a prior failed run:
+      - recon_summary.json missing  -> recon
+      - debate/ has artifacts AND poc/ empty  -> debate
+      - poc/ has cargo logs AND kani/ empty  -> poc
+      - kani/ has artifacts AND hunt_summary.json missing  -> kani / litesvm
+      - hunt_summary.json present -> publishing / done
+
+    Returns None if no cycle dir found or the cycle hasn't even started Layer 1.
+    """
     if not workspace or not cycle_id:
         return None
-    recon = workspace / "hunts" / cycle_id / "recon"
+    cycle_dir = workspace / "hunts" / cycle_id
+    recon = cycle_dir / "recon"
     if not recon.is_dir():
         return None
     try:
         n_prompts = sum(1 for _ in recon.glob("*_prompt.md"))
         n_responses = sum(1 for _ in recon.glob("*_response.md"))
-        n_verdicts = sum(1 for _ in recon.glob("*_verdict.md"))
+        recon_summary = recon / "recon_summary.json"
+        hunt_summary = cycle_dir / "hunt_summary.json"
+        debate_dir = cycle_dir / "debate"
+        poc_dir = cycle_dir / "poc"
+        kani_dir = cycle_dir / "kani"
+        litesvm_dir = cycle_dir / "litesvm"
+        n_debate_done = (
+            sum(1 for _ in debate_dir.glob("*_challenger_response.md"))
+            if debate_dir.is_dir() else 0
+        )
+        n_poc_tests = (
+            sum(1 for _ in poc_dir.glob("test_*.rs"))
+            if poc_dir.is_dir() else 0
+        )
+        n_poc_logs = (
+            sum(1 for _ in poc_dir.glob("cargo_*.log"))
+            if poc_dir.is_dir() else 0
+        )
+        n_kani_harnesses = (
+            sum(1 for _ in kani_dir.glob("*.rs"))
+            if kani_dir.is_dir() else 0
+        )
+        n_litesvm = (
+            sum(1 for _ in litesvm_dir.glob("*.rs"))
+            if litesvm_dir.is_dir() else 0
+        )
     except OSError:
         return None
     if n_prompts == 0:
         return None
-    pct = (n_responses / n_prompts * 100.0) if n_prompts else 0.0
+
+    # Pull contested count from recon_summary if it exists
+    n_contested = 0
+    n_true = 0
+    if recon_summary.is_file():
+        try:
+            data = json.loads(recon_summary.read_text(encoding="utf-8"))
+            verdicts = data.get("verdicts", [])
+            for v in verdicts:
+                vd = v.get("verdict") or ""
+                if vd == "TRUE":
+                    n_true += 1
+                    n_contested += 1
+                elif vd == "NEEDS_LAYER_2_TO_DECIDE":
+                    n_contested += 1
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # Phase detection
+    if not recon_summary.is_file():
+        phase = "recon"
+        n_done, n_total = n_responses, n_prompts
+        label = "Layer 1 recon"
+    elif hunt_summary.is_file():
+        phase = "publishing"
+        n_done, n_total = 1, 1
+        label = "publishing"
+    elif n_litesvm > 0:
+        phase = "litesvm"
+        n_done, n_total = n_litesvm, max(n_litesvm, 1)
+        label = "Layer 4 LiteSVM"
+    elif n_kani_harnesses > 0:
+        phase = "kani"
+        n_done, n_total = n_kani_harnesses, max(n_kani_harnesses, 1)
+        label = "Layer 3 Kani"
+    elif n_poc_logs > 0 or n_poc_tests > 0:
+        phase = "poc"
+        # PoC target = debate-promoted set, approximated by TRUE-after-debate.
+        # We don't have a clean count without re-parsing debate outputs, so
+        # use cargo logs as denominator (settles to actual count once Layer
+        # 2 fires for each candidate).
+        n_done = n_poc_logs
+        n_total = max(n_poc_tests, n_poc_logs, 1)
+        label = "Layer 2 PoC"
+    elif n_debate_done > 0 or n_contested > 0:
+        phase = "debate"
+        n_done = n_debate_done
+        n_total = max(n_contested, 1)
+        label = "Layer 1.5 debate"
+    else:
+        phase = "recon"
+        n_done, n_total = n_responses, n_prompts
+        label = "Layer 1 recon"
+
+    pct = (n_done / n_total * 100.0) if n_total else 0.0
     return {
+        # Legacy fields kept for back-compat with previous dashboard.py callers
         "n_prompts": n_prompts,
         "n_responses": n_responses,
-        "n_verdicts": n_verdicts,
+        "n_verdicts": 0,
+        # New phase-aware fields
+        "phase": phase,
+        "phase_label": label,
+        "phase_done": n_done,
+        "phase_total": n_total,
         "pct_complete": round(pct, 1),
+        # Headline numbers regardless of phase
+        "n_contested": n_contested,
+        "n_true_layer1": n_true,
+        "n_debate_done": n_debate_done,
+        "n_poc_tests": n_poc_tests,
+        "n_poc_logs": n_poc_logs,
+        "n_kani_harnesses": n_kani_harnesses,
+        "n_litesvm": n_litesvm,
     }
 
 
