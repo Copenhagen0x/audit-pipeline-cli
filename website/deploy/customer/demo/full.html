@@ -1171,16 +1171,11 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     }, { passive: true });
   }
 
-  // Last-scan ticker
-  const lastScan = document.getElementById('last-scan');
-  if (lastScan) {
-    let secs = 47;
-    setInterval(() => {
-      secs++;
-      if (secs >= 90) secs = 0;
-      lastScan.textContent = secs + ' second' + (secs === 1 ? '' : 's') + ' ago';
-    }, 1000);
-  }
+  // last-scan is populated by patchFromSnapshot() from data.generated_at
+  // (the real timestamp written by jelleo-snapshot.timer on the VPS).
+  // The mock setInterval that lived here counted seconds up to 90 then
+  // reset — it was racing the real value and lying when the snapshot
+  // was actually stale (e.g. while a hunt is in progress).
 
   // Findings — click to expand
   document.querySelectorAll('.finding-row').forEach((row) => {
@@ -1533,8 +1528,16 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     if (hypsEl) hypsEl.textContent = latestCycle ? String(latestCycle.n_dispatched || 0) : '—';
 
     const hypsSubEl = document.getElementById('ops-hyps-sub');
-    if (hypsSubEl && latestCycle && latestCycle.finished_at) {
-      hypsSubEl.textContent = `dispatched · ${relativeTime(latestCycle.finished_at)}`;
+    if (hypsSubEl && latestCycle) {
+      if (latestCycle.finished_at) {
+        hypsSubEl.textContent = `dispatched · ${relativeTime(latestCycle.finished_at)}`;
+      } else if (latestCycle.started_at) {
+        // Hunt is in progress — show "dispatching · started X ago" so users
+        // don't see "0 dispatched · 18 hours ago" while Layer 1 is running.
+        hypsSubEl.textContent = `dispatching · started ${relativeTime(latestCycle.started_at)}`;
+      } else {
+        hypsSubEl.textContent = 'dispatching';
+      }
     }
 
     const upCount = services.filter(s => s.state === 'up').length;

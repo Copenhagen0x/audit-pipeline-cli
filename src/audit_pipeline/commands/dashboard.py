@@ -587,7 +587,15 @@ def _customers_to_publish(workspace: Path) -> list[dict]:
             "protocol_name": "Percolator",
             "tier":          "Production",
             "since":         "2026-04-22",
-            "target_match":  "percolator",  # case-insensitive substring on target name
+            # Empty target_match = all targets in the DB. We used to filter to
+            # targets containing "percolator", but a long-standing bug in
+            # hunt.py (`config.get("name")` vs the real workspace.json key
+            # `target_name`) caused every cycle since this workspace was
+            # set up to bind to the literal target `default` — so the
+            # filter was hiding the customer's actual data. Until the
+            # hunt-side fix lands AND the historical cycles are
+            # re-targeted, match all.
+            "target_match":  "",
         }
     ]
     cfg = workspace / "customers.json"

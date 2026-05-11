@@ -364,7 +364,11 @@ def hunt_cmd(
             "ANTHROPIC_API_KEY required for hunt. Set it and re-run."
         )
 
-    target = target_name or config.get("name") or "default"
+    # workspace.json uses the key `target_name`; fall back to legacy `name`
+    # for old workspaces. Without this, every cycle bound to the literal
+    # string "default" and the demo customer's percolator-substring filter
+    # silently hid them all.
+    target = target_name or config.get("target_name") or config.get("name") or "default"
 
     # ---------- Source-mode resolution ----------
     # If --source-repo is given, hunt opens an ephemeral GitHub snapshot
