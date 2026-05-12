@@ -933,23 +933,24 @@ def _hunt_run(
             if cargo_log_complete:
                 log("poc_resumed_from_existing", hypothesis_id=hyp_id,
                     finding=finding_name)
-                looks_compile_failed = (
-                    "could not compile" in combined
-                    or "error[E" in combined.split("test result:")[0]
-                    or "did not match any tests" in combined
-                    or "no test target" in combined.lower()
-                )
-                looks_test_fired = (
-                    "test result: FAILED" in combined
-                    or "panicked at" in combined
-                    or "assertion failed" in combined
-                )
-                if looks_compile_failed:
+                # Phase B 12-audit fix: replace substring classifier with
+                # structured per-test parse. An `assertion failed` substring
+                # in an unrelated test's panic message used to spoof "fired"
+                # here; `test result: ok` from a sibling binary used to
+                # spoof "passed". The structured parser attributes only to
+                # the specific test_<finding_name> target.
+                from audit_pipeline.utils.cargo_text import parse_test_outcome
+                _outcome = parse_test_outcome(combined, f"test_{finding_name}")
+                if _outcome.status == "compile_failed":
                     fired, outcome = False, "compile_error"
-                elif looks_test_fired:
+                elif _outcome.status == "fired":
                     fired, outcome = True, "test_failed_bug_reproduced"
-                elif "test result: ok" in combined:
+                elif _outcome.status == "passed":
                     fired, outcome = False, "test_passed_no_bug"
+                elif _outcome.status == "ignored":
+                    fired, outcome = False, "test_ignored_no_witness"
+                elif _outcome.status == "not_run":
+                    fired, outcome = False, "test_not_in_binary"
                 else:
                     fired, outcome = False, "unknown_resumed"
                 poc_results[hyp_id] = {
@@ -1052,30 +1053,34 @@ def _hunt_run(
                     combined = (cargo_proc.stdout or "") + "\n" + (cargo_proc.stderr or "")
                     test_log.write_text(combined, encoding="utf-8")
 
-                    # Decode cargo outcome. Compile-fail patterns: `error[E`,
-                    # `cannot find`, `did not match any tests`. Real failure
-                    # patterns: `test result: FAILED`, `panicked`, `assertion
-                    # failed`.
-                    looks_compile_failed = (
-                        "could not compile" in combined
-                        or "error[E" in combined.split("test result:")[0]
-                        or "did not match any tests" in combined
-                        or "no test target" in combined.lower()
-                    )
-                    looks_test_fired = (
-                        "test result: FAILED" in combined
-                        or "panicked at" in combined
-                        or "assertion failed" in combined
-                    )
-
-                    if looks_compile_failed:
+                    # Phase B 12-audit fix: structured per-test parse.
+                    # Substring classifier could attribute a sibling test's
+                    # `panicked at` to the target test (false-fire) or
+                    # accept an unrelated `test result: ok` as proof the
+                    # target passed (false-confirm). The structured parse
+                    # looks for ONE specific `test test_<finding_name> ...
+                    # <result>` line and classifies on that alone.
+                    from audit_pipeline.utils.cargo_text import parse_test_outcome
+                    _outcome = parse_test_outcome(combined, f"test_{finding_name}")
+                    if _outcome.status == "compile_failed":
                         outcome = "compile_error"
                         fired = False
-                    elif looks_test_fired:
+                    elif _outcome.status == "fired":
                         outcome = "test_failed_bug_reproduced"
                         fired = True
-                    elif cargo_rc == 0:
+                    elif _outcome.status == "passed":
                         outcome = "test_passed_no_bug"
+                        fired = False
+                    elif _outcome.status == "ignored":
+                        # L1.5+L2 audit Defect 02: `#[ignore]`d tests
+                        # used to silently fold into pass/fail counts.
+                        outcome = "test_ignored_no_witness"
+                        fired = False
+                    elif _outcome.status == "not_run":
+                        # Test name not in this binary — typically a
+                        # PoC author who wrote a `fn` with the wrong name
+                        # (slugify mismatch — L1.5+L2 audit Defect 03).
+                        outcome = "test_not_in_binary"
                         fired = False
                     else:
                         outcome = f"unknown_rc_{cargo_rc}"
