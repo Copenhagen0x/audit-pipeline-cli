@@ -100,6 +100,20 @@ hooks/
 hunts/*/hooks/
 derived/
 
+# Per memory rule "Never edit sent OUTREACH artifacts": OUTREACH/ files
+# are frozen historical record. Untracked + ignored so a `git add -A`
+# from inside this repo can never silently re-stage them.
+OUTREACH/jelleo-funding-proposal-short.html
+OUTREACH/jelleo-funding-proposal-short.POLISHED.html
+OUTREACH/jelleo-funding-proposal-short.BACKUP-pre-shrink-2026-05-03.html
+OUTREACH/jelleo-ottersec-demo-script.html
+OUTREACH/jelleo-proposal-glossary.html
+
+# Other artefacts that should never be source-tracked
+AUDIT_FINAL_*.md
+.claude/
+website/index-v1-stable.html
+
 # Generated reports + signatures (rendered per cycle, not source)
 reports/
 hunts/*/hunt_report.html
