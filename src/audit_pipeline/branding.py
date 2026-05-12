@@ -679,9 +679,10 @@ def read_pubkey_fingerprint(workspace: Path | None = None) -> str:
     """
     if workspace is None:
         return "(public key not available — see jelleo.com/keys/jelleo.ed25519.pub)"
+    from audit_pipeline.utils.vps_paths import audit_runs_root
     candidates = [
         workspace / "keys" / "jelleo.ed25519.pub",
-        Path("/root/audit_runs/percolator-live/keys/jelleo.ed25519.pub"),
+        audit_runs_root() / "percolator-live" / "keys" / "jelleo.ed25519.pub",
     ]
     for path in candidates:
         if path.exists():

@@ -640,12 +640,14 @@ def _probe_services() -> list[dict]:
 
 
 def _count_signed_receipts() -> int:
-    """Count signed cycle receipts under /var/www/jelleo.com/cycles/.
+    """Count signed cycle receipts under the public cycles dir.
 
-    Returns 0 on hosts without that directory.
+    Path is resolved via ``audit_pipeline.utils.vps_paths.public_cycles_dir``
+    so dev/CI can override ``JELLEO_PUBLIC_ROOT``. Returns 0 on hosts
+    without that directory.
     """
-    from pathlib import Path as _P
-    root = _P("/var/www/jelleo.com/cycles")
+    from audit_pipeline.utils.vps_paths import public_cycles_dir
+    root = public_cycles_dir()
     if not root.is_dir():
         return 0
     return sum(1 for p in root.iterdir() if p.is_dir() and (p / "cycle.html.sig").exists())
@@ -1202,8 +1204,8 @@ def _read_receipt_fingerprint(cycle_id: str | None) -> str | None:
     """
     if not cycle_id:
         return None
-    from pathlib import Path as _P
-    sig_path = _P("/var/www/jelleo.com/cycles") / cycle_id / "cycle.html.sig"
+    from audit_pipeline.utils.vps_paths import public_cycles_dir
+    sig_path = public_cycles_dir() / cycle_id / "cycle.html.sig"
     if not sig_path.is_file():
         return None
     try:

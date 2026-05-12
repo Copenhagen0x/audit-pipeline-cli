@@ -34,7 +34,12 @@ class ToolUsingResult:
 
 
 def _normalize_path(workspace: Path, path: str) -> Path | None:
-    """Resolve a tool-supplied path, refusing escapes outside workspace."""
+    """Resolve a tool-supplied path, refusing escapes outside workspace.
+
+    Trusted prefixes: ``workspace`` plus the audit_runs root (resolved
+    via ``audit_pipeline.utils.vps_paths``). The latter is env-var
+    overridable so dev/CI doesn't need ``/root/audit_runs`` to exist.
+    """
     try:
         p = (workspace / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
     except OSError:
@@ -43,10 +48,11 @@ def _normalize_path(workspace: Path, path: str) -> Path | None:
         ws = workspace.resolve()
     except OSError:
         return None
-    # Allow paths inside the workspace OR inside /root/audit_runs (for the
-    # full Cargo workspace which lives at workspace/target/...)
+    from audit_pipeline.utils.vps_paths import is_under_trusted_root
+    # Allow paths inside the workspace OR inside the audit_runs root
+    # (for the full Cargo workspace which lives at workspace/target/...).
     p_str = str(p)
-    if not (p_str.startswith(str(ws)) or p_str.startswith("/root/audit_runs")):
+    if not (p_str.startswith(str(ws)) or is_under_trusted_root(p)):
         return None
     return p
 

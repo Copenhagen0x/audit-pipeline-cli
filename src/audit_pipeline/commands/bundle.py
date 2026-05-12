@@ -711,8 +711,9 @@ def init_repo_cmd(
 @bundle_cmd.command(name="publish-archive")
 @click.argument("finding_id", type=int)
 @click.option("--archive-root", type=click.Path(path_type=Path),
-              default=Path("/var/www/jelleo.com/bundles"), show_default=True,
-              help="Public archive root (rsync target on the api host)")
+              default=None, show_default=False,
+              help="Public archive root (rsync target on the api host). "
+                   "Defaults to JELLEO_PUBLIC_ROOT/bundles (env-var aware).")
 @click.option("--public-only/--full", default=True, show_default=True,
               help="--public excludes verification.json + authorization.json + hooks/ "
                    "(those are operator-private). --full publishes everything; only "
@@ -720,13 +721,16 @@ def init_repo_cmd(
 @click.pass_context
 def publish_archive_cmd(
     ctx: click.Context, finding_id: int,
-    archive_root: Path, public_only: bool,
+    archive_root: Path | None, public_only: bool,
 ) -> None:
     """P3 Item 14: copy a bundle into the public archive at api.jelleo.com/bundles/<id>/.
 
     Pre-disclosure rule: only `merged` or `fixed` bundles may be published with --full.
     --public is allowed at any status >= verified but redacts operator-private files.
     """
+    if archive_root is None:
+        from audit_pipeline.utils.vps_paths import public_bundles_dir
+        archive_root = public_bundles_dir()
     workspace = _ws(ctx)
     mp = bpaths.meta_path(workspace, finding_id)
     if not mp.is_file():
