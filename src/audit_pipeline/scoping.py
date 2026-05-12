@@ -283,6 +283,12 @@ def load_class_library(
 
     merged: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
+    # Hyp library audit Defect 11 (LOW): also dedupe by canonicalised
+    # (bug_class, target_file, claim-prefix) so the H1/PD4/V1-vault/
+    # V1-strict family doesn't fan out into N near-duplicate hyps that
+    # the cycle dispatches in parallel and over-counts as N findings.
+    seen_class_target_claim: set[tuple[str, str, str]] = set()
+    skipped_near_dup: list[tuple[str, str]] = []   # (kept_id, skipped_id)
     for f in files:
         for h in load_hypotheses(f):
             if h["id"] in seen_ids:
@@ -291,7 +297,27 @@ def load_class_library(
                     f"(file: {f})"
                 )
             seen_ids.add(h["id"])
+            claim_text = (h.get("claim") or "").strip()
+            # Canonicalise: lowercase, collapse whitespace, take first 120 chars
+            claim_canon = " ".join(claim_text.lower().split())[:120]
+            key = (
+                (h.get("bug_class") or "").strip().lower(),
+                (h.get("target_file") or "").strip().lower(),
+                claim_canon,
+            )
+            if key in seen_class_target_claim and all(key):
+                # Don't raise — log + skip the near-duplicate
+                skipped_near_dup.append((h["id"], str(f)))
+                continue
+            seen_class_target_claim.add(key)
             merged.append(h)
+    if skipped_near_dup:
+        # Surface via stderr for the operator; tests check via return-value.
+        import sys as _sys
+        for sid, _f in skipped_near_dup[:8]:
+            print(f"scoping: skipped near-duplicate hyp {sid} from {_f} "
+                  f"(matches (bug_class, target_file, claim) of an earlier hyp)",
+                  file=_sys.stderr)
     return merged, files
 
 

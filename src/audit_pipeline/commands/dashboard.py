@@ -102,15 +102,35 @@ def dashboard_cmd(
         console.print(f"[green]wrote[/green] {snapshot_path}")
 
     if customer_manifest_dir:
-        cdir = Path(customer_manifest_dir)
+        cdir = Path(customer_manifest_dir).resolve()
+        # Disclosure audit Defect 04 (MED): the previous code did
+        # `cdir / cust["id"] / "manifest.json"` with NO validation of
+        # `cust["id"]`. A `customers.json` row carrying
+        # `"id": "../../../etc"` would write outside cdir. Now: strict
+        # `^[A-Za-z0-9_-]{1,64}$` regex + path-resolution check so a
+        # malformed id can't escape the manifest tree.
+        _SAFE_CUST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}[A-Za-z0-9]$|^[A-Za-z0-9]$")
         for cust in _customers_to_publish(workspace):
-            mpath = cdir / cust["id"] / "manifest.json"
-            mpath.parent.mkdir(parents=True, exist_ok=True)
-            mpath.write_text(
+            cid = (cust.get("id") or "").strip()
+            if not _SAFE_CUST_RE.fullmatch(cid):
+                console.print(
+                    f"[yellow]skip customer manifest:[/yellow] id "
+                    f"{cid!r} fails safe-name regex"
+                )
+                continue
+            target = (cdir / cid / "manifest.json").resolve()
+            if cdir not in target.parents:
+                console.print(
+                    f"[red]refused[/red] customer manifest write: resolved "
+                    f"path {target} escapes {cdir}"
+                )
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(
                 json.dumps(_build_customer_manifest(db, cust, workspace), indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-            console.print(f"[green]wrote[/green] {mpath}")
+            console.print(f"[green]wrote[/green] {target}")
 
     if cycles_dir:
         n_published, n_skipped = _publish_cycle_sidecars(workspace, Path(cycles_dir))
