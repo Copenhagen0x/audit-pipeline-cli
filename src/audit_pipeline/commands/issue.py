@@ -275,17 +275,65 @@ def auto_file_cmd(
     findings = db.list_findings(status=Status.CONFIRMED)
     cycle_findings = [f for f in findings if f.get("cycle_id") == cycle_id]
 
-    eligible = []
+    # Disclosure audit Defect 01 (HIGH): auto-file used to skip every
+    # post-confirmation gate — `poc_fired` wasn't required, the L2 PoC
+    # quality wasn't re-checked, and the disclosure_history gate wasn't
+    # re-run. Yesterday's 20 false-positive cycle would have auto-filed
+    # through this path with zero protection. Now: hard gates.
+    from audit_pipeline.gates.post_cycle import _check_one_poc
+    eligible: list = []
+    skipped: list = []
+    cycle_dir = workspace / "hunts" / cycle_id
+    workspace_cfg = workspace / "workspace.json"
+    engine_src = None
+    wrapper_src = None
+    try:
+        import json as _json
+        cfg = _json.loads(workspace_cfg.read_text(encoding="utf-8"))
+        if cfg.get("engine", {}).get("local"):
+            engine_src = workspace / cfg["engine"]["local"] / "src"
+        if cfg.get("wrapper", {}).get("local"):
+            wrapper_src = workspace / cfg["wrapper"]["local"] / "src"
+    except (OSError, ValueError):
+        pass
+    search_dirs = [d for d in (engine_src, wrapper_src) if d and d.is_dir()]
+
     for f in cycle_findings:
         try:
             sev = Severity(f.get("severity"))
         except ValueError:
             continue
-        if list(Severity).index(sev) <= floor_rank:
-            eligible.append(f)
+        if list(Severity).index(sev) > floor_rank:
+            continue
+        # Gate 1: poc_fired must be True
+        if not f.get("poc_fired"):
+            skipped.append((f["id"], "poc_fired=False — no empirical signal"))
+            continue
+        # Gate 2: PoC source must pass post-cycle re-check (symbol_grep +
+        # pseudo-pass marker detection)
+        if search_dirs:
+            hyp_id = f.get("hypothesis_id") or ""
+            from audit_pipeline.utils.slug import slug_for_hypothesis
+            test_name = f"test_{slug_for_hypothesis(hyp_id)}"
+            poc_path = cycle_dir / "poc" / f"{test_name}.rs"
+            row = _check_one_poc(poc_path, test_name, search_dirs)
+            if not row.get("passed"):
+                skipped.append((f["id"], f"PoC re-check failed: {row.get('reason', '')[:160]}"))
+                continue
+        eligible.append(f)
+
+    if skipped:
+        console.print(
+            f"[yellow]auto-file: skipped {len(skipped)} finding(s) "
+            f"that failed post-confirmation gates:[/yellow]"
+        )
+        for fid, reason in skipped[:8]:
+            console.print(f"  finding {fid}: {reason}")
+        if len(skipped) > 8:
+            console.print(f"  ... and {len(skipped) - 8} more")
 
     if not eligible:
-        console.print(f"[dim]No confirmed findings >= {severity_floor} in cycle {cycle_id}[/dim]")
+        console.print(f"[dim]No confirmed findings >= {severity_floor} in cycle {cycle_id} survived auto-file gates[/dim]")
         return
 
     console.print(f"[bold]Filing {len(eligible)} confirmed finding(s) from cycle {cycle_id}[/bold]")
