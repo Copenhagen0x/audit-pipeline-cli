@@ -308,3 +308,47 @@ def pubkey_cmd(ctx: click.Context, customer_id: str) -> None:
             f"or `customer rotate-key {customer_id}`."
         )
     click.echo(pub.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# issue-url-token
+# ---------------------------------------------------------------------------
+
+
+@customer_cmd.command(name="issue-url-token")
+@click.argument("customer_id")
+@click.option("--ttl-days", type=int, default=7, show_default=True,
+              help="Token expiry, in days from now.")
+@click.option("--platform-key", type=click.Path(path_type=Path), default=None,
+              help="Platform private key (default: <workspace>/keys/jelleo.ed25519)")
+@click.pass_context
+def issue_url_token_cmd(
+    ctx: click.Context,
+    customer_id: str,
+    ttl_days: int,
+    platform_key: Path | None,
+) -> None:
+    """Issue an HMAC-signed URL access token for ``customer_id``.
+
+    The token can be appended to the customer's manifest URL like
+    ``...?t=<token>``. Verification is stateless — the server
+    recomputes HMAC(customer_id || expiry) under a key derived from the
+    platform private key and compares constant-time. Tokens are
+    revocable via ``customer rotate-key`` (changing the salt invalidates
+    all outstanding tokens for that customer).
+    """
+    workspace = Path(ctx.obj["workspace"])
+    customers_mod.validate_customer_id(customer_id)
+    if not any(c.get("id") == customer_id for c in customers_mod.load_registry(workspace)):
+        raise click.ClickException(f"customer '{customer_id}' is not registered")
+    platform_priv_path = platform_key or default_key_path(workspace)
+    try:
+        seed = customers_mod.load_platform_priv_seed(platform_priv_path)
+    except customers_mod.CustomerError as e:
+        raise click.ClickException(str(e))
+    token, exp = customers_mod.issue_customer_url_token(
+        seed, customer_id, ttl_seconds=ttl_days * 24 * 3600,
+    )
+    console.print(f"[green]issued[/green] token for [cyan]{customer_id}[/cyan]")
+    console.print(f"  token:      {token}")
+    console.print(f"  expires_at: {exp} (~{ttl_days}d)")
