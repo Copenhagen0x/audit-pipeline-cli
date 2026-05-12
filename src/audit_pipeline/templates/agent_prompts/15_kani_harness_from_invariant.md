@@ -35,6 +35,18 @@ invariant into a complete, compilable Kani harness file.
 ### Existing Kani harness template (use as structural reference)
 {KANI_TEMPLATE}
 
+### FULL ENGINE SOURCE (authoritative — DO NOT invent struct field names)
+
+The complete engine source file is below. **Read the actual `RiskEngine`
+struct definition + helper signatures + visibility modifiers** before
+authoring your harness. Do NOT guess field names from what sounds plausible
+— the LLM that wrote previous attempts hallucinated `matured_pos_tot` when
+the real field is `pnl_matured_pos_tot`, causing every harness to fail
+`cargo kani` build. Always reference fields/methods you can SEE in this
+source, not what you remember.
+
+{ENGINE_SOURCE_FULL}
+
 ## Your task
 
 1. Parse the natural-language invariant into formal terms:
@@ -45,7 +57,10 @@ invariant into a complete, compilable Kani harness file.
 
 2. Generate a Kani harness file with:
    - `#[kani::proof]` annotation
-   - `#[kani::unwind(N)]` with N chosen for the function's loop depth
+   - `#[kani::unwind(128)]` (use 128 — high enough to unroll the engine's
+     `MAX_ACCOUNTS`-sized loops in `RiskEngine::new_with_market` and
+     `top_up_insurance_fund`). DO NOT use a smaller value; insufficient
+     unwinding leaves Kani reporting hundreds of `undetermined` checks.
    - `#[kani::solver(cadical)]` (or another if cadical is known to be slow
      for this property)
    - Symbolic state setup using `kani::any()` + `kani::assume()` to
@@ -53,6 +68,12 @@ invariant into a complete, compilable Kani harness file.
    - The function call under test
    - The assertion (formal version of the invariant)
    - Comments explaining each symbolic choice
+   - **The proof function MUST be named exactly `{HARNESS_NAME}`** — that's
+     the name `cargo kani --harness {HARNESS_NAME}` will filter on. Do NOT
+     prefix with `proof_` or anything else; the name must match verbatim.
+   - **Only call PUBLIC engine methods.** Do not invoke private helpers like
+     `assert_public_postconditions` — they're `pub(crate)` and won't compile
+     from the tests/ directory.
 
 3. The harness should be FULLY COMPILABLE — no `<placeholder>` markers,
    no TODO comments. If you don't know the exact engine API for setting

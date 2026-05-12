@@ -11,6 +11,7 @@ using the shared Jelleo design system (audit_pipeline.branding).
 from __future__ import annotations
 
 import html
+import re
 import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -321,6 +322,257 @@ def _findings_table(findings: list[dict]) -> str:
     </table>"""
 
 
+def _table_of_contents(findings: list[dict]) -> str:
+    """Print-style TOC linking every finding by anchor id.
+
+    Sort is identical to _findings_writeup so the TOC numbering matches
+    the FINDING NN/NN banners. Renders nothing if there are no findings.
+    """
+    if not findings:
+        return ""
+    sev_order = {s.value: i for i, s in enumerate(Severity)}
+    sorted_findings = sorted(
+        findings,
+        key=lambda x: sev_order.get(x.get("severity", "Info"), 99),
+    )
+    lis = []
+    for idx, f in enumerate(sorted_findings, 1):
+        try:
+            sev = Severity(f.get("severity", "Info"))
+        except ValueError:
+            sev = Severity.INFO
+        sev_cls = sev.value.lower()
+        title = (f.get("title") or f.get("hypothesis_id") or "?").strip()
+        bug_class = f.get("bug_class") or "—"
+        lis.append(
+            f'<li>'
+            f'<span class="toc-num">{idx:02d}</span>'
+            f'<span class="toc-sev"><span class="sev {sev_cls}">{sev.value}</span></span>'
+            f'<a href="#finding-{idx:02d}">{html.escape(title[:90])}</a>'
+            f'<span class="toc-class">{html.escape(bug_class)}</span>'
+            f'</li>'
+        )
+    return (
+        '<div class="toc">'
+        '<h2 style="margin-bottom:14px">01 &mdash; Per-finding analysis &middot; contents</h2>'
+        '<p style="color:var(--text-3);font-size:11px;margin:0 0 14px">'
+        'Each finding below begins on its own page. Numbering matches the '
+        '<code>FINDING NN / NN</code> banner in the body. Click any row to jump.'
+        '</p>'
+        f'<ol>{"".join(lis)}</ol>'
+        '</div>'
+    )
+
+
+def _findings_writeup(
+    findings: list[dict],
+    workspace: Path | None,
+    cycle_id: str,
+) -> str:
+    """OtterSec-style per-finding analysis. For each finding renders a
+    full section with description, impact, root cause, code excerpts from
+    the L2 PoC, L3 Kani status, L4 BPF reproduction status with witness,
+    P3 patch diff (first 40 lines), and verification gate results.
+    """
+    if not findings or not workspace:
+        return ""
+    import json as _json
+
+    cycle_dir = workspace / "hunts" / cycle_id
+    poc_dir = cycle_dir / "poc"
+    litesvm_dir = cycle_dir / "litesvm"
+    bundles_dir = workspace / "recon" / "bundles"
+
+    sev_order = {s.value: i for i, s in enumerate(Severity)}
+    sorted_findings = sorted(
+        findings,
+        key=lambda x: sev_order.get(x.get("severity", "Info"), 99),
+    )
+
+    sections = []
+    for idx, f in enumerate(sorted_findings, 1):
+        hyp_id = f.get("hypothesis_id") or "?"
+        hyp_slug = hyp_id.lower().replace("-", "_")
+        try:
+            sev = Severity(f.get("severity", "Info"))
+        except ValueError:
+            sev = Severity.INFO
+        sev_cls = sev.value.lower()
+        title = (f.get("title") or hyp_id).strip()
+        bug_class = f.get("bug_class") or "unknown"
+        finding_id = f.get("id")
+
+        # L2 PoC excerpt
+        l2_excerpt = ""
+        poc_path = poc_dir / f"test_{hyp_slug}.rs"
+        if poc_path.is_file():
+            try:
+                poc_text = poc_path.read_text(encoding="utf-8", errors="replace")
+                # Pull the fires function body — start at `#[test]\nfn ..._fires`
+                m = re.search(
+                    r"(#\[test\][^\n]*\nfn[^\n]+_fires[^\{]*\{.*?\n\})",
+                    poc_text, re.DOTALL,
+                )
+                # Cap at ~24 lines so L2 + P3 patch both fit on the
+                # second-half page without splitting. Code-tight font
+                # is 10.5px × 1.4 line-height; combined L2(24)+P3(16)
+                # lands at ~750px, well under the 870px usable budget.
+                def _cap_lines(s: str, n: int = 24) -> str:
+                    parts = s.splitlines()
+                    if len(parts) <= n:
+                        return s
+                    return "\n".join(parts[:n]) + "\n    // …truncated for brevity"
+                if m:
+                    l2_excerpt = _cap_lines(m.group(1))
+                else:
+                    l2_excerpt = _cap_lines(poc_text)
+            except OSError:
+                pass
+
+        # L3 Kani status
+        l3_status = "—"
+        kani_log = cycle_dir / "kani" / f"cargo_kani_{hyp_slug}_invariant.log"
+        if kani_log.is_file():
+            try:
+                kt = kani_log.read_text(encoding="utf-8", errors="replace")
+                if "Verification:- FAILED" in kt or "VERIFICATION:- FAILED" in kt:
+                    l3_status = "✓ Counterexample found (bug confirmed by symbolic execution)"
+                elif "Verification:- SUCCESSFUL" in kt or "VERIFICATION:- SUCCESSFUL" in kt:
+                    l3_status = "Proved safe under small-model bounds (no counterexample within those constraints)"
+                else:
+                    l3_status = "Inconclusive (timeout / out of memory)"
+            except OSError:
+                pass
+
+        # L4 LiteSVM status + witness
+        l4_status = "—"
+        l4_witness = ""
+        for litesvm_log in litesvm_dir.glob(f"cargo_litesvm_{hyp_slug}*.log"):
+            try:
+                lt = litesvm_log.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if (f"panicked at tests/litesvm_{hyp_slug[:40]}" in lt
+                    or "BUG" in lt and "CONFIRMED" in lt):
+                l4_status = "✓ Reproduced through deployed BPF instructions"
+                # Extract the BUG ... CONFIRMED line as witness
+                for line in lt.splitlines():
+                    if "BUG" in line and ("CONFIRMED" in line or "FIRES" in line or "DETECTED" in line):
+                        l4_witness = line.strip()[:500]
+                        break
+            elif "test result: ok" in lt:
+                l4_status = "Not reproduced (wrapper-side defenses caught it OR test setup didn't reach buggy state)"
+            else:
+                l4_status = "Inconclusive"
+            break
+
+        # P3 patch + verification
+        p3_patch = ""
+        p3_gates = []
+        p3_rationale = ""
+        if finding_id:
+            bundle_dir = bundles_dir / str(finding_id)
+            patch_p = bundle_dir / "patch.diff"
+            verif_p = bundle_dir / "verification.json"
+            meta_p = bundle_dir / "bundle_meta.json"
+            if patch_p.is_file():
+                try:
+                    raw = patch_p.read_text(encoding="utf-8", errors="replace")
+                    parts = raw.splitlines()
+                    if len(parts) > 16:
+                        p3_patch = "\n".join(parts[:16]) + "\n@@ …truncated for brevity @@"
+                    else:
+                        p3_patch = raw
+                except OSError:
+                    pass
+            if verif_p.is_file():
+                try:
+                    v = _json.loads(verif_p.read_text(encoding="utf-8"))
+                    for g_name, g_data in v.get("gates", {}).items():
+                        passed = g_data.get("passed")
+                        icon = "✓" if passed is True else ("✗" if passed is False else "⏭")
+                        reason = (g_data.get("reason") or "")[:200]
+                        p3_gates.append((icon, g_name, reason))
+                except Exception:
+                    pass
+            if meta_p.is_file():
+                try:
+                    m = _json.loads(meta_p.read_text(encoding="utf-8"))
+                    p3_rationale = (m.get("rationale") or "")[:400]
+                except Exception:
+                    pass
+
+        # Render — L2 + P3 are the "code spread" half (page B). L3/L4/gates
+        # are the "executive summary" half (page A) with bumped font.
+        l2_section = (
+            f'<h4 class="page-break-before">Layer 2 — Concrete proof of concept (engine-direct)</h4>'
+            f'<pre class="code-block code-tight"><code class="language-rust">{html.escape(l2_excerpt)}</code></pre>'
+        ) if l2_excerpt else (
+            '<h4 class="page-break-before">Layer 2 — Concrete proof of concept</h4>'
+            '<p style="color:var(--text-3)">No PoC source on file</p>'
+        )
+
+        l4_section = (
+            f'<h4>Layer 4 — On-chain BPF reproduction</h4>'
+            f'<p class="finding-prose">{html.escape(l4_status)}</p>'
+            + (f'<pre class="code-block witness"><code>{html.escape(l4_witness)}</code></pre>' if l4_witness else "")
+        )
+
+        gates_section = ""
+        if p3_gates:
+            rows = "".join(
+                f'<tr><td style="text-align:center;width:32px">{html.escape(icon)}</td>'
+                f'<td><code>{html.escape(name)}</code></td>'
+                f'<td style="color:var(--text-2)">{html.escape(reason)}</td></tr>'
+                for icon, name, reason in p3_gates
+            )
+            gates_section = (
+                '<h4>Verification gates &mdash; post-patch machine checks</h4>'
+                '<p style="color:var(--text-3);font-size:11.5px;margin:-4px 0 10px">'
+                'Result of running the proposed patch through Jelleo&rsquo;s 5-gate verifier '
+                '(unsigned, syntactic well-formedness, single-function scope, no new deps, '
+                'tests still compile/pass).'
+                '</p>'
+                f'<table class="gates-table">{rows}</table>'
+            )
+
+        # Patch section keeps only rationale + diff now — gates promoted out
+        p3_section = (
+            '<h4>Layer P3 — Proposed structural fix (patch diff)</h4>'
+            + (f'<p style="color:var(--text-2)">{html.escape(p3_rationale)}</p>'
+               if p3_rationale else "")
+            + (f'<pre class="code-block"><code class="language-diff">{html.escape(p3_patch)}</code></pre>' if p3_patch else
+               '<p style="color:var(--text-3)">No patch authored yet</p>')
+        )
+
+        sections.append(f"""
+        <section class="finding" id="finding-{idx:02d}">
+          <div class="finding-banner">
+            <div class="finding-banner-num">FINDING {idx:02d} <span class="muted">/ {len(sorted_findings)}</span></div>
+            <div class="finding-banner-meta">
+              <span class="sev {sev_cls}">{sev.value}</span>
+              <code class="finding-hyp">{html.escape(hyp_id)}</code>
+              <code class="finding-class">{html.escape(bug_class)}</code>
+            </div>
+          </div>
+          <h3 class="finding-title">{html.escape(title)}</h3>
+
+          <h4>Layer 3 — Symbolic verification (Kani)</h4>
+          <p class="finding-prose">{html.escape(l3_status)}</p>
+
+          {l4_section}
+
+          {gates_section}
+
+          {l2_section}
+
+          {p3_section}
+        </section>
+        """)
+
+    return "".join(sections)
+
+
 def _fix_bundle_section(
     workspace: Path,
     findings: list[dict],
@@ -395,7 +647,7 @@ def _fix_bundle_section(
 
     if public:
         return f"""
-  <h2>04 &mdash; Fix-bundle activity</h2>
+  <h2>03 &mdash; Fix-bundle activity</h2>
   <p style="color:var(--text-2)">
     Confirmed findings flow into the fix-bundle pipeline: LLM-drafted patch +
     machine verification + operator-typed authorization + upstream PR. Per-
@@ -428,7 +680,7 @@ def _fix_bundle_section(
     )
 
     return f"""
-  <h2>04 &mdash; Fix-bundle activity</h2>
+  <h2>03 &mdash; Fix-bundle activity</h2>
   <p style="color:var(--text-2)">
     Per-finding fix-bundle pipeline state. Engine drafts + verifies; operator
     authorizes via long-form typed phrase; PR opens only against valid
@@ -522,7 +774,7 @@ def _propagation_section(
         # Public mode: counters only — naming a finding's propagation
         # activity reveals it's confirmed even if it's not disclosed yet.
         return f"""
-  <h2>03 &mdash; Propagation activity</h2>
+  <h2>02 &mdash; Propagation activity</h2>
   <p style="color:var(--text-2)">
     Confirmed findings auto-fire two follow-on stages: structural sibling
     derivation (LLM-emitted hypotheses about adjacent invariants) and a
@@ -566,7 +818,7 @@ def _propagation_section(
     )
 
     return f"""
-  <h2>03 &mdash; Propagation activity</h2>
+  <h2>02 &mdash; Propagation activity</h2>
   <p style="color:var(--text-2)">
     Per-finding propagation footprint for this cycle. Each confirmed finding
     auto-fires sibling derivation + cross-protocol corpus sweep + chain page.
@@ -644,6 +896,16 @@ def _render_cycle_html(
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script>
+  window.addEventListener('DOMContentLoaded', function () {{
+    if (window.Prism && Prism.plugins && Prism.plugins.autoloader) {{
+      Prism.plugins.autoloader.languages_path =
+        'https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/';
+    }}
+  }});
+</script>
 <style>{CSS}
 /* jelleo.com nav parity — print stylesheet hides this so PDF output stays clean */
 .jelleo-topnav {{
@@ -667,6 +929,183 @@ def _render_cycle_html(
 .jelleo-topnav .links a:hover {{ color: #f5f3ed; }}
 @media (max-width: 640px) {{ .jelleo-topnav .links {{ display: none; }} }}
 @media print {{ .jelleo-topnav {{ display: none !important; }} }}
+
+/* ============================== FINDING SECTIONS ============================== */
+section.finding {{
+  margin: 56px 0 0;
+  padding: 0 0 36px;
+  border-bottom: 1px solid var(--rule);
+}}
+.finding-banner {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  background: linear-gradient(90deg, rgba(245,184,0,0.10), rgba(245,184,0,0.02) 50%, transparent);
+  border-left: 4px solid var(--amber);
+  padding: 16px 22px;
+  margin: 0 0 18px -4px;
+  border-radius: 0 6px 6px 0;
+}}
+.finding-banner-num {{
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.18em;
+  color: var(--amber);
+  text-shadow: 0 0 12px rgba(245,184,0,0.35);
+}}
+.finding-banner-num .muted {{ color: rgba(245,184,0,0.45); font-weight: 500; font-size: 18px; }}
+.finding-banner-meta {{ display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }}
+.finding-hyp {{ color: var(--amber) !important; border-color: rgba(245,184,0,0.3) !important; font-weight: 600; }}
+.finding-class {{ color: var(--ink-3) !important; font-size: 11px !important; }}
+.finding-title {{
+  font-size: 19px;
+  line-height: 1.4;
+  margin: 12px 0 24px;
+  color: var(--ink);
+  font-weight: 600;
+}}
+section.finding h4 {{
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin: 18px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--rule);
+}}
+/* "Page A" prose under L3 / L4: bump readability so this half of the
+   finding looks complete and intentional, not an afterthought. */
+section.finding p.finding-prose {{
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 6px 0 4px;
+  color: var(--ink);
+}}
+/* Hard page break — Layer 2 PoC always begins page B */
+section.finding h4.page-break-before {{
+  page-break-before: always;
+  break-before: page;
+}}
+/* Code blocks: keep the second-half pages dense */
+pre.code-block.code-tight {{
+  font-size: 10.5px;
+  line-height: 1.45;
+  padding: 10px 14px;
+}}
+
+/* Code blocks: prevent splitting across pages, give a card feel */
+pre.code-block {{
+  background: #0d0c0a;
+  border: 1px solid rgba(245,184,0,0.18);
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin: 12px 0 18px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}}
+pre.code-block.witness {{
+  background: rgba(74,222,128,0.06);
+  border-color: rgba(74,222,128,0.32);
+  color: #a5e8b8;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: hidden;
+}}
+
+/* Diff syntax (line-prefix coloring) */
+pre code.language-diff {{ color: var(--ink-2); }}
+pre code.language-diff .token.inserted, pre code.language-diff .inserted {{ color: #4ade80; background: rgba(74,222,128,0.09); }}
+pre code.language-diff .token.deleted, pre code.language-diff .deleted {{ color: #ef4444; background: rgba(239,68,68,0.09); }}
+
+/* Rust syntax tokens — Prism.js will inject these classes */
+pre code.language-rust .token.keyword {{ color: #f5b800; font-weight: 600; }}
+pre code.language-rust .token.string  {{ color: #4ade80; }}
+pre code.language-rust .token.comment {{ color: rgba(245,243,237,0.42); font-style: italic; }}
+pre code.language-rust .token.function {{ color: #ffce4a; }}
+pre code.language-rust .token.number {{ color: #60a5fa; }}
+pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ color: #c084fc; }}
+
+/* ============================== TABLE OF CONTENTS ============================== */
+.toc {{
+  margin: 32px 0 48px;
+  padding: 24px 28px;
+  background: rgba(245,184,0,0.04);
+  border: 1px solid rgba(245,184,0,0.18);
+  border-radius: 8px;
+}}
+@media print {{ .toc {{ page-break-before: always; break-before: page; }} }}
+/* Verification gates: dense, top-of-page friendly */
+.gates-table {{ font-size: 11.5px; }}
+.gates-table td {{ padding: 5px 10px; vertical-align: top; }}
+.toc h2 {{ margin-top: 0 !important; border-bottom: none !important; padding-bottom: 0 !important; }}
+.toc ol {{ counter-reset: toc; padding-left: 0; list-style: none; column-count: 1; margin: 0; }}
+.toc li {{
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px dotted rgba(245,243,237,0.10);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  line-height: 1.4;
+}}
+.toc li .toc-num {{ color: var(--amber); font-weight: 600; min-width: 28px; }}
+.toc li .toc-sev {{ min-width: 64px; }}
+.toc li .toc-sev .sev {{ font-size: 9px !important; padding: 1px 6px !important; }}
+.toc li a {{ color: var(--ink); border: none; flex: 1; }}
+.toc li .toc-class {{ color: var(--ink-3); font-size: 9.5px; max-width: 200px; text-align: right; }}
+
+/* ============================== PRINT / PAGE LAYOUT ============================== */
+@page {{
+  size: Letter;
+  margin: 0.6in 0.55in;
+  @bottom-center {{
+    content: "Page " counter(page) " of " counter(pages);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(245,243,237,0.42);
+  }}
+  @bottom-right {{
+    content: "JELLEO · cycle {cycle_id}";
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(245,184,0,0.55);
+  }}
+}}
+@media print {{
+  /* Each finding starts on a fresh page — but only between siblings so the
+     first finding doesn't collide with the TOC's natural page break and
+     produce an empty page in between. */
+  section.finding + section.finding {{ page-break-before: always; break-before: page; }}
+  /* The FIRST finding still wants a fresh page (after TOC card) */
+  .toc + section.finding,
+  .toc ~ section.finding:first-of-type {{
+    page-break-before: always; break-before: page;
+  }}
+  /* Banners and TOC rows must never split. Code blocks may split if they
+     exceed a single page — page-break-inside:avoid on a 60-line diff would
+     push it forward and leave the prior page mostly empty. */
+  .finding-banner, .toc li, .gates-table tr {{
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }}
+  pre.code-block.witness {{ page-break-inside: avoid; break-inside: avoid; }}
+  /* page-break-inside: auto so a too-tall block can still split rather
+     than be pushed to its own page (which produces a 3rd orphan finding
+     page). With caps at 24/16 the combined L2+P3 block normally fits. */
+  pre.code-block {{ page-break-inside: auto; break-inside: auto; }}
+  h2, h3, h4 {{ page-break-after: avoid; break-after: avoid-page; }}
+  /* Cover always its own page */
+  .cover-page {{ page-break-after: always; break-after: page; }}
+}}
 </style>
 </head><body>
 
@@ -687,31 +1126,9 @@ def _render_cycle_html(
 
 <div class="shell">
 
-  <h1>{target_name} · hunt cycle</h1>
-  <p class="subhead">
-    <code>{cycle_id}</code> &middot;
-    started {started} &middot;
-    engine <code>{engine_sha}</code> &middot;
-    wrapper <code>{wrapper_sha}</code>
-    {("&middot; merkle <code>" + html.escape(cycle_merkle_root_hex[:16]) + "&hellip;</code>") if cycle_merkle_root_hex else ""}
-  </p>
+  {_table_of_contents(findings)}
 
-  <h2>01 &mdash; Cycle summary</h2>
-
-  <div class="kpi-grid">
-    <div class="kpi {'danger' if counts['Critical'] else 'ok'}">
-      <div class="label">Critical</div><div class="value">{counts['Critical']}</div></div>
-    <div class="kpi {'warn' if counts['High'] else 'ok'}">
-      <div class="label">High</div><div class="value">{counts['High']}</div></div>
-    <div class="kpi"><div class="label">Medium</div><div class="value">{counts['Medium']}</div></div>
-    <div class="kpi"><div class="label">Confirmed</div><div class="value">{n_confirmed}</div></div>
-    <div class="kpi"><div class="label">Total verdicts</div><div class="value">{len(findings)}</div></div>
-  </div>
-
-  {_sev_bar(counts)}
-
-  <h2>02 &mdash; Findings</h2>
-  {_findings_table(findings)}
+  {_findings_writeup(findings, workspace, cycle_id) if workspace else ""}
 
   {_propagation_section(workspace, findings, public) if workspace else ""}
   {_fix_bundle_section(workspace, findings, public) if workspace else ""}
@@ -818,6 +1235,16 @@ def _render_weekly_html(
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script>
+  window.addEventListener('DOMContentLoaded', function () {{
+    if (window.Prism && Prism.plugins && Prism.plugins.autoloader) {{
+      Prism.plugins.autoloader.languages_path =
+        'https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/';
+    }}
+  }});
+</script>
 <style>{CSS}</style>
 </head><body>
 

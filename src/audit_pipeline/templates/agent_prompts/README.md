@@ -29,6 +29,9 @@ For each new audit:
 | [`10_litesvm_bound_analysis_design.md`](./10_litesvm_bound_analysis_design.md) | Designing a numeric bound analysis for a Kani-CEX |
 | [`11_disclosure_documentation.md`](./11_disclosure_documentation.md) | Drafting the per-bug write-up for the disclosure |
 | [`12_self_audit_critic.md`](./12_self_audit_critic.md) | Reviewing your own audit for errors before publication |
+| [`13_adversarial_debate.md`](./13_adversarial_debate.md) | Running a second-opinion challenger against a contested verdict (Layer 1.5) |
+| [`14_spec_code_gap_analysis.md`](./14_spec_code_gap_analysis.md) | Layer-0 spec ↔ code drift analysis — flagging where docs and implementation diverge |
+| [`15_kani_harness_from_invariant.md`](./15_kani_harness_from_invariant.md) | Synthesizing a Kani harness directly from a stated invariant (closes the loop with `synth-kani --auto`) |
 
 ## Orchestration patterns
 

@@ -229,27 +229,58 @@ def _gate_poc_fails_pre_patch(
 
 
 def _apply_patch(engine_repo: Path, patch_text: str) -> tuple[bool, str]:
-    """Apply a unified diff via `git apply`. Returns (ok, stderr)."""
+    """Apply a unified diff via `git apply`. Returns (ok, stderr).
+
+    Uses `--recount` so LLM-authored hunk headers with wrong line numbers
+    can still apply when the surrounding context (the lines before/after
+    each `@@` block) matches uniquely. Falls back to plain `git apply` if
+    --recount also fails.
+
+    Resets the target file to HEAD before applying so previous gate runs
+    that left the working tree dirty (or that didn't reverse cleanly)
+    don't poison subsequent attempts. The `_unapply_patch` finally clause
+    can leave the tree in inconsistent state when --recount has rewritten
+    the hunk to apply but the original patch can't be reversed by `-R`.
+    """
     if not (engine_repo / ".git").is_dir():
         return (False, f"{engine_repo} is not a git repo (need .git/)")
+    # Reset target file to HEAD so prior dirty state can't poison this apply.
     try:
-        proc = subprocess.run(
-            ["git", "apply", "--check", "-"],
-            cwd=str(engine_repo),
-            input=patch_text, capture_output=True, text=True, timeout=60,
+        subprocess.run(
+            ["git", "checkout", "--", "src/percolator.rs"],
+            cwd=str(engine_repo), capture_output=True, text=True, timeout=10,
         )
-        if proc.returncode != 0:
-            return (False, f"git apply --check failed: {proc.stderr.strip()}")
-        proc = subprocess.run(
-            ["git", "apply", "-"],
-            cwd=str(engine_repo),
-            input=patch_text, capture_output=True, text=True, timeout=60,
-        )
-        if proc.returncode != 0:
-            return (False, f"git apply failed: {proc.stderr.strip()}")
-    except subprocess.TimeoutExpired:
-        return (False, "git apply timed out")
-    return (True, "")
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    # Pass 1: --recount + --whitespace=fix lets git derive correct line
+    # numbers from context. Tolerates LLM hallucinated line numbers.
+    for flags in (
+        ["--check", "--recount", "--whitespace=fix"],
+        ["--check"],
+    ):
+        try:
+            proc = subprocess.run(
+                ["git", "apply", *flags, "-"],
+                cwd=str(engine_repo),
+                input=patch_text, capture_output=True, text=True, timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            return (False, "git apply --check timed out")
+        if proc.returncode == 0:
+            apply_flags = [f for f in flags if f != "--check"]
+            try:
+                proc = subprocess.run(
+                    ["git", "apply", *apply_flags, "-"],
+                    cwd=str(engine_repo),
+                    input=patch_text, capture_output=True, text=True,
+                    timeout=60,
+                )
+            except subprocess.TimeoutExpired:
+                return (False, "git apply timed out")
+            if proc.returncode == 0:
+                return (True, "")
+    return (False,
+            f"git apply --check failed (tried --recount): {proc.stderr.strip()}")
 
 
 def _unapply_patch(engine_repo: Path, patch_text: str) -> bool:

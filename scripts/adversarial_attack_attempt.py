@@ -29,7 +29,6 @@ sys.path.insert(0, "/root/audit-pipeline-cli/src")
 from audit_pipeline.utils.github_snapshot import GitHubSnapshot
 from audit_pipeline.utils.llm_tools import run_tool_using_agent
 
-
 SYSTEM_PROMPT = """\
 You are a Solana DeFi security researcher attempting to win an active
 bug bounty against the Percolator perpetuals engine. The bounty target is

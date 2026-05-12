@@ -347,6 +347,12 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
         "cycles_total":    stats.get("n_cycles", 0),
         "receipts_signed": _count_signed_receipts(),
         "loop_uptime_human": _loop_uptime_human(),
+        "loop_uptime_source": "jelleo-shadow.service",
+        # Real LLM spend pulled from llm.py's per-call event log.
+        # Replaces the previous flat-rate $0.05/call estimate that
+        # under-counted by ~9× (full target_file grounding pushed actual
+        # cost to ~$0.45/call at Sonnet 4.6 prices).
+        "spend": _spend_summary(),
         # G27: P2 propagation surface — what's been tagged, derived, swept,
         # queued. None of these expose customer-private data; everything
         # is cumulative-platform stats. Drives the /status/ counter row.
@@ -578,16 +584,35 @@ def _probe_services() -> list[dict]:
             state = "unknown"
 
         last_tick_ms = None
+        # For .timer units, prefer LastTriggerUSec (when the timer last fired)
+        # over ActiveEnterTimestamp (when the timer was activated, which for
+        # long-running units is just the boot/restart time and reads as stale).
+        prop = "LastTriggerUSec" if unit.endswith(".timer") else "ActiveEnterTimestamp"
         try:
             r = subprocess.run(
-                ["systemctl", "show", unit, "--property=ActiveEnterTimestamp", "--value"],
+                ["systemctl", "show", unit, f"--property={prop}", "--value"],
                 capture_output=True, text=True, timeout=5,
             )
             ts = (r.stdout or "").strip()
             if ts and ts != "0":
-                last_tick_ms = int(datetime.strptime(ts, "%a %Y-%m-%d %H:%M:%S %Z").replace(tzinfo=_tz.utc).timestamp() * 1000)
+                # systemctl prints both formats with weekday prefix
+                last_tick_ms = int(
+                    datetime.strptime(ts, "%a %Y-%m-%d %H:%M:%S %Z")
+                    .replace(tzinfo=_tz.utc)
+                    .timestamp() * 1000
+                )
         except Exception:
             pass
+
+        # If the systemctl says active but we can see the unit hasn't ticked
+        # recently (timer never fired in the last day), surface that as
+        # "stale" instead of false-positive "up". Threshold = 25h to allow
+        # daily timers to count as fresh.
+        STALE_MS = 25 * 60 * 60 * 1000
+        if state == "up" and last_tick_ms is not None:
+            now_ms = int(datetime.now(_tz.utc).timestamp() * 1000)
+            if (now_ms - last_tick_ms) > STALE_MS:
+                state = "stale"
 
         out.append({"key": key, "unit": unit, "state": state, "last_tick_ms": last_tick_ms})
     return out
@@ -812,6 +837,8 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         "cycles_total":    len(recent_cycles),
         "receipts_signed": _count_signed_receipts(),
         "loop_uptime_human": _loop_uptime_human(),
+        "loop_uptime_source": "jelleo-shadow.service",
+        "spend": _spend_summary(),
         # G28: customer-scoped propagation activity
         "propagation_stats": customer_propagation,
     }
@@ -1047,33 +1074,57 @@ def _in_progress_cycle_progress(
         label = "Layer 3 Kani"
     elif n_poc_logs > 0 or n_poc_tests > 0:
         phase = "poc"
-        # PoC target = debate-promoted set, deduplicated by hypothesis_id.
-        # The log contains one debate_one event per debate iteration; if the
-        # hunt was killed and resumed N times, the same hyp produces N
-        # promoted events, inflating the denominator (e.g. 530 events for
-        # 98 unique hyps after 3 restarts on the 2026-05-11 cycle).
-        # We want UNIQUE hyps so the dashboard shows real progress.
-        promoted_ids: set[str] = set()
+        # PoC progress is reported strictly against the L2 queue from recon
+        # (TRUE + NEEDS_LAYER_2 verdicts). Hyps tested via yaml-direct paths
+        # outside the recon-promoted set don't count toward "L2 queue
+        # progress" — otherwise the denominator drifts and we get >100%.
+        #   numerator = unique tested hyps INTERSECT recon L2 queue
+        #   denominator = recon L2 queue size (n_contested)
+        l2_queue_ids: set[str] = set()
+        if recon_summary.is_file():
+            try:
+                rs = json.loads(recon_summary.read_text(encoding="utf-8"))
+                for v in rs.get("verdicts", []):
+                    vd = (v.get("verdict") or "").upper()
+                    if vd in ("TRUE", "NEEDS_LAYER_2_TO_DECIDE"):
+                        hid = v.get("hypothesis_id")
+                        if hid:
+                            l2_queue_ids.add(hid)
+            except (OSError, json.JSONDecodeError):
+                pass
+        tested_ids: set[str] = set()
         log_path = cycle_dir / "hunt.log.jsonl"
         if log_path.is_file():
             try:
                 with log_path.open("r", encoding="utf-8") as fh:
                     for line in fh:
-                        line = line.strip()
-                        if '"event": "debate_one"' not in line:
+                        if '"event":' not in line:
                             continue
                         try:
                             ev = json.loads(line)
                         except json.JSONDecodeError:
                             continue
-                        if ev.get("promoted") is True and ev.get("hypothesis_id"):
-                            promoted_ids.add(ev["hypothesis_id"])
+                        if ev.get("event") == "poc_test_run":
+                            hid = ev.get("hypothesis_id")
+                            if hid:
+                                tested_ids.add(hid)
             except OSError:
                 pass
-        n_promoted = len(promoted_ids)
-        n_done = n_poc_logs
-        n_total = n_promoted if n_promoted > 0 else max(n_contested, n_poc_logs, 1)
-        label = "Layer 2 PoC"
+        if l2_queue_ids:
+            n_done = len(tested_ids & l2_queue_ids)
+            n_total = len(l2_queue_ids)
+        else:
+            # Fallback if recon_summary unreadable
+            n_done = len(tested_ids) if tested_ids else n_poc_logs
+            n_total = max(n_contested, n_done, 1)
+        # When Layer 2 has fully covered the queue but Layer 3 hasn't started,
+        # advance the label so the dashboard doesn't look stuck. The phase
+        # itself stays "poc" (filesystem-driven) so downstream filters keep
+        # working, but the label hints "ready for next layer".
+        if n_total > 0 and n_done >= n_total:
+            label = "Layer 2 PoC complete · ready for Layer 3"
+        else:
+            label = "Layer 2 PoC"
     elif n_debate_done > 0 or n_contested > 0:
         phase = "debate"
         n_done = n_debate_done
@@ -1152,6 +1203,70 @@ def _read_receipt_fingerprint(cycle_id: str | None) -> str | None:
         return ":".join(f"{b:02x}" for b in sig_bytes[:8]) + "…"
     except Exception:
         return None
+
+
+def _spend_summary() -> dict:
+    """Read /root/.audit_api_calls.jsonl (written by llm.py per-call) and
+    compute real spend totals. The schema for each line is:
+      {"ts": ISO8601, "model": str, "input_tokens": int, "output_tokens": int,
+       "cost_usd": float, "stop_reason": str, "caller": str}
+    Returns: {today_usd, total_usd, last_24h_usd, last_call_at, n_calls_total,
+              source}. Returns zeros if log absent.
+    """
+    import os as _os
+    from datetime import datetime, timedelta
+    from datetime import timezone as _tz
+
+    log_path = Path(_os.environ.get("JELLEO_SPEND_LOG", "/root/.audit_api_calls.jsonl"))
+    out = {
+        "today_usd": 0.0,
+        "total_usd": 0.0,
+        "last_24h_usd": 0.0,
+        "last_call_at": None,
+        "n_calls_total": 0,
+        "source": str(log_path) if log_path.is_file() else "missing",
+    }
+    if not log_path.is_file():
+        return out
+
+    today_str = datetime.now(_tz.utc).strftime("%Y-%m-%d")
+    cutoff_24h = datetime.now(_tz.utc) - timedelta(hours=24)
+    last_ts = None
+    try:
+        with log_path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                cost = float(ev.get("cost_usd") or 0)
+                ts_str = ev.get("ts") or ""
+                out["total_usd"] += cost
+                out["n_calls_total"] += 1
+                if ts_str.startswith(today_str):
+                    out["today_usd"] += cost
+                try:
+                    ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    if ts_dt.tzinfo is None:
+                        ts_dt = ts_dt.replace(tzinfo=_tz.utc)
+                    if ts_dt >= cutoff_24h:
+                        out["last_24h_usd"] += cost
+                    if last_ts is None or ts_dt > last_ts:
+                        last_ts = ts_dt
+                except (ValueError, TypeError):
+                    pass
+    except OSError:
+        return out
+
+    out["today_usd"] = round(out["today_usd"], 2)
+    out["total_usd"] = round(out["total_usd"], 2)
+    out["last_24h_usd"] = round(out["last_24h_usd"], 2)
+    if last_ts is not None:
+        out["last_call_at"] = last_ts.isoformat(timespec="seconds")
+    return out
 
 
 def _loop_uptime_human() -> str:

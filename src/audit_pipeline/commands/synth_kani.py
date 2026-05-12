@@ -31,6 +31,7 @@ from audit_pipeline.utils import (
 from audit_pipeline.utils.rust_compile import (
     cargo_check_tests,
     cargo_kani,
+    cargo_kani_codegen_check,
     extract_rust_code_block,
 )
 
@@ -152,10 +153,22 @@ def synth_kani_cmd(
                 engine_source = str(candidate)
 
     function_signature = "(see engine source for signature)"
+    engine_source_full = ""
     if engine_source and Path(engine_source).exists():
+        engine_source_text = Path(engine_source).read_text(encoding="utf-8", errors="replace")
         function_signature = _extract_function_signature(
-            Path(engine_source).read_text(encoding="utf-8", errors="replace"),
+            engine_source_text,
             engine_function,
+        )
+        # Include the FULL engine source so the LLM can read actual struct
+        # field names + helper signatures, not invent them from the function
+        # signature alone. Same fix pattern as Layer 2 poc_llm.py — without
+        # this the LLM hallucinates fields like `matured_pos_tot` when the
+        # real one is `pnl_matured_pos_tot`, then cargo kani fails to build.
+        engine_source_full = (
+            f"### FULL ENGINE FILE `{Path(engine_source).name}` "
+            f"(authoritative struct + helper definitions)\n"
+            f"```rust\n{engine_source_text}\n```"
         )
 
     # Reasonable defaults for the constants block — user can edit later
@@ -195,6 +208,8 @@ def synth_kani_cmd(
         FUNCTION_SIGNATURE=function_signature,
         ENGINE_CONSTANTS=engine_constants,
         KANI_TEMPLATE=kani_template_content,
+        ENGINE_SOURCE_FULL=engine_source_full,
+        HARNESS_NAME=harness_name,
     )
 
     out_path = output / f"{harness_name}_prompt.md"
@@ -299,7 +314,14 @@ def synth_kani_cmd(
     last_check: object = None
     while iteration <= max_iterations:
         console.print(f"  Compiling [cyan]{harness_path.name}[/cyan]...")
-        check = cargo_check_tests(engine_dir)
+        # Use cargo kani --only-codegen instead of cargo check. Kani harnesses
+        # are gated by `#![cfg(kani)]` so cargo check skips them silently and
+        # always reports OK — the LLM never sees its compile errors. Earlier
+        # attempts to add `--cfg kani` to cargo check failed because the
+        # `kani` crate (which provides kani::any/assume) is only injected by
+        # cargo kani's own rustc wrapper. --only-codegen does the full
+        # kani-aware compile but stops before symbolic execution.
+        check = cargo_kani_codegen_check(engine_dir, harness_name)
         last_check = check
         transcript.append(f"### cargo check (round {iteration})\n")
         transcript.append(f"- ok: {check.ok}")
@@ -400,12 +422,17 @@ def _build_fix_prompt(
 ) -> str:
     """Build a follow-up prompt that asks the LLM to fix compile errors."""
     err_section = "\n\n---\n\n".join(errors[:6])  # cap at 6 errors to fit context
+    # Include the FULL original prompt (which now contains the full engine
+    # source after the 2026-05-12 fix). Without this, the LLM fix attempt
+    # is blind to actual struct field names and re-invents wrong ones —
+    # exactly the bug that made all 4 retry rounds fail. Sonnet 4.6 has a
+    # 200K context window so the full ~150K-token engine source still fits.
     return f"""You previously generated this Kani harness in response to the
 original synthesis request. The harness did NOT compile. Fix it.
 
-# Original synthesis request (for context)
+# Original synthesis request (for context — INCLUDES THE FULL ENGINE SOURCE)
 
-{original_prompt[:4000]}{"... [truncated]" if len(original_prompt) > 4000 else ""}
+{original_prompt}
 
 # Your previous harness (FAILING)
 

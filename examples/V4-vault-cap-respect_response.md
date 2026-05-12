@@ -2,7 +2,7 @@
 
 ### What I found — complete inventory of `self.vault` mutations
 
-There are exactly **6 assignment sites** to `self.vault` in the engine (confirmed by grep):
+There are exactly **8 assignment sites** to `self.vault` in the engine (confirmed by grep):
 
 | Line | Direction | Guard |
 |------|-----------|-------|

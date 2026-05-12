@@ -40,6 +40,10 @@ def cargo_check_tests(
     Returns CompileResult with ok=True iff exit code 0. errors[] lists
     parsed `error[E####]` blocks (best-effort), useful for feeding back
     to an LLM iteration.
+
+    NOTE: For Kani harnesses gated by `#![cfg(kani)]`, this is BLIND —
+    cargo check doesn't activate `--cfg kani` so those files are skipped.
+    Use `cargo_kani_codegen_check` for kani-aware compile validation.
     """
     try:
         proc = subprocess.run(
@@ -68,6 +72,60 @@ def cargo_check_tests(
     )
 
 
+def cargo_kani_codegen_check(
+    engine_dir: Path,
+    harness_name: str,
+    features: str = "test",
+    timeout: int = 600,
+) -> CompileResult:
+    """Run `cargo kani --only-codegen --tests --features <features> --harness <name>`.
+
+    This is the kani-aware analog of cargo check. It activates `--cfg kani`
+    AND injects the `kani` crate (which provides `kani::any()`,
+    `kani::assume()`, etc.) so the harness compiles in the same context
+    `cargo kani` would later use for verification — but stops BEFORE the
+    symbolic execution step (which can take 5-30 min).
+
+    Use this in an LLM-driven iteration loop to give the model real,
+    kani-specific compile errors instead of misleading "ok" from plain
+    cargo check (which silently skips `#![cfg(kani)]` files).
+
+    Returns CompileResult — ok=True only if codegen succeeds.
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "cargo", "kani",
+                "--only-codegen",
+                "--tests",
+                "--features", features,
+                "--harness", harness_name,
+                "--default-unwind", "128",
+            ],
+            cwd=str(engine_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        return CompileResult(
+            ok=False,
+            raw_output=f"cargo kani --only-codegen invocation failed: {e}",
+            errors=[str(e)],
+        )
+
+    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    errors = _extract_compile_errors(combined)
+    warnings_count = len(re.findall(r"^warning:", combined, flags=re.MULTILINE))
+
+    return CompileResult(
+        ok=proc.returncode == 0,
+        raw_output=combined,
+        errors=errors,
+        warnings_count=warnings_count,
+    )
+
+
 def cargo_kani(
     engine_dir: Path,
     harness_name: str,
@@ -77,6 +135,9 @@ def cargo_kani(
     """Run `cargo kani --tests --features <features> --harness <name>`.
 
     Returns KaniResult with verdict parsed from the kani output banner.
+    Passes --default-unwind 128 so the engine's MAX_ACCOUNTS-sized init
+    loops fully unroll; without this Kani returns "undetermined" for
+    hundreds of checks.
     """
     try:
         proc = subprocess.run(
@@ -84,6 +145,7 @@ def cargo_kani(
                 "cargo", "kani",
                 "--tests", "--features", features,
                 "--harness", harness_name,
+                "--default-unwind", "128",
             ],
             cwd=str(engine_dir),
             capture_output=True,

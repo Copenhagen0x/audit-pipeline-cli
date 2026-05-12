@@ -364,8 +364,8 @@ td strong { color: var(--ink); }
 .cover-logo {
   display: inline-flex; align-items: center;
   position: relative;
-  height: 64px;
-  padding: 0 32px;
+  height: 48px;
+  padding: 0 24px;
   align-self: start;
   justify-self: start;
 }
@@ -380,7 +380,7 @@ td strong { color: var(--ink); }
 .cover-logo::after  { bottom: 0; left: 0; border-right: none; border-top: none; }
 
 .cover-wordmark {
-  font-size: 38px; font-weight: 800; letter-spacing: .03em; color: var(--ink);
+  font-size: 28px; font-weight: 800; letter-spacing: .03em; color: var(--ink);
   line-height: 1;
 }
 .cover-tagline {
@@ -401,9 +401,9 @@ td strong { color: var(--ink); }
 }
 
 .cover-eyebrow {
-  font-family: var(--mono); font-size: 14px;
+  font-family: var(--mono); font-size: 12px;
   letter-spacing: .28em; text-transform: uppercase; color: var(--amber);
-  margin-bottom: 28px; display: flex; align-items: center; gap: 16px;
+  margin-bottom: 14px; display: flex; align-items: center; gap: 14px;
   font-weight: 500;
 }
 .cover-eyebrow::before {
@@ -412,8 +412,8 @@ td strong { color: var(--ink); }
 }
 
 .cover-title {
-  font-size: clamp(56px, 6.4vw, 88px); font-weight: 700; letter-spacing: -0.025em;
-  line-height: 1.04; color: var(--ink); margin-bottom: 44px; max-width: 16ch;
+  font-size: clamp(36px, 4.4vw, 54px); font-weight: 700; letter-spacing: -0.025em;
+  line-height: 1.04; color: var(--ink); margin-bottom: 22px; max-width: 22ch;
 }
 .cover-title .accent {
   background: linear-gradient(135deg, var(--amber), var(--amber-2));
@@ -422,18 +422,18 @@ td strong { color: var(--ink); }
 }
 
 .cover-meta-grid {
-  display: grid; grid-template-columns: 180px 1fr; gap: 14px 36px;
-  font-size: 17px; line-height: 1.5;
-  margin-bottom: 44px;
+  display: grid; grid-template-columns: 150px 1fr; gap: 6px 28px;
+  font-size: 13px; line-height: 1.4;
+  margin-bottom: 22px;
 }
 .cover-meta-grid .label {
-  font-family: var(--mono); font-size: 13px; letter-spacing: .18em;
-  text-transform: uppercase; color: var(--ink-3); padding-top: 4px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--ink-3); padding-top: 2px;
   font-weight: 500;
 }
-.cover-meta-grid .value { color: var(--ink); font-weight: 500; font-size: 17px; }
+.cover-meta-grid .value { color: var(--ink); font-weight: 500; font-size: 13px; }
 .cover-meta-grid .value code {
-  font-size: 15px; padding: 3px 10px; color: var(--amber);
+  font-size: 12px; padding: 2px 8px; color: var(--amber);
   border-color: rgba(245,184,0,0.2);
 }
 
@@ -443,18 +443,18 @@ td strong { color: var(--ink); }
   background: var(--surface); overflow: hidden;
 }
 .cover-summary-cell {
-  padding: 24px 18px; text-align: center;
+  padding: 14px 12px; text-align: center;
   border-right: 1px solid var(--rule);
 }
 .cover-summary-cell:last-child { border-right: none; }
 .cover-summary-cell .num {
-  font-size: 40px; font-weight: 700; line-height: 1;
+  font-size: 28px; font-weight: 700; line-height: 1;
   font-variant-numeric: tabular-nums; color: var(--ink);
   letter-spacing: -0.02em;
 }
 .cover-summary-cell .label {
-  display: block; margin-top: 12px;
-  font-size: 12px; letter-spacing: .2em; text-transform: uppercase;
+  display: block; margin-top: 8px;
+  font-size: 10.5px; letter-spacing: .2em; text-transform: uppercase;
   color: var(--ink-3); font-family: var(--mono); font-weight: 500;
 }
 .cover-summary-cell.crit .num { color: var(--critical); }
@@ -466,8 +466,8 @@ td strong { color: var(--ink); }
    to explain that the headline counts are CONFIRMED findings only, with
    the rest of the lifecycle pipeline visible underneath. */
 .cover-summary-caption {
-  margin-top: 14px; margin-bottom: 0;
-  font-family: var(--mono); font-size: 11px;
+  margin-top: 10px; margin-bottom: 0;
+  font-family: var(--mono); font-size: 10px;
   letter-spacing: .18em; text-transform: uppercase;
   color: var(--ink-3); text-align: center;
 }
@@ -500,32 +500,34 @@ td strong { color: var(--ink); }
 
 /* Footer: receipt + meta side-by-side */
 .cover-bottom {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 36px;
-  border-top: 1px solid var(--rule); padding-top: 32px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
+  border-top: 1px solid var(--rule); padding-top: 18px;
+  margin-top: 22px;
   align-self: end;
+  font-size: 11px;
 }
 .cover-receipt {
   background: var(--surface); border: 1px solid var(--rule);
   border-left: 3px solid var(--amber); border-radius: 0 6px 6px 0;
-  padding: 20px 24px;
+  padding: 12px 16px;
 }
 .cover-receipt .header {
-  font-size: 12px; letter-spacing: .24em; text-transform: uppercase;
-  color: var(--amber); margin-bottom: 14px; font-family: var(--mono);
+  font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 8px; font-family: var(--mono);
   font-weight: 500;
 }
 .cover-receipt .pubkey {
-  font-size: 13px; color: var(--ink-2); font-family: var(--mono);
-  word-break: break-all; line-height: 1.55;
+  font-size: 10.5px; color: var(--ink-2); font-family: var(--mono);
+  word-break: break-all; line-height: 1.45;
 }
 .cover-receipt .verify {
-  margin-top: 16px; padding-top: 14px;
+  margin-top: 10px; padding-top: 8px;
   border-top: 1px dashed var(--rule);
-  font-size: 12px; color: var(--ink-3); font-family: var(--mono);
-  line-height: 1.7;
+  font-size: 10px; color: var(--ink-3); font-family: var(--mono);
+  line-height: 1.5;
 }
 .cover-receipt .verify code {
-  font-size: 11.5px; padding: 2px 6px; color: var(--ink-2);
+  font-size: 9.5px; padding: 1px 4px; color: var(--ink-2);
   border-color: var(--rule);
 }
 
@@ -535,31 +537,31 @@ td strong { color: var(--ink); }
   border: 1px solid var(--rule);
   border-left: 3px solid var(--amber);
   border-radius: 0 6px 6px 0;
-  padding: 20px 24px;
+  padding: 12px 16px;
 }
 .cover-info .header {
-  font-size: 12px; letter-spacing: .24em; text-transform: uppercase;
-  color: var(--amber); margin-bottom: 14px; font-family: var(--mono);
+  font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 8px; font-family: var(--mono);
   font-weight: 500;
 }
 .cover-info .body {
-  font-size: 13px; line-height: 1.85; color: var(--ink-2);
+  font-size: 10.5px; line-height: 1.55; color: var(--ink-2);
   font-family: var(--mono);
 }
 .cover-info .body strong { color: var(--ink); font-weight: 700; }
 .cover-info .body a { color: var(--amber); }
 .cover-info .body .row {
   display: flex; gap: 8px; align-items: baseline;
-  padding-top: 4px;
+  padding-top: 2px;
 }
 .cover-info .body .row .key {
-  color: var(--ink-3); min-width: 100px;
-  font-size: 11.5px; letter-spacing: .04em;
+  color: var(--ink-3); min-width: 86px;
+  font-size: 9.5px; letter-spacing: .04em;
 }
 .cover-info .body .footer-row {
-  margin-top: 14px; padding-top: 14px;
+  margin-top: 8px; padding-top: 8px;
   border-top: 1px dashed var(--rule);
-  font-size: 12px; color: var(--ink-3);
+  font-size: 10px; color: var(--ink-3);
 }
 
 /* ============================== PRINT RULES ============================== */
@@ -598,7 +600,7 @@ td strong { color: var(--ink); }
     display: block !important;
     min-height: 0 !important;
     height: auto !important;
-    padding: 0.5in 0.5in 0.6in;
+    padding: 0.35in 0.5in 0.4in;
     page-break-after: always;
     break-after: page;
   }
@@ -606,17 +608,17 @@ td strong { color: var(--ink); }
     display: inline-flex !important;
     align-self: auto !important;
     justify-self: auto !important;
-    margin-bottom: 56px;
+    margin-bottom: 22px;
   }
   .cover > .cover-hero {
     align-self: auto !important;
-    margin-bottom: 56px;
+    margin-bottom: 22px;
   }
   .cover > .cover-bottom {
     align-self: auto !important;
     margin-bottom: 0;
   }
-  .cover-title { font-size: 72px !important; }
+  .cover-title { font-size: 46px !important; }
 
   /* Avoid breaking inside cards, KPIs, and table rows */
   .kpi, .card, .empty, .cover-receipt, .cover-summary { page-break-inside: avoid; break-inside: avoid; }
@@ -815,8 +817,6 @@ def cover_page_html(
         <div class="cover-summary-caption">
           confirmed · disclosed · fixed · verified
         </div>
-
-        {_status_breakdown_line_html(status_breakdown or {})}
       </div>
 
       <div class="cover-bottom">

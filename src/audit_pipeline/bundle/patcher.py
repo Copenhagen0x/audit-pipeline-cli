@@ -56,6 +56,13 @@ Title:           {title}
 
 Path: `{target_file_path}`
 
+Each line below is prefixed with its 1-indexed line number followed by `: `.
+**The line-number prefix is REFERENCE ONLY** — it lets you cite correct
+line numbers in your `@@` hunk headers. **DO NOT** include the `NNNN: `
+prefix in the diff body. The diff body must contain the raw source lines
+exactly as they appear in the file (without prefix), with a leading space
+for context lines, `+` for added lines, `-` for removed lines.
+
 ```rust
 {target_source}
 ```
@@ -70,12 +77,54 @@ Reply with EXACTLY:
 
 NO additional prose. NO markdown fences. NO commentary after the diff.
 
+## Patch philosophy: STRUCTURAL fix, not symptom patch
+
+A *symptom* patch adds a guard, returns early, or rejects the specific input
+that triggers the PoC. A new caller that finds a different path into the
+buggy state can re-trigger the bug. **DO NOT do this.**
+
+A *structural* fix eliminates the bug at its root so no caller can ever
+reach the buggy state. For F7-class (insurance counter shrunk without
+debiting vault): the fix is to make every insurance-balance write paired
+with the matching vault write *inside the same helper*, so it's
+mechanically impossible for them to diverge regardless of who calls it.
+
+Examples:
+
+  WRONG (symptom):
+    if loss > self.vault.get() {{
+        return;  // skip
+    }}
+    self.use_insurance_buffer(loss);
+
+  RIGHT (structural):
+    // inside use_insurance_buffer, after the insurance debit:
+    self.vault = U128::new(self.vault.get().saturating_sub(pay));
+    // Now insurance and vault always move together — the F7 invariant
+    // is enforced by construction, not by hopeful caller validation.
+
+  WRONG (symptom): add a `require_admin_signer` guard at the top of the
+  permissionless-callable function.
+  RIGHT (structural): refactor the helper to take a typed
+  `AdminAuthority` capability that callers must construct via a
+  signer-checking helper, making it a TYPE error to call without auth.
+
+Prefer fixes that:
+  1. Make the buggy invariant impossible to violate at the helper level
+  2. Are local (modify the helper itself, not every caller)
+  3. Don't add new public surface (no new imports / deps / signatures)
+
 Constraints:
-  - Modify ONLY the function the PoC exercises
-  - Do NOT change the function's signature
-  - Do NOT add new imports unless absolutely required
+  - Modify ONLY the function the PoC exercises (and adjacent helpers it
+    calls if needed for a structural fix)
+  - Do NOT change function signatures unless required for the structural
+    fix (then explain in RATIONALE)
   - Do NOT add new dependencies
-  - Keep the diff minimal — fewer changed lines is safer
+  - Patches may touch >5 lines if a structural fix requires it
+  - `@@ -<line>,<count> +<line>,<count> @@` MUST cite the actual 1-indexed
+    line numbers shown in the prefixed source above
+  - Diff context lines MUST match the raw source verbatim (without the
+    `NNNN: ` line-number prefix)
 """
 
 
@@ -88,10 +137,18 @@ def author_patch(
     poc_source: str,
     target_file_path: str,
     target_source: str,
-    model: str = "claude-sonnet-4-5",
-    max_tokens: int = 2000,
+    model: str = "claude-sonnet-4-6",
+    max_tokens: int = 4000,
 ) -> PatchDraft:
-    """Ask the LLM to draft a patch. Returns PatchDraft (may be empty if no LLM)."""
+    """Ask the LLM to draft a patch. Returns PatchDraft (may be empty if no LLM).
+
+    Sends the FULL target source to the LLM (Sonnet 4.6 has a 200K context
+    window). Earlier truncation to 12K chars meant the LLM only saw the
+    file header (imports + small structs) and had to invent line numbers
+    from memory — patches were unanchored and `git apply --recount` couldn't
+    recover them. With full source, hunk headers cite the real line numbers
+    and the surrounding context matches verbatim.
+    """
     template = template_for(bug_class)
 
     if not is_available():
@@ -101,15 +158,23 @@ def author_patch(
             llm_available=False,
         )
 
+    # Prepend each line of target_source with its 1-indexed line number so
+    # the LLM cites correct line numbers in its hunk headers. Otherwise the
+    # LLM has to count newlines mentally across a 10K-line file and gets
+    # the @@ -<line>,N +<line>,M @@ wrong, making git apply fail.
+    target_source_numbered = "\n".join(
+        f"{i+1:5}: {line}" for i, line in enumerate(target_source.splitlines())
+    )
+
     prompt = PATCH_AUTHORSHIP_PROMPT.format(
         hypothesis_id=hypothesis_id,
         bug_class=bug_class,
         severity=severity,
         title=title,
         patch_intent=template.patch_intent,
-        poc_source=poc_source[:8000],
+        poc_source=poc_source,
         target_file_path=target_file_path,
-        target_source=target_source[:12000],
+        target_source=target_source_numbered,
     )
 
     try:
@@ -139,7 +204,12 @@ def _parse_response(raw: str, bug_class: str) -> PatchDraft:
 
     # Diff must start with --- a/ to be valid
     diff_match = re.search(r"(^--- a/.+?)(?=\Z)", text, re.MULTILINE | re.DOTALL)
-    diff = diff_match.group(1).strip() if diff_match else ""
+    diff = diff_match.group(1).rstrip() if diff_match else ""
+    # git apply REQUIRES a trailing newline on the patch text. .strip()
+    # would also remove leading whitespace (which is meaningful in diff
+    # context lines), so we use .rstrip() then add exactly one newline.
+    if diff:
+        diff = diff + "\n"
 
     return PatchDraft(
         diff=diff,

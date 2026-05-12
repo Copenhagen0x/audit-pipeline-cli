@@ -22,7 +22,6 @@ Usage:
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -32,7 +31,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from audit_pipeline.utils.llm_tools import run_tool_using_agent
-
 
 SYSTEM_PROMPT = """\
 You are a Solana DeFi security researcher attempting to win an active
@@ -167,7 +165,7 @@ def main() -> int:
     # Sanity: BPF binary built?
     bpf_path = wrapper_dir / "target" / "deploy" / "percolator_prog.so"
     if not bpf_path.exists():
-        print(f"ERROR: BPF binary not built. Run cargo-build-sbf --features small first.", flush=True)
+        print("ERROR: BPF binary not built. Run cargo-build-sbf --features small first.", flush=True)
         return 2
 
     print(f"Wrapper dir: {wrapper_dir}", flush=True)
