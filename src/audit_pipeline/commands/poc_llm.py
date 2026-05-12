@@ -264,6 +264,33 @@ def _slugify(s: str) -> str:
     show_default=True,
     help="Max lines per grounded function extract (PoC needs more context than recon)",
 )
+@click.option(
+    "--wrapper-root",
+    type=click.Path(exists=False, file_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Optional path to the wrapper repo root. Used by Gate L2.symbol_grep "
+        "(grep authored PoCs against engine + wrapper sources) and Gate "
+        "L2.cargo_check (compile PoCs against either crate)."
+    ),
+)
+@click.option(
+    "--check-symbols/--skip-symbols", default=True, show_default=True,
+    help=(
+        "Gate L2.symbol_grep — verify the authored PoC only cites symbols "
+        "that exist in the engine (and wrapper, if --wrapper-root is set). "
+        "Catches hallucinated function/struct names before the PoC is saved."
+    ),
+)
+@click.option(
+    "--check-compiles/--skip-compiles", default=False, show_default=True,
+    help=(
+        "Gate L2.cargo_check — run ``cargo check --tests`` with the PoC "
+        "staged into the engine's tests/ dir. Slow (~10-60s) so disabled by "
+        "default; enable in batch / CI flows or when the symbol gate alone "
+        "isn't enough."
+    ),
+)
 @click.pass_context
 def poc_llm_cmd(
     ctx: click.Context,
@@ -272,6 +299,9 @@ def poc_llm_cmd(
     engine_root: Path,
     output: Path | None,
     code_max_lines: int,
+    wrapper_root: Path | None,
+    check_symbols: bool,
+    check_compiles: bool,
 ) -> None:
     """LLM-author a complete Layer-2 PoC test for a specific hypothesis.
 
@@ -439,6 +469,55 @@ def poc_llm_cmd(
         raise click.ClickException(f"LLM call failed: {e}")
 
     rust_content = extract_rust_from_response(resp.text)
+
+    # Gate L2.symbol_grep — verify the authored PoC only cites symbols that
+    # exist in the engine (and wrapper, when --wrapper-root given). The
+    # retracted cycle's #11 and #13 findings cited symbols that didn't exist
+    # anywhere in either repo; the PoC was saved regardless because there
+    # was no gate. We fail loudly here before any persistence.
+    if check_symbols:
+        from audit_pipeline.gates.symbol_grep import check_symbols as _check_syms
+        search_dirs = [engine_src_dir]
+        if wrapper_root is not None and (wrapper_root / "src").is_dir():
+            search_dirs.append(wrapper_root / "src")
+        sym_result = _check_syms(poc_source=rust_content, search_dirs=search_dirs)
+        if sym_result.passed is False:
+            raise click.ClickException(
+                "Gate L2.symbol_grep FAILED — refusing to save PoC:\n  "
+                + sym_result.reason
+                + "\n\nRe-run after fixing the hypothesis library OR pass "
+                "--skip-symbols to override (NOT recommended)."
+            )
+        if sym_result.passed is None:
+            console.print(
+                f"[yellow]Gate L2.symbol_grep SKIP[/yellow] — {sym_result.reason}"
+            )
+        else:
+            console.print(f"[dim]Gate L2.symbol_grep pass — {sym_result.reason}[/dim]")
+
+    # Gate L2.cargo_check — compile the PoC against the real engine. Slow,
+    # so default off; flip on for batch / CI flows.
+    if check_compiles:
+        from audit_pipeline.gates.cargo_check import check_compiles as _check_cargo
+        test_name = f"test_{finding_name}"
+        compile_result = _check_cargo(
+            poc_source=rust_content,
+            repo_dir=engine_root,
+            test_name=test_name,
+        )
+        if compile_result.passed is False:
+            raise click.ClickException(
+                "Gate L2.cargo_check FAILED — refusing to save PoC:\n  "
+                + compile_result.reason
+                + "\n\nFix the PoC OR pass --skip-compiles to override."
+            )
+        if compile_result.passed is None:
+            console.print(
+                f"[yellow]Gate L2.cargo_check SKIP[/yellow] — {compile_result.reason}"
+            )
+        else:
+            console.print(f"[dim]Gate L2.cargo_check pass — {compile_result.reason}[/dim]")
+
     out_path.write_text(rust_content, encoding="utf-8")
     console.print(
         f"[green]Wrote {out_path}[/green] "

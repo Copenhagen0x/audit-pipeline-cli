@@ -19,6 +19,7 @@ import click
 from rich.console import Console
 
 from audit_pipeline.db import FindingsDB, open_findings_db
+from audit_pipeline.gates.repo_pin import check_repo_pin
 from audit_pipeline.lifecycle import Status
 from audit_pipeline.severity import DEFINITIONS, Severity
 from audit_pipeline.severity import emoji as sev_emoji
@@ -63,6 +64,13 @@ def draft_cmd(ctx: click.Context, finding_id: int, output: Path | None) -> None:
               help="Issue number to comment on (used with --draft-comment-only)")
 @click.option("--dry-run", is_flag=True,
               help="Show the gh command but don't run it")
+@click.option("--allow-mixed-pin", is_flag=True, default=False,
+              help=(
+                  "Bypass Gate 6 (L5.repo_pin) — by default the issue body "
+                  "is rejected if it cites a commit SHA that doesn't resolve "
+                  "in --repo. Pass this only when you've verified the SHA "
+                  "manually (cross-repo references etc.)."
+              ))
 @click.pass_context
 def file_cmd(
     ctx: click.Context,
@@ -72,6 +80,7 @@ def file_cmd(
     draft_comment_only: bool,
     tracking_issue: int | None,
     dry_run: bool,
+    allow_mixed_pin: bool,
 ) -> None:
     """Open a GitHub issue (or post a comment) from a finding via `gh`."""
     workspace = Path(ctx.obj["workspace"])
@@ -85,6 +94,25 @@ def file_cmd(
         f"[{severity}] {finding.get('title') or finding.get('hypothesis_id')}"
     )[:100]
     body = _render_issue_body(finding, db)
+
+    # Gate 6 — L5.repo_pin. Cycle 20260511-183154 was retracted because the
+    # issue header pinned engine SHA 6cd742f25a in a wrapper-repo (`percolator-prog`)
+    # disclosure. Block disclosure when any cited SHA doesn't resolve in --repo.
+    if not allow_mixed_pin and not dry_run:
+        pin_result = check_repo_pin(body=body, target_repo=repo)
+        if pin_result.passed is False:
+            raise click.ClickException(
+                "Gate L5.repo_pin FAILED — refusing to file:\n  "
+                + pin_result.reason
+                + "\n\nFix the body's SHA citations, OR pass --allow-mixed-pin "
+                "if you've verified the SHA manually."
+            )
+        if pin_result.passed is None:
+            console.print(
+                f"[yellow]Gate L5.repo_pin SKIP[/yellow] — {pin_result.reason}"
+            )
+        else:
+            console.print(f"[dim]Gate L5.repo_pin pass — {pin_result.reason}[/dim]")
 
     if draft_comment_only:
         if not tracking_issue:

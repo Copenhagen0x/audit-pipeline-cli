@@ -42,6 +42,10 @@ from rich.panel import Panel
 from rich.table import Table
 
 from audit_pipeline.db import open_findings_db
+from audit_pipeline.gates.disclosure_history import (
+    filter_hypotheses_by_disclosure_history,
+)
+from audit_pipeline.gates.freshness_gate import check_freshness
 from audit_pipeline.lifecycle import from_hunt_outcome
 from audit_pipeline.severity import derive_severity
 from audit_pipeline.severity import emoji as sev_emoji
@@ -235,6 +239,30 @@ console = Console()
         "the script path via the JELLEO_PUBLISH_SCRIPT env var."
     ),
 )
+@click.option(
+    "--ignore-freshness", is_flag=True, default=False,
+    help=(
+        "Bypass Gate L0.freshness — by default the cycle refuses to start "
+        "if workspace.json's pinned SHAs are stale beyond --max-stale-hours. "
+        "Pass this to intentionally audit a frozen snapshot."
+    ),
+)
+@click.option(
+    "--max-stale-hours", type=float, default=6.0, show_default=True,
+    help=(
+        "Gate L0.freshness grace window in hours. 0 = strict (pinned must "
+        "equal upstream HEAD exactly)."
+    ),
+)
+@click.option(
+    "--ignore-disclosure-history", is_flag=True, default=False,
+    help=(
+        "Bypass Gate L5.disclosure_history — by default hypotheses whose "
+        "``prior_disclosure.decision`` is ``rejected`` (with no "
+        "``revisit_justification``) or ``merged`` are filtered out of the "
+        "cycle. Pass this to re-run every hypothesis regardless of history."
+    ),
+)
 @click.pass_context
 def hunt_cmd(
     ctx: click.Context,
@@ -263,6 +291,9 @@ def hunt_cmd(
     source_sha: str | None,
     resume_cycle: str | None,
     auto_publish: bool,
+    ignore_freshness: bool,
+    max_stale_hours: float,
+    ignore_disclosure_history: bool,
 ) -> None:
     """Autonomous full hunt cycle: recon -> debate -> PoC -> Kani -> report.
 
@@ -276,6 +307,24 @@ def hunt_cmd(
             f"No workspace.json at {config_path}. Run `audit-pipeline init`."
         )
     config = json.loads(config_path.read_text())
+
+    # Gate L0.freshness — refuse to start the cycle if upstream has moved
+    # past our pinned SHA more than --max-stale-hours ago. Cycle 20260511-183154
+    # was retracted in part because the wrapper clone was 3 commits behind
+    # at cycle start, and one of those missing commits had already fixed
+    # the bug class our PoC then "confirmed".
+    if not ignore_freshness and not resume_cycle:
+        fresh = check_freshness(workspace=workspace, max_stale_hours=max_stale_hours)
+        if fresh.passed is False:
+            raise click.ClickException(
+                f"Gate L0.freshness FAILED:\n  {fresh.reason}"
+            )
+        if fresh.passed is None:
+            console.print(
+                f"[yellow]Gate L0.freshness SKIP[/yellow] — {fresh.reason}"
+            )
+        else:
+            console.print(f"[dim]Gate L0.freshness pass — {fresh.reason}[/dim]")
 
     # Validate snapshot args
     if source_sha and not source_repo:
@@ -358,6 +407,46 @@ def hunt_cmd(
             )
             tmp2.close()
             hypotheses = tmp2.name
+
+    # Gate L5.disclosure_history — filter out hypotheses that restate
+    # previously-disclosed-and-rejected patterns (without explicit
+    # ``revisit_justification``), or whose underlying defect was already
+    # merged upstream. Cycle 20260511-183154 re-derived 7 variants of the
+    # PR #39 residual-conservation cluster because the pipeline had no
+    # notion of disclosure history.
+    if not ignore_disclosure_history:
+        import tempfile as _tempfile3
+
+        import yaml as _yaml3
+        try:
+            _hyp_doc = _yaml3.safe_load(Path(hypotheses).read_text(encoding="utf-8")) or {}
+        except Exception as e:  # noqa: BLE001
+            raise click.ClickException(
+                f"Gate L5.disclosure_history: cannot read {hypotheses}: {e}"
+            )
+        _hyps_list = _hyp_doc.get("hypotheses") or []
+        if _hyps_list:
+            allowed, blocked = filter_hypotheses_by_disclosure_history(_hyps_list)
+            if blocked:
+                console.print(
+                    f"  [yellow]Gate L5.disclosure_history: filtered "
+                    f"{len(blocked)} of {len(_hyps_list)} hyps[/yellow]"
+                )
+                for h, gr in blocked[:8]:
+                    icon = "skip" if gr.passed is None else "block"
+                    console.print(
+                        f"    [{icon}] {h.get('id','?')}: {gr.reason[:140]}"
+                    )
+                if len(blocked) > 8:
+                    console.print(f"    ... and {len(blocked) - 8} more")
+            tmp3 = _tempfile3.NamedTemporaryFile(
+                mode="w", suffix=".yaml", delete=False, encoding="utf-8",
+            )
+            _yaml3.safe_dump(
+                {"hypotheses": allowed}, tmp3, sort_keys=False, allow_unicode=True,
+            )
+            tmp3.close()
+            hypotheses = tmp3.name
 
     if not is_available():
         raise click.ClickException(
