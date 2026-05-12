@@ -644,8 +644,42 @@ def _render_cycle_html(
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>{CSS}</style>
+<style>{CSS}
+/* jelleo.com nav parity — print stylesheet hides this so PDF output stays clean */
+.jelleo-topnav {{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 32px;
+  border-bottom: 1px solid rgba(245,243,237,0.08);
+  background: rgba(5,5,4,0.85);
+  backdrop-filter: blur(10px);
+  font-family: 'Inter', -apple-system, sans-serif;
+  position: sticky; top: 0; z-index: 50;
+}}
+.jelleo-topnav a {{ text-decoration: none; }}
+.jelleo-topnav .logo {{
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600; font-size: 14px; letter-spacing: 0.04em;
+  color: #f5f3ed; text-transform: lowercase;
+}}
+.jelleo-topnav .logo:hover {{ color: #f5b800; }}
+.jelleo-topnav .links {{ display: flex; gap: 24px; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }}
+.jelleo-topnav .links a {{ color: rgba(245,243,237,0.46); }}
+.jelleo-topnav .links a:hover {{ color: #f5f3ed; }}
+@media (max-width: 640px) {{ .jelleo-topnav .links {{ display: none; }} }}
+@media print {{ .jelleo-topnav {{ display: none !important; }} }}
+</style>
 </head><body>
+
+<nav class="jelleo-topnav">
+  <a href="https://jelleo.com" class="logo">jelleo</a>
+  <div class="links">
+    <a href="https://jelleo.com/protocols/">Protocols</a>
+    <a href="https://jelleo.com/methodology.html">Methodology</a>
+    <a href="https://jelleo.com/cycles/">Cycles</a>
+    <a href="https://jelleo.com/status/">Status</a>
+    <a href="https://jelleo.com/security.html">Security</a>
+  </div>
+</nav>
 
 {topbar_html(status_label, status_class)}
 

@@ -7,5 +7,14 @@ https://www.jelleo.com/*    https://jelleo.com/:splat    301!
 /dashboard.html    /customer/    301
 /dashboard         /customer/    301
 
+# /cycles/* proxies to api.jelleo.com so jelleo.com/cycles/ and
+# api.jelleo.com/cycles/ serve identical content from one source of truth
+# (the VPS-side regen_cycles_index.py + per-cycle hunt_report.html). The
+# Colosseum application links to jelleo.com/cycles/ and the OtterSec
+# intake email links to api.jelleo.com/cycles/<id>/ — both URLs need to
+# resolve to the same theme + same content. The "200!" status code is a
+# rewrite (proxy), not a redirect: the browser stays on jelleo.com.
+/cycles/*    https://api.jelleo.com/cycles/:splat    200!
+
 # Catch-all 404
 /*    /404.html    404

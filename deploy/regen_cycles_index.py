@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 DEFAULT_DOCROOT = Path("/var/www/jelleo.com")
+DEFAULT_CHROME_DIR = Path(__file__).resolve().parent / "jelleo_chrome"
 SIG_TS_RE = re.compile(r"^Signed-At:\s*(.+)$", re.MULTILINE)
 SIG_BYTES_RE = re.compile(r"^Signed-Bytes:\s*(\d+)$", re.MULTILINE)
 
@@ -98,22 +99,139 @@ def _row_html(row: dict[str, str]) -> str:
     cid = row["cycle_id"]
     label = _short_id(cid)
     pdf_cell = (
-        f'<a href="{cid}/{row["pdf_name"]}">PDF</a>'
-        if row["has_pdf"] == "y" else "<span class=\"muted\">—</span>"
+        f'<a class="cyc-link" href="{cid}/{row["pdf_name"]}">PDF</a>'
+        if row["has_pdf"] == "y" else '<span class="cyc-muted">—</span>'
     )
-    signed_at = row["signed_at"] or "<span class=\"muted\">unknown</span>"
+    signed_at = row["signed_at"] or '<span class="cyc-muted">unknown</span>'
     return (
-        f'<tr><td><a href="{cid}/">{label}</a></td>'
-        f'<td class="muted">{signed_at}</td>'
-        f'<td><a href="{cid}/{row["html_name"]}">HTML</a></td>'
+        '<tr>'
+        f'<td><a class="cyc-row-link" href="{cid}/{row["html_name"]}">{label}</a></td>'
+        f'<td class="cyc-muted">{signed_at}</td>'
+        f'<td><a class="cyc-link" href="{cid}/{row["html_name"]}">HTML</a></td>'
         f'<td>{pdf_cell}</td>'
-        f'<td><a href="{cid}/{row["sig_name"]}">sig</a></td></tr>'
+        f'<td><a class="cyc-link" href="{cid}/{row["sig_name"]}">sig</a></td>'
+        '</tr>'
     )
 
 
-def _render_index(rows: list[dict[str, str]]) -> str:
+def _read_chrome_partials(chrome_dir: Path) -> tuple[str, str] | None:
+    """Read jelleo.com chrome (top + bottom) for full-theme wrapping.
+
+    chrome_top.html ends right before <main id="main">; chrome_bottom.html
+    starts at the <footer> tag. Anything between them is the page body.
+    Returns (top, bottom) or None if either is missing.
+    """
+    top = chrome_dir / "chrome_top.html"
+    bot = chrome_dir / "chrome_bottom.html"
+    if not (top.is_file() and bot.is_file()):
+        return None
+    try:
+        return top.read_text(encoding="utf-8"), bot.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _render_cycles_body(rows: list[dict[str, str]]) -> str:
+    """The <main>...</main> body for the cycle archive page. Uses a single
+    scoped <style> block keyed on .cyc-* classes so it doesn't fight the
+    chrome's global CSS, and rows render with consistent column widths +
+    typography across the table."""
     n = len(rows)
     body = "\n          ".join(_row_html(r) for r in rows) if rows else (
+        '<tr><td colspan="5" class="cyc-muted">no signed cycles yet</td></tr>'
+    )
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return f"""<main id="main">
+<style>
+  .cyc-page {{ max-width: 1080px; margin: 48px auto 80px; padding: 0 32px; }}
+  @media (max-width: 768px) {{ .cyc-page {{ padding: 0 20px; margin: 32px auto 56px; }} }}
+  .cyc-h1 {{ font-size: clamp(28px, 4vw, 44px); font-weight: 600; letter-spacing: -0.015em; color: var(--ink); margin-bottom: 14px; line-height: 1.15; }}
+  .cyc-h1 .cyc-accent {{ color: var(--amber); }}
+  .cyc-lede {{ color: var(--ink-3); font-size: 15px; max-width: 720px; margin-bottom: 36px; line-height: 1.6; }}
+  .cyc-stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin: 0 0 48px; }}
+  .cyc-stat {{ background: var(--surface); border: 1px solid var(--rule-2); border-radius: 8px; padding: 18px 22px; transition: border-color .2s, background .2s; }}
+  .cyc-stat:hover {{ border-color: rgba(245,184,0,.4); background: var(--surface-2); }}
+  .cyc-stat-num {{ font-size: 1.8rem; font-weight: 600; color: var(--amber); letter-spacing: -.015em; line-height: 1.1; font-feature-settings: 'tnum'; }}
+  .cyc-stat-lbl {{ font-family: var(--mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-3); margin-top: 8px; }}
+  .cyc-h2 {{ color: var(--amber); font-weight: 500; font-size: 0.85rem; letter-spacing: .14em; text-transform: uppercase; margin: 48px 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }}
+  .cyc-table-wrap {{ border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; background: var(--surface); }}
+  .cyc-table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+  .cyc-table thead th {{ text-align: left; font-family: var(--mono); font-weight: 500; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-3); padding: 14px 18px; border-bottom: 1px solid var(--rule); background: rgba(245,243,237,.02); }}
+  .cyc-table tbody td {{ padding: 14px 18px; border-bottom: 1px solid var(--rule); font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); vertical-align: middle; }}
+  .cyc-table tbody tr:last-child td {{ border-bottom: none; }}
+  .cyc-table tbody tr:hover td {{ background: rgba(245,184,0,.025); }}
+  .cyc-table th:nth-child(1), .cyc-table td:nth-child(1) {{ width: 38%; }}
+  .cyc-table th:nth-child(2), .cyc-table td:nth-child(2) {{ width: 28%; }}
+  .cyc-table th:nth-child(3), .cyc-table td:nth-child(3) {{ width: 12%; }}
+  .cyc-table th:nth-child(4), .cyc-table td:nth-child(4) {{ width: 12%; }}
+  .cyc-table th:nth-child(5), .cyc-table td:nth-child(5) {{ width: 10%; }}
+  .cyc-link, .cyc-row-link {{ color: var(--amber); text-decoration: none; border-bottom: 1px dashed rgba(245,184,0,.3); transition: border-bottom-style .15s; }}
+  .cyc-link:hover, .cyc-row-link:hover {{ color: var(--amber-2); border-bottom-style: solid; }}
+  .cyc-row-link {{ color: var(--ink); font-weight: 500; }}
+  .cyc-row-link code {{ font-size: .92em; opacity: .75; }}
+  .cyc-muted {{ color: var(--ink-4); }}
+  .cyc-pre {{ background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 18px 22px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.7; color: var(--ink-2); margin: 16px 0; }}
+  .cyc-pre .cyc-cmt {{ color: var(--ink-4); }}
+  .cyc-footer {{ color: var(--ink-4); font-family: var(--mono); font-size: 11px; letter-spacing: .06em; margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--rule); }}
+  .cyc-footer a {{ color: var(--ink-3); border-bottom: 1px dashed var(--rule-2); }}
+  .cyc-footer a:hover {{ color: var(--amber); border-bottom-color: var(--amber); }}
+</style>
+
+<div class="cyc-page">
+  <h1 class="cyc-h1">Cycle <span class="cyc-accent">archive</span></h1>
+  <p class="cyc-lede">
+    Every publicly-verifiable signed cycle receipt the Jelleo continuous-audit loop has produced — sorted newest-first. Click any row to open the per-cycle signed report.
+  </p>
+
+  <div class="cyc-stats">
+    <div class="cyc-stat"><div class="cyc-stat-num">{n}</div><div class="cyc-stat-lbl">Signed cycles</div></div>
+    <div class="cyc-stat"><div class="cyc-stat-num">Ed25519</div><div class="cyc-stat-lbl">Attestation scheme</div></div>
+    <div class="cyc-stat"><div class="cyc-stat-num">v0.1</div><div class="cyc-stat-lbl">Platform tier</div></div>
+  </div>
+
+  <h2 class="cyc-h2">Cycles · newest first</h2>
+  <div class="cyc-table-wrap">
+    <table class="cyc-table">
+      <thead>
+        <tr><th>Cycle</th><th>Signed at</th><th>HTML</th><th>PDF</th><th>Sig</th></tr>
+      </thead>
+      <tbody>
+        {body}
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="cyc-h2">Independent verification</h2>
+  <p class="cyc-lede" style="margin-bottom: 14px;">
+    Pin the platform public key once, then verify any cycle artefact without trusting the operator:
+  </p>
+<pre class="cyc-pre">curl -O https://api.jelleo.com/keys/jelleo.ed25519.pub
+curl -O https://api.jelleo.com/cycles/&lt;cycle-id&gt;/hunt_report.html
+curl -O https://api.jelleo.com/cycles/&lt;cycle-id&gt;/hunt_report.html.sig
+
+audit-pipeline sign verify --pubkey jelleo.ed25519.pub \\
+  --artifact hunt_report.html --sig hunt_report.html.sig
+<span class="cyc-cmt"># &rarr; "&check; signature valid"</span></pre>
+
+  <p class="cyc-footer">
+    Generated {now} · all artefacts Ed25519-signed · <a href="https://jelleo.com/methodology.html">methodology spec</a>
+  </p>
+</div>
+</main>"""
+
+
+def _render_index(rows: list[dict[str, str]], chrome_dir: Path = DEFAULT_CHROME_DIR) -> str:
+    """Render the cycle archive page, wrapping the body in jelleo.com chrome
+    when the chrome partials are present (gives full nav + bg + theme parity).
+    Falls back to a self-contained minimal layout otherwise."""
+    body = _render_cycles_body(rows)
+    chrome = _read_chrome_partials(chrome_dir)
+    if chrome:
+        top, bot = chrome
+        return top + body + bot
+    # Fallback (no chrome partials available — shouldn't happen on the VPS)
+    n = len(rows)
+    rows_html = "\n          ".join(_row_html(r) for r in rows) if rows else (
         '<tr><td colspan="5" class="muted">no signed cycles yet</td></tr>'
     )
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -123,61 +241,239 @@ def _render_index(rows: list[dict[str, str]]) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jelleo · cycle archive</title>
-<meta name="description" content="Every publicly-verifiable signed cycle receipt produced by the Jelleo continuous-audit loop, sorted newest-first. Each cycle has cycle.html, cycle.pdf, and Ed25519 signatures over both.">
+<meta name="description" content="Every publicly-verifiable signed cycle receipt produced by the Jelleo continuous-audit loop, sorted newest-first. Each cycle has signed HTML, PDF, and Ed25519 signatures.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  body{{font-family:Inter,system-ui,sans-serif;background:#050504;color:#e6e1d8;margin:0;padding:48px 32px;max-width:920px;margin-inline:auto;line-height:1.55}}
-  h1{{color:#f5b800;font-weight:600;letter-spacing:-0.01em;margin:0 0 8px}}
-  h2{{color:#f5b800;font-weight:500;font-size:1.05rem;margin:32px 0 12px;letter-spacing:-0.005em}}
-  p{{color:#bdb5a8;margin:8px 0}}
-  a{{color:#f5b800;text-decoration:none;border-bottom:1px dashed rgba(245,184,0,0.3)}}
-  a:hover{{border-bottom-style:solid}}
-  .muted{{color:#7a7163}}
-  .meta{{color:#7a7163;font-size:0.85rem}}
-  .stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:20px 0 28px}}
-  .stat{{background:rgba(245,184,0,0.04);border:1px solid rgba(245,184,0,0.18);border-radius:6px;padding:14px 18px}}
-  .stat .num{{font-size:1.6rem;font-weight:600;color:#f5b800;letter-spacing:-0.01em}}
-  .stat .lbl{{font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:#7a7163;margin-top:4px;font-family:'JetBrains Mono',ui-monospace,monospace}}
-  table{{width:100%;border-collapse:collapse;margin:8px 0 24px;font-size:0.9rem}}
-  th{{text-align:left;color:#7a7163;font-weight:500;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;padding:10px 12px;border-bottom:1px solid rgba(245,184,0,0.18)}}
-  td{{padding:10px 12px;border-bottom:1px solid rgba(245,184,0,0.06);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.85rem}}
-  tr:hover td{{background:rgba(245,184,0,0.03)}}
-  pre{{background:rgba(245,184,0,0.04);border:1px solid rgba(245,184,0,0.18);border-radius:6px;padding:14px 18px;overflow-x:auto;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:0.8rem;color:#d4cdc0}}
-  hr{{border:0;border-top:1px solid rgba(245,184,0,0.18);margin:32px 0}}
+:root {{
+  --bg:        #050504;
+  --bg-2:      #0a0908;
+  --surface:   rgba(245,243,237,0.025);
+  --surface-2: rgba(245,243,237,0.045);
+  --ink:       #f5f3ed;
+  --ink-2:     rgba(245,243,237,0.72);
+  --ink-3:     rgba(245,243,237,0.46);
+  --ink-4:     rgba(245,243,237,0.28);
+  --rule:      rgba(245,243,237,0.08);
+  --rule-2:    rgba(245,243,237,0.16);
+  --amber:     #f5b800;
+  --amber-2:   #ffce4a;
+  --font:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono:      'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}}
+*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+html {{ scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }}
+body {{
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.6;
+  min-height: 100vh;
+  background-image:
+    radial-gradient(ellipse 60% 40% at 15% 0%, rgba(245,184,0,0.06), transparent 60%),
+    radial-gradient(ellipse 70% 40% at 85% 100%, rgba(245,184,0,0.04), transparent 60%);
+}}
+a {{ color: var(--amber); text-decoration: none; }}
+a:hover {{ color: var(--amber-2); }}
+::selection {{ background: var(--amber); color: var(--bg); }}
+
+/* topnav (matches jelleo.com pattern) */
+.topnav {{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 32px;
+  border-bottom: 1px solid var(--rule);
+  background: rgba(5,5,4,0.7);
+  backdrop-filter: blur(10px);
+  position: sticky; top: 0; z-index: 10;
+}}
+.nav-logo {{
+  font-family: var(--mono);
+  font-weight: 600; font-size: 14px; letter-spacing: 0.04em;
+  color: var(--ink); text-transform: lowercase;
+}}
+.nav-logo:hover {{ color: var(--amber); }}
+.nav-links {{ display: flex; gap: 24px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }}
+.nav-links a {{ color: var(--ink-3); }}
+.nav-links a:hover {{ color: var(--ink); }}
+
+/* main */
+main {{ max-width: 1080px; margin: 0 auto; padding: 56px 32px 80px; }}
+@media (max-width: 768px) {{ main {{ padding: 32px 20px 48px; }} }}
+
+.hero {{ margin-bottom: 40px; }}
+.hero h1 {{
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  margin-bottom: 12px;
+}}
+.hero h1 .accent {{ color: var(--amber); }}
+.hero p {{ color: var(--ink-3); font-size: 15px; max-width: 720px; }}
+
+/* stat grid (matches Operations panel) */
+.stat-grid {{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin: 32px 0 40px;
+}}
+.stat {{
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: 6px;
+  padding: 16px 20px;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}}
+.stat:hover {{ border-color: rgba(245,184,0,0.4); background: var(--surface-2); }}
+.stat .num {{
+  font-size: 1.7rem;
+  font-weight: 600;
+  color: var(--amber);
+  letter-spacing: -0.015em;
+  font-feature-settings: 'tnum';
+}}
+.stat .lbl {{
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-top: 6px;
+}}
+
+/* section header */
+h2 {{
+  color: var(--amber);
+  font-weight: 500;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 40px 0 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}}
+
+/* table */
+.table-wrap {{
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface);
+}}
+table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+th {{
+  text-align: left;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--rule);
+  background: rgba(245,243,237,0.015);
+}}
+td {{
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}}
+tr:last-child td {{ border-bottom: none; }}
+tr:hover td {{ background: rgba(245,184,0,0.025); }}
+td a {{ border-bottom: 1px dashed rgba(245,184,0,0.3); }}
+td a:hover {{ border-bottom-style: solid; }}
+.muted {{ color: var(--ink-4); }}
+
+/* code block */
+pre {{
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  margin: 16px 0;
+}}
+pre .cmt {{ color: var(--ink-4); }}
+
+/* footer */
+footer {{
+  border-top: 1px solid var(--rule);
+  margin-top: 56px;
+  padding: 24px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-4);
+  display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center;
+}}
+footer a {{ color: var(--ink-3); border-bottom: 1px dashed var(--rule-2); }}
+footer a:hover {{ color: var(--amber); border-bottom-color: var(--amber); }}
 </style>
 </head>
 <body>
-<h1>Jelleo · cycle archive</h1>
-<p class="meta">Every publicly-verifiable signed cycle receipt the Jelleo continuous-audit loop has produced. Click a row to see the per-cycle landing page with HTML, PDF, and Ed25519 signature artefacts.</p>
 
-<div class="stat-grid">
-  <div class="stat"><div class="num">{n}</div><div class="lbl">signed cycles</div></div>
-  <div class="stat"><div class="num">Ed25519</div><div class="lbl">attestation</div></div>
-  <div class="stat"><div class="num">v0.1</div><div class="lbl">platform</div></div>
-</div>
+<nav class="topnav">
+  <a href="https://jelleo.com" class="nav-logo">jelleo</a>
+  <div class="nav-links">
+    <a href="https://jelleo.com/methodology.html">methodology</a>
+    <a href="https://jelleo.com/protocols/">protocols</a>
+    <a href="https://jelleo.com/status/">status</a>
+    <a href="https://jelleo.com/security.html">security</a>
+  </div>
+</nav>
 
-<h2>Cycles · newest first</h2>
+<main>
+  <div class="hero">
+    <h1>Cycle <span class="accent">archive</span></h1>
+    <p>Every publicly-verifiable signed cycle receipt the Jelleo continuous-audit loop has produced — sorted newest-first. Click a row for the per-cycle landing page with HTML, PDF, and Ed25519 signature artefacts.</p>
+  </div>
 
-<table>
-  <thead>
-    <tr><th>Cycle</th><th>Signed at</th><th>HTML</th><th>PDF</th><th>Sig</th></tr>
-  </thead>
-  <tbody>
-          {body}
-  </tbody>
-</table>
+  <div class="stat-grid">
+    <div class="stat"><div class="num">{n}</div><div class="lbl">Signed cycles</div></div>
+    <div class="stat"><div class="num">Ed25519</div><div class="lbl">Attestation scheme</div></div>
+    <div class="stat"><div class="num">v0.1</div><div class="lbl">Platform tier</div></div>
+  </div>
 
-<h2>Verify any of these independently</h2>
-<p>Pin the platform public key once, then verify any cycle artefact without trusting the operator:</p>
+  <h2>Cycles · newest first</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Cycle</th><th>Signed at</th><th>HTML</th><th>PDF</th><th>Sig</th></tr>
+      </thead>
+      <tbody>
+        {body}
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Independent verification</h2>
+  <p style="color: var(--ink-3); margin-bottom: 8px;">Pin the platform public key once, then verify any cycle artefact without trusting the operator:</p>
 <pre>curl -O https://api.jelleo.com/keys/jelleo.ed25519.pub
-curl -O https://api.jelleo.com/cycles/&lt;cycle-id&gt;/cycle.html
-curl -O https://api.jelleo.com/cycles/&lt;cycle-id&gt;/cycle.html.sig
+curl -O https://api.jelleo.com/cycles/&lt;cycle-id&gt;/hunt_report.html
+curl -O https://api.jelleo.com/cycles/&lt;cycle-id&gt;/hunt_report.html.sig
 
 audit-pipeline sign verify --pubkey jelleo.ed25519.pub \\
-  --artifact cycle.html --sig cycle.html.sig
-# &rarr; "&check; signature valid"</pre>
+  --artifact hunt_report.html --sig hunt_report.html.sig
+<span class="cmt"># &rarr; "&check; signature valid"</span></pre>
 
-<hr>
-<p class="meta">Generated {now} &middot; <a href="https://jelleo.com/methodology.html">methodology spec</a> &middot; <a href="https://api.jelleo.com/keys/jelleo.ed25519.pub">platform public key</a> &middot; <a href="https://github.com/Copenhagen0x/audit-pipeline-cli">audit-pipeline-cli</a></p>
+  <footer>
+    <span>Generated {now}</span>
+    <span>·</span>
+    <a href="https://jelleo.com/methodology.html">methodology spec</a>
+    <a href="https://api.jelleo.com/keys/jelleo.ed25519.pub">platform public key</a>
+    <a href="https://github.com/Copenhagen0x/audit-pipeline-cli">audit-pipeline-cli</a>
+  </footer>
+</main>
+
 </body>
 </html>
 """

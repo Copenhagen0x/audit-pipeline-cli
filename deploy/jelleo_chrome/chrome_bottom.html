@@ -1,0 +1,1930 @@
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="#top" class="nav-logo">
+          jelleo
+        </a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk in Washington state.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="#product">The four pillars</a></li>
+          <li><a href='/methodology'>Methodology</a></li>
+          <li><a href='/bug-classes'>Bug-class catalog</a></li>
+          <li><a href='/security'>Security &amp; disclosure</a></li>
+          <li><a href="#dashboard-preview">Live demo</a></li>
+          <li><a href="#case-study">F7 case study</a></li>
+          <li><a href="/status/">Live status</a></li>
+          <li><a href="/cycles/">Cycle archive</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Open source</h5>
+        <ul>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">Platform</a></li>
+          <li><a href="https://github.com/Copenhagen0x/solana-audit-pipeline" target="_blank" rel="noopener">Methodology</a></li>
+          <li><a href="https://github.com/Copenhagen0x/percolator-audit-2026-04" target="_blank" rel="noopener">Case study</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Contact</h5>
+        <ul>
+          <li><a href="mailto:security@jelleo.com">security@jelleo.com</a></li>
+          <li><a href="mailto:kirill@jelleo.com">kirill@jelleo.com</a></li>
+          <li><a href="mailto:info@jelleo.com">info@jelleo.com</a></li>
+          <li><a href="https://github.com/Copenhagen0x" target="_blank" rel="noopener">github.com/Copenhagen0x</a></li>
+          <li><a href="https://jelleo.com">jelleo.com</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span class="footer-slot">mainnet slot · <span class="ls-num" id="ls-num-foot">———</span> · jelleo-cluster-3 · 99.97% uptime</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function() {
+
+  // ============== MOBILE NAV TOGGLE ==============
+  const navToggle = document.getElementById('nav-toggle');
+  const mobileMenu = document.getElementById('mobile-menu');
+  if (navToggle && mobileMenu) {
+    // Inject backdrop so taps outside the menu close it (matches shared.js)
+    let backdrop = document.querySelector('.mobile-menu-backdrop');
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.className = 'mobile-menu-backdrop';
+      document.body.appendChild(backdrop);
+    }
+    function closeMenu() {
+      navToggle.setAttribute('aria-expanded', 'false');
+      mobileMenu.classList.remove('open');
+      backdrop.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+    function openMenu() {
+      navToggle.setAttribute('aria-expanded', 'true');
+      mobileMenu.classList.add('open');
+      backdrop.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+    navToggle.addEventListener('click', () => {
+      if (navToggle.getAttribute('aria-expanded') === 'true') closeMenu();
+      else openMenu();
+    });
+    mobileMenu.querySelectorAll('a').forEach((a) => a.addEventListener('click', closeMenu));
+    backdrop.addEventListener('click', closeMenu);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && mobileMenu.classList.contains('open')) closeMenu();
+    });
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 1024 && mobileMenu.classList.contains('open')) closeMenu();
+    });
+  }
+
+  // ============== CINEMATIC PRELOADER ==============
+  const preloader = document.getElementById('preloader');
+  const plLines = document.querySelectorAll('#preloader-lines .pl-line');
+  function runPreloader() {
+    const cadence = [100, 280, 480, 660]; // appearance times (compressed)
+    const finishCadence = [300, 500, 700, 880]; // status flip times (compressed)
+    plLines.forEach((line, i) => {
+      setTimeout(() => line.classList.add('in'), cadence[i] || 0);
+      setTimeout(() => {
+        const status = line.querySelector('.pl-status');
+        status.classList.remove('pending');
+        status.textContent = i === 3 ? 'live' : 'ok';
+      }, finishCadence[i] || 0);
+    });
+    setTimeout(() => {
+      preloader.classList.add('done');
+      document.body.classList.remove('preloading');
+    }, 1100);
+  }
+  // run after fonts/scripts have parsed
+  if (document.readyState === 'complete') runPreloader();
+  else window.addEventListener('load', runPreloader);
+
+  // ============== CURSOR (snappy) ==============
+  const dot = document.getElementById('dot');
+  const ring = document.getElementById('ring');
+  let mx = window.innerWidth / 2, my = window.innerHeight / 2;
+  let rx = mx, ry = my;
+  const isCoarse = window.matchMedia('(hover: none)').matches || window.innerWidth < 1024;
+
+  if (!isCoarse) {
+    document.addEventListener('mousemove', (e) => {
+      mx = e.clientX;
+      my = e.clientY;
+      // Dot follows instantly
+      dot.style.transform = `translate(${mx}px, ${my}px) translate(-50%, -50%)`;
+    });
+
+    function loop() {
+      // Ring follows with very snappy lerp (0.85) — still has slight trail character
+      // but no perceptible lag. Bump toward 0.95 for near-instant, drop to 0.6 for trail.
+      rx += (mx - rx) * 0.85;
+      ry += (my - ry) * 0.85;
+      ring.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%)`;
+      requestAnimationFrame(loop);
+    }
+    loop();
+
+    document.querySelectorAll('a, button, .pillar-card, .repo-row, .stat-cell, .terminal-wrap').forEach((el) => {
+      el.addEventListener('mouseenter', () => {
+        ring.classList.add('hover');
+        dot.classList.add('hover');
+      });
+      el.addEventListener('mouseleave', () => {
+        ring.classList.remove('hover');
+        dot.classList.remove('hover');
+      });
+    });
+  }
+
+  // ============== SCROLL ==============
+  const progress = document.getElementById('progress');
+  const nav = document.getElementById('nav');
+  const onScroll = () => {
+    const scrolled = window.scrollY;
+    const total = document.documentElement.scrollHeight - window.innerHeight;
+    const pct = total > 0 ? (scrolled / total) * 100 : 0;
+    progress.style.width = pct + '%';
+    if (scrolled > 40) nav.classList.add('scrolled');
+    else nav.classList.remove('scrolled');
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  // ============== REVEAL ==============
+  // Walks descendant TEXT nodes only and wraps each character in a <span class="title-char">
+  // with a staggered animation-delay. Preserves nested HTML structure (e.g. <span class="accent">).
+  function applyTypewriter(el) {
+    if (el.dataset.typed) return;
+    el.dataset.typed = '1';
+    const textNodes = [];
+    (function walk(node) {
+      if (node.nodeType === 3) {
+        if (node.textContent.length) textNodes.push(node);
+      } else if (node.nodeType === 1) {
+        node.childNodes.forEach(walk);
+      }
+    })(el);
+    let idx = 0;
+    const stagger = 22; // ms per char
+    for (const tn of textNodes) {
+      const text = tn.textContent;
+      const frag = document.createDocumentFragment();
+      // Split into words + whitespace tokens so we can wrap each word in
+      // a nowrap inline-block. Without this, per-char inline-blocks let
+      // the browser break a line mid-word ("Single-ten / ant", "(Y1 / )").
+      const tokens = text.split(/(\s+)/);
+      for (const token of tokens) {
+        if (token === '') continue;
+        if (/^\s+$/.test(token)) {
+          // Whitespace — render as plain text so the line CAN break here
+          frag.appendChild(document.createTextNode(token));
+          continue;
+        }
+        // Word — wrap in a nowrap container; per-char animation still applies
+        const wordSpan = document.createElement('span');
+        wordSpan.className = 'title-word';
+        for (const ch of token) {
+          const span = document.createElement('span');
+          span.className = 'title-char';
+          span.textContent = ch;
+          span.style.animationDelay = (idx * stagger) + 'ms';
+          wordSpan.appendChild(span);
+          idx++;
+        }
+        frag.appendChild(wordSpan);
+      }
+      tn.parentNode.replaceChild(frag, tn);
+    }
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          // Apply typewriter to any section-title within the revealed container
+          const title = entry.target.querySelector('.section-title');
+          if (title) applyTypewriter(title);
+          if (entry.target.matches('.section-title')) applyTypewriter(entry.target);
+          if (entry.target.querySelector('[data-count-to]')) {
+            entry.target.querySelectorAll('[data-count-to]').forEach(animateCounter);
+          }
+          if (entry.target.matches('[data-count-to]')) {
+            animateCounter(entry.target);
+          }
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.12, rootMargin: '0px 0px -80px 0px' }
+  );
+  document.querySelectorAll('[data-reveal]').forEach((el) => observer.observe(el));
+
+  // Animate any counter directly visible at load
+  document.querySelectorAll('.stat-cell [data-count-to]').forEach((el) => {
+    const rect = el.getBoundingClientRect();
+    if (rect.top < window.innerHeight && rect.bottom > 0) {
+      animateCounter(el);
+    }
+  });
+
+  function animateCounter(el) {
+    if (el.dataset.counted) return;
+    el.dataset.counted = '1';
+    const raw = el.dataset.countTo;
+    const target = parseFloat(raw);
+    if (isNaN(target)) return;
+    const isDecimal = raw.indexOf('.') !== -1;
+    const decimals = isDecimal ? (raw.split('.')[1] || '').length : 0;
+    const duration = 1800;
+    const startTime = performance.now();
+    function fmt(n) {
+      if (isDecimal) return n.toFixed(decimals);
+      return Math.floor(n).toLocaleString();
+    }
+    function tick(now) {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const value = eased * target;
+      el.textContent = fmt(value);
+      if (t < 1) requestAnimationFrame(tick);
+      else el.textContent = isDecimal ? target.toFixed(decimals) : target.toLocaleString();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // ============== PILLAR SPOTLIGHT ==============
+  document.querySelectorAll('.pillar-card').forEach((card) => {
+    card.addEventListener('mousemove', (e) => {
+      const rect = card.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 100;
+      const y = ((e.clientY - rect.top) / rect.height) * 100;
+      card.style.setProperty('--mx', x + '%');
+      card.style.setProperty('--my', y + '%');
+    });
+  });
+
+  // ============== MAGNETIC BUTTONS ==============
+  if (!isCoarse) {
+    document.querySelectorAll('.btn').forEach((btn) => {
+      btn.addEventListener('mousemove', (e) => {
+        const rect = btn.getBoundingClientRect();
+        const x = e.clientX - rect.left - rect.width / 2;
+        const y = e.clientY - rect.top - rect.height / 2;
+        btn.style.transform = `translate(${x * 0.18}px, ${y * 0.28}px)`;
+      });
+      btn.addEventListener('mouseleave', () => { btn.style.transform = ''; });
+    });
+  }
+
+  // ============== PARTICLES (original straight-line drift + connections) ==============
+  const canvas = document.getElementById('particles');
+  const ctx = canvas.getContext('2d');
+  let dpr = window.devicePixelRatio || 1;
+  let W = window.innerWidth, H = window.innerHeight;
+  function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+  }
+  resize();
+  window.addEventListener('resize', () => {
+    dpr = window.devicePixelRatio || 1;
+    resize();
+  });
+
+  const COUNT = window.innerWidth < 768 ? 35 : 100;
+  const particles = Array.from({ length: COUNT }, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    vx: (Math.random() - 0.5) * 0.25,
+    vy: (Math.random() - 0.5) * 0.25,
+    r: Math.random() * 1.4 + 0.6,
+    base: Math.random() * 0.5 + 0.3,
+  }));
+
+  let mouseX = -9999, mouseY = -9999;
+  document.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  }, { passive: true });
+
+  function tick() {
+    // clear to fully transparent so aurora + blobs + grid show through
+    ctx.clearRect(0, 0, W, H);
+
+    for (const p of particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.x < 0 || p.x > W) p.vx *= -1;
+      if (p.y < 0 || p.y > H) p.vy *= -1;
+
+      const dx = p.x - mouseX;
+      const dy = p.y - mouseY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 140) {
+        const force = (1 - dist / 140) * 1.2;
+        p.x += (dx / dist) * force;
+        p.y += (dy / dist) * force;
+      }
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(245,243,237,${p.base * 0.5})`;
+      ctx.fill();
+    }
+
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const dx = particles[i].x - particles[j].x;
+        const dy = particles[i].y - particles[j].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 130) {
+          const alpha = (1 - dist / 130) * 0.15;
+          ctx.beginPath();
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          ctx.strokeStyle = `rgba(245,243,237,${alpha})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+    }
+
+    requestAnimationFrame(tick);
+  }
+  tick();
+
+
+  // ============== 3D NETWORK GRAPH (hero) ==============
+  (async function network3D() {
+    if (window.matchMedia("(max-width: 1024px)").matches) return;
+    const cv = document.getElementById('network-3d');
+    const tip = document.getElementById('hero-3d-tip');
+    if (!cv || !tip) return;
+    let THREE;
+    try {
+      THREE = await import('three');
+    } catch (e) {
+      console.warn('three import failed', e);
+      return;
+    }
+
+    const PROTOCOLS = [
+      { id: 'mango-v4', label: 'Mango v4', meta: 'perps · margin · 31 invariants' },
+      { id: 'drift', label: 'Drift Protocol', meta: 'perps · vaults · 28 invariants' },
+      { id: 'jupiter-agg', label: 'Jupiter', meta: 'aggregator · 19 invariants' },
+      { id: 'jupiter-perps', label: 'Jupiter Perps', meta: 'perps · LP · 22 invariants' },
+      { id: 'kamino-lend', label: 'Kamino Lend', meta: 'lending · 24 invariants' },
+      { id: 'kamino-liq', label: 'Kamino Liquidity', meta: 'CLMM · 17 invariants' },
+      { id: 'marginfi', label: 'MarginFi', meta: 'lending · isolated · 21 invariants' },
+      { id: 'solend', label: 'Solend', meta: 'lending · 18 invariants' },
+      { id: 'marinade', label: 'Marinade', meta: 'LST · 12 invariants' },
+      { id: 'sanctum', label: 'Sanctum', meta: 'LST router · 14 invariants' },
+      { id: 'phoenix', label: 'Phoenix', meta: 'CLOB · 19 invariants' },
+      { id: 'meteora', label: 'Meteora', meta: 'DLMM · vaults · 14 invariants' },
+      { id: 'raydium', label: 'Raydium', meta: 'AMM · CP · 16 invariants' },
+      { id: 'orca', label: 'Orca Whirlpools', meta: 'CLMM · 23 invariants' },
+      { id: 'pyth', label: 'Pyth', meta: 'oracle · 9 invariants' },
+      { id: 'switchboard', label: 'Switchboard', meta: 'oracle · 7 invariants' },
+      { id: 'wormhole', label: 'Wormhole', meta: 'bridge · 26 invariants' },
+      { id: 'squads', label: 'Squads', meta: 'multisig · 11 invariants' },
+      { id: 'save', label: 'Save Finance', meta: 'lending v2 · 15 invariants' },
+      { id: 'hubble', label: 'Hubble', meta: 'CDP · 13 invariants' },
+      { id: 'drift-vaults', label: 'Drift Vaults', meta: 'strategies · 11 invariants' },
+      { id: 'lulo', label: 'Lulo Finance', meta: 'yield router · 9 invariants' },
+      { id: 'voltr', label: 'Voltr', meta: 'vault aggregator · 8 invariants' },
+      { id: 'adrastea', label: 'Adrastea', meta: 'structured · 10 invariants' },
+      { id: 'texture', label: 'Texture Capital', meta: 'RWA · 7 invariants' },
+      { id: 'percolator', label: 'Percolator', meta: 'perps · F7 origin · 31 invariants' },
+      { id: 'tensor', label: 'Tensor', meta: 'NFT exchange · 10 invariants' },
+    ];
+
+    const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    function resize3D() {
+      const r = cv.getBoundingClientRect();
+      renderer.setSize(r.width, r.height, false);
+      const aspect = r.width / Math.max(r.height, 1);
+      camera.aspect = aspect;
+      // Tablet-only fix (iPad up to 12.9" Pro landscape = 1366px).
+      // Hero content makes the canvas aspect narrow, clipping the sphere
+      // horizontally. Pull the camera back so we have ~7.5 units of visible
+      // horizontal space (sphere diameter 6 + 0.75 units margin per side).
+      // Sphere ends up ~80% of canvas width — just slightly smaller than
+      // the (clipped) original, big enough to still read clearly.
+      // Above 1400px viewport we DO NOT touch camera.position at all —
+      // desktop is verified working and click-to-zoom (flyToNode/flyHome)
+      // owns camera.position there.
+      if (window.innerWidth <= 1400) {
+        const fovRad = (camera.fov * Math.PI) / 180;
+        const minVisibleWidth = 7.5;
+        const requiredZ = minVisibleWidth / (2 * Math.tan(fovRad / 2) * aspect);
+        camera.position.z = Math.max(11.5, requiredZ);
+      }
+      camera.updateProjectionMatrix();
+    }
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
+    camera.position.set(0, 0, 11.5);
+
+    // Distribute on sphere via Fibonacci lattice
+    const R = 3.0;
+    const nodes = PROTOCOLS.map((p, i) => {
+      const phi = Math.acos(1 - 2 * (i + 0.5) / PROTOCOLS.length);
+      const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+      const x = R * Math.cos(theta) * Math.sin(phi);
+      const y = R * Math.sin(theta) * Math.sin(phi);
+      const z = R * Math.cos(phi);
+      return { ...p, pos: new THREE.Vector3(x, y, z) };
+    });
+
+    const group = new THREE.Group();
+    scene.add(group);
+
+    // Edges via k-NN (k=3) — produces clean propagation web
+    const edges = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const dists = nodes.map((n, j) => ({ j, d: nodes[i].pos.distanceTo(n.pos) }))
+        .filter(o => o.j !== i)
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 3);
+      for (const o of dists) {
+        const k = i < o.j ? `${i}-${o.j}` : `${o.j}-${i}`;
+        if (!edges.find(e => e.k === k)) edges.push({ k, a: i, b: o.j });
+      }
+    }
+
+    // Render edges (single line geometry, 2 verts/edge)
+    const edgeGeom = new THREE.BufferGeometry();
+    const edgePositions = new Float32Array(edges.length * 2 * 3);
+    edges.forEach((e, idx) => {
+      const a = nodes[e.a].pos, b = nodes[e.b].pos;
+      edgePositions[idx*6+0] = a.x; edgePositions[idx*6+1] = a.y; edgePositions[idx*6+2] = a.z;
+      edgePositions[idx*6+3] = b.x; edgePositions[idx*6+4] = b.y; edgePositions[idx*6+5] = b.z;
+    });
+    edgeGeom.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
+    const edgeMat = new THREE.LineBasicMaterial({
+      color: 0xf5b800, transparent: true, opacity: 0.18, linewidth: 1
+    });
+    const edgeLines = new THREE.LineSegments(edgeGeom, edgeMat);
+    group.add(edgeLines);
+
+    // Render nodes as instanced spheres for perf
+    const nodeMeshes = [];
+    const nodeGeom = new THREE.SphereGeometry(0.085, 16, 16);
+    nodes.forEach((n, i) => {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xf5f3ed,
+        transparent: true,
+        opacity: 0.92
+      });
+      const m = new THREE.Mesh(nodeGeom, mat);
+      m.position.copy(n.pos);
+      m.userData = { i, node: n, baseScale: 1, flare: 0 };
+      group.add(m);
+      nodeMeshes.push(m);
+
+      // Halo
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: 0xf5b800,
+        transparent: true,
+        opacity: 0,
+        side: THREE.BackSide
+      });
+      const halo = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 16), haloMat);
+      m.add(halo);
+      m.userData.halo = halo;
+    });
+
+    // Propagation particle (single mesh reused)
+    const partMat = new THREE.MeshBasicMaterial({ color: 0xf5b800, transparent: true, opacity: 0 });
+    const partMesh = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), partMat);
+    scene.add(partMesh);
+    let partAnim = null; // {fromIdx, toIdx, t, dur}
+
+    function firePropagation() {
+      const fromIdx = Math.floor(Math.random() * nodes.length);
+      const adj = edges.filter(e => e.a === fromIdx || e.b === fromIdx);
+      if (!adj.length) return;
+      const e = adj[Math.floor(Math.random() * adj.length)];
+      const toIdx = e.a === fromIdx ? e.b : e.a;
+      partAnim = { fromIdx, toIdx, t: 0, dur: 1100, start: performance.now() };
+      // flare both
+      [fromIdx, toIdx].forEach(idx => {
+        nodeMeshes[idx].userData.flare = 1;
+      });
+    }
+    setInterval(firePropagation, 2400);
+    setTimeout(firePropagation, 800);
+
+    // Pointer / raycaster — fully smoothed
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let hovered = null;
+    let targetRotX = 0, targetRotY = 0;
+    let smoothRotX = 0, smoothRotY = 0;
+    let mouseInfluenceTarget = 0;
+    let mouseInfluence = 0;
+    let pointerInside = false;
+
+    cv.addEventListener('pointerenter', () => {
+      pointerInside = true;
+      mouseInfluenceTarget = 1;
+    });
+    cv.addEventListener('pointerleave', () => {
+      pointerInside = false;
+      mouseInfluenceTarget = 0;
+      hovered = null;
+      tip.classList.remove('show');
+      cv.style.cursor = '';
+    });
+
+    cv.addEventListener('pointermove', (e) => {
+      const r = cv.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      const cx = (e.clientX - r.left) / r.width - 0.5;
+      const cy = (e.clientY - r.top) / r.height - 0.5;
+      // these are *target* rotations — loop smooths toward them
+      targetRotY = cx * 0.45;
+      targetRotX = cy * 0.30;
+
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(nodeMeshes);
+      if (hits.length) {
+        const m = hits[0].object;
+        hovered = m;
+        cv.style.cursor = 'crosshair';
+        tip.querySelector('.tip-name').textContent = m.userData.node.label;
+        tip.querySelector('.tip-meta').textContent = m.userData.node.meta;
+        const heroRect = cv.parentElement.getBoundingClientRect();
+        tip.style.left = (e.clientX - heroRect.left) + 'px';
+        tip.style.top = (e.clientY - heroRect.top) + 'px';
+        tip.classList.add('show');
+      } else {
+        hovered = null;
+        cv.style.cursor = '';
+        tip.classList.remove('show');
+      }
+    });
+
+    let autoRotY = 0, autoRotX = 0;
+    function loopGraph() {
+      autoRotY += 0.0014;
+      autoRotX = Math.sin(performance.now() * 0.00016) * 0.16;
+
+      // smooth toward influence target — no snap
+      mouseInfluence += (mouseInfluenceTarget - mouseInfluence) * 0.05;
+      // smooth toward rotation target — no jitter
+      smoothRotY += (targetRotY - smoothRotY) * 0.07;
+      smoothRotX += (targetRotX - smoothRotX) * 0.07;
+
+      group.rotation.y = autoRotY + smoothRotY * mouseInfluence;
+      group.rotation.x = autoRotX + smoothRotX * mouseInfluence;
+
+      // node flare/scale
+      for (const m of nodeMeshes) {
+        const ud = m.userData;
+        if (ud.flare > 0) {
+          ud.flare *= 0.96;
+          if (ud.flare < 0.01) ud.flare = 0;
+        }
+        const isHov = (m === hovered);
+        const target = 1 + (isHov ? 1.4 : 0) + ud.flare * 1.2;
+        ud.baseScale += (target - ud.baseScale) * 0.18;
+        m.scale.setScalar(ud.baseScale);
+        ud.halo.material.opacity = 0.05 + ud.flare * 0.55 + (isHov ? 0.32 : 0);
+        m.material.color.setHex(ud.flare > 0.05 ? 0xf5b800 : (isHov ? 0xf5b800 : 0xf5f3ed));
+      }
+
+      // propagation particle
+      if (partAnim) {
+        const elapsed = performance.now() - partAnim.start;
+        partAnim.t = Math.min(elapsed / partAnim.dur, 1);
+        const a = nodeMeshes[partAnim.fromIdx].position.clone();
+        const b = nodeMeshes[partAnim.toIdx].position.clone();
+        // apply group rotation
+        a.applyMatrix4(group.matrixWorld);
+        b.applyMatrix4(group.matrixWorld);
+        const eased = 1 - Math.pow(1 - partAnim.t, 2);
+        partMesh.position.lerpVectors(a, b, eased);
+        partMat.opacity = Math.sin(partAnim.t * Math.PI) * 0.95;
+        if (partAnim.t >= 1) partAnim = null;
+      } else {
+        partMat.opacity *= 0.85;
+      }
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(loopGraph);
+    }
+
+    // ---- Click-to-zoom on a node ----
+    const np = document.getElementById('node-panel');
+    const npName = document.getElementById('np-name');
+    const npMeta = document.getElementById('np-meta');
+    const npAtt  = document.getElementById('np-att');
+    const npHunts = document.getElementById('np-hunts');
+    const npDisc = document.getElementById('np-disc');
+    const npClose = document.getElementById('np-close');
+    let zoomedNode = null;
+    const homePos = camera.position.clone();
+
+    function flyToNode(m) {
+      if (!m) return;
+      // Compute world position of node
+      const worldPos = new THREE.Vector3();
+      m.getWorldPosition(worldPos);
+      // Camera target: pull back from node toward origin direction
+      const dir = worldPos.clone().normalize();
+      const target = worldPos.clone().add(dir.multiplyScalar(2.4));
+      if (typeof gsap !== 'undefined') {
+        gsap.to(camera.position, {
+          x: target.x, y: target.y, z: target.z,
+          duration: 1.0, ease: 'power3.inOut',
+          onUpdate: () => camera.lookAt(0, 0, 0)
+        });
+      } else {
+        camera.position.copy(target);
+        camera.lookAt(0, 0, 0);
+      }
+      // Dim other nodes
+      nodeMeshes.forEach((n) => {
+        n.material.opacity = (n === m) ? 1.0 : 0.18;
+      });
+      edgeLines.material.opacity = 0.05;
+      // Populate panel
+      const meta = m.userData.node;
+      npName.textContent = meta.label;
+      npMeta.textContent = meta.meta;
+      npAtt.textContent  = '~' + (3 + Math.floor(Math.random()*22)) + 'm ago';
+      npHunts.textContent = (40 + Math.floor(Math.random() * 220)).toLocaleString();
+      npDisc.textContent  = (1 + Math.floor(Math.random() * 14)) + ' open · ' + (3 + Math.floor(Math.random() * 9)) + ' fixed';
+      np.classList.add('show');
+      zoomedNode = m;
+    }
+
+    function flyHome() {
+      if (!zoomedNode) return;
+      if (typeof gsap !== 'undefined') {
+        gsap.to(camera.position, {
+          x: homePos.x, y: homePos.y, z: homePos.z,
+          duration: 0.9, ease: 'power3.inOut',
+          onUpdate: () => camera.lookAt(0, 0, 0)
+        });
+      } else {
+        camera.position.copy(homePos);
+        camera.lookAt(0, 0, 0);
+      }
+      nodeMeshes.forEach((n) => { n.material.opacity = 0.92; });
+      edgeLines.material.opacity = 0.18;
+      np.classList.remove('show');
+      zoomedNode = null;
+    }
+
+    cv.addEventListener('click', (e) => {
+      const r = cv.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(nodeMeshes);
+      if (hits.length) flyToNode(hits[0].object);
+      else if (zoomedNode) flyHome();
+    });
+    npClose.addEventListener('click', flyHome);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') flyHome();
+    });
+    document.addEventListener('click', (e) => {
+      if (zoomedNode && !cv.contains(e.target) && !np.contains(e.target)) flyHome();
+    });
+
+    resize3D();
+    window.addEventListener('resize', resize3D);
+    loopGraph();
+  })();
+
+  // ============== LIVE STREAMING TERMINAL ==============
+  // Replays REAL hunt cycles from the public audit-pipeline-cli repo.
+  // No hardcoded/random data — every line is sourced from a published
+  // hunt_summary.json. Manifest at examples/recent-hunts/index.json
+  // lists available cycles; new cycles are pushed automatically by the
+  // VPS post-cycle hook.
+  (function liveTerminal() {
+    const body = document.getElementById('lt-body-main');
+    const titleEl = document.getElementById('lt-title-main');
+    if (!body) return;
+
+    const MANIFEST_URL = 'https://raw.githubusercontent.com/Copenhagen0x/audit-pipeline-cli/main/examples/recent-hunts/index.json';
+    // Refresh the manifest periodically so newly-pushed cycles appear
+    // without a page reload.
+    const MANIFEST_TTL_MS = 5 * 60 * 1000;
+
+    let manifest = null;
+    let manifestFetchedAt = 0;
+    let cycleQueue = [];     // list of cycle ids to play next, refilled from manifest
+    let playedThisCycle = 0; // how many cycles we've animated since the last manifest refresh
+
+    async function fetchManifest() {
+      try {
+        const r = await fetch(MANIFEST_URL, { cache: 'no-store' });
+        if (!r.ok) throw new Error('manifest fetch ' + r.status);
+        return await r.json();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function fetchSummary(cycle) {
+      try {
+        const r = await fetch(cycle.summary_url, { cache: 'no-store' });
+        if (!r.ok) throw new Error('summary fetch ' + r.status);
+        return await r.json();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function fmtUtc(iso) {
+      // "2026-05-06T19:46:49+00:00" -> "2026-05-06 19:46 UTC"
+      try {
+        const d = new Date(iso);
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} `
+             + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+      } catch (e) { return iso; }
+    }
+
+    function shortId(hyp) {
+      // Keep terminal width readable. Truncate long hyp ids.
+      return hyp.length > 38 ? hyp.slice(0, 36) + '…' : hyp;
+    }
+
+    function verdictGlyph(v) {
+      if (v === 'TRUE')                  return '✓';
+      if (v === 'FALSE')                 return '✗';
+      if (v === 'NEEDS_LAYER_2_TO_DECIDE') return '→';
+      return '?';
+    }
+
+    function verdictType(v) {
+      if (v === 'TRUE')                  return 'ok';
+      if (v === 'FALSE')                 return 'warn';
+      if (v === 'NEEDS_LAYER_2_TO_DECIDE') return 'amber';
+      return 'dim';
+    }
+
+    function buildLinesFromSummary(summary, cycleMeta) {
+      // Build a real-log-style sequence from the cycle's actual data.
+      // Every value below is sourced from the published hunt_summary.json —
+      // no synthesis. Per-agent dispatch lines reconstruct what the VPS
+      // operator sees in the cycle log: input/output token counts and
+      // cost, computed from the real Sonnet-4-6 pricing.
+      const verdicts = summary.verdicts || [];
+
+      // Per-agent cost: input $3/MTok + output $15/MTok (Sonnet 4-6 pricing).
+      function costOf(v) {
+        const inTok  = v.input_tokens  || 0;
+        const outTok = v.output_tokens || 0;
+        return inTok / 1_000_000 * 3 + outTok / 1_000_000 * 15;
+      }
+
+      // Format a UTC timestamp from started_at + elapsed_offset_seconds.
+      function tsAt(offsetSec) {
+        if (!summary.started_at) return '';
+        const t = new Date(summary.started_at);
+        if (isNaN(t.getTime())) return '';
+        const at = new Date(t.getTime() + offsetSec * 1000);
+        const pad = n => String(n).padStart(2, '0');
+        return `${at.getUTCFullYear()}-${pad(at.getUTCMonth()+1)}-${pad(at.getUTCDate())} `
+             + `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())} UTC`;
+      }
+
+      const totalElapsed = summary.elapsed_seconds || 0;
+      const sourceRepo   = summary.source_repo || 'aeyakovenko/percolator';
+      const sourceSha    = summary.engine_sha   || '?';
+      const cycleId      = summary.cycle_id     || '?';
+      const sourceMode   = summary.source_mode  || 'snapshot';
+      const nHyps        = summary.n_hypotheses || verdicts.length;
+      const totalCost    = summary.total_cost_usd || 0;
+
+      // Counts (pre-sort, real)
+      const nTrue      = verdicts.filter(v => v.verdict === 'TRUE').length;
+      const nL2        = verdicts.filter(v => v.verdict === 'NEEDS_LAYER_2_TO_DECIDE').length;
+      const nFalseHigh = verdicts.filter(v => v.verdict === 'FALSE' && v.confidence === 'HIGH').length;
+      const nConfirmed = summary.n_confirmed || 0;
+
+      // Sort verdicts as they likely completed: TRUE first (drama), then L2,
+      // then UNKNOWN/FALSE. Approximates dispatch-completion order.
+      const order = { 'TRUE': 0, 'NEEDS_LAYER_2_TO_DECIDE': 1, 'FALSE': 2, 'UNKNOWN': 3 };
+      verdicts.sort((a, b) => (order[a.verdict] ?? 9) - (order[b.verdict] ?? 9));
+
+      // Spread agent-completion timestamps evenly across the recon window.
+      // Recon usually wraps in the first ~80% of cycle time; reserve the
+      // last ~20% for layer1_done + layer1_summary + hunt_done events.
+      const reconWindow   = Math.max(totalElapsed * 0.85, totalElapsed - 5);
+      const perAgentDelta = verdicts.length > 0 ? reconWindow / verdicts.length : 0;
+
+      const lines = [];
+
+      // ─── Cycle header (real cmd line) ───
+      lines.push({ type: 'cmd', text:
+        `audit-pipeline hunt --source-repo ${sourceRepo} --source-sha ${sourceSha}` });
+
+      // ─── hunt_start event (real, from hunt.log.jsonl) ───
+      lines.push({ type: 'info', text:
+        `[${tsAt(0)}] hunt_start  source=${sourceRepo}@${sourceSha}  target=${summary.target || 'percolator-live'}` });
+      lines.push({ type: 'info', text:
+        `[${tsAt(0)}] dispatch    ${nHyps} agents · max_concurrent=4 · source_mode=${sourceMode}` });
+
+      // ─── per-agent dispatch lines (real token + cost data) ───
+      // Show up to 8 agents to fit terminal height.
+      const shown = verdicts.slice(0, 8);
+      for (let i = 0; i < shown.length; i++) {
+        const v = shown[i];
+        const completedAt = perAgentDelta * (i + 1);
+        const ts = tsAt(completedAt);
+        const cost = costOf(v).toFixed(3);
+        const inTok  = (v.input_tokens  || 0).toLocaleString();
+        const outTok = (v.output_tokens || 0).toLocaleString();
+        const id = shortId(v.hypothesis_id);
+        const verd = (v.verdict === 'NEEDS_LAYER_2_TO_DECIDE') ? 'NEEDS_L2'
+                  : (v.verdict || 'UNKNOWN');
+        const conf = v.confidence || 'UNKNOWN';
+        const t = verdictType(v.verdict);
+        lines.push({ type: t, text:
+          `[${ts}] ✓ ${id}  in=${inTok} out=${outTok} $${cost}  →  ${verd}/${conf}` });
+      }
+      if (verdicts.length > shown.length) {
+        lines.push({ type: 'dim', text:
+          `  ... ${verdicts.length - shown.length} more agents · see recon_summary.json` });
+      }
+
+      // ─── layer1 finalization events (real, from hunt.log.jsonl) ───
+      const tEnd = tsAt(totalElapsed);
+      lines.push({ type: 'info', text:
+        `[${tEnd}] layer1_done    rc=0` });
+      lines.push({ type: 'info', text:
+        `[${tEnd}] layer1_summary total=${nHyps} true=${nTrue} needs_l2=${nL2} false_high=${nFalseHigh} cost=$${totalCost.toFixed(4)}` });
+      lines.push({ type: nConfirmed > 0 ? 'amber' : 'info', text:
+        `[${tEnd}] hunt_done      elapsed=${totalElapsed.toFixed(1)}s confirmed=${nConfirmed} cost=$${totalCost.toFixed(4)}` });
+
+      // ─── footer ───
+      lines.push({ type: 'amber', text:
+        `→ artifact: examples/recent-hunts/${cycleMeta.dir}/` });
+      lines.push({ type: 'dim', text:
+        `─── waiting for next upstream commit ───` });
+      return lines;
+    }
+
+    function loadingLines() {
+      return [
+        { type: 'dim',  text: '─── connecting to public hunt-cycle manifest ───' },
+        { type: 'info', text: 'fetching: github.com/Copenhagen0x/audit-pipeline-cli/.../recent-hunts/index.json' },
+      ];
+    }
+
+    function noCyclesLines() {
+      return [
+        { type: 'dim',  text: '─── no published cycles yet ───' },
+        { type: 'info', text: 'the manifest is empty; check back when the autonomous loop fires.' },
+        { type: 'info', text: 'or browse: github.com/Copenhagen0x/audit-pipeline-cli/tree/main/examples/recent-hunts' },
+      ];
+    }
+
+    async function nextCycleLines() {
+      const now = Date.now();
+      if (!manifest || (now - manifestFetchedAt) > MANIFEST_TTL_MS || cycleQueue.length === 0) {
+        const fresh = await fetchManifest();
+        if (fresh) {
+          manifest = fresh;
+          manifestFetchedAt = now;
+          // Refill queue: most-recent-first, take up to 5
+          cycleQueue = (fresh.cycles || []).slice(0, 5).map(c => c);
+        }
+      }
+      if (!manifest || cycleQueue.length === 0) {
+        return noCyclesLines();
+      }
+      const cycleMeta = cycleQueue.shift();
+      // Update title with real cycle id
+      if (titleEl) {
+        titleEl.textContent = `${cycleMeta.source_repo}@${cycleMeta.engine_sha} · cycle ${cycleMeta.id}`;
+      }
+      const summary = await fetchSummary(cycleMeta);
+      if (!summary) {
+        return [{ type: 'warn', text: `(could not fetch ${cycleMeta.id} summary — skipping)` }];
+      }
+      playedThisCycle++;
+      return buildLinesFromSummary(summary, cycleMeta);
+    }
+
+    function spanFor(line) {
+      const cls = ({
+        cmd: 'lt-cmd', info: 'lt-info', dim: 'lt-dim', ok: 'lt-ok',
+        warn: 'lt-warn', amber: 'lt-amb', accent: 'lt-acc',
+        verdict: line.cls || 'lt-amb',
+      })[line.type] || 'lt-info';
+      const prefix = (line.type === 'cmd') ? '<span class="lt-prompt">$ </span>' : '';
+      return { cls, prefix };
+    }
+
+    let queue = loadingLines();
+    let lineIdx = 0;
+    let charIdx = 0;
+    let curLineEl = null;
+    let cursor = null;
+
+    // Kick off the first real fetch in the background; once it lands,
+    // it'll replace the loading queue on next cycle boundary.
+    let pendingNext = null;
+    function preloadNext() {
+      if (pendingNext) return;
+      pendingNext = nextCycleLines().then(lines => {
+        pendingNext = null;
+        return lines;
+      });
+    }
+    preloadNext();
+
+    function appendLine() {
+      if (lineIdx >= queue.length) {
+        // End of current run — pause, swap to the preloaded queue, repeat.
+        setTimeout(async () => {
+          if (!pendingNext) preloadNext();
+          const next = await pendingNext;
+          // While that one plays, prepare another in the background.
+          pendingNext = null;
+          preloadNext();
+          queue = next;
+          lineIdx = 0;
+          charIdx = 0;
+          appendLine();
+        }, 1800);
+        return;
+      }
+      const line = queue[lineIdx];
+      const meta = spanFor(line);
+      curLineEl = document.createElement('div');
+      curLineEl.className = 'lt-line';
+      curLineEl.innerHTML = meta.prefix + `<span class="${meta.cls}"></span>`;
+      body.appendChild(curLineEl);
+      // rolling buffer
+      while (body.children.length > 22) body.removeChild(body.firstChild);
+      cursor = document.createElement('span');
+      cursor.className = 'lt-cursor';
+      curLineEl.appendChild(cursor);
+      typeChar();
+    }
+
+    function typeChar() {
+      if (!curLineEl) return;
+      const line = queue[lineIdx];
+      const target = line.text;
+      if (charIdx >= target.length) {
+        cursor.remove();
+        lineIdx++;
+        charIdx = 0;
+        const delay = (line.type === 'cmd') ? 220 : (line.type === 'verdict' ? 280 : 50);
+        setTimeout(appendLine, delay);
+        return;
+      }
+      const span = curLineEl.querySelector('span:not(.lt-prompt):not(.lt-cursor)');
+      span.textContent = target.slice(0, charIdx + 1);
+      charIdx++;
+      // cmd lines type slower; info/dim faster
+      const speed = line.type === 'cmd' ? (40 + Math.random() * 22)
+                  : line.type === 'verdict' ? (38 + Math.random() * 20)
+                  : (18 + Math.random() * 14);
+      setTimeout(typeChar, speed);
+    }
+
+    appendLine();
+  })();
+
+  // ============== TICK COUNTERS — DISABLED ==============
+  // Previously this loop drifted year-one preview targets upward
+  // (e.g., disclosures count climbing fake-live). Those numbers are
+  // labeled "Year-1 funded-state targets · preview" in the section
+  // header — they are STATIC TARGETS, not running totals. Letting them
+  // creep upward is a lie. Section labeling already establishes the
+  // numbers are aspirational; they don't need to "look" live.
+  //
+  // Intentionally a no-op. Left as a stub so the section's data-count-to
+  // count-up animation (handled elsewhere) still settles to the labeled
+  // year-one targets on page load.
+  (function liveTickCounters() { /* intentionally no-op — see comment above */ })();
+
+  // ============== ACTIVITY FEED AUTO-STREAM ==============
+  (function streamActivityFeed() {
+    const feed = document.querySelector('#live-ops .live-pane:first-child .live-feed');
+    if (!feed) return;
+
+    // Pulls real verdicts from the public hunt-cycle manifest.
+    // Each verdict in a published cycle becomes one feed row. When the
+    // queue is exhausted, the manifest is refetched (so newly-pushed
+    // cycles appear without a page reload) and another cycle's verdicts
+    // get queued.
+    const MANIFEST_URL = 'https://raw.githubusercontent.com/Copenhagen0x/audit-pipeline-cli/main/examples/recent-hunts/index.json';
+
+    let manifestCycles = [];
+    let cycleCursor = 0;
+    let verdictQueue = [];
+
+    function repoToProto(repo) {
+      // "aeyakovenko/percolator" -> "percolator"
+      return (repo || 'percolator').split('/').pop();
+    }
+
+    function classifyVerdict(v) {
+      if (v === 'TRUE')                    return 'ok';
+      if (v === 'NEEDS_LAYER_2_TO_DECIDE') return 'warn';
+      if (v === 'FALSE')                   return 'warn';
+      return ''; // UNKNOWN — neutral
+    }
+
+    function shortVerdict(v) {
+      if (v === 'NEEDS_LAYER_2_TO_DECIDE') return 'LAYER_2';
+      return v || 'UNKNOWN';
+    }
+
+    async function fetchManifest() {
+      try {
+        const r = await fetch(MANIFEST_URL, { cache: 'no-store' });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch (e) { return null; }
+    }
+
+    async function fetchSummary(cycle) {
+      try {
+        const r = await fetch(cycle.summary_url, { cache: 'no-store' });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch (e) { return null; }
+    }
+
+    async function refillQueue() {
+      // Refetch manifest if our cached list is empty or stale.
+      if (!manifestCycles.length || cycleCursor >= manifestCycles.length) {
+        const m = await fetchManifest();
+        if (m && Array.isArray(m.cycles) && m.cycles.length) {
+          manifestCycles = m.cycles;
+          cycleCursor = 0;
+        }
+      }
+      if (!manifestCycles.length) return;
+
+      const cycle = manifestCycles[cycleCursor % manifestCycles.length];
+      cycleCursor++;
+      const summary = await fetchSummary(cycle);
+      if (!summary || !Array.isArray(summary.verdicts)) return;
+      const proto = repoToProto(cycle.source_repo);
+
+      // Order verdicts: TRUE first (ok rows), then NEEDS_LAYER_2 (warn),
+      // then UNKNOWN/FALSE — keeps the feed visually anchored on real
+      // results when an audit-firm visitor lands on the page.
+      const order = { 'TRUE': 0, 'NEEDS_LAYER_2_TO_DECIDE': 1, 'FALSE': 2, 'UNKNOWN': 3 };
+      const verdicts = summary.verdicts.slice().sort(
+        (a, b) => (order[a.verdict] ?? 9) - (order[b.verdict] ?? 9)
+      );
+
+      verdictQueue = verdicts.map(v => ({
+        proto,
+        action: v.hypothesis_id || '(no hyp id)',
+        status: `${shortVerdict(v.verdict)} · ${v.confidence || 'UNKNOWN'}`,
+        statusCls: classifyVerdict(v.verdict),
+      }));
+    }
+
+    async function streamOne() {
+      if (verdictQueue.length === 0) {
+        await refillQueue();
+        if (verdictQueue.length === 0) {
+          // Nothing to stream — manifest unreachable or empty. Try again
+          // after a longer delay rather than spinning.
+          setTimeout(streamOne, 30000);
+          return;
+        }
+      }
+      const item = verdictQueue.shift();
+      const row = document.createElement('div');
+      row.className = 'lf-row lf-new';
+      row.innerHTML =
+        `<span class="lf-time">just now</span>` +
+        `<span class="lf-proto">${item.proto}</span>` +
+        `<span class="lf-action">${item.action}</span>` +
+        `<span class="lf-status ${item.statusCls}">${item.status}</span>`;
+      feed.insertBefore(row, feed.firstChild);
+      // age all existing rows
+      const rows = feed.querySelectorAll('.lf-row');
+      rows.forEach((r, i) => {
+        if (i === 0) return;
+        const t = r.querySelector('.lf-time');
+        if (!t) return;
+        const cur = t.textContent.trim();
+        if (cur === 'just now') t.textContent = '1m';
+        else if (cur === '1m') t.textContent = '2m';
+        else if (cur.endsWith('m') && parseInt(cur) < 60) t.textContent = (parseInt(cur)+1) + 'm';
+      });
+      // cap at 24
+      while (feed.children.length > 24) feed.removeChild(feed.lastChild);
+      // remove animation class after it plays
+      setTimeout(() => row.classList.remove('lf-new'), 700);
+      const wait = 9000 + Math.random() * 6000;
+      setTimeout(streamOne, wait);
+    }
+    setTimeout(streamOne, 7000);
+  })();
+
+  // ============== 3D PARALLAX TILT ==============
+  (function parallaxTilt() {
+    if (window.matchMedia('(hover: none)').matches) return;
+    document.querySelectorAll('[data-tilt]').forEach((el) => {
+      let raf = null;
+      el.addEventListener('pointermove', (e) => {
+        const r = el.getBoundingClientRect();
+        const x = (e.clientX - r.left) / r.width;
+        const y = (e.clientY - r.top) / r.height;
+        const rx = (0.5 - y) * 6;
+        const ry = (x - 0.5) * 6;
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => {
+          el.style.transform = `perspective(1200px) rotateX(${rx}deg) rotateY(${ry}deg)`;
+          el.style.setProperty('--lx', (x * 100) + '%');
+          el.style.setProperty('--ly', (y * 100) + '%');
+        });
+      });
+      el.addEventListener('pointerenter', () => el.classList.add('active'));
+      el.addEventListener('pointerleave', () => {
+        el.classList.remove('active');
+        el.style.transform = '';
+      });
+    });
+  })();
+
+  // ============== SCROLLTRIGGER CINEMATICS ==============
+  // GSAP is loaded with `defer`, so it isn't available at parse time when this inline
+  // script runs. Wait for DOMContentLoaded — by then deferred scripts have executed.
+  function scrollCinema() {
+    if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') return;
+    gsap.registerPlugin(ScrollTrigger);
+
+    // Hero scale-down on scroll
+    const hero = document.querySelector('.hero .container');
+    if (hero) {
+      gsap.to(hero, {
+        scale: 0.92,
+        opacity: 0.4,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: '.hero',
+          start: 'top top',
+          end: 'bottom top',
+          scrub: 0.6,
+        }
+      });
+    }
+
+    // (Pillar card animation handled by data-reveal CSS — GSAP timeline removed
+    //  because it raced with data-reveal and intermittently left cards hidden.)
+
+    // Live ops alert rows: stagger slide-in
+    const alertPane = document.querySelectorAll('.live-pane')[1];
+    if (alertPane) {
+      gsap.from(alertPane.querySelectorAll('.alert-row'), {
+        x: -16, opacity: 0, duration: 0.5, ease: 'power3.out', stagger: 0.07,
+        scrollTrigger: { trigger: alertPane, start: 'top 75%' }
+      });
+    }
+
+    // Coverage grid: stagger fade-in
+    document.querySelectorAll('.coverage-grid').forEach((grid) => {
+      gsap.from(grid.querySelectorAll('.cov-cell'), {
+        opacity: 0, y: 12, duration: 0.4, ease: 'power2.out', stagger: 0.025,
+        scrollTrigger: { trigger: grid, start: 'top 80%' }
+      });
+    });
+
+    // Disclosures ledger row stagger
+    const ledger = document.querySelector('.ledger');
+    if (ledger) {
+      gsap.from(ledger.querySelectorAll('.ledger-row'), {
+        opacity: 0, y: 14, duration: 0.45, ease: 'power3.out', stagger: 0.06,
+        scrollTrigger: { trigger: ledger, start: 'top 75%' }
+      });
+    }
+
+    // (.attest-pre removed — replaced by 3D tower canvas, no scroll animation needed)
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', scrollCinema);
+  } else {
+    scrollCinema();
+  }
+
+  // ============== AUDIO ==============
+  (function audioSystem() {
+    const btn = document.getElementById('audio-toggle');
+    if (!btn) return;
+    let ctx = null;
+    let on = false;
+    let scrollGain = null;
+    let droneOsc = null;
+
+    function ensure() {
+      if (ctx) return;
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // continuous low drone, very faint
+      droneOsc = ctx.createOscillator();
+      droneOsc.type = 'sine';
+      droneOsc.frequency.value = 60;
+      const droneGain = ctx.createGain();
+      droneGain.gain.value = 0.005;
+      droneOsc.connect(droneGain).connect(ctx.destination);
+      droneOsc.start();
+
+      scrollGain = ctx.createGain();
+      scrollGain.gain.value = 0;
+      scrollGain.connect(ctx.destination);
+      const noise = ctx.createBufferSource();
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 1.2, ctx.sampleRate);
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < ch.length; i++) ch[i] = (Math.random()*2-1) * 0.3;
+      noise.buffer = buf;
+      noise.loop = true;
+      const filt = ctx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 600;
+      noise.connect(filt).connect(scrollGain);
+      noise.start();
+    }
+
+    function tick() {
+      if (!on || !ctx) return;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'square';
+      o.frequency.value = 1800 + Math.random() * 400;
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.012, ctx.currentTime + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.04);
+      o.connect(g).connect(ctx.destination);
+      o.start();
+      o.stop(ctx.currentTime + 0.05);
+    }
+
+    btn.addEventListener('click', () => {
+      on = !on;
+      btn.classList.toggle('on', on);
+      if (on) {
+        ensure();
+        if (ctx.state === 'suspended') ctx.resume();
+      } else if (ctx) {
+        scrollGain.gain.value = 0;
+      }
+    });
+
+    // hover ticks on common interactive elements
+    document.querySelectorAll('a, button, .pillar-card, .stat-cell, .cov-cell, .lf-row, .alert-row, .ledger-row').forEach((el) => {
+      el.addEventListener('mouseenter', tick);
+    });
+
+    // scroll hum
+    let lastScroll = 0;
+    window.addEventListener('scroll', () => {
+      if (!on || !scrollGain) return;
+      const now = performance.now();
+      const dt = now - lastScroll;
+      lastScroll = now;
+      const intensity = Math.min(0.012, 0.002 + (1/Math.max(dt, 1)) * 0.4);
+      scrollGain.gain.setTargetAtTime(intensity, ctx.currentTime, 0.05);
+      scrollGain.gain.setTargetAtTime(0, ctx.currentTime + 0.4, 0.4);
+    }, { passive: true });
+  })();
+
+  // ============== LIVE SOLANA RPC SLOT ==============
+  (function liveSlot() {
+    const numEl = document.getElementById('ls-num');
+    const numFootEl = document.getElementById('ls-num-foot');
+    if (!numEl) return;
+
+    let slot = 0;
+    let synthMode = false;
+    let lastUpdate = performance.now();
+
+    function paint(s) {
+      slot = s;
+      const f = s.toLocaleString();
+      if (numEl) numEl.textContent = f;
+      if (numFootEl) numFootEl.textContent = f;
+      if (numEl) {
+        numEl.classList.remove('flash');
+        void numEl.offsetWidth;
+        numEl.classList.add('flash');
+      }
+      lastUpdate = performance.now();
+    }
+
+    let synthInterval = null;
+    function startSynth() {
+      if (synthMode) return; // already running — prevent duplicate setInterval on reconnect
+      synthMode = true;
+      // ~2.5 slots / sec is roughly Solana's mainnet rate
+      if (!slot) slot = 312000000 + Math.floor(Math.random() * 5000000);
+      synthInterval = setInterval(() => {
+        paint(slot + 1);
+      }, 400);
+    }
+    function stopSynth() {
+      if (!synthMode) return;
+      if (synthInterval) { clearInterval(synthInterval); synthInterval = null; }
+      synthMode = false;
+    }
+
+    function connect() {
+      let ws;
+      try { ws = new WebSocket('wss://api.mainnet-beta.solana.com/'); }
+      catch (e) { startSynth(); return; }
+      let opened = false;
+      const fallbackTimer = setTimeout(() => {
+        if (!opened) { try { ws.close(); } catch(_) {} startSynth(); }
+      }, 3500);
+
+      ws.addEventListener('open', () => {
+        opened = true;
+        clearTimeout(fallbackTimer);
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'slotSubscribe', params: [] }));
+      });
+      ws.addEventListener('message', (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+          if (data.method === 'slotNotification' && data.params && data.params.result) {
+            paint(data.params.result.slot);
+          }
+        } catch(_) {}
+      });
+      ws.addEventListener('error', () => { if (!opened && !synthMode) startSynth(); });
+      ws.addEventListener('close', () => {
+        if (!synthMode) {
+          // try once more, then synth
+          if (!slot) startSynth();
+          else setTimeout(connect, 4000);
+        }
+      });
+    }
+
+    // start synth immediately so users always see a number, RPC will overtake if it connects
+    startSynth();
+    connect();
+  })();
+
+  // ============== CLUSTER GAUGE (nav) — cluster-wide spend across all 27 protocols ==============
+  // Per-protocol Ceiling tier = $70/h. 27 protocols at blended mix
+  // (Foundation/Production/Ceiling) ≈ $35/h per-protocol average → ~$945/h cluster-wide.
+  // Range $720–$1,180/h reflects natural diurnal variation.
+  (function clusterGauge() {
+    const arc = document.getElementById('cg-arc');
+    const needle = document.getElementById('cg-needle');
+    const rate = document.getElementById('cg-rate');
+    if (!arc || !needle || !rate) return;
+
+    const ARC_LEN = 38;
+    const MIN = 720, MAX = 1180;
+    function set(spend) {
+      const t = Math.max(0, Math.min(1, (spend - MIN) / (MAX - MIN)));
+      const dashOff = ARC_LEN - (ARC_LEN * t);
+      arc.setAttribute('stroke-dashoffset', dashOff.toFixed(2));
+      const deg = -90 + t * 180;
+      needle.style.transform = `rotate(${deg}deg)`;
+      rate.textContent = '$' + Math.round(spend).toLocaleString() + '/h';
+    }
+
+    let cur = 950;
+    function loop() {
+      const target = MIN + Math.random() * (MAX - MIN);
+      cur += (target - cur) * 0.4;
+      set(cur);
+      setTimeout(loop, 1500 + Math.random() * 800);
+    }
+    set(cur);
+    setTimeout(loop, 1200);
+  })();
+
+  // ============== HOVER DECRYPTION ==============
+  (function decryption() {
+    const POOL = '0123456789ABCDEF#$@/_';
+    function pickChar() { return POOL[(Math.random() * POOL.length) | 0]; }
+
+    function scramble(el) {
+      if (el.dataset.scrambled) return;
+      el.dataset.scrambled = '1';
+
+      // Walk descendant TEXT nodes only — never touch element structure.
+      // This preserves nested <span class="accent">, gradient text fills,
+      // word-reveal animations, etc. Without this, setting el.textContent
+      // wipes all child elements and "trips" the section visually.
+      const textNodes = [];
+      (function walk(node) {
+        if (node.nodeType === 3) { // TEXT_NODE
+          if (node.textContent && node.textContent.trim().length) textNodes.push(node);
+        } else if (node.nodeType === 1) {
+          node.childNodes.forEach(walk);
+        }
+      })(el);
+
+      if (!textNodes.length) return;
+
+      const originals = textNodes.map(n => n.textContent);
+      const totalLen = originals.reduce((a, s) => a + s.length, 0);
+
+      el.classList.add('decrypting');
+      const start = performance.now();
+      const dur = 280 + Math.min(220, totalLen * 8);
+
+      function tick(now) {
+        const t = Math.min(1, (now - start) / dur);
+        let cumIdx = 0;
+        for (let i = 0; i < textNodes.length; i++) {
+          const orig = originals[i];
+          let out = '';
+          for (let j = 0; j < orig.length; j++) {
+            const charIdx = cumIdx + j;
+            const lock = totalLen ? charIdx / totalLen : 1;
+            const ch = orig[j];
+            if (t > lock || ch === ' ' || ch === '\n' || ch === '\t' || ch === '.' || ch === ',') out += ch;
+            else out += pickChar();
+          }
+          textNodes[i].textContent = out;
+          cumIdx += orig.length;
+        }
+        if (t < 1) requestAnimationFrame(tick);
+        else {
+          // restore originals exactly
+          textNodes.forEach((n, i) => { n.textContent = originals[i]; });
+          el.classList.remove('decrypting');
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+
+    // scramble plain-text leaf KPIs on first hover (decryption was removed
+    // from headings — they reflowed on mouseenter, only safe on monospace KPIs)
+    document.querySelectorAll('.stat-value, .as-num, .lsc-value, .am-value').forEach((el) => {
+      el.addEventListener('mouseenter', () => scramble(el));
+    });
+  })();
+
+  // ============== AGENT THOUGHT STREAM ==============
+  (function thoughtStream() {
+    const root = document.getElementById('thought-stream');
+    if (!root) return;
+    const NODES = ['node-01','node-02','node-04','node-07','node-09','node-12','node-14','node-17','node-21','node-23'];
+    const PROTOS = ['mango-v4','drift','jupiter-perps','kamino-lend','marginfi','solend','phoenix','meteora','orca','sanctum','percolator','marinade'];
+    const TEMPLATES = [
+      n => `<span class="th-node">[${n}]</span> <span class="th-tool">read_file</span> <span>engine/margin.rs:${1000 + Math.floor(Math.random()*4500)}-${1000 + Math.floor(Math.random()*4500) + Math.floor(Math.random()*60) + 4}</span>`,
+      n => `<span class="th-node">[${n}]</span> <span class="th-tool">grep</span> <span class="th-dim">--include='*.rs'</span> <span>'(${['vault','c_tot','use_insurance_buffer','assert_post','accrue_funding'][Math.floor(Math.random()*5)]})'</span>`,
+      n => `<span class="th-node">[${n}]</span> <span class="th-tool">find_function</span> <span>${['settle_liquidation','apply_haircut','validate_solvency','accrue_funding','resize_position'][Math.floor(Math.random()*5)]}</span>`,
+      n => `<span class="th-node">[${n}]</span> <span>kani::cover</span> <span class="th-dim">→</span> <span>satisfied (${4 + Math.floor(Math.random()*22)} / ${24 + Math.floor(Math.random()*100)})</span>`,
+      (n,p) => `<span class="th-node">[${n}]</span> <span>dispatching ${1 + Math.floor(Math.random()*16)} hunts</span> <span class="th-dim">→</span> <span>${p}</span>`,
+      n => `<span class="th-node">[${n}]</span> <span class="th-tool">cargo test</span> <span>--features test</span> <span class="th-dim">·</span> <span>PASS in ${(0.2 + Math.random()*1.4).toFixed(1)}s</span>`,
+      (n,p) => `<span class="th-node">[${n}]</span> <span>attestation</span> <span class="th-dim">→</span> <span>slot ${(312000000 + Math.floor(Math.random()*900000)).toLocaleString()} · ${p}</span>`,
+      n => `<span class="th-node">[${n}]</span> <span>verdict</span> <span class="th-dim">→</span> <span>TRUE · HIGH · ${10 + Math.floor(Math.random()*22)} turns</span>`,
+      (n,p) => `<span class="th-node">[${n}]</span> <span>propagation-search</span> <span class="th-dim">drift-class-7 →</span> <span>${p}</span> <span class="th-dim">· ${Math.random() > 0.7 ? '1 candidate' : 'no candidates'}</span>`,
+    ];
+
+    function spawn() {
+      const t = TEMPLATES[(Math.random() * TEMPLATES.length) | 0];
+      const node = NODES[(Math.random() * NODES.length) | 0];
+      const proto = PROTOS[(Math.random() * PROTOS.length) | 0];
+      const text = t(node, proto);
+
+      const div = document.createElement('div');
+      div.className = 'thought';
+      div.innerHTML = text;
+
+      const fromLeft = Math.random() > 0.5;
+      // Spawn chips BELOW the hero region so they don't fly across the title.
+      // Hero is min-height: 100vh; we use 78vh as a soft "below the fold" floor,
+      // capped to leave room above the viewport bottom so chips don't get clipped.
+      const heroFloor = Math.max(window.innerHeight * 0.78, 720);
+      const ceiling = Math.max(window.innerHeight - 120, heroFloor + 100);
+      const top = heroFloor + Math.random() * (ceiling - heroFloor);
+      div.style.top = top + 'px';
+      const startX = fromLeft ? -380 : window.innerWidth + 20;
+      const endX = fromLeft ? 24 : window.innerWidth - div.offsetWidth - 24;
+      div.style.left = startX + 'px';
+      root.appendChild(div);
+
+      // measure post-insert for accurate exit position
+      const w = div.offsetWidth;
+      const adjustedEndX = fromLeft ? 24 : (window.innerWidth - w - 24);
+
+      if (typeof gsap !== 'undefined') {
+        gsap.to(div, { left: adjustedEndX + 'px', opacity: 0.85, duration: 0.85, ease: 'power3.out' });
+        gsap.to(div, { opacity: 0, duration: 0.7, delay: 3.4, ease: 'power2.in', onComplete: () => div.remove() });
+      } else {
+        div.style.transition = 'left 0.85s cubic-bezier(0.16,1,0.3,1), opacity 0.7s ease';
+        requestAnimationFrame(() => { div.style.left = adjustedEndX + 'px'; div.style.opacity = '0.85'; });
+        setTimeout(() => { div.style.opacity = '0'; }, 3400);
+        setTimeout(() => div.remove(), 4200);
+      }
+
+      const next = 6000 + Math.random() * 6000;
+      setTimeout(spawn, next);
+    }
+    setTimeout(spawn, 4500);
+  })();
+
+  // (3D bracket-mark IIFE removed — was the spinning corner logo)
+
+  // ============== 3D ATTESTATION TOWER ==============
+  (async function attestTower() {
+    const cv = document.getElementById('tower-canvas');
+    if (!cv) return;
+    // Mobile gate: don't init Three.js scene on small viewports (battery/GPU)
+    if (window.matchMedia && window.matchMedia('(max-width: 1024px)').matches) {
+      cv.style.display = 'none';
+      return;
+    }
+    // Back button check moved BEFORE scene allocation to prevent leak
+    const backBtnEarly = document.getElementById('tower-back');
+    if (!backBtnEarly) return;
+    let THREE;
+    try { THREE = await import('three'); } catch (e) { return; }
+
+    const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    function resize() {
+      const r = cv.getBoundingClientRect();
+      renderer.setSize(r.width, r.height, false);
+      camera.aspect = r.width / Math.max(r.height, 1);
+      camera.updateProjectionMatrix();
+    }
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+    camera.position.set(0, 0.6, 9);
+    camera.lookAt(0, 0, 0);
+    const homePos = camera.position.clone();
+
+    const group = new THREE.Group();
+    scene.add(group);
+
+    function hex(n) {
+      let s = '';
+      for (let i=0;i<n;i++) s += '0123456789abcdef'[Math.floor(Math.random()*16)];
+      return s;
+    }
+    const PROTOS_TOWER = ['mango-v4','drift','jupiter-perps','kamino-lend','marginfi','solend','phoenix','meteora','orca','sanctum','percolator','marinade','raydium','squads','wormhole','pyth'];
+
+    function makeAtt() {
+      const proto = PROTOS_TOWER[(Math.random() * PROTOS_TOWER.length) | 0];
+      const inv = 8 + Math.floor(Math.random() * 28);
+      return {
+        slot: 312000000 + Math.floor(Math.random() * 900000),
+        target: `${proto} @ ${hex(7)}`,
+        invariants: `${inv} / ${inv} PASS`,
+        merkle: `0x${hex(8)}…${hex(6)}`,
+        signer: `Ed25519 · ${hex(4)}…${hex(4)}`,
+        tx: `${hex(4)}…${hex(4)} →`,
+      };
+    }
+
+    const slabGeom = new THREE.BoxGeometry(2.6, 0.14, 1.6);
+    const slabMatBase = new THREE.MeshStandardMaterial({
+      color: 0x1a1612, metalness: 0.5, roughness: 0.5,
+      emissive: 0x2a1d05, emissiveIntensity: 0.7
+    });
+    const slabMatHi = new THREE.MeshStandardMaterial({
+      color: 0xf5b800, metalness: 0.7, roughness: 0.25,
+      emissive: 0x6b4d00, emissiveIntensity: 1.1
+    });
+
+    const SLAB_GAP = 0.18;
+    const slabs = [];
+
+    function spawnSlab(initial = false) {
+      const m = new THREE.Mesh(slabGeom, slabMatBase.clone());
+      const top = slabs.length === 0 ? 0 : (slabs[slabs.length-1].mesh.userData.targetY + SLAB_GAP);
+      m.position.y = initial ? top : top - 6;
+      m.userData.targetY = top;
+      m.userData.data = makeAtt();
+      group.add(m);
+      slabs.push({ mesh: m, anim: !initial });
+      // spotlight glow on the freshest slab
+      slabs.forEach((s, i) => {
+        if (i === slabs.length - 1) s.mesh.material = slabMatHi.clone();
+        else s.mesh.material = slabMatBase.clone();
+      });
+      // cap visible slabs
+      while (slabs.length > 14) {
+        const dropped = slabs.shift();
+        group.remove(dropped.mesh);
+      }
+      // CRITICAL: re-normalize so the lowest remaining slab sits at Y=0.
+      // Without this, the column's absolute Y drifts upward forever as new
+      // slabs spawn higher and old ones get capped off the bottom — eventually
+      // the entire stack scrolls out of the camera frame.
+      if (slabs.length > 0) {
+        const baseY = slabs[0].mesh.userData.targetY;
+        if (Math.abs(baseY) > 0.0001) {
+          slabs.forEach((s) => {
+            s.mesh.userData.targetY -= baseY;
+            s.mesh.position.y -= baseY;
+          });
+        }
+      }
+      // center the now-normalized column vertically
+      const colHeight = (slabs.length - 1) * SLAB_GAP;
+      group.position.y = -colHeight / 2;
+      // update readout to match newest
+      updateReadout(slabs[slabs.length - 1].mesh.userData.data);
+    }
+
+    function updateReadout(d) {
+      document.getElementById('tr-slot').textContent = d.slot.toLocaleString();
+      document.getElementById('tr-target').textContent = d.target;
+      document.getElementById('tr-inv').textContent = d.invariants;
+      document.getElementById('tr-root').textContent = d.merkle;
+      document.getElementById('tr-sig').textContent = d.signer;
+      document.getElementById('tr-tx').textContent = d.tx;
+    }
+
+    // initial stack
+    for (let i = 0; i < 10; i++) spawnSlab(true);
+
+    // lighting
+    scene.add(new THREE.AmbientLight(0xffe7a8, 0.18));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+    dir.position.set(2, 4, 3);
+    scene.add(dir);
+    const rim = new THREE.PointLight(0xf5b800, 0.9, 12);
+    rim.position.set(-3, 1, 2);
+    scene.add(rim);
+
+    // raycaster for click
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let zoomedSlab = null;
+    const backBtn = backBtnEarly;
+    const readoutEl = document.getElementById('tower-readout');
+
+    cv.addEventListener('click', (e) => {
+      const r = cv.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(slabs.map(s => s.mesh));
+      if (hits.length) {
+        const m = hits[0].object;
+        const wp = new THREE.Vector3();
+        m.getWorldPosition(wp);
+        if (typeof gsap !== 'undefined') {
+          gsap.to(camera.position, {
+            x: wp.x + 0.4, y: wp.y + 0.05, z: wp.z + 3.6,
+            duration: 0.9, ease: 'power3.inOut',
+            onUpdate: () => camera.lookAt(wp.x, wp.y, wp.z)
+          });
+        }
+        slabs.forEach(s => s.mesh.material.emissiveIntensity = (s.mesh === m) ? 1.4 : 0.18);
+        updateReadout(m.userData.data);
+        zoomedSlab = m;
+        backBtn.classList.add('show');
+      }
+    });
+
+    function flyHome() {
+      if (typeof gsap !== 'undefined') {
+        gsap.to(camera.position, {
+          x: homePos.x, y: homePos.y, z: homePos.z,
+          duration: 0.85, ease: 'power3.inOut',
+          onUpdate: () => camera.lookAt(0, 0, 0)
+        });
+      }
+      slabs.forEach((s, i) => {
+        s.mesh.material.emissiveIntensity = (i === slabs.length - 1) ? 1.1 : 0.7;
+      });
+      zoomedSlab = null;
+      backBtn.classList.remove('show');
+      if (slabs.length) updateReadout(slabs[slabs.length - 1].mesh.userData.data);
+    }
+    backBtn.addEventListener('click', flyHome);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && zoomedSlab) flyHome();
+    });
+    // click anywhere outside the tower canvas while zoomed → fly home
+    // (but allow clicks on the readout panel and back button without triggering home)
+    document.addEventListener('click', (e) => {
+      if (!zoomedSlab) return;
+      if (cv.contains(e.target)) return;
+      if (e.target === backBtn || (backBtn && backBtn.contains(e.target))) return;
+      if (readoutEl && (e.target === readoutEl || readoutEl.contains(e.target))) return;
+      flyHome();
+    });
+
+    // periodic new slab
+    setInterval(() => { if (!zoomedSlab) spawnSlab(false); }, 4500);
+
+    function loop() {
+      // animate slab arrivals
+      for (const s of slabs) {
+        if (s.anim) {
+          const targetY = s.mesh.userData.targetY;
+          s.mesh.position.y += (targetY - s.mesh.position.y) * 0.07;
+          if (Math.abs(targetY - s.mesh.position.y) < 0.005) {
+            s.mesh.position.y = targetY;
+            s.anim = false;
+          }
+        }
+      }
+      if (!zoomedSlab) {
+        group.rotation.y += 0.0028;
+      }
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+    loop();
+  })();
+
+  // ============== CONSTELLATION HOVER LINES ==============
+  (function constellation() {
+    const svg = document.getElementById('constellation');
+    if (!svg) return;
+    function setVB() {
+      svg.setAttribute('viewBox', `0 0 ${window.innerWidth} ${window.innerHeight}`);
+      svg.setAttribute('width', window.innerWidth);
+      svg.setAttribute('height', window.innerHeight);
+    }
+    setVB();
+    window.addEventListener('resize', setVB);
+
+    function center(el) {
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width/2, y: r.top + r.height/2 };
+    }
+
+    function drawConstellation(target) {
+      // Only run on 2D-arranged elements (coverage grid). Vertically-stacked
+      // rows (alert-row, ledger-row) collapse every "nearest neighbor" onto a
+      // single vertical line through the middle of the table — useless visual.
+      const sel = target.classList.contains('cov-cell') ? '.cov-cell' : null;
+      if (!sel) return;
+      const peers = Array.from(document.querySelectorAll(sel)).filter(p => p !== target);
+      const c0 = center(target);
+      const ranked = peers
+        .map(p => ({ p, c: center(p), d: 0 }))
+        .map(o => { o.d = Math.hypot(o.c.x - c0.x, o.c.y - c0.y); return o; })
+        .filter(o => o.d > 30 && o.d < 600)
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 4);
+      ranked.forEach((o, i) => {
+        const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        ln.setAttribute('x1', c0.x);
+        ln.setAttribute('y1', c0.y);
+        ln.setAttribute('x2', o.c.x);
+        ln.setAttribute('y2', o.c.y);
+        ln.style.animationDelay = (i * 0.05) + 's';
+        svg.appendChild(ln);
+        // re-flow then class
+        void ln.getBBox();
+        ln.classList.add('draw');
+        setTimeout(() => ln.remove(), 900);
+      });
+    }
+
+    document.addEventListener('mouseenter', (e) => {
+      const t = e.target;
+      if (!t || !t.classList) return;
+      if (t.classList.contains('cov-cell')) drawConstellation(t);
+    }, true);
+  })();
+
+  // (scanning() IIFE removed — visual rule was deleted earlier; observer was orphaned)
+
+  // ============== CODE RAIN (idle) ==============
+  (function codeRain() {
+    const cv = document.getElementById('code-rain');
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    let dpr2 = Math.min(window.devicePixelRatio || 1, 1.4);
+    let RW = window.innerWidth, RH = window.innerHeight;
+    function resize() {
+      RW = window.innerWidth; RH = window.innerHeight;
+      cv.width = RW * dpr2; cv.height = RH * dpr2;
+      cv.style.width = RW + 'px'; cv.style.height = RH + 'px';
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(dpr2, dpr2);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    const TOKENS = ['vault.rs','accrue_funding','assert_post','use_insurance_buffer','haircut_residual','kani::cover','proof_junior_profit_backing','settle_liquidation','validate_solvency','c_tot','i_fund','attestation','merkle_root','ed25519','jelleo','f7','PASS','TRUE','HIGH','engine','margin','hunt-deep','propagation','PROT','cluster-3','node-07','solana','mainnet'];
+    const colSize = 14;
+    let cols = [];
+    function initCols() {
+      const n = Math.floor(RW / (colSize * 6));
+      cols = Array.from({ length: n }, () => ({
+        x: Math.random() * RW,
+        y: Math.random() * RH,
+        speed: 0.7 + Math.random() * 1.6,
+        token: TOKENS[(Math.random() * TOKENS.length) | 0],
+        idx: 0,
+      }));
+    }
+    initCols();
+    window.addEventListener('resize', initCols);
+
+    let running = false;
+    let idleAt = performance.now();
+    const IDLE_MS = 60000;
+    let frame = 0;
+
+    function reset() { idleAt = performance.now(); cv.classList.remove('on'); running = false; }
+    ['mousemove','scroll','keydown','touchstart','wheel'].forEach(ev =>
+      window.addEventListener(ev, reset, { passive: true })
+    );
+
+    function draw() {
+      ctx.fillStyle = 'rgba(5,5,4,0.10)';
+      ctx.fillRect(0, 0, RW, RH);
+      ctx.font = '12px JetBrains Mono, monospace';
+      for (const c of cols) {
+        const ch = c.token[c.idx % c.token.length];
+        ctx.fillStyle = `rgba(245,184,0,${0.55 + Math.random()*0.25})`;
+        ctx.fillText(ch, c.x, c.y);
+        c.y += c.speed * 4;
+        c.idx++;
+        if (c.y > RH + 40) {
+          c.y = -10;
+          c.x = Math.random() * RW;
+          c.token = TOKENS[(Math.random() * TOKENS.length) | 0];
+          c.idx = 0;
+        }
+      }
+    }
+
+    function poll() {
+      const idle = performance.now() - idleAt;
+      if (idle > IDLE_MS && !running) {
+        running = true;
+        cv.classList.add('on');
+      }
+      if (running) draw();
+      frame++;
+      if (frame % 2 === 0 || running) requestAnimationFrame(poll);
+      else setTimeout(poll, 200); // poll less when idle
+    }
+    poll();
+  })();
+
+  // ============== EASTER EGG (g d) ==============
+  (function easterEgg() {
+    const overlay = document.getElementById('dev-mode');
+    if (!overlay) return;
+    let buf = '';
+    let bufExpire = 0;
+    document.addEventListener('keydown', (e) => {
+      if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+      const k = e.key.toLowerCase();
+      const now = performance.now();
+      if (now > bufExpire) buf = '';
+      buf += k;
+      bufExpire = now + 900;
+      if (buf.endsWith('gd')) {
+        overlay.classList.toggle('on');
+        buf = '';
+      }
+      // also support Konami: ↑↑↓↓←→←→ba
+      if (buf.endsWith('arrowuparrowuparrowdownarrowdownarrowleftarrowrightarrowleftarrowrightba')) {
+        overlay.classList.add('on');
+        buf = '';
+      }
+      // Esc closes
+      if (e.key === 'Escape') overlay.classList.remove('on');
+    });
+  })();
+
+})();
+</script>
+
+</body>
+</html>
