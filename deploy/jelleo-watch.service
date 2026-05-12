@@ -3,6 +3,12 @@ Description=Jelleo - source-code watch + autonomous hunt loop (Layer 0.5)
 Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
 After=network-online.target
 Wants=network-online.target
+# Cross-cutting audit Defect 24 (LOW operational): if the watch loop
+# crashes hard enough to exhaust Restart=on-failure retries, the
+# pipeline goes silent. OnFailure fires jelleo-alert-failure@.service
+# which posts the unit name + journalctl tail to the alert channel
+# the operator already has wired for health degradation.
+OnFailure=jelleo-alert-failure@%n.service
 
 [Service]
 Type=simple

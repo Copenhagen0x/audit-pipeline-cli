@@ -34,6 +34,10 @@ echo "=== Installing systemd units ==="
 # Core daemons (shadow + watch)
 cp "$DEPLOY_DIR/jelleo-shadow.service" "$UNIT_DIR/"
 cp "$DEPLOY_DIR/jelleo-watch.service"  "$UNIT_DIR/"
+# Failure alert handler (referenced via OnFailure= on the core daemons)
+[[ -f "$DEPLOY_DIR/jelleo-alert-failure@.service" ]] && \
+    cp "$DEPLOY_DIR/jelleo-alert-failure@.service" "$UNIT_DIR/" && \
+    echo "  installed jelleo-alert-failure@.service (OnFailure handler)"
 # Operational (health + backup)
 [[ -f "$DEPLOY_DIR/jelleo-health.service" ]] && cp "$DEPLOY_DIR/jelleo-health.service" "$UNIT_DIR/"
 [[ -f "$DEPLOY_DIR/jelleo-health.timer"   ]] && cp "$DEPLOY_DIR/jelleo-health.timer"   "$UNIT_DIR/"
@@ -74,6 +78,12 @@ if [[ -d "$WWW_DIR" ]] && [[ -f /root/audit_runs/percolator-live/keys/jelleo.ed2
     mkdir -p "$WWW_DIR/keys"
     install -m 0644 /root/audit_runs/percolator-live/keys/jelleo.ed25519.pub "$WWW_DIR/keys/jelleo.ed25519.pub"
     echo "  published public key to $WWW_DIR/keys/jelleo.ed25519.pub"
+fi
+
+# Logrotate config — keeps shadow/watch/hunt logs from growing unbounded.
+if [[ -f "$DEPLOY_DIR/logrotate-jelleo" ]] && [[ -d /etc/logrotate.d ]]; then
+    install -m 0644 "$DEPLOY_DIR/logrotate-jelleo" /etc/logrotate.d/jelleo
+    echo "  installed /etc/logrotate.d/jelleo"
 fi
 
 # notifier.json scaffold — install only if absent (don't clobber real recipients)

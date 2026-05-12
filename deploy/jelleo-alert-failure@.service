@@ -1,0 +1,19 @@
+[Unit]
+Description=Jelleo - failure alert for %i
+Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
+# This is a templated OnFailure handler. Any unit can reference it via
+#   OnFailure=jelleo-alert-failure@%n.service
+# and on failure systemd starts an instance whose %i is the failed unit's
+# name. We then send a Slack alert with the journalctl tail.
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/root/.audit-env
+ExecStart=/bin/bash -c '\
+    UNIT="%i"; \
+    BODY=$(journalctl -u "$UNIT" -n 40 --no-pager 2>&1 | tail -40); \
+    PAYLOAD=$(printf \'{"text":"\\u26a0\\ufe0f *Jelleo systemd unit FAILED* — `%%s`\\n\\n```\\n%%s\\n```"}\' "$UNIT" "$BODY"); \
+    if [ -n "${HUNT_WEBHOOK_URL:-}" ]; then \
+        curl -s -m 15 -H "Content-Type: application/json" -d "$PAYLOAD" "$HUNT_WEBHOOK_URL" >/dev/null || true; \
+    fi; \
+    logger -t jelleo-alert "unit=$UNIT failed; tail captured"'

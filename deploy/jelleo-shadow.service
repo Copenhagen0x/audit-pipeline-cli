@@ -3,6 +3,8 @@ Description=Jelleo - live mainnet shadow audit (Layer 6)
 Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
 After=network-online.target
 Wants=network-online.target
+# Cross-cutting audit Defect 24 (LOW operational): alert on hard failure.
+OnFailure=jelleo-alert-failure@%n.service
 
 [Service]
 Type=simple
