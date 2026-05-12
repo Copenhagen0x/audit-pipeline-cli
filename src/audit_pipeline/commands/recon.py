@@ -369,6 +369,30 @@ def _recon_body(
                     + "\n\n".join(blocks)
                 )
 
+        # L1 recon audit Defect 07 (MED): render prior_disclosure context
+        # into the prompt so the model knows when a claim has been
+        # explicitly considered + declined upstream. Gate 5 already
+        # filters these out at cycle-start, but if a hyp slips through
+        # (e.g. revisit_justification present), the model should still
+        # know to consult the prior decision rationale instead of
+        # re-deriving the surface from scratch.
+        prior_disclosure_block = ""
+        prior = hyp.get("prior_disclosure")
+        if isinstance(prior, dict):
+            prior_disclosure_block = (
+                "\n\n# PRIOR DISCLOSURE HISTORY (DO NOT RE-DERIVE BLINDLY)\n\n"
+                f"This hypothesis was previously disclosed at "
+                f"{prior.get('pr', '(unspecified PR)')} with decision = "
+                f"**{prior.get('decision', '?')}**.\n\n"
+                f"Upstream rationale:\n> {(prior.get('rationale') or '(none recorded)')[:600]}\n\n"
+                f"Regression test: `{prior.get('regression_test', '(none)')}`\n\n"
+                "If your verdict aligns with the prior rationale, mark the "
+                "hypothesis FALSE / LOW confidence and cite the prior decision. "
+                "Only mark TRUE if you find concrete NEW evidence the prior "
+                "rationale no longer applies (e.g. a commit changed the "
+                "guard the team relied on)."
+            )
+
         full_prompt = f"""{rendered_orientation}
 
 ---
@@ -384,6 +408,7 @@ Claim:        {hyp.get("claim", "(see hypothesis brief above)")}
 Target file:  {hyp.get("target_file", "(see hypothesis brief above)")}
 Target lines: {hyp.get("target_lines", "(see hypothesis brief above)")}
 Notes:        {hyp.get("notes", "(none)")}
+{prior_disclosure_block}
 {code_section}
 """
 

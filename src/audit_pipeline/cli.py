@@ -29,6 +29,7 @@ from audit_pipeline.commands import (
     issue,
     kani,
     learn,
+    lint_hypotheses,
     litesvm,
     merkle,
     metrics,
@@ -125,6 +126,7 @@ main.add_command(watch.watch_cmd)                  # continuous source-code watc
 main.add_command(hunt.hunt_cmd)                    # recon -> debate -> PoC -> Kani -> report
 main.add_command(hunt_deep.hunt_deep_cmd)          # tool-using deep hunt (read_file, grep, find_function)
 main.add_command(learn.learn_cmd)                  # generate hyps from public disclosures
+main.add_command(lint_hypotheses.lint_hypotheses_cmd)  # pre-cycle YAML schema + duplicate + symbol-existence check
 main.add_command(expand_coverage.expand_coverage_cmd)  # generate hyps from spec, kani-gaps, wrapper
 main.add_command(derive_siblings.derive_siblings_cmd)  # auto-derive siblings from a confirmed finding (Tier 2 #8)
 main.add_command(cache.cache_group)                # PoC test cache (Tier 2 #10): list / flush / stats
