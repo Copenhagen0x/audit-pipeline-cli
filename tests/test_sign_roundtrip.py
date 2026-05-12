@@ -75,3 +75,58 @@ def test_sign_no_key_path_raises(tmp_path):
     f.write_text("x")
     with pytest.raises(sign_mod.SignError):
         sign_mod.sign_file(f, key_path=None)
+
+
+# ───────────────── domain-separation tests (FIX B-#29) ─────────────────
+
+
+def test_infer_domain_recognizes_merkle_filenames(tmp_path):
+    """Merkle sidecars must auto-pick the merkle domain, not raw."""
+    p = tmp_path / "merkle.json"
+    p.write_text("{}", encoding="utf-8")
+    assert sign_mod._infer_domain(p) == "merkle"
+
+
+def test_infer_domain_recognizes_bundle_artefacts(tmp_path):
+    """Bundle artefact filenames (patch.diff, verification.json) must
+    auto-pick the bundle domain — a sig on patch.diff must not be
+    reusable as a sig on a disclosure report."""
+    assert sign_mod._infer_domain(tmp_path / "patch.diff") == "bundle"
+    assert sign_mod._infer_domain(tmp_path / "verification.json") == "bundle"
+
+
+def test_infer_domain_recognizes_heartbeat(tmp_path):
+    assert sign_mod._infer_domain(tmp_path / "heartbeat.json") == "heartbeat"
+
+
+def test_infer_domain_recognizes_disclosure(tmp_path):
+    assert sign_mod._infer_domain(tmp_path / "disclosure-finding-42.md") == "disclosure"
+
+
+def test_infer_domain_recognizes_customer_manifest(tmp_path):
+    assert sign_mod._infer_domain(tmp_path / "customer-manifest.json") == "customer"
+    assert sign_mod._infer_domain(tmp_path / "manifest.json") == "customer"
+
+
+def test_infer_domain_unknown_falls_back_to_raw(tmp_path):
+    """Unknown filename → raw (legacy v1 compat path). New code should
+    pass `domain=` explicitly instead of relying on inference."""
+    assert sign_mod._infer_domain(tmp_path / "random.txt") == "raw"
+
+
+def test_unknown_domain_explicitly_raises(tmp_path, fresh_keypair):
+    """Passing a domain that isn't in SIGN_DOMAINS must fail — silently
+    falling through to 'raw' would defeat the domain-separation guard."""
+    priv_path, _ = fresh_keypair
+    f = tmp_path / "x.txt"
+    f.write_text("payload", encoding="utf-8")
+    with pytest.raises(sign_mod.SignError):
+        sign_mod.sign_file(f, key_path=priv_path, domain="this-domain-doesnt-exist")
+
+
+def test_sign_domains_includes_all_required_tiers():
+    """Schema-stability assertion: every domain a producer might use
+    must exist in SIGN_DOMAINS. A removal breaks verification of
+    historical .sig files; catch it at test time."""
+    required = {"merkle", "bundle", "disclosure", "report", "heartbeat", "customer", "raw"}
+    assert required.issubset(set(sign_mod.SIGN_DOMAINS.keys()))
