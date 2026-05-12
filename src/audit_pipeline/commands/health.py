@@ -97,6 +97,27 @@ def health_cmd(
             checks.append({"name": f"{label}_log", "status": "ok",
                            "detail": f"fresh ({age_min:.1f} min)"})
 
+    # Cross-cutting audit Defect 22 follow-up: secrets file perms drift.
+    # /root/.audit-env starts at 0600 (install_systemd.sh enforces it) but
+    # operators sometimes `cp` a fresh env file and forget. A periodic
+    # health check surfaces the regression to the same Slack the daemons
+    # alert into.
+    env_file = Path("/root/.audit-env")
+    if env_file.exists():
+        try:
+            mode = env_file.stat().st_mode & 0o777
+        except OSError as e:
+            checks.append({"name": "audit_env_perms", "status": "warn",
+                           "detail": f"stat failed: {e}"})
+        else:
+            if mode & 0o077:
+                checks.append({"name": "audit_env_perms", "status": "fail",
+                               "detail": f"world/group-readable mode 0o{mode:03o} "
+                                         f"(should be 0o600). Run `chmod 600 /root/.audit-env`."})
+            else:
+                checks.append({"name": "audit_env_perms", "status": "ok",
+                               "detail": f"mode 0o{mode:03o}"})
+
     # Last hunt cycle (informational only)
     if db_path.exists():
         try:

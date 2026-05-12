@@ -16,6 +16,14 @@ if [[ ! -f /root/.audit-env ]]; then
     exit 1
 fi
 
+# Cross-cutting audit Defect 22 (HIGH operational): /root/.audit-env holds
+# ANTHROPIC_API_KEY + SMTP creds. World-readable perms would leak them to
+# any user the VPS later adds (e.g. a CI bot user). Force 0600 + owner=root.
+# Idempotent — run on every install.
+chmod 600 /root/.audit-env
+chown root:root /root/.audit-env
+echo "  hardened /root/.audit-env to 0600 root:root"
+
 if ! command -v audit-pipeline >/dev/null 2>&1; then
     echo "ERROR: audit-pipeline missing from PATH. Install audit-pipeline first."
     echo "  (looked in: $PATH)"
