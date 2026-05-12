@@ -172,6 +172,44 @@ class PostgresFindingsDB:
             cur = c.cursor()
             for stmt in SCHEMA_PG:
                 cur.execute(stmt)
+            # Versioned migrations (P3+P4 audit Defect 12 — parity with SQLite).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    version     INTEGER PRIMARY KEY,
+                    applied_at  TEXT    NOT NULL,
+                    description TEXT
+                )
+                """
+            )
+            from audit_pipeline.db import VERSIONED_MIGRATIONS
+            cur.execute("SELECT version FROM schema_version")
+            applied = {row["version"] for row in cur.fetchall()}
+            for version, description, statements in VERSIONED_MIGRATIONS:
+                if version in applied:
+                    continue
+                for stmt in statements:
+                    # The v1 migration creates the schema_version table —
+                    # already created above. Skip CREATE TABLE for it.
+                    if "CREATE TABLE" in stmt and "schema_version" in stmt:
+                        continue
+                    cur.execute(stmt)
+                cur.execute(
+                    "INSERT INTO schema_version (version, applied_at, description) "
+                    "VALUES (%s, %s, %s) ON CONFLICT (version) DO NOTHING",
+                    (version, _now(), description),
+                )
+
+    def get_schema_version(self) -> int:
+        """Return the highest applied schema migration version (0 if none)."""
+        with self._conn() as c:
+            cur = c.cursor()
+            try:
+                cur.execute("SELECT MAX(version) AS v FROM schema_version")
+                row = cur.fetchone()
+            except Exception:
+                return 0
+            return int(row["v"]) if row and row.get("v") is not None else 0
 
     # ---------- targets ----------
 

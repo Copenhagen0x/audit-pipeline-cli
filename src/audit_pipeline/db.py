@@ -160,6 +160,37 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Versioned migration system (P3+P4 audit follow-up — Defect 12, MED).
+# ---------------------------------------------------------------------------
+# The legacy ``_MIGRATIONS`` list above only adds columns. For changes
+# that need more (creating indexes after-the-fact, backfilling values,
+# splitting tables) we want a real schema_version table so we can
+# track which migrations have been applied on a given DB without
+# re-running them.
+#
+# Each VERSIONED_MIGRATIONS entry: (version, description, sql_statements).
+# Versions MUST be monotonically increasing. Each migration runs at
+# most once per DB.
+
+VERSIONED_MIGRATIONS: list[tuple[int, str, tuple[str, ...]]] = [
+    (
+        1,
+        "schema_version table + backfill record for legacy DBs",
+        (
+            """
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version     INTEGER PRIMARY KEY,
+                applied_at  TEXT    NOT NULL,
+                description TEXT
+            )
+            """,
+        ),
+    ),
+    # Future migrations append here with version=2, 3, ...
+]
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -216,6 +247,45 @@ class FindingsDB:
             for stmt in SCHEMA:
                 if "CREATE INDEX" in stmt:
                     c.execute(stmt)
+            # Phase 4: versioned migrations (records itself in schema_version).
+            self._apply_versioned_migrations(c)
+
+    def _apply_versioned_migrations(self, c: sqlite3.Connection) -> None:
+        """Apply any VERSIONED_MIGRATIONS not already recorded in schema_version.
+
+        Runs in the SAME connection/transaction as _init_schema so a partial
+        application can't leak (commit happens at context-manager exit).
+        """
+        # If schema_version doesn't exist yet, no version has been applied.
+        try:
+            applied: set[int] = {
+                row["version"] for row in
+                c.execute("SELECT version FROM schema_version")
+            }
+        except sqlite3.OperationalError:
+            applied = set()
+
+        for version, description, statements in VERSIONED_MIGRATIONS:
+            if version in applied:
+                continue
+            for stmt in statements:
+                c.execute(stmt)
+            c.execute(
+                "INSERT OR IGNORE INTO schema_version (version, applied_at, description) "
+                "VALUES (?, ?, ?)",
+                (version, _now(), description),
+            )
+
+    def get_schema_version(self) -> int:
+        """Return the highest applied schema migration version (0 if none)."""
+        with self._conn() as c:
+            try:
+                row = c.execute(
+                    "SELECT MAX(version) AS v FROM schema_version"
+                ).fetchone()
+            except sqlite3.OperationalError:
+                return 0
+            return int(row["v"]) if row and row["v"] is not None else 0
 
     # ---------- targets ----------
 
