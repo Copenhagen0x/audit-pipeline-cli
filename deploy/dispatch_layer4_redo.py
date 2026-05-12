@@ -271,9 +271,48 @@ def dispatch_one(hyp_id: str) -> dict:
     return {"hyp_id": hyp_id, "outcome": outcome, "note": note}
 
 
+def _prepare_bpf_environment() -> None:
+    """L3+L4 audit Defects 03 + 10: rebuild BPF + archive stale PoCs.
+
+    Mirrors the preflight in dispatch_layer4_v1.py so both L4 entry
+    paths converge on a fresh .so + clean tests/ dir before running.
+    """
+    import datetime as _dt
+    print("[preflight] cargo build-sbf ...", flush=True)
+    try:
+        rc = subprocess.run(
+            ["cargo", "build-sbf"],
+            cwd=str(WRAPPER_ROOT), capture_output=True, text=True, timeout=900,
+        )
+        if rc.returncode != 0:
+            print(f"[preflight] cargo build-sbf FAILED rc={rc.returncode}; "
+                  f"tail: {(rc.stderr or '')[-300:]}", flush=True)
+        else:
+            print(f"[preflight] cargo build-sbf OK", flush=True)
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as e:
+        print(f"[preflight] cargo build-sbf unavailable: {e}", flush=True)
+
+    archive_dir = WRAPPER_ROOT / "tests.archive" / _dt.datetime.utcnow().strftime("redo-preflight-%Y%m%dT%H%M%SZ")
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    n_archived = 0
+    for stale in (WRAPPER_ROOT / "tests").glob("litesvm_*.rs"):
+        if any(stale.stem.endswith(slug(h)[:40]) for h in REDO_HYPS):
+            continue
+        try:
+            stale.rename(archive_dir / stale.name)
+            n_archived += 1
+        except OSError:
+            pass
+    if n_archived:
+        print(f"[preflight] archived {n_archived} stale litesvm_*.rs → {archive_dir}",
+              flush=True)
+
+
 def main() -> int:
     print(f"L4 REDO with H1 template + error decoder")
     print(f"Hyps: {len(REDO_HYPS)}")
+    print()
+    _prepare_bpf_environment()
     print()
     results = {}
     with ThreadPoolExecutor(max_workers=CONCURRENCY) as ex:

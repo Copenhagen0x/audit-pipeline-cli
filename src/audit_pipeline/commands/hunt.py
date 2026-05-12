@@ -570,6 +570,39 @@ def _hunt_run(
     """Hunt cycle body, factored out so the snapshot lifecycle wraps it cleanly."""
 
     # ---------- Daily cap check ----------
+    # Orchestration audit Defect 02 (HIGH): two `audit-pipeline hunt`
+    # invocations against the same workspace previously raced on the
+    # DB + DailyCap state. SQLite WAL (Batch 3) helps with reads, but
+    # the right-shape fix is a workspace-level advisory lock so that
+    # only one cycle runs per workspace at a time. Best-effort: drops
+    # to a "no lock" warning on platforms without fcntl/msvcrt.
+    _lock_handle = None
+    try:
+        lock_path = workspace / ".hunt.lock"
+        _lock_handle = open(lock_path, "a+b")
+        try:
+            import fcntl
+            try:
+                fcntl.flock(_lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as e:
+                raise click.ClickException(
+                    f"Another `audit-pipeline hunt` is already running on this "
+                    f"workspace (locked via {lock_path}). Wait for it to finish, "
+                    f"or remove the lock if you're sure no other run is active."
+                ) from e
+        except ImportError:
+            try:
+                import msvcrt
+                msvcrt.locking(_lock_handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as e:
+                raise click.ClickException(
+                    f"Another hunt holds {lock_path}. Wait or remove."
+                ) from e
+    except OSError:
+        # Filesystem can't open lock file — proceed without lock with a warning.
+        console.print(f"[yellow]workspace lock unavailable; proceeding without"
+                      f" mutual exclusion[/yellow]")
+
     daily_cap = DailyCap(workspace / ".daily_spend.json", daily_cap_usd)
     # Skip pre-flight check when daily cap is disabled (cap_usd <= 0).
     # DailyCap.unlimited semantics: remaining_today() returns math.inf.
@@ -1712,9 +1745,11 @@ def _audit_pipeline_bin() -> str:
 
 
 def _slugify(text: str) -> str:
-    import re
-    s = re.sub(r"[^a-zA-Z0-9]+", "_", text.lower()).strip("_")
-    return s[:60] or "hunt_finding"
+    # Phase B 12-audit L1.5+L2 Defect 03: was independently truncating
+    # to [:60] while poc_llm.py's didn't, causing long hyp_ids to route
+    # to F7-fallback scaffold. Both now share `utils.slug.slug_for_hypothesis`.
+    from audit_pipeline.utils.slug import slug_for_hypothesis
+    return slug_for_hypothesis(text)
 
 
 # Orchestration audit Defect 08 (MED): SSRF guard for webhook_url.

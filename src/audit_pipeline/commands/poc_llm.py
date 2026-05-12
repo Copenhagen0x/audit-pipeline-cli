@@ -202,7 +202,7 @@ fn {finding_name}_sanity_no_op() {{
 2. Use ONLY types and functions you can see in `engine_source`. Do NOT invent APIs.
 3. The first test (`{finding_name}_fires`) MUST be designed so it FAILS / PANICS when the bug is real.
 4. The second test (`{finding_name}_sanity_no_op`) MUST always pass — it's a sanity check.
-5. If you cannot construct a meaningful witness state from the source code provided (e.g. needed functions are not exposed), output a Rust file with a single `#[ignore]` test that documents the limitation in a `// REASON:` comment. Do NOT fabricate APIs.
+5. If you cannot construct a meaningful witness state from the source code provided (e.g. needed functions are not exposed), output ONLY this line and nothing else: `// CANNOT_TEST: <one-sentence reason why this hyp cannot be empirically tested against the current source>`. Do NOT emit any `#[test]` fn. Do NOT emit `#[ignore]` tests. Do NOT fabricate APIs. The orchestrator detects the CANNOT_TEST sentinel and records the outcome as "test_unauthorable" without spending more time on this hyp.
 6. Output ONLY the complete Rust file content. No explanatory prose around it. The file content must be valid Rust syntax from line 1 to EOF.
 """
 
@@ -226,8 +226,15 @@ def extract_rust_from_response(text: str) -> str:
 
 
 def _slugify(s: str) -> str:
-    """Normalize a hyp ID into a Rust-safe identifier."""
-    return re.sub(r"[^a-z0-9_]+", "_", s.lower()).strip("_")
+    """Canonical hyp_id slug — same in hunt.py and poc_llm.py.
+
+    Phase B 12-audit L1.5+L2 Defect 03: previously this and hunt._slugify
+    diverged (different truncation), so long-ID hyps had mismatched PoC
+    filenames between author and runner. Both now defer to
+    ``utils.slug.slug_for_hypothesis``.
+    """
+    from audit_pipeline.utils.slug import slug_for_hypothesis
+    return slug_for_hypothesis(s)
 
 
 @click.command(name="poc-llm")
