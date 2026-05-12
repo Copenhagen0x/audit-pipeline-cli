@@ -17,6 +17,15 @@ hypotheses:
     severity: Critical
     bug_class: insurance-counter-vault-divergence
     engine_function: settle_flat_negative_pnl_not_atomic
+    prior_disclosure:
+      pr: https://github.com/aeyakovenko/percolator-prog/pull/39
+      decision: rejected
+      rationale: >
+        Strict-equality variant of H1 residual-conservation rejected by
+        PR #39. The team's intentional design uses inequality V >= C+I
+        with absorption remaining in residual.
+      regression_test: tests/test_a1_siphon_regression.rs
+      decision_date: 2026-04-20
     claim: >
       Define R = vault - c_tot - insurance_fund.balance (the senior
       residual, saturated at 0 on deficit). For every public _not_atomic

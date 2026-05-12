@@ -62,6 +62,16 @@ hypotheses:
   - id: PD4-residual-conservation
     class: invariant_property
     severity: Critical
+    prior_disclosure:
+      pr: https://github.com/aeyakovenko/percolator-prog/pull/39
+      decision: rejected
+      rationale: >
+        Cross-protocol restatement of H1 residual-conservation rejected by
+        PR #39 for percolator. Applies-to includes other perp DEXes where
+        the same invariant may or may not hold by analogy; needs
+        revisit_justification with per-protocol evidence to re-enable.
+      regression_test: tests/test_a1_siphon_regression.rs
+      decision_date: 2026-04-20
     claim: >
       The post-haircut residual cash on a market
       (vault - cash_locked_in_orderbook - claimable_pnl - insurance_counter)

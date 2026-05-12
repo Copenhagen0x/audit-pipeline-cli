@@ -29,6 +29,16 @@ hypotheses:
       helper shrinks the insurance counter, it MUST also debit the vault by
       the same amount, otherwise the residual grows without a corresponding
       credit obligation.
+    prior_disclosure:
+      pr: https://github.com/aeyakovenko/percolator-prog/pull/39
+      decision: rejected
+      rationale: >
+        Insurance absorption intentionally remains in residual for honest
+        two-party loss sharing. The A1 self-dealing siphon class is handled
+        by bounded dt, bounded price movement, exact solvency-envelope
+        validation, and A1 regression coverage. See tests/test_a1_siphon_regression.rs.
+      regression_test: tests/test_a1_siphon_regression.rs
+      decision_date: 2026-04-20
     applies_to: [percolator, drift, mango, marginfi]
     scope_conditions: [has_insurance_pool, has_haircut_accounting]
     bug_class: insurance-counter-vault-divergence
@@ -82,6 +92,16 @@ hypotheses:
       Every public/permissionless instruction that reaches use_insurance_buffer
       requires either an admin signer OR cannot drain the insurance pool below
       its initial floor.
+    prior_disclosure:
+      pr: https://github.com/aeyakovenko/percolator-prog/pull/39
+      decision: rejected
+      rationale: >
+        Permissionless trigger surface is part of the A1 self-dealing class
+        already handled by bounded dt + bounded price movement + exact
+        solvency-envelope validation. See A1 regression suite at
+        tests/test_a1_siphon_regression.rs (A1c TradeCpi matched-pair path).
+      regression_test: tests/test_a1_siphon_regression.rs
+      decision_date: 2026-04-20
     applies_to: [percolator]
     scope_conditions: [has_insurance_pool]
     bug_class: insurance-buffer-permissionless-trigger

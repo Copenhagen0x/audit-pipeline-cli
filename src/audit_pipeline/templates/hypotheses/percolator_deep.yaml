@@ -23,6 +23,15 @@ hypotheses:
     severity: Critical
     bug_class: vault-balance-divergence
     engine_function: absorb_protocol_loss
+    prior_disclosure:
+      pr: https://github.com/aeyakovenko/percolator-prog/pull/39
+      decision: rejected
+      rationale: >
+        Restates the H1-residual-conservation pattern from PR #39. Insurance
+        absorption intentionally remains in residual; A1 self-dealing siphon
+        class handled by bounded dt + price movement + solvency envelope.
+      regression_test: tests/test_a1_siphon_regression.rs
+      decision_date: 2026-04-20
     claim: >
       The post-haircut residual cash (vault - cash_locked_in_orderbook -
       claimable_pnl - insurance_counter) is conserved across every internal
@@ -42,6 +51,14 @@ hypotheses:
     severity: Critical
     bug_class: vault-balance-divergence
     engine_function: absorb_protocol_loss
+    prior_disclosure:
+      pr: https://github.com/aeyakovenko/percolator-prog/pull/39
+      decision: rejected
+      rationale: >
+        Same vault-balance class as PR #39's H1 cluster; addressed by the
+        same A1 regression suite + solvency envelope.
+      regression_test: tests/test_a1_siphon_regression.rs
+      decision_date: 2026-04-20
     claim: >
       For every market state transition, the change in vault balance equals
       the sum of (cash deposited into orderbook + claimable_pnl_credited
@@ -90,6 +107,14 @@ hypotheses:
     severity: Critical
     bug_class: insurance-counter-vault-divergence
     engine_function: absorb_protocol_loss
+    prior_disclosure:
+      pr: https://github.com/aeyakovenko/percolator-prog/pull/39
+      decision: rejected
+      rationale: >
+        Variant of the H1 residual-conservation cluster declined by PR #39.
+        Insurance/vault coupling is intentional design under A1 envelope.
+      regression_test: tests/test_a1_siphon_regression.rs
+      decision_date: 2026-04-20
     claim: >
       Every code path that mutates `insurance_fund.balance` is paired with
       an equal-magnitude mutation of `vault` in the same direction
