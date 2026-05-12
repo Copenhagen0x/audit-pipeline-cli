@@ -265,14 +265,37 @@ def _apply_patch(engine_repo: Path, patch_text: str) -> tuple[bool, str]:
     """
     if not (engine_repo / ".git").is_dir():
         return (False, f"{engine_repo} is not a git repo (need .git/)")
-    # Reset target file to HEAD so prior dirty state can't poison this apply.
-    try:
-        subprocess.run(
-            ["git", "checkout", "--", "src/percolator.rs"],
-            cwd=str(engine_repo), capture_output=True, text=True, timeout=10,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        pass
+    # Reset every touched file to HEAD so prior dirty state can't poison
+    # this apply. P3+P4 audit Defect 02 cont.: this used to hardcode
+    # `src/percolator.rs`; now reads `files_touched(patch)` so the reset
+    # works for any engine layout.
+    files = files_touched(patch_text) or ["src/percolator.rs"]
+    for f in files:
+        try:
+            subprocess.run(
+                ["git", "checkout", "--", f],
+                cwd=str(engine_repo), capture_output=True, text=True, timeout=10,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+    # P3+P4 audit Defect 02 (CRITICAL): capture each hunk's claimed
+    # ``@@ -<orig_line>,<n> +<new_line>,<m> @@`` BEFORE apply so we can
+    # verify post-apply that git didn't silently re-anchor the patch
+    # to a different location (`--recount` masks wrong-anchor patches
+    # by deriving line numbers from context alone).
+    import re as _re
+    claimed_hunks: list[tuple[str, int, int]] = []
+    current_file = None
+    for line in patch_text.splitlines():
+        if line.startswith("+++ b/"):
+            current_file = line[6:].strip()
+            continue
+        m = _re.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+        if m and current_file:
+            new_start = int(m.group(3))
+            new_count = int(m.group(4) or "1")
+            claimed_hunks.append((current_file, new_start, new_count))
     # Pass 1: --recount + --whitespace=fix lets git derive correct line
     # numbers from context. Tolerates LLM hallucinated line numbers.
     for flags in (
@@ -299,9 +322,75 @@ def _apply_patch(engine_repo: Path, patch_text: str) -> tuple[bool, str]:
             except subprocess.TimeoutExpired:
                 return (False, "git apply timed out")
             if proc.returncode == 0:
+                # P3+P4 audit Defect 02 (CRITICAL) post-apply check:
+                # diff the working tree against HEAD and confirm each
+                # cited hunk-anchor line is INSIDE the resulting diff
+                # range for the same file. If git's `--recount` re-
+                # anchored to a different region, the actual modified
+                # lines won't overlap with `claimed_hunks` and we
+                # refuse the apply.
+                anchor_ok, anchor_msg = _verify_anchors_post_apply(
+                    engine_repo, claimed_hunks,
+                )
+                if not anchor_ok:
+                    # Roll back the misapplied patch before returning
+                    _unapply_patch(engine_repo, patch_text)
+                    return (False,
+                            f"patch applied but at wrong anchor: {anchor_msg}")
                 return (True, "")
     return (False,
             f"git apply --check failed (tried --recount): {proc.stderr.strip()}")
+
+
+def _verify_anchors_post_apply(
+    engine_repo: Path,
+    claimed_hunks: list[tuple[str, int, int]],
+) -> tuple[bool, str]:
+    """Confirm each claimed `@@ +<line>,<count> @@` overlaps the actual
+    modified line range in the working tree.
+
+    Runs ``git diff --unified=0 -- <file>`` per touched file and parses
+    the post-image hunks. For each claim ``(file, start, count)``,
+    require the claim's range to overlap at least one actual modified
+    range. Tolerates ±10 lines slack to absorb whitespace fixups.
+    """
+    if not claimed_hunks:
+        return (True, "no hunk anchors to verify")
+    import re as _re
+    by_file: dict[str, list[tuple[int, int]]] = {}
+    files = sorted({f for f, _, _ in claimed_hunks})
+    SLACK = 10
+    for f in files:
+        try:
+            proc = subprocess.run(
+                ["git", "diff", "--unified=0", "--", f],
+                cwd=str(engine_repo),
+                capture_output=True, text=True, timeout=20,
+            )
+        except (subprocess.TimeoutExpired, OSError) as e:
+            return (False, f"git diff failed for {f}: {e}")
+        if proc.returncode != 0:
+            return (False, f"git diff exit {proc.returncode} for {f}")
+        ranges: list[tuple[int, int]] = []
+        for line in (proc.stdout or "").splitlines():
+            m = _re.match(r"^@@ -(?:\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line)
+            if m:
+                start = int(m.group(1))
+                count = int(m.group(2) or "1")
+                ranges.append((start, count))
+        by_file[f] = ranges
+    for f, start, count in claimed_hunks:
+        actual_ranges = by_file.get(f, [])
+        claim_lo, claim_hi = start, start + count + SLACK
+        overlapping = any(
+            (a_start <= claim_hi and a_start + a_count + SLACK >= claim_lo)
+            for a_start, a_count in actual_ranges
+        )
+        if not overlapping:
+            return (False,
+                    f"file {f}: claimed @@ +{start},{count} @@ doesn't "
+                    f"overlap any actual modification (ranges: {actual_ranges})")
+    return (True, f"all {len(claimed_hunks)} hunk anchors verified")
 
 
 def _unapply_patch(engine_repo: Path, patch_text: str) -> bool:
