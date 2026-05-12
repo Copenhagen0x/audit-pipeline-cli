@@ -122,6 +122,18 @@ def write_authorization(
       - verification.json is missing or shows any FAIL
       - typed phrase doesn't match expected literal
     """
+    # P3+P4 audit Defect 03 (HIGH): previously an empty engine_sha was
+    # silently accepted, then validate_authorization compared "" == ""
+    # at PR-open time and the gate passed trivially. Force a 40-hex
+    # check on the way IN to the marker.
+    import re as _re_auth
+    if not _re_auth.fullmatch(r"[0-9a-fA-F]{40}", engine_sha or ""):
+        raise AuthorizationInvalid(
+            f"engine_sha must be a 40-character git hash; got "
+            f"{(engine_sha or '')!r} (length {len(engine_sha or '')}). "
+            f"Resolve via `git rev-parse HEAD` before authorizing."
+        )
+
     p_path = patch_path(workspace, finding_id)
     if not p_path.is_file():
         raise AuthorizationInvalid(
@@ -243,6 +255,19 @@ def validate_authorization(
     if marker.finding_id != finding_id:
         raise AuthorizationInvalid(
             f"marker finding_id={marker.finding_id} != requested={finding_id}"
+        )
+
+    # P3+P4 audit Defect 03 (HIGH) cont.: belt + suspenders on validate.
+    # Reject if EITHER side is empty/short — the constant-time match in
+    # ``hmac.compare_digest`` would otherwise return True for ``"" == ""``.
+    import re as _re_auth2
+    if (
+        not _re_auth2.fullmatch(r"[0-9a-fA-F]{40}", marker.engine_sha or "")
+        or not _re_auth2.fullmatch(r"[0-9a-fA-F]{40}", current_engine_sha or "")
+    ):
+        raise AuthorizationInvalid(
+            f"engine_sha must be a 40-hex git hash on BOTH sides; got "
+            f"marker={marker.engine_sha!r}, current={current_engine_sha!r}."
         )
 
     if marker.engine_sha != current_engine_sha:

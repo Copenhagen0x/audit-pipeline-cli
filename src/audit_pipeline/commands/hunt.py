@@ -464,6 +464,42 @@ def hunt_cmd(
             tmp3.close()
             hypotheses = tmp3.name
 
+    # Orchestration audit Defect 01 (HIGH): `--engine-only` previously
+    # was a NO-OP — declared, captured, never read. Now it actually
+    # filters out wrapper-only hyps (target_file under wrapper/ OR
+    # applies_to == ["wrapper"]).
+    if engine_only:
+        import tempfile as _tempfile4
+        import yaml as _yaml4
+        try:
+            _doc = _yaml4.safe_load(Path(hypotheses).read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001
+            _doc = {}
+        _hyps_in = _doc.get("hypotheses") or []
+        def _is_engine_hyp(h: dict) -> bool:
+            tgt = (h.get("target_file") or "")
+            if tgt.startswith("target/wrapper/") or tgt.startswith("wrapper/src/"):
+                return False
+            applies = h.get("applies_to") or []
+            if isinstance(applies, list) and len(applies) == 1 and "wrapper" in applies[0].lower():
+                return False
+            return True
+        kept_eo = [h for h in _hyps_in if _is_engine_hyp(h)]
+        dropped_eo = len(_hyps_in) - len(kept_eo)
+        if dropped_eo > 0:
+            console.print(
+                f"  [cyan]--engine-only: dropped {dropped_eo} wrapper-only "
+                f"hyps; {len(kept_eo)} remain[/cyan]"
+            )
+            tmp4 = _tempfile4.NamedTemporaryFile(
+                mode="w", suffix=".yaml", delete=False, encoding="utf-8",
+            )
+            _yaml4.safe_dump(
+                {"hypotheses": kept_eo}, tmp4, sort_keys=False, allow_unicode=True,
+            )
+            tmp4.close()
+            hypotheses = tmp4.name
+
     if not is_available():
         raise click.ClickException(
             "ANTHROPIC_API_KEY required for hunt. Set it and re-run."
