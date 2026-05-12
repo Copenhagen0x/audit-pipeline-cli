@@ -266,6 +266,15 @@ fi
 
 if [ -f "$WORKSPACE/findings.db" ] && command -v sqlite3 >/dev/null 2>&1; then
     REPRO_BASE="https://api.jelleo.com/cycles/$LATEST"
+    # Orchestration audit Defect 07 (MED): $LATEST flows directly into a
+    # SQL string. Although LATEST today is a hunt-dir name (timestamped +
+    # secrets.token_hex(2) suffixed — operator-controlled), the brittle
+    # pattern needs locking down. Validate against the strict cycle-id
+    # shape BEFORE interpolation; refuse anything else.
+    if ! printf '%s' "$LATEST" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'; then
+        echo "publish_cycle: refusing unsafe cycle id $LATEST" >&2
+        exit 1
+    fi
     CONFIRMED_IDS=$(sqlite3 "$WORKSPACE/findings.db" \
         "SELECT id FROM findings WHERE cycle_id='$LATEST' AND status='confirmed' AND severity IN ('Critical','High');" \
         2>/dev/null || true)

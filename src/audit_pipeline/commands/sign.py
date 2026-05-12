@@ -18,6 +18,7 @@ Programmatic API:
 from __future__ import annotations
 
 import base64
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -283,6 +284,7 @@ def verify_cmd(
     schema = "jelleo-sign/v1"   # default for legacy .sig files without Schema:
     domain_id = "raw"           # default for legacy files
     signed_file_name = ""
+    signed_bytes_claim: int | None = None
     for line in sig_text.splitlines():
         if line.startswith("-----BEGIN JELLEO"):
             in_block = True
@@ -296,10 +298,37 @@ def verify_cmd(
                 domain_id = line.split(":", 1)[1].strip()
             elif line.startswith("Signed-File:"):
                 signed_file_name = line.split(":", 1)[1].strip()
+            elif line.startswith("Signed-Bytes:"):
+                try:
+                    signed_bytes_claim = int(line.split(":", 1)[1].strip())
+                except ValueError:
+                    signed_bytes_claim = None
             elif ":" not in line:
                 sig_b64 += line.strip()
     if not sig_b64:
         raise click.ClickException("Could not extract signature bytes from sig file.")
+
+    # Cross-cutting audit Defect 09: previously this only printed a YELLOW
+    # WARNING when ``Signed-File:`` didn't match the on-disk filename and
+    # then proceeded to verify anyway, so a CI script grepping for the
+    # success line accepted a rebound .sig as valid. Now: hard-FAIL.
+    if signed_file_name and signed_file_name != file_path.name:
+        raise click.ClickException(
+            f"signature was issued for {signed_file_name!r} but verifying "
+            f"against {file_path.name!r}: refusing — rename the file to "
+            f"match Signed-File: header, or re-sign."
+        )
+
+    # Cross-cutting audit Defect 09 cont.: also cross-check Signed-Bytes
+    # against the actual file length so a forged sig claiming
+    # ``Signed-Bytes: 0`` can't sneak through.
+    if signed_bytes_claim is not None:
+        actual_bytes = file_path.stat().st_size
+        if signed_bytes_claim != actual_bytes:
+            raise click.ClickException(
+                f"signature claims Signed-Bytes={signed_bytes_claim} but "
+                f"file is {actual_bytes} bytes — refusing."
+            )
 
     # Reconstruct the signed message exactly as sign_file did.
     if schema.startswith("jelleo-sign/v2"):
@@ -308,13 +337,6 @@ def verify_cmd(
             raise click.ClickException(
                 f"signature uses unknown domain '{domain_id}'; cannot verify"
             )
-        # Verify the filename matches — prevents sig-rebinding attacks.
-        if signed_file_name and signed_file_name != file_path.name:
-            console.print(
-                f"[yellow]Warning: signature was issued for "
-                f"{signed_file_name!r} but verifying against "
-                f"{file_path.name!r}[/yellow]"
-            )
         signed_message = (
             domain_tag
             + (signed_file_name or file_path.name).encode("utf-8")
@@ -322,7 +344,20 @@ def verify_cmd(
             + file_path.read_bytes()
         )
     else:
-        # Legacy v1: raw bytes only.
+        # P3+P4 audit Defect 06: previously the v1-legacy verify path was
+        # an unconditional fall-through. An attacker who delivered a
+        # forged .sig with a stripped ``Schema:`` line would have the
+        # signature reconstructed as raw-bytes-only — no domain
+        # separation, no filename binding. Now require an explicit
+        # operator opt-in via env to verify legacy v1 sigs.
+        if (os.environ.get("JELLEO_ALLOW_LEGACY_V1_VERIFY") or "") != "1":
+            raise click.ClickException(
+                "signature is jelleo-sign/v1 (legacy raw-bytes mode). "
+                "v1 has no domain-separation and no filename binding — "
+                "refusing by default. If verifying a historical signature "
+                "this is expected for, set "
+                "JELLEO_ALLOW_LEGACY_V1_VERIFY=1 and re-run."
+            )
         signed_message = file_path.read_bytes()
 
     try:

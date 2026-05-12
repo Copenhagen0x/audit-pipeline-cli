@@ -99,20 +99,35 @@ def derive_severity(
       6. Verdict NEEDS_LAYER_2 -> LOW
       7. Otherwise -> INFO
     """
+    # Cross-cutting audit Defect 04 (HIGH): previously an explicit
+    # ``severity: Critical`` in the YAML short-circuited everything. A
+    # hypothesis with verdict=REJECTED + poc_fired=False could still
+    # surface as Critical on the cover page and customer manifests. Now
+    # we cap the explicit override by the derived severity — author can
+    # only LOWER, never raise above what the empirical signal supports.
+
+    def _derive_intrinsic() -> Severity:
+        if poc_fired:
+            if hypothesis_class == "invariant_property":
+                return Severity.CRITICAL
+            if hypothesis_class == "authorization":
+                return Severity.CRITICAL
+            return Severity.HIGH
+        if verdict == "TRUE":
+            return Severity.HIGH if debate_promoted else Severity.MEDIUM
+        if verdict == "NEEDS_LAYER_2_TO_DECIDE":
+            return Severity.LOW
+        return Severity.INFO
+
+    intrinsic = _derive_intrinsic()
     if explicit:
-        return Severity.parse(explicit)
-
-    if poc_fired:
-        if hypothesis_class == "invariant_property":
-            return Severity.CRITICAL
-        if hypothesis_class == "authorization":
-            return Severity.CRITICAL
-        return Severity.HIGH
-
-    if verdict == "TRUE":
-        return Severity.HIGH if debate_promoted else Severity.MEDIUM
-
-    if verdict == "NEEDS_LAYER_2_TO_DECIDE":
-        return Severity.LOW
-
-    return Severity.INFO
+        requested = Severity.parse(explicit)
+        # Severity order: Critical (0) > High > Medium > Low > Info (4).
+        # `requested` overrides only if it's <= intrinsic (i.e., does not
+        # claim more severity than the empirical signal supports).
+        order = list(Severity)
+        if order.index(requested) >= order.index(intrinsic):
+            return requested
+        # Tried to claim higher severity than evidence supports — clamp.
+        return intrinsic
+    return intrinsic
