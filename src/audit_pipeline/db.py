@@ -143,6 +143,24 @@ SCHEMA = [
         PRIMARY KEY(engine_sha, hypothesis_id, poc_hash)
     )
     """,
+    # Cross-cutting audit Defect 14 (MED): hooks were fire-and-forget
+    # daemons with no replay protection. If a finding was re-transitioned
+    # to CONFIRMED (crash, manual re-trigger, audit replay) the same hook
+    # ran twice — doubling propagation spend, duplicating siblings. The
+    # hook_runs table dedupes by (finding_id, hook_name) so a successful
+    # run claims that pair and subsequent runs short-circuit.
+    """
+    CREATE TABLE IF NOT EXISTS hook_runs (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        finding_id     INTEGER NOT NULL,
+        hook_name      TEXT NOT NULL,
+        started_at     TEXT NOT NULL,
+        completed_at   TEXT,
+        outcome        TEXT,
+        error_msg      TEXT,
+        UNIQUE(finding_id, hook_name)
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_findings_target    ON findings(target_id)",
     "CREATE INDEX IF NOT EXISTS idx_findings_status    ON findings(status)",
     "CREATE INDEX IF NOT EXISTS idx_findings_severity  ON findings(severity)",
@@ -571,15 +589,50 @@ class FindingsDB:
         hook_name: str,
         target: Callable[[Path, int], None],
     ) -> None:
-        """Run one hook with structured logging (F21).
+        """Run one hook with structured logging (F21) + idempotency (Defect 14).
 
         Writes a single log file per invocation under workspace/hooks/.
         Schema is intentionally simple — one JSON line per phase
         (started, completed_or_failed) so it's grep-friendly.
+
+        Idempotency: claim (finding_id, hook_name) in hook_runs before
+        executing. If the row already exists with outcome='ok', skip the
+        re-run. SQLite UNIQUE(finding_id, hook_name) makes the claim atomic.
         """
         import json as _json
         import traceback as _tb
         from datetime import datetime, timezone
+
+        # Idempotency claim: refuse a re-run if a prior 'ok' outcome exists.
+        # A prior 'error' is allowed to retry (transient failures shouldn't
+        # block re-trigger). The claim itself is atomic via UNIQUE constraint.
+        started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        try:
+            with self._conn() as c:
+                existing = c.execute(
+                    "SELECT outcome FROM hook_runs WHERE finding_id = ? AND hook_name = ?",
+                    (finding_id, hook_name),
+                ).fetchone()
+                if existing and existing["outcome"] == "ok":
+                    return  # already succeeded — skip silently
+                if existing:
+                    # Prior error: clear the row so we can retry
+                    c.execute(
+                        "DELETE FROM hook_runs WHERE finding_id = ? AND hook_name = ?",
+                        (finding_id, hook_name),
+                    )
+                c.execute(
+                    "INSERT INTO hook_runs (finding_id, hook_name, started_at) VALUES (?, ?, ?)",
+                    (finding_id, hook_name, started),
+                )
+        except sqlite3.IntegrityError:
+            # Another writer claimed it between our SELECT and INSERT;
+            # treat that as "already running" and skip.
+            return
+        except sqlite3.OperationalError:
+            # Table missing on legacy DB or DB locked; fall through to
+            # the legacy fire-and-forget behavior (preserves backwards compat).
+            pass
 
         hooks_dir = workspace / "hooks"
         try:
@@ -589,7 +642,6 @@ class FindingsDB:
 
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         log_path = hooks_dir / f"{finding_id}-{hook_name}-{ts}.log"
-        started = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
         def _write(record: dict) -> None:
             try:
@@ -608,17 +660,28 @@ class FindingsDB:
 
         try:
             target(workspace, finding_id)
+            completed = datetime.now(timezone.utc).isoformat(timespec="seconds")
             _write({
                 "phase":        "completed",
-                "ts":           datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "ts":           completed,
                 "finding_id":   finding_id,
                 "hook":         hook_name,
                 "outcome":      "ok",
             })
+            try:
+                with self._conn() as c:
+                    c.execute(
+                        "UPDATE hook_runs SET completed_at = ?, outcome = ? "
+                        "WHERE finding_id = ? AND hook_name = ?",
+                        (completed, "ok", finding_id, hook_name),
+                    )
+            except sqlite3.OperationalError:
+                pass
         except Exception as e:  # noqa: BLE001
+            completed = datetime.now(timezone.utc).isoformat(timespec="seconds")
             _write({
                 "phase":        "failed",
-                "ts":           datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "ts":           completed,
                 "finding_id":   finding_id,
                 "hook":         hook_name,
                 "outcome":      "error",
@@ -626,6 +689,15 @@ class FindingsDB:
                 "error_msg":    str(e)[:500],
                 "traceback":    _tb.format_exc()[-2000:],
             })
+            try:
+                with self._conn() as c:
+                    c.execute(
+                        "UPDATE hook_runs SET completed_at = ?, outcome = ?, error_msg = ? "
+                        "WHERE finding_id = ? AND hook_name = ?",
+                        (completed, "error", str(e)[:500], finding_id, hook_name),
+                    )
+            except sqlite3.OperationalError:
+                pass
 
     def get_finding(self, finding_id: int) -> dict | None:
         with self._conn() as c:
