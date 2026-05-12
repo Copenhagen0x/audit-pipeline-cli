@@ -100,6 +100,28 @@ console = Console()
         "If omitted, uses the default branch HEAD at download time."
     ),
 )
+@click.option(
+    "--challenger-model",
+    default=None,
+    help=(
+        "L1.5 audit Defect — debate independence. The challenger normally "
+        "uses the same model as recon (DEFAULT_MODEL), defeating the point "
+        "of an adversarial second opinion. Pass a different model "
+        "(e.g. ``claude-opus-4-5``) so a same-mistake bias in one model "
+        "doesn't propagate into the debate."
+    ),
+)
+@click.option(
+    "--redact-proposer-evidence/--full-proposer-evidence",
+    default=False,
+    show_default=True,
+    help=(
+        "Pass only the proposer's verdict line (not the line citations + "
+        "code snippets the proposer pulled) to the challenger. Forces the "
+        "challenger to re-derive evidence rather than rubber-stamp the "
+        "proposer's reads."
+    ),
+)
 @click.pass_context
 def debate_cmd(
     ctx: click.Context,
@@ -112,6 +134,8 @@ def debate_cmd(
     auto: bool,
     source_repo: str | None,
     source_sha: str | None,
+    challenger_model: str | None,
+    redact_proposer_evidence: bool,
 ) -> None:
     """Render an adversarial CHALLENGER prompt for a hypothesis verdict.
 
@@ -170,6 +194,8 @@ def debate_cmd(
             target_file=target_file,
             output=output,
             auto=auto,
+            challenger_model=challenger_model,
+            redact_proposer_evidence=redact_proposer_evidence,
         )
     finally:
         if snap_cm is not None:
@@ -187,6 +213,8 @@ def _debate_body(
     target_file: str | None,
     output: Path | None,
     auto: bool,
+    challenger_model: str | None = None,
+    redact_proposer_evidence: bool = False,
 ) -> None:
     """Body of debate, factored out so the snapshot lifecycle wraps it cleanly."""
     if output is None:
@@ -224,13 +252,24 @@ def _debate_body(
 
     template = template_path.read_text(encoding="utf-8")
 
+    # L1.5 audit Defect — independence. When --redact-proposer-evidence is
+    # set, only the verdict line goes to the challenger so the challenger
+    # has to re-derive evidence rather than skim+rubber-stamp.
+    if redact_proposer_evidence:
+        proposer_evidence_for_challenger = (
+            "(redacted — challenger must re-derive evidence independently. "
+            "Only the proposer's final verdict line is below.)"
+        )
+    else:
+        proposer_evidence_for_challenger = proposer_text
+
     rendered = render_placeholders(
         template,
         HYPOTHESIS_ID=hypothesis_id,
         HYPOTHESIS_CLAIM=hypothesis_claim,
         TARGET_FILE=target_file,
         PROPOSER_VERDICT=_extract_verdict_section(proposer_text),
-        PROPOSER_EVIDENCE=proposer_text,
+        PROPOSER_EVIDENCE=proposer_evidence_for_challenger,
     )
 
     out_path = output / f"{hypothesis_id}_challenger.md"
@@ -266,7 +305,10 @@ def _debate_body(
         f"  Proposer:    {Path(proposer_verdict).name}\n"
     )
     try:
-        response = complete(rendered)
+        if challenger_model:
+            response = complete(rendered, model=challenger_model)
+        else:
+            response = complete(rendered)
     except LLMUnavailable as e:
         raise click.ClickException(str(e))
 
