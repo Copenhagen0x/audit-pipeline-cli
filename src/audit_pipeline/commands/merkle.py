@@ -10,6 +10,7 @@ Subcommands:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -18,12 +19,78 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from audit_pipeline.bundle.paths import (
+    patch_path,
+    verification_path,
+    writeup_path,
+)
 from audit_pipeline.db import open_findings_db
 from audit_pipeline.merkle import (
     SCHEMA_VERSION,
     cycle_merkle_root,
     cycle_merkle_summary,
 )
+
+
+def _sha256_or_empty(p: Path) -> str:
+    """Return hex sha256 of ``p`` (or empty string if missing/unreadable).
+
+    Empty-string sentinel means the field simply doesn't appear in the
+    canonical encoding (legacy cycles without published HTML/PDF stay
+    verifiable), but the moment a file exists, any byte-level rewrite
+    invalidates the Merkle root.
+    """
+    try:
+        if not p.is_file():
+            return ""
+        return hashlib.sha256(p.read_bytes()).hexdigest()
+    except OSError:
+        return ""
+
+
+def _enrich_finding_for_merkle(workspace: Path, finding: dict) -> dict:
+    """Compute ``bundle_digest`` for a finding row from the on-disk bundle.
+
+    bundle_digest = sha256 of canonical concat of patch.diff || NUL ||
+    verification.json || NUL || writeup.md, each file-or-empty. A finding
+    without a bundle gets ``bundle_digest=""`` (empty string canonical-
+    encodes as the field absent, preserving v3 root prefix compatibility).
+    """
+    enriched = dict(finding)
+    fid = finding.get("id")
+    if fid is None:
+        enriched["bundle_digest"] = ""
+        return enriched
+    h = hashlib.sha256()
+    any_part = False
+    for part_path in (
+        patch_path(workspace, int(fid)),
+        verification_path(workspace, int(fid)),
+        writeup_path(workspace, int(fid)),
+    ):
+        try:
+            if part_path.is_file():
+                h.update(part_path.read_bytes())
+                any_part = True
+        except OSError:
+            pass
+        h.update(b"\x00")
+    enriched["bundle_digest"] = h.hexdigest() if any_part else ""
+    return enriched
+
+
+def _enrich_cycle_for_merkle(workspace: Path, cycle: dict) -> dict:
+    """Compute ``cycle_html_sha256`` + ``cycle_pdf_sha256`` from the
+    published artefacts at compute time. Published path convention:
+    ``<workspace>/public/cycles/<cycle_id>/cycle.{html,pdf}``."""
+    enriched = dict(cycle)
+    cid = cycle.get("cycle_id")
+    if not cid:
+        return enriched
+    pub_dir = workspace / "public" / "cycles" / str(cid)
+    enriched["cycle_html_sha256"] = _sha256_or_empty(pub_dir / "cycle.html")
+    enriched["cycle_pdf_sha256"] = _sha256_or_empty(pub_dir / "cycle.pdf")
+    return enriched
 
 console = Console()
 
@@ -101,6 +168,12 @@ def compute_cmd(ctx: click.Context, cycle_id: str, out: Path | None, sign: bool)
         raise click.ClickException(f"cycle {cycle_id} not found in DB")
     findings = _findings_for_cycle(db, cycle_id)
 
+    # P3+P4 Defect 08 follow-through: enrich rows with computed digests
+    # BEFORE handing them to the canonical encoder so v4 fields actually
+    # bind to the on-disk artefacts (not just sit in the schema).
+    cycle = _enrich_cycle_for_merkle(workspace, cycle)
+    findings = [_enrich_finding_for_merkle(workspace, f) for f in findings]
+
     summary = cycle_merkle_summary(cycle, findings)
     out = out or _merkle_path(workspace, cycle_id)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -162,6 +235,9 @@ def verify_cmd(ctx: click.Context, cycle_id: str) -> None:
     if not cycle:
         raise click.ClickException(f"cycle {cycle_id} not found in DB")
     findings = _findings_for_cycle(db, cycle_id)
+    # Same enrichment as compute_cmd so verify recomputes the same root
+    cycle = _enrich_cycle_for_merkle(workspace, cycle)
+    findings = [_enrich_finding_for_merkle(workspace, f) for f in findings]
     current_root = cycle_merkle_root(cycle, findings)
 
     if saved_root == current_root:
@@ -219,7 +295,9 @@ def rebuild_all_cmd(ctx: click.Context, sign: bool) -> None:
             n_skipped += 1
             continue
         findings = _findings_for_cycle(db, cid)
-        summary = cycle_merkle_summary(c, findings)
+        c_enriched = _enrich_cycle_for_merkle(workspace, c)
+        findings = [_enrich_finding_for_merkle(workspace, f) for f in findings]
+        summary = cycle_merkle_summary(c_enriched, findings)
         sidecar.parent.mkdir(parents=True, exist_ok=True)
         sidecar.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
         if sign:

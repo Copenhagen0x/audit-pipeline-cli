@@ -322,3 +322,65 @@ def test_snapshot_excludes_per_finding_data(tmp_path: Path) -> None:
         assert set(entry.keys()) == allowed, (
             f"snapshot leaked extra keys: {set(entry.keys()) - allowed}"
         )
+
+
+# ─────────────────── v4 enrichment (bundle_digest + cycle artifacts) ───────────────────
+
+
+def test_cycle_html_sha256_changes_root_when_html_rewritten(tmp_path: Path) -> None:
+    """v4 attests to cycle.html bytes. Rewriting it after compute must
+    flip the recomputed root → verify FAILS (not just SCHEMA ROTATED)."""
+    cid = _seed(tmp_path)
+    # Stage a cycle.html before compute so its sha gets bound to the root
+    pub_dir = tmp_path / "public" / "cycles" / cid
+    pub_dir.mkdir(parents=True, exist_ok=True)
+    html = pub_dir / "cycle.html"
+    html.write_text("<html>original</html>", encoding="utf-8")
+    _invoke(tmp_path, "compute", cid, "--no-sign")
+
+    # Tamper: rewrite cycle.html
+    html.write_text("<html>TAMPERED</html>", encoding="utf-8")
+    r = _invoke(tmp_path, "verify", cid)
+    assert r.exit_code != 0
+    flat = " ".join(r.output.split())
+    assert "MISMATCH" in flat or "mismatch" in flat
+
+
+def test_bundle_digest_changes_root_when_patch_rewritten(tmp_path: Path) -> None:
+    """v4 attests to bundle patch.diff bytes. Rewriting patch after
+    compute must invalidate the recomputed root."""
+    from audit_pipeline.bundle.paths import patch_path
+    cid = _seed(tmp_path)
+    # Find the first finding's id, then stage a patch under its bundle dir
+    from audit_pipeline.db import FindingsDB
+    db = FindingsDB(tmp_path / "findings.db")
+    findings = [f for f in db.list_findings(limit=10) if f.get("cycle_id") == cid]
+    fid = findings[0]["id"]
+    patch = patch_path(tmp_path, fid)
+    patch.parent.mkdir(parents=True, exist_ok=True)
+    patch.write_text("--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n-old\n+new\n", encoding="utf-8")
+    _invoke(tmp_path, "compute", cid, "--no-sign")
+
+    # Tamper: rewrite patch.diff
+    patch.write_text("--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n-old\n+TAMPERED\n", encoding="utf-8")
+    r = _invoke(tmp_path, "verify", cid)
+    assert r.exit_code != 0
+    flat = " ".join(r.output.split())
+    assert "MISMATCH" in flat or "mismatch" in flat
+
+
+def test_enrich_finding_without_bundle_yields_empty_digest(tmp_path: Path) -> None:
+    """Legacy finding without an on-disk bundle: digest is "" (absent in
+    canonical encoding) so v3-prefix roots stay reproducible."""
+    from audit_pipeline.commands.merkle import _enrich_finding_for_merkle
+    finding = {"id": 999, "status": "confirmed"}
+    enriched = _enrich_finding_for_merkle(tmp_path, finding)
+    assert enriched["bundle_digest"] == ""
+
+
+def test_enrich_cycle_without_artifacts_yields_empty_shas(tmp_path: Path) -> None:
+    from audit_pipeline.commands.merkle import _enrich_cycle_for_merkle
+    cycle = {"cycle_id": "C-no-artifacts", "engine_sha": "x"}
+    enriched = _enrich_cycle_for_merkle(tmp_path, cycle)
+    assert enriched["cycle_html_sha256"] == ""
+    assert enriched["cycle_pdf_sha256"] == ""
