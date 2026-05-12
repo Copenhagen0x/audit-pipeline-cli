@@ -171,10 +171,14 @@ def heartbeat_cmd(
         console.print("[yellow]--no-sign set; skipped signing.[/yellow]")
         return
 
+    # P3+P4 audit Defect 10 (LOW): if the operator passes a non-default
+    # --out path (e.g. `--out my-attestation.json`), _infer_domain in
+    # sign.py would fall back to "raw" domain — silently downgrading
+    # crypto behavior. Pass the heartbeat domain explicitly.
     from audit_pipeline.commands.sign import SignError, default_key_path, sign_file
     priv_path = key or default_key_path(workspace)
     try:
-        sig_path = sign_file(out_path, priv_path)
+        sig_path = sign_file(out_path, priv_path, domain="heartbeat")
     except SignError as e:
         raise click.ClickException(str(e))
     console.print(f"[green]Signed[/green] {sig_path}")
