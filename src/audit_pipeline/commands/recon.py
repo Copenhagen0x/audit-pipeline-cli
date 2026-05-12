@@ -490,22 +490,54 @@ Notes:        {hyp.get("notes", "(none)")}
             f"will dispatch only the {len(rendered_prompts) - n_resumed} missing hyps"
         )
 
+    # Spend audit Defect 02 (HIGH): previously this submitted ALL hyps
+    # to the pool synchronously before any future returned. ``total_cost``
+    # was 0 for every gate check, making ``--budget-cap-usd`` a no-op
+    # within a single batch. Now: a lock-guarded "reserved" counter
+    # tracks in-flight estimated cost, and submissions block at the
+    # gate when reserved + actual would exceed cap. Real cost replaces
+    # the reservation on completion.
+    import threading
+    budget_lock = threading.Lock()
+    reserved_cost = 0.0   # estimated cost for in-flight calls
+
+    def _try_reserve(est: float) -> bool:
+        nonlocal reserved_cost
+        with budget_lock:
+            if total_cost + reserved_cost + est > budget_cap_usd:
+                return False
+            reserved_cost += est
+            return True
+
+    def _release_reservation(est: float, actual: float) -> float:
+        """Subtract reservation, add real cost, return new total."""
+        nonlocal reserved_cost, total_cost
+        with budget_lock:
+            reserved_cost -= est
+            total_cost += actual
+            return total_cost
+
     with ThreadPoolExecutor(max_workers=max_concurrent) as ex:
-        future_map = {}
+        future_map: dict = {}
+        future_est: dict = {}  # future → (hyp_id, est_cost) for release
+        # Submit in two phases: first reserve under lock; only submit if
+        # reservation succeeded. If cap is exhausted, mark for skip.
         for hyp_id, prompt_text in rendered_prompts:
             if hyp_id in results:
-                continue  # resumed from disk; don't re-pay
-            # Pre-check budget (rough estimate: assume max 30k tokens out per call)
+                continue  # resumed from disk
             est_cost = (
                 len(prompt_text) / 4 * COST_PER_INPUT_TOKEN
                 + 30_000 * COST_PER_OUTPUT_TOKEN
             )
-            if total_cost + est_cost > budget_cap_usd:
+            if not _try_reserve(est_cost):
                 skipped_for_budget.append(hyp_id)
                 continue
-            future_map[ex.submit(_dispatch_one, hyp_id, prompt_text)] = hyp_id
+            fut = ex.submit(_dispatch_one, hyp_id, prompt_text)
+            future_map[fut] = hyp_id
+            future_est[fut] = est_cost
 
         for future in as_completed(future_map):
+            est_cost = future_est.get(future, 0.0)
             hyp_id, result = future.result()
             results[hyp_id] = result
             if result.get("ok"):
@@ -515,7 +547,11 @@ Notes:        {hyp.get("notes", "(none)")}
                     result["input_tokens"] * COST_PER_INPUT_TOKEN
                     + result["output_tokens"] * COST_PER_OUTPUT_TOKEN
                 )
-                total_cost += cost
+                _release_reservation(est_cost, cost)
+            else:
+                # Failed call — still release the reservation (no real cost incurred)
+                _release_reservation(est_cost, 0.0)
+            if result.get("ok"):
                 # Write response to disk
                 resp_path = output / f"{hyp_id}_response.md"
                 resp_path.write_text(result["text"], encoding="utf-8")
