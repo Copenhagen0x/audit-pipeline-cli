@@ -563,6 +563,30 @@ def dispatch_one(hyp_id: str) -> dict:
         harness_text = re.sub(r"^\s*#\[kani::unwind\([^)]*\)\]\s*\n?", "", harness_text, flags=re.MULTILINE)
         harness_path.write_text(harness_text, encoding="utf-8")
 
+    # L3 audit gap follow-up: assertion_intent_check was only run on the
+    # FIRST-pass harness. If the fix-loop substantially rewrote the
+    # assertion (compile errors often pull the LLM toward weakening the
+    # spec to make it compile), the cached intent is stale. Rerun on the
+    # final harness and log if the intent diverges so operators can
+    # spot-check before trusting the verdict.
+    if fix_round > 0:
+        poc_path = POC_DIR / f"test_{slug(hyp_id)}.rs"
+        final_intent = assertion_intent_check(
+            harness_text,
+            poc_path.read_text() if poc_path.is_file() else "",
+        )
+        if final_intent != intent:
+            append_log({
+                "event": "kani_intent_diverged",
+                "hypothesis_id": hyp_id,
+                "harness_name": harness_name,
+                "dispatcher": "layer3_v2",
+                "initial_intent": intent,
+                "final_intent": final_intent,
+                "fix_rounds": fix_round,
+            })
+        intent = final_intent  # downstream logs the final, not the stale initial
+
     # Run actual verification
     verdict, full_out = cargo_kani_run(harness_name)
     if verdict == "FAILED_SPEC":
