@@ -185,45 +185,66 @@ def _gate_poc_fails_pre_patch(
         )
     except subprocess.TimeoutExpired:
         return GateResult(False, "cargo test timed out (>600s)", time.time() - t0)
+
+    # Phase B 12-audit P3 Defect 01: this gate used to substring-match the
+    # combined log for `"test result: FAILED" / "panicked at" / "assertion
+    # failed"`. A PoC using `assert!()` with custom messages, `assert_eq!`,
+    # `unimplemented!()`, `todo!()`, `process::abort()`, or a `#[ignore]`d
+    # test would match NONE of those, fall through to SKIP, and the bundle
+    # would be "verified" anyway because nothing forced a hard FAIL. Now
+    # we parse the libtest per-test result line for THIS specific test.
     combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    looks_compile_failed = (
-        "could not compile" in combined
-        or "error[E" in combined.split("test result:")[0]
-        or "did not match any tests" in combined
-        or "no test target" in combined.lower()
-    )
-    if looks_compile_failed:
+    from audit_pipeline.utils.cargo_text import parse_test_outcome
+    outcome = parse_test_outcome(combined, poc_test_name)
+
+    if outcome.status == "compile_failed":
         return GateResult(
             None,
             f"skipped — cargo failed to compile / no test target named "
             f"{poc_test_name} (this is NOT a bug-reproduction signal). "
-            f"stderr tail: {(proc.stderr or '')[-300:]}",
+            f"excerpt: {outcome.compile_excerpt[:300]}",
             time.time() - t0,
         )
-    looks_test_fired = (
-        "test result: FAILED" in combined
-        or "panicked at" in combined
-        or "assertion failed" in combined
-    )
-    if proc.returncode == 0 and not looks_test_fired:
+    if outcome.status == "ignored":
+        # A `#[ignore]`d test is NOT a fired PoC — the harness skipped it.
+        # Old gate would have seen `test result: ok` and silently accepted.
         return GateResult(
             False,
-            "PoC PASSED on unpatched repo — bug is not reproducible. "
-            "Either the PoC is wrong or the repo already has the fix.",
+            f"PoC test {poc_test_name} is `#[ignore]`d — refusing to count "
+            f"as bug reproduction. Re-author without `#[ignore]`.",
             time.time() - t0,
         )
-    if looks_test_fired:
+    if outcome.status == "fired":
         return GateResult(
             True,
-            f"PoC failed on unpatched repo (exit {proc.returncode}, "
-            f"assertion fired) — bug reproduces",
+            f"PoC test {poc_test_name} ran and FAILED on unpatched repo "
+            f"(binary: {outcome.binary_passed} passed, "
+            f"{outcome.binary_failed} failed) — bug reproduces",
+            time.time() - t0,
+            details={"outcome": outcome.status},
+        )
+    if outcome.status == "passed":
+        return GateResult(
+            False,
+            f"PoC test {poc_test_name} PASSED on unpatched repo — bug not "
+            "reproducible. Either the PoC is wrong or the repo already has "
+            "the fix.",
             time.time() - t0,
         )
-    # Non-zero exit but no test-fail signature found. Mark indeterminate.
+    if outcome.status == "not_run":
+        return GateResult(
+            False,
+            f"PoC test {poc_test_name} was NOT executed by `cargo test "
+            f"--test {poc_test_name}`. The test binary either doesn't "
+            "contain a function with this name (hallucinated PoC), or it "
+            "wasn't compiled in. Re-author the PoC.",
+            time.time() - t0,
+        )
+    # indeterminate — log truncated / unparseable
     return GateResult(
         None,
-        f"skipped — cargo exited {proc.returncode} without a recognizable "
-        f"test-result signature. stderr tail: {(proc.stderr or '')[-300:]}",
+        f"skipped — could not determine outcome of {poc_test_name} from "
+        f"cargo output (exit {proc.returncode}). Log may be truncated.",
         time.time() - t0,
     )
 
@@ -360,14 +381,57 @@ def _gate_poc_passes_post_patch(
         # Always roll back to keep the working tree clean
         _unapply_patch(engine_repo, patch_text)
 
-    if proc.returncode != 0:
+    # Phase B 12-audit P3 Defect 01 (post-patch half): this gate used to
+    # accept ANY rc=0 as PASS with no failure detection. If the patch broke
+    # compilation OR removed the test entirely, cargo could exit 0 (test
+    # not in this binary) and the gate would PASS the bundle. Mirror the
+    # pre-patch structured parse for symmetry.
+    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    from audit_pipeline.utils.cargo_text import parse_test_outcome
+    outcome = parse_test_outcome(combined, poc_test_name)
+
+    if outcome.status == "passed":
+        return GateResult(
+            True,
+            f"PoC test {poc_test_name} PASSED post-patch — bug fixed.",
+            time.time() - t0,
+            details={"outcome": outcome.status},
+        )
+    if outcome.status == "fired":
         return GateResult(
             False,
-            f"PoC still failed post-patch (exit {proc.returncode}). "
-            f"Patch did not fix the bug.",
+            f"PoC test {poc_test_name} still FAILED post-patch — patch did "
+            "not fix the bug.",
             time.time() - t0,
         )
-    return GateResult(True, "PoC passed post-patch — bug fixed", time.time() - t0)
+    if outcome.status == "ignored":
+        return GateResult(
+            False,
+            f"PoC test {poc_test_name} is `#[ignore]`d post-patch — patch "
+            "may have side-effected the test annotation. Re-author.",
+            time.time() - t0,
+        )
+    if outcome.status == "compile_failed":
+        return GateResult(
+            False,
+            f"Patch broke the build — `cargo test` failed to compile. "
+            f"Excerpt: {outcome.compile_excerpt[:300]}",
+            time.time() - t0,
+        )
+    if outcome.status == "not_run":
+        return GateResult(
+            False,
+            f"Post-patch, test {poc_test_name} is NOT in the test binary "
+            "(patch may have deleted the function, or the harness no "
+            "longer compiles it in). This is NOT 'bug fixed'.",
+            time.time() - t0,
+        )
+    # indeterminate
+    return GateResult(
+        None,
+        f"could not determine post-patch outcome of {poc_test_name}.",
+        time.time() - t0,
+    )
 
 
 def _gate_tests_pass_post_patch(
