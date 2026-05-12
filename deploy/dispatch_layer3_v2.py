@@ -524,6 +524,14 @@ def dispatch_one(hyp_id: str) -> dict:
 
     intent = assertion_intent_check(harness_text, (POC_DIR / f"test_{slug(hyp_id)}.rs").read_text() if (POC_DIR / f"test_{slug(hyp_id)}.rs").is_file() else "")
 
+    # L3+L4 audit Defect 04 (HIGH): per-function `#[kani::unwind(N)]`
+    # attributes OVERRIDE `--default-unwind`. The template ships
+    # `#[kani::unwind(8)]` which forced Kani to return SUCCESSFUL
+    # trivially under bounds too tight to actually find the bug. Strip
+    # ALL `#[kani::unwind(...)]` attributes before writing so the
+    # dispatcher's --default-unwind value actually wins.
+    harness_text = re.sub(r"^\s*#\[kani::unwind\([^)]*\)\]\s*\n?", "", harness_text, flags=re.MULTILINE)
+
     harness_path.write_text(harness_text, encoding="utf-8")
 
     # Compile-fix loop
@@ -551,6 +559,8 @@ def dispatch_one(hyp_id: str) -> dict:
                         "dispatcher": "layer3_v2"})
             return {"hyp_id": hyp_id, "outcome": "fix_author_failed"}
         harness_text = new_text
+        # Same unwind-strip on fixed harnesses
+        harness_text = re.sub(r"^\s*#\[kani::unwind\([^)]*\)\]\s*\n?", "", harness_text, flags=re.MULTILINE)
         harness_path.write_text(harness_text, encoding="utf-8")
 
     # Run actual verification

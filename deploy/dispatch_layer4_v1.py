@@ -472,6 +472,56 @@ def dispatch_one(hyp_id: str) -> dict:
             "classifier_note": classifier_note}
 
 
+def _prepare_bpf_environment() -> None:
+    """L3+L4 audit Defect 03 (HIGH) + Defect 10 (MED): two preflights.
+
+    1. Rebuild the BPF .so so we're not testing yesterday's binary. The
+       cycle's pinned engine_sha is meaningless if `target/deploy/*.so`
+       is weeks old from a different feature set. Running `cargo
+       build-sbf` once at dispatcher start guarantees the on-chain
+       artefact matches the source we're claiming to test.
+    2. Sweep stale L4 PoCs out of `wrapper/tests/litesvm_*.rs`. Yesterday
+       437 stale tests accumulated; cargo's discovery step parses them
+       all for every `--test <name>` invocation, exploding compile time
+       and risking E0428 conflicts that mask the target's compile
+       outcome.
+    """
+    import datetime as _dt
+    print("[preflight] rebuilding BPF binary with cargo build-sbf ...", flush=True)
+    try:
+        rc = subprocess.run(
+            ["cargo", "build-sbf"],
+            cwd=str(WRAPPER_ROOT), capture_output=True, text=True, timeout=900,
+        )
+        if rc.returncode != 0:
+            print(f"[preflight] cargo build-sbf FAILED (rc={rc.returncode}). "
+                  "Continuing with whatever .so is on disk; expect infra "
+                  f"failures. stderr tail: {(rc.stderr or '')[-400:]}",
+                  flush=True)
+        else:
+            print(f"[preflight] cargo build-sbf OK", flush=True)
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as e:
+        print(f"[preflight] cargo build-sbf unavailable: {e}", flush=True)
+
+    # Sweep stale PoCs into an archive dir so they don't pollute cargo
+    # discovery, but keep them retrievable if forensics needs them.
+    archive_dir = WRAPPER_ROOT / "tests.archive" / _dt.datetime.utcnow().strftime("preflight-%Y%m%dT%H%M%SZ")
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    n_archived = 0
+    for stale in (WRAPPER_ROOT / "tests").glob("litesvm_*.rs"):
+        # Keep the current cycle's PoCs in place; archive only the rest.
+        if any(stale.stem.endswith(slug(h)[:40]) for h in KANI_CONFIRMED):
+            continue
+        try:
+            stale.rename(archive_dir / stale.name)
+            n_archived += 1
+        except OSError:
+            pass
+    if n_archived:
+        print(f"[preflight] archived {n_archived} stale litesvm_*.rs → {archive_dir}",
+              flush=True)
+
+
 def main() -> int:
     LITESVM_OUT.mkdir(parents=True, exist_ok=True)
     print(f"Layer 4 v1 LiteSVM dispatcher")
@@ -479,6 +529,8 @@ def main() -> int:
     print(f"Concurrency: {CONCURRENCY}")
     print(f"Max fix rounds: {MAX_FIX_ROUNDS}")
     print(f"Per-hyp cargo timeout: {CARGO_TIMEOUT}s")
+    print()
+    _prepare_bpf_environment()
     print()
 
     reproduced: list[str] = []
