@@ -313,11 +313,26 @@ def hunt_cmd(
     # was retracted in part because the wrapper clone was 3 commits behind
     # at cycle start, and one of those missing commits had already fixed
     # the bug class our PoC then "confirmed".
-    if not ignore_freshness and not resume_cycle:
+    #
+    # Phase B self-audit Defect 04: previously this also skipped on
+    # --resume-cycle, which is the EXACT scenario the gate exists to catch
+    # (a stale cycle resumed hours/days later runs against code upstream
+    # has already moved past). Now: always run the gate; the operator can
+    # still pass --ignore-freshness if a frozen-snapshot audit is the
+    # intent. Resume gets an extra warning line if upstream drifted.
+    if not ignore_freshness:
         fresh = check_freshness(workspace=workspace, max_stale_hours=max_stale_hours)
         if fresh.passed is False:
+            extra = (
+                "\n\nThis is a RESUME path; the cycle's recorded engine_sha "
+                "is from when the cycle originally started. Upstream may have "
+                "moved past it. Re-run `audit-pipeline freshness --update` "
+                "before resuming, OR pass --ignore-freshness if you "
+                "intentionally want to finish the audit against the original "
+                "snapshot."
+            ) if resume_cycle else ""
             raise click.ClickException(
-                f"Gate L0.freshness FAILED:\n  {fresh.reason}"
+                f"Gate L0.freshness FAILED:\n  {fresh.reason}{extra}"
             )
         if fresh.passed is None:
             console.print(

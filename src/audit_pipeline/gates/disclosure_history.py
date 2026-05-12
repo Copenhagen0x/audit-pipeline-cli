@@ -52,6 +52,12 @@ _VALID_DECISIONS = (
     _REJECTED_DECISIONS | _RESOLVED_DECISIONS | {"pending", "superseded", "deferred"}
 )
 
+# Phase B self-audit Defect 05: ``revisit_justification: "."`` would have
+# silently disabled the gate. Require a substantive rationale + at least an
+# author and a date so the bypass leaves a tamper-evident trail.
+_REVISIT_MIN_LEN = 80
+_REVISIT_REQUIRED_FIELDS = ("revisit_author", "revisit_date")
+
 
 def _normalize_decision(d: Any) -> str:
     return str(d or "").strip().lower()
@@ -133,11 +139,43 @@ def check_disclosure_history(hypothesis: dict) -> GateResult:
 
     if decision in _REJECTED_DECISIONS:
         if revisit:
+            # Defect 05: enforce substantive justification + author + date so
+            # ``revisit_justification: "."`` no longer disables the gate.
+            if len(revisit) < _REVISIT_MIN_LEN:
+                return GateResult(
+                    passed=False,
+                    reason=(
+                        f"prior PR {pr} was {decision}; the "
+                        f"``revisit_justification`` is only "
+                        f"{len(revisit)} chars — must be at least "
+                        f"{_REVISIT_MIN_LEN} chars explaining what changed "
+                        "since the prior decision (a substantive paragraph, "
+                        "not a placeholder)."
+                    ),
+                    duration_s=time.time() - t0,
+                    details={**details, "revisit_len": len(revisit)},
+                )
+            missing_fields = [
+                f for f in _REVISIT_REQUIRED_FIELDS if not (hypothesis.get(f) or "").strip()
+            ]
+            if missing_fields:
+                return GateResult(
+                    passed=False,
+                    reason=(
+                        f"prior PR {pr} was {decision}; "
+                        "``revisit_justification`` present but the bypass "
+                        "lacks an audit trail. Add the missing "
+                        f"fields on this hypothesis: {missing_fields}."
+                    ),
+                    duration_s=time.time() - t0,
+                    details={**details, "missing_fields": missing_fields},
+                )
             return GateResult(
                 passed=True,
                 reason=(
-                    f"prior PR {pr} was {decision}, but revisit_justification "
-                    f"is present: {revisit[:120]}..."
+                    f"prior PR {pr} was {decision}; revisit by "
+                    f"{hypothesis.get('revisit_author')} on "
+                    f"{hypothesis.get('revisit_date')}: {revisit[:120]}..."
                 ),
                 duration_s=time.time() - t0,
                 details=details,
@@ -147,7 +185,8 @@ def check_disclosure_history(hypothesis: dict) -> GateResult:
             reason=(
                 f"prior PR {pr} was {decision} with rationale "
                 f"\"{rationale[:160]}...\" and no ``revisit_justification`` "
-                "on this hypothesis. Add ``revisit_justification:`` if the "
+                "on this hypothesis. Add ``revisit_justification:`` (≥80 "
+                "chars) plus ``revisit_author`` and ``revisit_date`` if the "
                 "prior decision no longer applies, OR remove this hypothesis "
                 "from the library."
             ),

@@ -31,13 +31,15 @@ from audit_pipeline.gates import GateResult
 # punctuation around the SHA are common in markdown.
 _SHA_RE = re.compile(r"(?<![0-9a-fA-F])([0-9a-fA-F]{7,40})(?![0-9a-fA-F])")
 
-# Heuristic noise filter: only treat a hex string as a candidate SHA if it
-# looks adjacent to git/repo/commit/HEAD/SHA prose, OR appears in a
-# repo@sha-style anchor. Otherwise long hex strings would be false-positive
-# matches (e.g. Merkle roots, request IDs, ed25519 fingerprints).
-_SHA_CONTEXT_HINTS = (
-    "sha", "commit", "@", "head", "ref", "pinned", "tag", "branch",
-    "engine_sha", "wrapper_sha",
+# Phase B self-audit Defect 08: previously these were substring-matched,
+# so ``ref`` matched ``reference``/``preferred``/``refactor``, ``sha``
+# matched ``shabby``, and ``@`` matched every email/handle in the body —
+# burning gh-api quota on false positives and pushing the gate into
+# indeterminate territory. Now require word-boundary matches.
+_SHA_CONTEXT_HINTS_RE = re.compile(
+    r"\b(?:sha|commit|head|ref|branch|tag|pinned|engine[_ ]?sha|wrapper[_ ]?sha)\b"
+    r"|@\s*$",   # explicit ``repo @ <sha>`` anchor right before the hex
+    re.IGNORECASE,
 )
 
 
@@ -45,12 +47,13 @@ def _looks_like_sha_context(body: str, span: tuple[int, int]) -> bool:
     """Return True if the hex match at ``span`` is in git-context prose.
 
     Hex like Merkle roots also appear in bodies; we don't want to look those
-    up as commits and fail the gate on Merkle-root mismatches. We require one
-    of the context hints within ~40 chars before the match.
+    up as commits and fail the gate on Merkle-root mismatches. We require
+    one of the word-boundary context hints within ~40 chars before the
+    match.
     """
     start, _ = span
-    context = body[max(0, start - 40):start].lower()
-    return any(hint in context for hint in _SHA_CONTEXT_HINTS)
+    context = body[max(0, start - 40):start]
+    return bool(_SHA_CONTEXT_HINTS_RE.search(context))
 
 
 def extract_candidate_shas(body: str) -> list[str]:

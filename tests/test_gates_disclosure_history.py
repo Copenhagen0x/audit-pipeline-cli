@@ -33,6 +33,9 @@ class TestCheckDisclosureHistory:
         assert r.details["decision"] == "rejected"
 
     def test_prior_rejected_with_revisit_passes(self):
+        # Phase B self-audit Defect 05: a substantive revisit_justification
+        # alone isn't enough — the bypass must carry an audit trail
+        # (revisit_author + revisit_date).
         h = {
             "id": "H1-r2",
             "prior_disclosure": {
@@ -44,10 +47,47 @@ class TestCheckDisclosureHistory:
                 "new commit abc123 invalidates the prior rationale because it removes"
                 " the A1 regression coverage that the team relied on"
             ),
+            "revisit_author": "kirill@jelleo.com",
+            "revisit_date": "2026-05-12",
         }
         r = check_disclosure_history(h)
         assert r.passed is True
-        assert "revisit_justification is present" in r.reason
+        assert "revisit by" in r.reason
+
+    def test_revisit_too_short_fails(self):
+        """Defect 05: ``revisit_justification: "."`` must NOT bypass the gate."""
+        h = {
+            "id": "X",
+            "prior_disclosure": {"decision": "rejected"},
+            "revisit_justification": ".",
+            "revisit_author": "a@b",
+            "revisit_date": "2026-01-01",
+        }
+        r = check_disclosure_history(h)
+        assert r.passed is False
+        assert "only 1 chars" in r.reason or "substantive paragraph" in r.reason
+
+    def test_revisit_missing_author_fails(self):
+        h = {
+            "id": "X",
+            "prior_disclosure": {"decision": "rejected"},
+            "revisit_justification": "a" * 100,
+            "revisit_date": "2026-01-01",
+        }
+        r = check_disclosure_history(h)
+        assert r.passed is False
+        assert "revisit_author" in r.reason
+
+    def test_revisit_missing_date_fails(self):
+        h = {
+            "id": "X",
+            "prior_disclosure": {"decision": "rejected"},
+            "revisit_justification": "a" * 100,
+            "revisit_author": "a@b",
+        }
+        r = check_disclosure_history(h)
+        assert r.passed is False
+        assert "revisit_date" in r.reason
 
     def test_prior_merged_returns_skip(self):
         h = {

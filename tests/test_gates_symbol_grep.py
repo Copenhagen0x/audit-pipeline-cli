@@ -151,6 +151,37 @@ class TestCheckSymbols:
         )
         assert r_loose.passed is True
 
+    def test_test_prefix_hallucination_no_longer_whitelisted(self, fake_engine_repo):
+        """Phase B self-audit Defect 02: previously ANY symbol starting with
+        ``test_`` was silently whitelisted. A hallucinated helper named
+        ``test_settle_after_close`` slipped past the gate. Now it must fail
+        unless the operator explicitly names that test as the PoC's own."""
+        poc = """
+        fn test_outer() {
+            // hallucinated helper that doesn't exist anywhere
+            test_settle_after_close(0);
+        }
+        """
+        r = check_symbols(
+            poc_source=poc, search_dirs=[fake_engine_repo],
+            allowed_test_names=frozenset({"test_outer"}),  # only our wrapper
+        )
+        assert r.passed is False
+        assert "test_settle_after_close" in r.details["missing"]
+
+    def test_allowed_test_name_whitelisted(self, fake_engine_repo):
+        """The PoC's own ``test_<finding_name>`` is correctly whitelisted."""
+        poc = """
+        fn test_h1_residual_conservation_fires() {
+            compute_trade_pnl(1, 2);
+        }
+        """
+        r = check_symbols(
+            poc_source=poc, search_dirs=[fake_engine_repo],
+            allowed_test_names=frozenset({"test_h1_residual_conservation_fires"}),
+        )
+        assert r.passed is True
+
     def test_searches_multiple_dirs(self, tmp_path):
         engine_src = tmp_path / "engine" / "src"
         engine_src.mkdir(parents=True)

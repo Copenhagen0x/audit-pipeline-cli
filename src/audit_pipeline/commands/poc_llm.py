@@ -480,7 +480,15 @@ def poc_llm_cmd(
         search_dirs = [engine_src_dir]
         if wrapper_root is not None and (wrapper_root / "src").is_dir():
             search_dirs.append(wrapper_root / "src")
-        sym_result = _check_syms(poc_source=rust_content, search_dirs=search_dirs)
+        # Phase B self-audit Defect 02: only whitelist the PoC's own
+        # function name (``test_<finding_name>``), not any ``test_*``
+        # identifier. A hallucinated ``test_settle_after_close()`` call
+        # must fail the gate like any other unknown symbol.
+        sym_result = _check_syms(
+            poc_source=rust_content,
+            search_dirs=search_dirs,
+            allowed_test_names=frozenset({f"test_{finding_name}"}),
+        )
         if sym_result.passed is False:
             raise click.ClickException(
                 "Gate L2.symbol_grep FAILED — refusing to save PoC:\n  "

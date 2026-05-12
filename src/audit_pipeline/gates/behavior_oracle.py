@@ -46,6 +46,26 @@ _VERDICT_RE = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 
+# The literal template line from PROMPT_TEMPLATE that the model may echo
+# back verbatim. If we naively take the first VERDICT match we silently
+# accept this as MATCH (Phase B self-audit Defect 01). Detect + skip.
+_TEMPLATE_VERDICT_LINE_RE = re.compile(
+    r"^\s*VERDICT\s*:\s*MATCH\s*\|\s*CONTRADICT\s*\|\s*INCONCLUSIVE\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+# Patterns that, if found in the input `claim` or `code_window`, indicate
+# an attempt to inject a verdict directly. Reject the call rather than let
+# the oracle rubber-stamp a finding (Phase B self-audit Defect 03).
+_INJECTION_PATTERNS = (
+    # ``VERDICT:`` anywhere in claim/code_window — block; the model should
+    # ONLY see this token at the end of the prompt template, not in input.
+    re.compile(r"VERDICT\s*:", re.IGNORECASE),
+    # Closing triple-backticks — would break out of the fenced rust block
+    # and let injected text impersonate prompt instructions.
+    re.compile(r"```\s*$", re.MULTILINE),
+)
+
 
 PROMPT_TEMPLATE = """You are an independent code reviewer. A separate
 analysis tool flagged a potential security finding against the following
@@ -85,12 +105,53 @@ def _parse_verdict(text: str) -> tuple[str | None, str]:
     ``verdict`` is one of ``MATCH`` / ``CONTRADICT`` / ``INCONCLUSIVE`` or
     ``None`` if parsing failed. ``reason`` is the first ``REASON:`` line,
     empty string if none.
+
+    Hardening (Phase B self-audit Defect 01):
+      * Strip any line that matches the literal template
+        ``VERDICT: MATCH | CONTRADICT | INCONCLUSIVE`` before scanning —
+        chatty models echo the template back and we'd otherwise accept it
+        as MATCH.
+      * Take the LAST verdict found, not the first. If the model thinks
+        out loud (``"At first I thought MATCH, but on closer reading
+        VERDICT: CONTRADICT"``) the final commit wins.
     """
-    m = _VERDICT_RE.search(text)
-    verdict = m.group(1).upper() if m else None
-    reason_match = re.search(r"REASON\s*:\s*(.+?)(?:\n\n|\nVERDICT|$)", text, re.DOTALL | re.IGNORECASE)
-    reason = (reason_match.group(1).strip() if reason_match else "").splitlines()[0:1]
-    return verdict, " ".join(reason).strip()
+    # 1) strip echoed template lines
+    sanitised = _TEMPLATE_VERDICT_LINE_RE.sub("", text)
+
+    # 2) find ALL verdicts in the sanitised text; prefer the last one
+    matches = list(_VERDICT_RE.finditer(sanitised))
+    verdict = matches[-1].group(1).upper() if matches else None
+
+    # 3) extract REASON near the verdict we accepted (not the first)
+    if matches:
+        last_verdict_end = matches[-1].end()
+        reason_match = re.search(
+            r"REASON\s*:\s*(.+?)(?:\n\n|\nVERDICT|$)",
+            sanitised[last_verdict_end:],
+            re.DOTALL | re.IGNORECASE,
+        )
+    else:
+        reason_match = None
+    raw_reason = reason_match.group(1).strip() if reason_match else ""
+    reason = raw_reason.split("\n", 1)[0].strip() if raw_reason else ""
+    return verdict, reason
+
+
+def _detect_prompt_injection(value: str) -> str | None:
+    """Return a human-readable reason if ``value`` looks like an attempt to
+    inject verdict-shaped content into the oracle prompt; else ``None``.
+
+    Catches the Phase B self-audit Defect 03: a malicious code comment in
+    the engine source containing a literal ``VERDICT: MATCH`` line, or
+    closing triple-backticks that break out of the fenced code block.
+    """
+    if not value:
+        return None
+    for pat in _INJECTION_PATTERNS:
+        m = pat.search(value)
+        if m:
+            return f"contains pattern {pat.pattern!r} at offset {m.start()}"
+    return None
 
 
 def check_behavior(
@@ -139,6 +200,23 @@ def check_behavior(
             reason="empty code_window — nothing to verify against",
             duration_s=time.time() - t0,
         )
+
+    # Phase B self-audit Defect 03: refuse to feed prompt-injection payloads
+    # to the oracle. A code comment containing ``VERDICT: MATCH`` or a stray
+    # closing ``` would otherwise be quoted into the user message and the
+    # oracle would rubber-stamp the finding. Refuse + tell the operator.
+    for label, value in (("claim", claim), ("code_window", code_window)):
+        reason = _detect_prompt_injection(value)
+        if reason:
+            return GateResult(
+                passed=None,
+                reason=(
+                    f"behavior oracle refused: {label} {reason}. Likely "
+                    "prompt-injection attempt or accidental delimiter "
+                    "collision; remove the offending substring before retry."
+                ),
+                duration_s=time.time() - t0,
+            )
 
     if complete_fn is None:
         # Lazy import so the gates module doesn't drag in anthropic SDK

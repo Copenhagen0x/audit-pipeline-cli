@@ -79,34 +79,62 @@ _RUST_STD_CAMEL_WHITELIST: set[str] = {
 }
 
 
-def _classify(ident: str, is_camel: bool) -> str:
-    """Return 'whitelist' | 'check'. CamelCase whitelist is separate from snake."""
+def _classify(
+    ident: str,
+    is_camel: bool,
+    allowed_test_names: frozenset[str] = frozenset(),
+) -> str:
+    """Return 'whitelist' | 'check'. CamelCase whitelist is separate from snake.
+
+    Phase B self-audit Defect 02: previously this blanket-whitelisted any
+    identifier starting with ``test_`` to skip the PoC's own function name.
+    But that means a hallucinated helper like ``test_settle_after_close()``
+    bypasses the gate — the exact F13 case the gate was built to catch.
+
+    Now we only whitelist a ``test_*`` identifier when its full name appears
+    in ``allowed_test_names`` (typically the single ``test_<finding_name>``
+    the PoC is being authored for). Every other ``test_*`` reference must
+    grep-exist in the repo like any other project symbol.
+    """
     if is_camel:
         return "whitelist" if ident in _RUST_STD_CAMEL_WHITELIST else "check"
-    # PoC test wrappers always start with ``test_``; the PoC's own function
-    # name is not a claim about the codebase under test.
-    if ident.startswith("test_"):
+    if ident in allowed_test_names:
         return "whitelist"
     return "whitelist" if ident in _RUST_STD_WHITELIST else "check"
 
 
-def extract_project_symbols(poc_source: str) -> dict[str, list[str]]:
+def extract_project_symbols(
+    poc_source: str,
+    allowed_test_names: frozenset[str] | set[str] | None = None,
+) -> dict[str, list[str]]:
     """Pull non-stdlib symbols out of a Rust PoC test source.
+
+    Args:
+        poc_source: the Rust source of the PoC test
+        allowed_test_names: set of ``test_*`` identifier names to whitelist
+            (typically just the one ``test_<finding_name>`` this PoC defines).
+            Every other ``test_*`` identifier referenced in the source is
+            treated as a project symbol and must grep-exist in the repo.
 
     Returns dict with two lists: ``snake_case`` and ``camel_case``, each
     containing the unique project-specific identifiers found.
     """
+    allowed: frozenset[str] = frozenset(allowed_test_names or ())
     # Strip line + block comments so identifiers in comments don't count
     no_block = re.sub(r"/\*[\s\S]*?\*/", "", poc_source)
     no_line  = re.sub(r"//[^\n]*", "", no_block)
     # Also strip raw + regular string literals — symbol-looking strings
     # inside ``"..."`` shouldn't be greppable claims.
     no_strings = re.sub(r'"(?:\\.|[^"\\])*"', "", no_line)
-    snake = {m.group(1) for m in _SNAKE_RE.finditer(no_strings)}
-    camel = {m.group(1) for m in _CAMEL_RE.finditer(no_strings)}
+    # Also strip the immediate `fn <name>(` declarations — the function we
+    # are DEFINING in this PoC isn't a project claim. We still pick up any
+    # `fn` references that aren't immediately followed by `(`.
+    no_decls = re.sub(r"\bfn\s+([a-z_][a-z0-9_]*)\s*\(", "fn (", no_strings)
+    snake = {m.group(1) for m in _SNAKE_RE.finditer(no_decls)}
+    camel = {m.group(1) for m in _CAMEL_RE.finditer(no_decls)}
     return {
-        "snake_case": sorted(s for s in snake if _classify(s, False) == "check"),
-        "camel_case": sorted(c for c in camel if _classify(c, True) == "check"),
+        "snake_case": sorted(s for s in snake if _classify(s, False, allowed) == "check"),
+        "camel_case": sorted(c for c in camel if _classify(c, True, allowed) == "check"),
     }
 
 
@@ -151,6 +179,7 @@ def check_symbols(
     poc_source: str,
     search_dirs: list[Path],
     max_hallucinations: int = 0,
+    allowed_test_names: frozenset[str] | set[str] | None = None,
 ) -> GateResult:
     """Verify every project-looking symbol in the PoC exists in ``search_dirs``.
 
@@ -177,7 +206,7 @@ def check_symbols(
             duration_s=time.time() - t0,
         )
 
-    symbols = extract_project_symbols(poc_source)
+    symbols = extract_project_symbols(poc_source, allowed_test_names=allowed_test_names)
     all_candidates = symbols["snake_case"] + symbols["camel_case"]
     if not all_candidates:
         return GateResult(

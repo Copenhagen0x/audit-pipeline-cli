@@ -84,8 +84,11 @@ class TestCheckCompiles:
         assert "does not compile" in r.reason
         assert "settle_after_close" in r.details["ref_excerpt"]
 
-    def test_compile_error_NOT_referencing_poc_skips(self, fake_crate):
-        # Pre-existing repo breakage — failures in src/lib.rs, not our test
+    def test_compile_error_NOT_referencing_poc_FAILS_by_default(self, fake_crate):
+        # Phase B self-audit Defect 07: pre-existing repo breakage used to
+        # return SKIP, which let an attacker break upstream main to wave
+        # every PoC compile-check through. Now it FAILS unless the operator
+        # explicitly opts in.
         stderr = (
             "error[E0277]: type mismatch\n"
             "  --> src/lib.rs:42:1\n"
@@ -96,8 +99,38 @@ class TestCheckCompiles:
                 poc_source="fn test_x() {}",
                 repo_dir=fake_crate, test_name="t_innocent",
             )
-        assert r.passed is None    # skip-not-fail
-        assert "pre-existing" in r.reason
+        assert r.passed is False
+        assert "does not compile" in r.reason
+
+    def test_compile_error_NOT_referencing_poc_allow_broken_tree(self, fake_crate):
+        stderr = "error[E0277]: type mismatch\n  --> src/lib.rs:42:1\n"
+        with patch("audit_pipeline.gates.cargo_check._have_cargo", return_value=True), \
+             patch("subprocess.run", return_value=_mock_cargo(101, stderr=stderr)):
+            r = check_compiles(
+                poc_source="fn test_x() {}",
+                repo_dir=fake_crate, test_name="t_innocent",
+                allow_broken_tree=True,
+            )
+        assert r.passed is None
+        assert "tolerated" in r.reason
+
+    def test_path_traversal_test_name_rejected(self, fake_crate):
+        """Defect 06: path-traversal in test_name must fail BEFORE filesystem."""
+        with patch("audit_pipeline.gates.cargo_check._have_cargo", return_value=True):
+            r = check_compiles(
+                poc_source="fn x(){}", repo_dir=fake_crate,
+                test_name="../poc_evil",
+            )
+        assert r.passed is False
+        assert "fails validation" in r.reason
+
+    def test_test_name_with_slashes_rejected(self, fake_crate):
+        with patch("audit_pipeline.gates.cargo_check._have_cargo", return_value=True):
+            r = check_compiles(
+                poc_source="fn x(){}", repo_dir=fake_crate,
+                test_name="nested/test",
+            )
+        assert r.passed is False
 
     def test_timeout_fails(self, fake_crate):
         import subprocess as _sp

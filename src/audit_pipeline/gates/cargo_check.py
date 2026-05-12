@@ -24,6 +24,7 @@ Used by: ``commands/poc_llm.py`` (after Gate 2 passes, before save).
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import time
@@ -32,12 +33,16 @@ from pathlib import Path
 from audit_pipeline.gates import GateResult
 
 
+# Phase B self-audit Defect 06: validate test_name so a malicious value
+# like ``../poc_evil`` can't cause a write/unlink outside ``tests/``.
+_TEST_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,127}$")
+
+
 def _have_cargo() -> bool:
     return shutil.which("cargo") is not None
 
 
 def _strip_ansi(s: str) -> str:
-    import re
     return re.sub(r"\x1b\[[0-9;]*m", "", s)
 
 
@@ -47,6 +52,7 @@ def check_compiles(
     repo_dir: Path,
     test_name: str,
     timeout: int = 180,
+    allow_broken_tree: bool = False,
 ) -> GateResult:
     """Stage ``poc_source`` into ``repo_dir/tests/<test_name>.rs`` and run
     ``cargo check --tests``. Restore prior state on exit, regardless of result.
@@ -82,9 +88,37 @@ def check_compiles(
             duration_s=time.time() - t0,
         )
 
+    # Defect 06: validate test_name. Reject path-traversal / unsafe chars
+    # BEFORE we touch the filesystem.
+    if not _TEST_NAME_RE.fullmatch(test_name):
+        return GateResult(
+            passed=False,
+            reason=(
+                f"test_name {test_name!r} fails validation "
+                f"(allowed: [A-Za-z][A-Za-z0-9_]{{0,127}}). Path-traversal "
+                "or unsafe characters would let the gate stage / unlink "
+                "outside tests/."
+            ),
+            duration_s=time.time() - t0,
+        )
+
     tests_dir = repo_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
     staged = tests_dir / f"{test_name}.rs"
+    # Belt + suspenders: confirm the resolved path is still inside tests_dir.
+    try:
+        resolved = staged.resolve()
+        tests_resolved = tests_dir.resolve()
+        if tests_resolved not in resolved.parents and resolved.parent != tests_resolved:
+            return GateResult(
+                passed=False,
+                reason=(
+                    f"resolved staging path {resolved} is outside {tests_resolved}"
+                ),
+                duration_s=time.time() - t0,
+            )
+    except OSError:
+        pass
 
     if staged.exists():
         return GateResult(
@@ -168,14 +202,34 @@ def check_compiles(
             },
         )
 
-    # Non-zero but errors don't mention our file — likely a pre-existing
-    # repo breakage. Skip rather than punish the PoC for a dirty workspace.
+    # Non-zero but errors don't mention our file — pre-existing repo
+    # breakage. Defect 07: previously this returned SKIP, which let an
+    # attacker land any breaking change in upstream main and silently wave
+    # every PoC compile-check through. Now default to FAIL (the repo MUST
+    # compile before we believe any PoC verdict), with an explicit operator
+    # opt-in via ``allow_broken_tree=True`` for legitimate dirty-tree work.
+    if allow_broken_tree:
+        return GateResult(
+            passed=None,
+            reason=(
+                f"cargo check failed (exit {proc.returncode}) but errors do NOT "
+                f"reference tests/{test_name}.rs. Pre-existing repo breakage "
+                "tolerated (allow_broken_tree=True)."
+            ),
+            duration_s=time.time() - t0,
+            details={
+                "exit_code": proc.returncode,
+                "stderr_tail": stderr[-1500:],
+            },
+        )
     return GateResult(
-        passed=None,
+        passed=False,
         reason=(
-            f"cargo check failed (exit {proc.returncode}) but errors do NOT "
-            f"reference tests/{test_name}.rs. Likely pre-existing repo "
-            "breakage; skip-not-fail. Operator: fix the repo's main tree."
+            f"cargo check failed (exit {proc.returncode}). Errors don't "
+            f"reference tests/{test_name}.rs — the repo's main tree does "
+            "not compile. Fail-closed by default so a broken upstream "
+            "doesn't mask hallucinated PoCs. Fix the repo OR pass "
+            "allow_broken_tree=True if intentional."
         ),
         duration_s=time.time() - t0,
         details={

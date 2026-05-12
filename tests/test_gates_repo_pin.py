@@ -56,6 +56,27 @@ class TestExtractCandidateShas:
         body = "commit 6CD742F25A"
         assert "6cd742f25a" in extract_candidate_shas(body)
 
+    def test_word_boundary_context_hints(self):
+        """Phase B self-audit Defect 08: substring matching on hints used
+        to false-positive on words like ``reference``, ``preferred``,
+        ``refactor`` (which contain ``ref``) and ``shabby``/``shamash``
+        (which contain ``sha``)."""
+        # "reference" should NOT be enough context to mark hex as a SHA
+        body = "see Polymarket reference deadbeefcafe123456 below"
+        assert extract_candidate_shas(body) == []
+
+    def test_word_boundary_does_not_match_substring(self):
+        body = "the preferred deadbeefcafe123456 build path"
+        # "preferred" contains "ref" but with word boundaries, no match
+        assert extract_candidate_shas(body) == []
+
+    def test_email_at_does_not_trigger(self):
+        # Bare `@` in an email address should NOT be a SHA-context hint
+        body = "Author: kirill@jelleo.com deadbeefcafe123456 in the body"
+        # The @ is not at end-of-string nor preceded by whitespace alone,
+        # so context check rejects it.
+        assert extract_candidate_shas(body) == []
+
 
 # ---------- check_repo_pin -----------------------------------------------
 
