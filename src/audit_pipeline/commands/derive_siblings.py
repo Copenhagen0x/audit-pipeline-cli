@@ -387,8 +387,51 @@ def _infer_protocol_class(db: FindingsDB, finding: dict[str, Any]) -> str | None
     return None
 
 
+def _enforce_sibling_diversity(siblings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """P1+P2 audit Defect 06 (HIGH): the LLM is asked for N siblings.
+    Without a structural-diversity check it often emits near-duplicates
+    that just multiply the false-positive rate of the parent.
+
+    Keep only siblings that EACH:
+      * have a unique ``bug_class`` within this batch (no two siblings
+        of the same bug class — that's the parent's class repeated)
+      * have a claim with sufficient n-gram distance from every other
+        kept sibling (Jaccard ≤ 0.6 over 3-token shingles)
+    Returns the de-duplicated, diversity-checked list (typically <= N).
+    """
+    def _shingles(text: str) -> set[tuple[str, ...]]:
+        toks = (text or "").lower().split()
+        return {tuple(toks[i:i + 3]) for i in range(max(0, len(toks) - 2))}
+
+    def _jaccard(a: set, b: set) -> float:
+        if not a or not b:
+            return 0.0
+        inter = a & b
+        union = a | b
+        return len(inter) / len(union)
+
+    seen_classes: set[str] = set()
+    kept: list[dict[str, Any]] = []
+    kept_shingles: list[set[tuple[str, ...]]] = []
+    for s in siblings:
+        if not isinstance(s, dict):
+            continue
+        bc = (s.get("bug_class") or "").strip().lower()
+        if bc and bc in seen_classes:
+            continue
+        sh = _shingles(s.get("claim") or "")
+        if any(_jaccard(sh, prev) > 0.6 for prev in kept_shingles):
+            continue
+        kept.append(s)
+        if bc:
+            seen_classes.add(bc)
+        kept_shingles.append(sh)
+    return kept
+
+
 def _append_siblings(library_path: Path, siblings: list[dict[str, Any]]) -> int:
     """Append new siblings to an existing library yaml. Returns # appended."""
+    siblings = _enforce_sibling_diversity(siblings)
     if library_path.exists():
         existing = yaml.safe_load(library_path.read_text(encoding="utf-8")) or {}
     else:
