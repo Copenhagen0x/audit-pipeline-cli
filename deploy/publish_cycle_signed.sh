@@ -152,6 +152,17 @@ fi
 mv "$STAGING" "$DEST"
 [ -d "$DEST.old.$$" ] && rm -rf "$DEST.old.$$"
 
+# 4b. Re-wrap the per-cycle landing page in jelleo.com chrome.
+# (The heredoc above writes a minimal index.html that survives the atomic
+#  swap. This step overwrites it with the full chromed version so the page
+#  matches /cycles/ archive + the rest of jelleo.com. Failure is non-fatal
+#  — the minimal fallback is already in place.)
+WRAP_SCRIPT="$(dirname "$0")/wrap_per_cycle_landing.py"
+if [ -f "$WRAP_SCRIPT" ]; then
+    python3 "$WRAP_SCRIPT" "$CYCLE_ID" --docroot "$(dirname "$DOCROOT")" 2>&1 | tail -1 || true
+    chown www-data:www-data "$DEST/index.html" 2>/dev/null || true
+fi
+
 echo "publish_cycle_signed: published $CYCLE_ID -> $DEST"
 ls -la "$DEST"
 
