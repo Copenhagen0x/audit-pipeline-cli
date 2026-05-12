@@ -77,6 +77,7 @@ from typing import Any
 # cycle silently otherwise.
 FINDING_FIELDS = (
     "bug_class",
+    "bundle_digest",       # v4 (2026-05-12): commits to patch+verification+writeup
     "confidence",
     "cycle_id",
     "details_digest",
@@ -93,6 +94,8 @@ FINDING_FIELDS = (
 
 CYCLE_FIELDS = (
     "cycle_id",
+    "cycle_html_sha256",   # v4 (2026-05-12): commits to published cycle.html bytes
+    "cycle_pdf_sha256",    # v4 (2026-05-12): commits to published cycle.pdf bytes
     "engine_sha",
     "finished_at",
     "n_confirmed",
@@ -102,7 +105,15 @@ CYCLE_FIELDS = (
     "wrapper_sha",
 )
 
-SCHEMA_VERSION = "v3"  # v3 (2026-05-11): added details_digest + cycle_id to FINDING_FIELDS
+# P3+P4 audit Defect 08 (MED): v3 attested only to DB row contents.
+# An attacker could rewrite cycle.html / cycle.pdf / patch.diff /
+# writeup.md after signing and the Merkle root stayed valid — the
+# "tamper-evident summary" claim only covered the structural shape.
+# v4 binds:
+#   * each finding leaf to bundle_digest (= sha256 of patch+verification+writeup)
+#   * the cycle leaf to cycle_html_sha256 and cycle_pdf_sha256 of the
+#     published artefacts at sign time.
+SCHEMA_VERSION = "v4"
 
 
 def canonical_encode(record: dict[str, Any], fields: tuple[str, ...]) -> bytes:
