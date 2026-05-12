@@ -139,6 +139,26 @@ COST_PER_OUTPUT_TOKEN = 15.0e-6  # $15 per 1M output tokens
         "is preferred for reproducibility."
     ),
 )
+@click.option(
+    "--use-tools/--no-use-tools",
+    default=False,
+    show_default=True,
+    help=(
+        "L1 recon Defect 01 fix: run the tool-using agent loop instead of "
+        "single-shot complete(). Agent gets read_file/grep/find_function "
+        "tools and iterates until it has concrete line-cited evidence. "
+        "Defeats the speculation-based-recon hallucination mode that "
+        "underwrote cycle 20260511's retraction. Requires "
+        "ANTHROPIC_API_KEY (already required for --auto)."
+    ),
+)
+@click.option(
+    "--tool-max-turns",
+    type=int,
+    default=12,
+    show_default=True,
+    help="Max tool-using turns per hypothesis (only used with --use-tools).",
+)
 @click.pass_context
 def recon_cmd(
     ctx: click.Context,
@@ -152,6 +172,8 @@ def recon_cmd(
     code_max_lines: int,
     source_repo: str | None,
     source_sha: str | None,
+    use_tools: bool,
+    tool_max_turns: int,
 ) -> None:
     """Layer-1 multi-agent recon. Render prompts (default) or dispatch agents (--auto).
 
@@ -250,6 +272,8 @@ def recon_cmd(
             ground_code=ground_code,
             code_max_lines=code_max_lines,
             snap_sha=snap.resolved_sha if snap_cm is not None else None,
+            use_tools=use_tools,
+            tool_max_turns=tool_max_turns,
         )
 
 
@@ -278,6 +302,8 @@ def _recon_body(
     ground_code: bool,
     code_max_lines: int,
     snap_sha: str | None,
+    use_tools: bool = False,
+    tool_max_turns: int = 12,
 ) -> None:
     """Body of recon, factored out so snapshot vs local-clone modes share it."""
 
@@ -450,12 +476,46 @@ Notes:        {hyp.get("notes", "(none)")}
     def _dispatch_one(hyp_id: str, prompt_text: str) -> tuple[str, dict[str, Any]]:
         """Worker: dispatch one hypothesis to Claude with optional refinement rounds.
 
-        Each refinement round runs a fresh API call asking the agent to
-        play devil's advocate against its own prior verdict, then produce
-        a final verdict considering both perspectives. The final verdict
-        replaces earlier ones; all rounds' tokens are summed.
+        Two paths:
+          (a) tool-using agent (when use_tools=True): closes L1 recon
+              Defect 01. Agent gets read_file/grep/find_function tools
+              and iterates against the actual source tree. Refinement
+              rounds are skipped — the tool loop already iterates.
+          (b) single-shot complete() with optional refinement rounds
+              (legacy path, kept so --use-tools is opt-in).
         """
         try:
+            if use_tools:
+                # L1 recon Defect 01 fix: source-grounded tool loop.
+                from audit_pipeline.utils.llm_tools import run_tool_using_agent
+                system_prompt = (
+                    "You are an expert Solana security auditor running Layer 1 "
+                    "recon. You have read_file, grep, and find_function tools "
+                    "against the live workspace source. Use them to verify "
+                    "every claim before rendering a verdict — do NOT speculate. "
+                    "Cite concrete file paths and line numbers. End your final "
+                    "answer with a `## Verdict` section containing one of "
+                    "TRUE / FALSE / INCONCLUSIVE and a confidence "
+                    "(HIGH / MEDIUM / LOW)."
+                )
+                tu_result = run_tool_using_agent(
+                    workspace,
+                    system_prompt,
+                    prompt_text,
+                    max_turns=tool_max_turns,
+                )
+                return hyp_id, {
+                    "ok": True,
+                    "text": tu_result.text,
+                    "input_tokens": tu_result.input_tokens,
+                    "output_tokens": tu_result.output_tokens,
+                    "n_rounds": 1,
+                    "n_tool_turns": tu_result.n_turns,
+                    "tool_calls": tu_result.tool_calls,
+                    "model": "tool-using-agent",
+                    "stop_reason": tu_result.stop_reason,
+                }
+
             resp = complete(prompt_text)
             rounds_data = [{
                 "text": resp.text,
@@ -550,9 +610,15 @@ Notes:        {hyp.get("notes", "(none)")}
         for hyp_id, prompt_text in rendered_prompts:
             if hyp_id in results:
                 continue  # resumed from disk
+            # Tool-using mode iterates: ~3-5× the single-shot input + a bit
+            # more output. Use a per-turn multiplier so the budget cap
+            # remains meaningful in tool-using runs too.
+            input_mult = max(1, tool_max_turns // 3) if use_tools else 1
+            output_per_turn = 30_000 if not use_tools else 8_192
             est_cost = (
-                len(prompt_text) / 4 * COST_PER_INPUT_TOKEN
-                + 30_000 * COST_PER_OUTPUT_TOKEN
+                input_mult * len(prompt_text) / 4 * COST_PER_INPUT_TOKEN
+                + output_per_turn * (tool_max_turns if use_tools else 1)
+                  * COST_PER_OUTPUT_TOKEN
             )
             if not _try_reserve(est_cost):
                 skipped_for_budget.append(hyp_id)
@@ -623,6 +689,7 @@ Notes:        {hyp.get("notes", "(none)")}
         "total_output_tokens": total_out_tokens,
         "total_cost_usd": round(total_cost, 4),
         "elapsed_seconds": round(elapsed, 1),
+        "use_tools": bool(use_tools),  # records source-grounded vs single-shot
         "verdicts": verdict_summary,
         "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
