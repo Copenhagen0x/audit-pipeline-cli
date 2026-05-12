@@ -172,8 +172,28 @@ class FindingsDB:
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(str(self.path))
+        # Cross-cutting audit Defect 03 (HIGH): default sqlite3.connect has
+        # no WAL mode and no busy_timeout. Concurrent writers (shadow daemon
+        # + watch hook + scheduled hunts + heartbeat) racing against a
+        # single findings.db raise ``OperationalError: database is locked``
+        # which hook daemon threads silently swallow, leaving audit-log
+        # state diverged from the actual table. WAL allows readers
+        # concurrent with a single writer; busy_timeout makes the writer
+        # back off + retry rather than fail immediately. Apply once per
+        # connection — WAL itself is a persistent DB-level mode.
+        conn = sqlite3.connect(str(self.path), timeout=30.0)
         conn.row_factory = sqlite3.Row
+        try:
+            # ``isolation_level=None`` would give us autocommit; we
+            # explicitly commit at the end so leave it as DEFERRED.
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")     # 30s
+            conn.execute("PRAGMA synchronous=NORMAL")     # safe + faster under WAL
+        except sqlite3.OperationalError:
+            # If the DB is already open by another process and locks at
+            # PRAGMA time, fall through — the busy_timeout=30s on the
+            # connection itself will still apply to subsequent statements.
+            pass
         try:
             yield conn
             conn.commit()

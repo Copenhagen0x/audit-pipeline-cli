@@ -1575,6 +1575,55 @@ def _hunt_run(
     # Best-effort: failure does not fail the hunt. Skipped silently if the
     # script is missing on this host (dev machines without /root/audit-pipeline-cli).
     if auto_publish:
+        # 12-audit post-cycle QA gate (HIGH-priority remediation): re-run
+        # cheap pre-disclosure checks over every confirmed finding BEFORE
+        # auto-pushing the cycle to GitHub + /var/www/jelleo.com/cycles/.
+        # Yesterday's 20260511-183154 retraction would have been caught
+        # here if this gate existed — symbol_grep on the PoCs catches the
+        # F11/F13 hallucinations and the residual-conservation cluster's
+        # PoCs that contain pseudo-pass markers.
+        from audit_pipeline.gates.post_cycle import (
+            check_post_cycle,
+            write_block_sentinel,
+        )
+        try:
+            cycle_dir = workspace / "hunts" / cycle_id
+            engine_src = (workspace / config["engine"]["local"] / "src"
+                          if config.get("engine") else None)
+            wrapper_src = (workspace / config["wrapper"]["local"] / "src"
+                           if config.get("wrapper") else None)
+            _db = open_findings_db(workspace)
+            confirmed = [
+                f for f in _db.list_findings(limit=1000)
+                if f.get("cycle_id") == cycle_id and f.get("poc_fired")
+            ]
+            post_report = check_post_cycle(
+                cycle_dir=cycle_dir,
+                confirmed_findings=confirmed,
+                engine_src_dir=engine_src,
+                wrapper_src_dir=wrapper_src,
+            )
+            log("post_cycle_qa", passed=post_report.passed,
+                n_findings=post_report.n_findings,
+                n_failed=post_report.n_failed)
+            if not post_report.passed:
+                sentinel = write_block_sentinel(cycle_dir, post_report)
+                console.print(
+                    f"[red]Post-cycle QA FAILED[/red] — "
+                    f"{post_report.n_failed} of {post_report.n_findings} "
+                    f"confirmed findings did not clear re-checks. Wrote "
+                    f"sentinel to {sentinel}. Auto-publish ABORTED."
+                )
+                log("auto_publish_blocked",
+                    reason="post_cycle_qa_failed",
+                    sentinel=str(sentinel))
+                return        # short-circuit: do not run publish_cycle.sh
+        except Exception as e:  # noqa: BLE001
+            # Don't let a bug in the gate itself block legitimate cycles.
+            # Log + fail-open here (single layer; the gate itself is the
+            # belt; publish_cycle.sh sentinel check is the suspenders).
+            log("post_cycle_qa_error", error=str(e))
+
         rc_html = _run([
             _audit_pipeline_bin(), "--workspace", str(workspace),
             "report", "cycle", "--cycle-id", cycle_id, "--public",

@@ -50,6 +50,17 @@ fi
 
 DEST="$DOCROOT/$CYCLE_ID"
 
+# 12-audit post-cycle QA gate honour check: hunt's post-cycle QA writes
+# a ``.publish-blocked`` sentinel into the cycle dir if any confirmed
+# finding failed re-checks. Refuse to publish blocked cycles to the
+# signed docroot — the public surface MUST never serve a cycle that the
+# pipeline itself flagged as suspect.
+if [ -f "$WORKSPACE/hunts/$CYCLE_ID/.publish-blocked" ]; then
+    echo "publish_cycle_signed: ABORTING — $CYCLE_ID has a .publish-blocked sentinel"
+    cat "$WORKSPACE/hunts/$CYCLE_ID/.publish-blocked" 2>/dev/null | head -40
+    exit 0
+fi
+
 # 2. Skip if already published (idempotent on identical content)
 if [ -f "$DEST/cycle.html" ] && [ -f "$DEST/cycle.html.sig" ]; then
     # Already published. Re-rendering with the same DB state would produce

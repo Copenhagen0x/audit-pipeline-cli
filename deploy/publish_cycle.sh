@@ -36,6 +36,17 @@ for d in $(ls -1 "$WORKSPACE/hunts/" 2>/dev/null | sort -r); do
     fi
 done
 
+# 12-audit post-cycle QA gate honour check: hunt's post-cycle QA writes
+# a ``.publish-blocked`` sentinel into the cycle dir if any confirmed
+# finding failed re-checks (hallucinated symbols / pseudo-pass markers /
+# missing PoC files). This guard refuses to publish blocked cycles.
+if [ -n "$LATEST" ] && [ -f "$WORKSPACE/hunts/$LATEST/.publish-blocked" ]; then
+    echo "publish_cycle: ABORTING — $LATEST has a .publish-blocked sentinel"
+    echo "publish_cycle: post-cycle QA gate failed; nothing published."
+    cat "$WORKSPACE/hunts/$LATEST/.publish-blocked" 2>/dev/null | head -40
+    exit 0
+fi
+
 if [ -z "$LATEST" ]; then
     echo "publish_cycle: no completed cycles found; nothing to publish"
     exit 0
