@@ -86,6 +86,20 @@ findings.db
 scheduler.state.json
 *.audit-workspace.db
 
+# Cross-cutting audit Defect 12 (LOW): the following used to be missed
+# and would leak via a stray `git add -A` from a workspace dir
+customers.json
+customers/*/keys/*.ed25519   # private keypair material
+customers/*/keys/*.pem
+.audit-env
+*.audit-env
+.audit_api_calls.jsonl
+.daily_spend.json
+.daily_spend.json.lock
+hooks/
+hunts/*/hooks/
+derived/
+
 # Generated reports + signatures (rendered per cycle, not source)
 reports/
 hunts/*/hunt_report.html

@@ -36,7 +36,12 @@ CUSTOMERS_FILE = "customers.json"
 CUSTOMERS_DIR = "customers"
 KEYS_SUBDIR = "keys"
 
-_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$")
+# Cross-cutting audit Defect 06 (MEDIUM): the CLI's regex required 16+
+# chars of ``[A-Za-z0-9_-]`` (URL-enumeration resistance), the library's
+# required 2-32 lowercase only — every CLI-validated id with mixed case
+# or underscore was rejected downstream. Unify on the broader format
+# (the CLI's policy of length is enforced separately at the CLI layer).
+_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}[A-Za-z0-9]$")
 
 
 class CustomerError(Exception):

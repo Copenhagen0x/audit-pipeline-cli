@@ -19,6 +19,7 @@ from __future__ import annotations
 import html
 import http.server
 import json
+import re
 import socketserver
 from datetime import datetime, timezone
 from pathlib import Path
@@ -646,15 +647,14 @@ def _customers_to_publish(workspace: Path) -> list[dict]:
             "protocol_name": "Percolator",
             "tier":          "Production",
             "since":         "2026-04-22",
-            # Empty target_match = all targets in the DB. We used to filter to
-            # targets containing "percolator", but a long-standing bug in
-            # hunt.py (`config.get("name")` vs the real workspace.json key
-            # `target_name`) caused every cycle since this workspace was
-            # set up to bind to the literal target `default` — so the
-            # filter was hiding the customer's actual data. Until the
-            # hunt-side fix lands AND the historical cycles are
-            # re-targeted, match all.
-            "target_match":  "",
+            # Cross-cutting audit Defect 01 (HIGH): the previous
+            # ``target_match: ""`` allow-all default leaked confirmed-but-
+            # undisclosed findings from every onboarded protocol into the
+            # public demo manifest. Bound demo to the literal targets it
+            # is permitted to see — exact name match (case-insensitive),
+            # split on whitespace/comma. Add to this list deliberately
+            # when demo should preview a new target.
+            "target_match":  "percolator,default",
         }
     ]
     cfg = workspace / "customers.json"
@@ -691,12 +691,24 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
     # confirmed, disclosed, fixed, verified) is actionable to the customer.
     CUSTOMER_STATUSES = {"triaged", "confirmed", "disclosed", "fixed", "verified"}
 
-    target_match = (customer.get("target_match") or "").lower()
+    # Cross-cutting audit Defect 01 (HIGH): substring-based scoping let the
+    # `demo` customer's empty `target_match=""` match every target — any
+    # new real customer onboarded would silently leak confirmed-but-
+    # undisclosed findings into /customer/demo/manifest.json. Now:
+    #   * Empty target_match = OWNS NOTHING (hard, not allow-all)
+    #   * Otherwise: split on whitespace/comma → exact target-NAME tokens
+    #     (case-insensitive). No substring match. A customer wanting
+    #     percolator owns "percolator", not "percolator-staging-v2".
+    raw = (customer.get("target_match") or "").strip().lower()
     targets = db.list_targets()
-    owned_targets = [
-        t for t in targets
-        if not target_match or target_match in (t.get("name") or "").lower()
-    ]
+    if not raw:
+        owned_targets: list[dict] = []
+    else:
+        wanted = {tok.strip() for tok in re.split(r"[\s,;]+", raw) if tok.strip()}
+        owned_targets = [
+            t for t in targets
+            if (t.get("name") or "").lower() in wanted
+        ]
     owned_target_ids = {t["id"] for t in owned_targets}
 
     cycles = [

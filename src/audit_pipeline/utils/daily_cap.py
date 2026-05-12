@@ -16,8 +16,66 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+def _lock_file(path: Path, timeout: float = 30.0):
+    """Cross-platform exclusive file lock.
+
+    On POSIX uses ``fcntl.flock``. On Windows uses ``msvcrt.locking`` with
+    a polling retry (msvcrt has no built-in timeout). Returns a context
+    manager that releases the lock on exit. If acquisition exceeds
+    ``timeout`` seconds, raises TimeoutError.
+
+    Spend audit Defect 03 (HIGH): concurrent agents (yesterday: 4
+    max_concurrent) raced on _load/_save; last-writer-wins silently
+    dropped earlier deltas from the daily cap counter. This lock
+    serialises the read-modify-write so concurrent record_spend() calls
+    accumulate correctly.
+    """
+    @contextmanager
+    def _ctx():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = path.with_suffix(path.suffix + ".lock")
+        deadline = time.time() + timeout
+        fh = open(lock_path, "a+b")
+        try:
+            try:
+                import fcntl
+                while True:
+                    try:
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except OSError:
+                        if time.time() > deadline:
+                            raise TimeoutError(
+                                f"could not acquire lock {lock_path} in {timeout}s"
+                            )
+                        time.sleep(0.05)
+            except ImportError:
+                # Windows fallback
+                import msvcrt
+                while True:
+                    try:
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if time.time() > deadline:
+                            raise TimeoutError(
+                                f"could not acquire lock {lock_path} in {timeout}s"
+                            )
+                        time.sleep(0.05)
+            yield
+        finally:
+            try:
+                fh.close()
+            except OSError:
+                pass
+    return _ctx()
 
 
 class DailyCap:
@@ -58,10 +116,15 @@ class DailyCap:
     def can_spend(self, amount_usd: float) -> bool:
         if self.unlimited:
             return True
-        return (self.today_spend() + float(amount_usd)) <= self.cap_usd
+        # Hold the lock for the read so a concurrent record_spend() can't
+        # slip an update in between our load and the caller's decision.
+        with _lock_file(self.state_file):
+            data = self._load()
+            return (float(data.get("spend_usd", 0.0)) + float(amount_usd)) <= self.cap_usd
 
     def record_spend(self, amount_usd: float) -> None:
-        data = self._load()
-        data["spend_usd"] = float(data.get("spend_usd", 0.0)) + float(amount_usd)
-        data["last_updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self._save(data)
+        with _lock_file(self.state_file):
+            data = self._load()
+            data["spend_usd"] = float(data.get("spend_usd", 0.0)) + float(amount_usd)
+            data["last_updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            self._save(data)

@@ -11,6 +11,7 @@ using the shared Jelleo design system (audit_pipeline.branding).
 from __future__ import annotations
 
 import html
+import os
 import re
 import shutil
 import subprocess
@@ -54,22 +55,30 @@ def _render_html_to_pdf(html_path: Path) -> Path | None:
         "chrome",
     )
     pdf_path = html_path.with_suffix(".pdf")
+    # Disclosure audit Defect 11 (LOW→MED on VPS as-root): only pass
+    # ``--no-sandbox`` when explicitly opted in via env. Default off —
+    # the cycle HTML contains user-controlled content (PoC excerpts,
+    # finding titles) and a browser RCE shouldn't escalate to whatever
+    # uid the publish pipeline runs under.
+    allow_no_sandbox = (os.environ.get("JELLEO_CHROME_NO_SANDBOX") or "") == "1"
     for cmd in candidates:
         if not shutil.which(cmd):
             continue
         try:
             if pdf_path.exists():
                 pdf_path.unlink()
+            args = [
+                cmd,
+                "--headless",
+                "--disable-gpu",
+                "--no-pdf-header-footer",
+                f"--print-to-pdf={pdf_path}",
+                f"file://{html_path.resolve()}",
+            ]
+            if allow_no_sandbox:
+                args.insert(3, "--no-sandbox")
             subprocess.run(
-                [
-                    cmd,
-                    "--headless",
-                    "--disable-gpu",
-                    "--no-sandbox",
-                    "--no-pdf-header-footer",
-                    f"--print-to-pdf={pdf_path}",
-                    f"file://{html_path.resolve()}",
-                ],
+                args,
                 capture_output=True,
                 timeout=60,
             )

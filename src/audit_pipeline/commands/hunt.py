@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -1716,12 +1717,54 @@ def _slugify(text: str) -> str:
     return s[:60] or "hunt_finding"
 
 
+# Orchestration audit Defect 08 (MED): SSRF guard for webhook_url.
+# An attacker-controlled webhook URL would otherwise leak engine_sha,
+# wrapper_sha, finding counts, severities to whatever endpoint they
+# specified — including AWS / GCP instance-metadata endpoints.
+_WEBHOOK_ALLOW_HOSTS_RE = re.compile(
+    r"^(?:[A-Za-z0-9-]+\.)*(?:slack\.com|discord(?:app)?\.com|hooks\.slack\.com|"
+    r"webhook\.site|api\.telegram\.org|teams\.microsoft\.com|"
+    r"events\.pagerduty\.com)$",
+    re.IGNORECASE,
+)
+_WEBHOOK_BLOCKED_HOSTS_RE = re.compile(
+    r"^(?:127\.|169\.254\.|10\.|192\.168\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|"
+    r"localhost|metadata\.google\.internal|metadata\.aws|0\.0\.0\.0|::1|"
+    r"fe80:|fc00:|fd00:)",
+    re.IGNORECASE,
+)
+
+
+def _webhook_url_safe(url: str) -> tuple[bool, str]:
+    """Return (allowed, reason) for ``url``."""
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+    except Exception:  # noqa: BLE001
+        return (False, "could not parse URL")
+    if parsed.scheme != "https":
+        return (False, f"refusing non-https scheme {parsed.scheme!r}")
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return (False, "URL has no host")
+    if _WEBHOOK_BLOCKED_HOSTS_RE.match(host):
+        return (False, f"refusing internal/metadata host {host!r}")
+    if not _WEBHOOK_ALLOW_HOSTS_RE.match(host):
+        return (False, f"host {host!r} not in webhook allow-list "
+                       f"(slack/discord/teams/telegram/pagerduty/webhook.site)")
+    return (True, "ok")
+
+
 def _post_webhook(
     url: str,
     summary: dict[str, Any],
     hyp_meta: dict[str, dict],
     promoted_ids: set[str],
 ) -> None:
+    allowed, reason = _webhook_url_safe(url)
+    if not allowed:
+        log("webhook_blocked", reason=reason, url=url[:80])
+        return
     confirmed = summary.get("confirmed", [])
     cycle_id = summary.get("cycle_id")
     target = summary.get("target", "unknown")

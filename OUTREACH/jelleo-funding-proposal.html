@@ -242,6 +242,7 @@
     <dt>Contact</dt><dd>info@wifpros.com</dd>
     <dt>Track record</dt><dd>F7 disclosure → aeyakovenko/percolator-prog#39</dd>
     <dt>Platform repo</dt><dd>github.com/Copenhagen0x/audit-pipeline-cli</dd>
+    <dt>Live operations</dt><dd>jelleo.com</dd>
     <dt>Date</dt><dd>April 28, 2026</dd>
   </dl>
 </section>
@@ -252,6 +253,13 @@
 <section>
   <div class="section-num">01 · Executive Summary</div>
   <h1 class="section-title">The opportunity</h1>
+
+  <div style="border-left: 3px solid var(--amber, #f5b800); background: rgba(245,184,0,0.04); padding: 0.16in 0.22in; margin: 0 0 0.22in 0; font-size: 11pt;">
+    <strong>▸ Operational reference:</strong> a live build of the funded-state product is online at
+    <a href="https://jelleo.com" style="font-weight: 600;">jelleo.com</a>. Cluster status, 27-protocol coverage map,
+    disclosure ledger, and on-chain attestation registry are all viewable as the funded version will look at
+    Year 1 exit. The site is a companion artifact, not a public launch.
+  </div>
 
   <div class="stats-banner">
     <div class="stat"><div class="value">F7</div><div class="label">Disclosed · PR #39</div></div>
@@ -313,7 +321,7 @@
         weekly summaries, GitHub auto-issue scaffolding, basic Slack webhook, Ed25519-signed disclosure
         packages, SQLite findings DB with lifecycle state machine. (Customer-facing live dashboard with auth,
         instant Slack/email alerting, and automated daily/weekly/monthly PDF deliverables are funded-state
-        features — see Section 07.)</li>
+        features — see Section 08.)</li>
   </ul>
 
   <h3>The proposal</h3>
@@ -685,9 +693,136 @@
 </section>
 
 
+<!-- ============================== REVENUE MODEL ============================== -->
+<section>
+  <div class="section-num">07 · Revenue model & path to self-funding</div>
+  <h1 class="section-title">How protocols pay, how Jelleo pays for itself</h1>
+
+  <p class="lede">Jelleo is sold as <strong>continuous coverage agreements</strong> — protocols contract Jelleo
+  to run against their codebase month over month, billed against measured cost-plus-margin per engagement.
+  Not subscription tiers; not service-hours. Each protocol selects a depth (Foundation / Production / Ceiling)
+  scaled to its codebase complexity and risk profile. Pricing is cost-plus, transparent, and anchored to
+  measured Anthropic API spend at the agreed depth.</p>
+
+  <p class="lede">This is the same engagement model top-tier audit firms use ($60K–$250K per audit, quote-based
+  per protocol). The difference is the work-product: continuous, code-grounded, attestation-backed depth that
+  point-in-time engagements structurally cannot deliver, priced against actual measured compute cost rather
+  than headcount-hours.</p>
+
+  <h2>What Jelleo's cost is per protocol, per month</h2>
+  <p>Numbers below are pulled directly from Section 06 (measured Anthropic spend at funded depth, plus
+  infrastructure). The cost is dominated by API throughput; infrastructure is rounding error at any depth.</p>
+
+  <table>
+    <thead><tr><th>Depth</th><th>API spend / mo</th><th>Infra</th><th>Total cost / mo</th></tr></thead>
+    <tbody>
+      <tr><td>Foundation</td><td class="num">$10K–$15K</td><td class="num">$250–$300</td><td class="num kpi"><strong>~$12.5K</strong></td></tr>
+      <tr><td>Production ⭐</td><td class="num">$20K–$30K</td><td class="num">$250–$300</td><td class="num kpi"><strong>~$25K</strong></td></tr>
+      <tr><td>Ceiling</td><td class="num">$40K–$60K</td><td class="num">$250–$300</td><td class="num kpi"><strong>~$50K</strong></td></tr>
+    </tbody>
+  </table>
+
+  <h2>What protocols pay — cost + 1.4× service fee</h2>
+  <p>The service fee covers methodology IP, on-call disclosure response, Kani fix-bundle delivery,
+  on-chain attestation publishing, founder/team time, and infrastructure overhead. <strong>1.4× the underlying
+  API cost</strong> lands at a 58% gross margin per engagement — healthy managed-service economics, transparent to
+  protocols, no hidden markup.</p>
+
+  <table>
+    <thead><tr><th>Depth</th><th>Cost (us)</th><th>Service fee (1.4×)</th><th>Engagement / mo</th><th>Engagement / yr</th></tr></thead>
+    <tbody>
+      <tr><td>Foundation</td><td class="num">$12.5K</td><td class="num">$17.5K</td><td class="num kpi"><strong>$30K</strong></td><td class="num kpi"><strong>$360K</strong></td></tr>
+      <tr><td>Production ⭐</td><td class="num">$25K</td><td class="num">$35K</td><td class="num kpi"><strong>$60K</strong></td><td class="num kpi"><strong>$720K</strong></td></tr>
+      <tr><td>Ceiling</td><td class="num">$50K</td><td class="num">$70K</td><td class="num kpi"><strong>$120K</strong></td><td class="num kpi"><strong>$1.44M</strong></td></tr>
+    </tbody>
+  </table>
+
+  <p style="font-size: 9pt; color: var(--ink-3); margin-top: 0.06in;">For market context: a $1B+ TVL Solana
+  protocol currently spends $150K–$500K per year across firm audits, retainers, and bounty programs (Sherlock
+  pricing reference, 2026). Jelleo Production at $720K/yr is a step-up in price but replaces fragmented
+  point-in-time coverage with continuous depth, attestation-backed artifacts, and Kani-verified fix bundles.
+  For STRIDE Tier-2 protocols ($100M+ TVL), Solana Foundation grant flow funds formal-verification work
+  directly — Jelleo is positioned as that artifact-producing layer, which can offset a portion of the
+  protocol's direct cost.</p>
+
+  <h2>Per-engagement economics</h2>
+  <table>
+    <thead><tr><th>Depth</th><th>Revenue / mo</th><th>Cost / mo</th><th>Gross profit / mo</th><th>GM %</th></tr></thead>
+    <tbody>
+      <tr><td>Foundation</td><td class="num">$30K</td><td class="num">$12.5K</td><td class="num kpi"><strong>$17.5K</strong></td><td class="num">58%</td></tr>
+      <tr><td>Production ⭐</td><td class="num">$60K</td><td class="num">$25K</td><td class="num kpi"><strong>$35K</strong></td><td class="num">58%</td></tr>
+      <tr><td>Ceiling</td><td class="num">$120K</td><td class="num">$50K</td><td class="num kpi"><strong>$70K</strong></td><td class="num">58%</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Break-even thresholds</h2>
+  <p><strong>Burn is $110K/month</strong> — equivalent to the proposal ask of $1.32M / 12 months. Break-even is
+  the number of paying engagements needed to cover monthly burn at 58% gross margin:</p>
+
+  <table>
+    <thead><tr><th>Customer mix</th><th>Gross profit / mo</th><th>Status vs $110K burn</th></tr></thead>
+    <tbody>
+      <tr><td>4 × Foundation only</td><td class="num">$70K</td><td>covers 64% — below break-even</td></tr>
+      <tr><td>2 × Production + 1 × Foundation</td><td class="num">$87.5K</td><td>covers 80% — approaching</td></tr>
+      <tr><td><strong>3 × Production</strong></td><td class="num"><strong>$105K</strong></td><td><strong>~break-even</strong></td></tr>
+      <tr><td>2 × Production + 1 × Ceiling</td><td class="num">$140K</td><td>positive cash flow</td></tr>
+      <tr><td>4 × Production</td><td class="num">$140K</td><td>positive cash flow</td></tr>
+      <tr><td>2 × Ceiling</td><td class="num">$140K</td><td>positive cash flow at 2 customers</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Realistic target: 3–4 paying engagements at Production depth gets Jelleo cash-positive.</strong>
+  That is a much smaller go-to-market hill than a SaaS subscription ramp — every protocol Jelleo signs
+  measurably moves the company past break-even, and the closing motion mirrors how audit firms already
+  contract today.</p>
+
+  <h2>36-month revenue trajectory</h2>
+  <table>
+    <thead><tr><th>Period</th><th>Customer mix</th><th>MRR exit</th><th>ARR exit</th></tr></thead>
+    <tbody>
+      <tr><td>Months 1–6</td><td>Build phase — 0 revenue</td><td class="num">$0</td><td class="num">—</td></tr>
+      <tr><td>Months 7–9</td><td>2 design partners (free / barter; Percolator + 1)</td><td class="num">$0</td><td class="num">—</td></tr>
+      <tr><td>Months 10–12</td><td>2 paying — 1× Production + 1× Foundation</td><td class="num">$90K</td><td class="num kpi"><strong>$1.08M</strong></td></tr>
+      <tr><td>Year 2 Q1</td><td>4 paying — 2× Foundation + 2× Production</td><td class="num">$180K</td><td class="num">$2.16M</td></tr>
+      <tr><td>Year 2 Q2</td><td>6 paying — adds 1× Ceiling, 1× Production</td><td class="num">$330K</td><td class="num">$3.96M</td></tr>
+      <tr><td>Year 2 Q3</td><td>8 paying — Production-heavy mix</td><td class="num">$450K</td><td class="num">$5.4M</td></tr>
+      <tr><td>Year 2 Q4</td><td>10 paying — 2× Ceiling, 5× Production, 3× Foundation</td><td class="num">$570K</td><td class="num kpi"><strong>$6.84M</strong></td></tr>
+      <tr><td>Year 3 exit</td><td>14–18 paying — Production-heavy with 2–3 Ceiling</td><td class="num">$1.0M–$1.2M</td><td class="num kpi"><strong>$12M–$14M</strong></td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Break-even crossover: months 13–14</strong> (4 paying engagements). After that, Jelleo operates
+  on positive cash flow without additional capital. Year 3 ARR target of $12M+ supports a Series A in the
+  $80M–$120M post-money range at category-standard 7×–10× ARR multiples.</p>
+
+  <h2>Returns on the $1.32M SAFE at $10M post-money cap</h2>
+  <p>Effective stake at conversion (worst case for investor, best case for company): <strong>~13.2%</strong>.
+  Security-infrastructure category typically clears 7×–10× ARR at Series A.</p>
+
+  <table>
+    <thead><tr><th>Year-3 ARR</th><th>Implied Series A valuation (10×)</th><th>13.2% stake value</th><th>Multiple on $1.32M</th></tr></thead>
+    <tbody>
+      <tr><td>$6M (light)</td><td class="num">$60M</td><td class="num">$7.9M</td><td class="num kpi"><strong>6×</strong></td></tr>
+      <tr><td>$10M (base)</td><td class="num">$100M</td><td class="num">$13.2M</td><td class="num kpi"><strong>10×</strong></td></tr>
+      <tr><td>$12M (plan)</td><td class="num">$120M</td><td class="num">$15.8M</td><td class="num kpi"><strong>12×</strong></td></tr>
+      <tr><td>$15M+ (above-plan)</td><td class="num">$150M+</td><td class="num">$19.8M+</td><td class="num kpi"><strong>15×+</strong></td></tr>
+    </tbody>
+  </table>
+
+  <p>Strategic acquisition by a larger security firm (OtterSec, Asymmetric, Zellic) or a Solana ecosystem
+  entity at the $50M–$150M range = <strong>4× to 11× return</strong> on a faster horizon.</p>
+
+  <p style="font-size: 9pt; color: var(--ink-3); margin-top: 0.06in;"><strong>Category anchors:</strong>
+  Snyk Series A 2018 closed at ~$70M post-money; today valued at ~$7.4B (~100× in 6 years). Wiz, founded 2020,
+  reportedly reached ~$12B by 2024 (4 years from inception). These are the upper bounds of what
+  security-infrastructure plays support when they become ecosystem standards — not promises, but the comp set
+  for category upside.</p>
+</section>
+
+
 <!-- ============================== STAGED PLAN ============================== -->
 <section>
-  <div class="section-num">07 · Staged plan</div>
+  <div class="section-num">08 · Staged plan</div>
   <h1 class="section-title">12-month roadmap + path beyond</h1>
 
   <p class="lede">The platform already runs 24/7 against Percolator. The 12-month plan does not change cadence —
@@ -752,7 +887,7 @@
 
 <!-- ============================== USE OF FUNDS ============================== -->
 <section>
-  <div class="section-num">08 · Use of funds</div>
+  <div class="section-num">09 · Use of funds</div>
   <h1 class="section-title">Where the capital goes</h1>
 
   <p>This section breaks down a representative <strong>$1.32M raise</strong> over the 12-month plan —
@@ -824,7 +959,7 @@
     </tbody>
   </table>
 
-  <p>Every pillar maps to a concrete deliverable in the 12-month staged plan (Section 07). The $300K above
+  <p>Every pillar maps to a concrete deliverable in the 12-month staged plan (Section 08). The $300K above
   is line-itemized infrastructure cost — not contractor budget, not founder time (covered separately under
   Founder runway). Each line is independently defensible.</p>
 
@@ -869,7 +1004,7 @@
 
 <!-- ============================== MILESTONES ============================== -->
 <section>
-  <div class="section-num">09 · Milestones</div>
+  <div class="section-num">10 · Milestones</div>
   <h1 class="section-title">30 / 90 / 180 / 365 day commitments</h1>
 
   <div class="callout">
@@ -932,7 +1067,7 @@
 
 <!-- ============================== THE ASK ============================== -->
 <section>
-  <div class="section-num">10 · The ask</div>
+  <div class="section-num">11 · The ask</div>
   <h1 class="section-title">Investment structure</h1>
 
   <p class="lede">Jelleo proposes a staged angel commitment via SAFE. Specific terms negotiable; representative
@@ -1017,14 +1152,14 @@
 
 <!-- ============================== STRATEGIC FIT ============================== -->
 <section>
-  <div class="section-num">11 · Strategic fit</div>
+  <div class="section-num">12 · Strategic fit</div>
   <h1 class="section-title">Why this engagement is structured this way</h1>
 
   <ol>
     <li><strong>Percolator-first, ecosystem-second.</strong> The platform was built on top of Percolator's source.
     Every safety attestation in the public repo references Percolator engine line numbers. The funded 12-month
     scope is exclusively Percolator inaugural deployment of all four pillars. Multi-protocol expansion is the
-    Year 2+ upside described in Stage 4 (Section 07) — not part of the 12-month commitment, but the equity
+    Year 2+ upside described in Stage 4 (Section 08) — not part of the 12-month commitment, but the equity
     story for a Series A trigger.</li>
     <li><strong>Continuous coverage between audits.</strong> Top-tier audit firms produce one-shot engagements
     that go stale the moment the next commit lands. Jelleo runs 24/7 against the upstream repo, so coverage is

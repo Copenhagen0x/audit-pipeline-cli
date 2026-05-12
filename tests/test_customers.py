@@ -102,7 +102,21 @@ def test_remove_customer_not_found(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("good_id", ["x1", "ottersec", "a-b-c-d-e", "drift-v2", "01"])
+@pytest.mark.parametrize(
+    "good_id",
+    [
+        "x1", "ottersec", "a-b-c-d-e", "drift-v2", "01",
+        # Cross-cutting audit Defect 06: the library's regex was previously
+        # narrower than the CLI's (lowercase + hyphen only, max 32). It
+        # rejected every CLI-valid ``cus_<hex>`` style ID. Unified format
+        # now permits uppercase, underscore, and 16-char hex tokens that
+        # the CLI generates for URL-enumeration resistance.
+        "Has-Caps",
+        "has_underscore",
+        "cus_AbC123dEf456gH",   # mixed case + underscore + 16 chars
+        "x" * 33,               # 33 chars (max is now 64)
+    ],
+)
 def test_validate_customer_id_accepts(good_id: str) -> None:
     customers_mod.validate_customer_id(good_id)  # no raise = accepted
 
@@ -114,10 +128,10 @@ def test_validate_customer_id_accepts(good_id: str) -> None:
         "a",               # 1 char (regex requires >=2)
         "-leading",        # starts with hyphen
         "trailing-",       # ends with hyphen
-        "Has-Caps",        # uppercase
-        "has_underscore",  # underscore not allowed
         "has space",       # spaces
-        "x" * 33,          # too long
+        "x" * 65,          # > 64 chars
+        "with/slash",      # slash
+        "with.dot",        # dot
     ],
 )
 def test_validate_customer_id_rejects(bad_id: str) -> None:

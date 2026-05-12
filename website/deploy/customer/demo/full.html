@@ -1192,81 +1192,25 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     });
   });
 
-  // Cluster activity ticker
-  const invRate = document.getElementById('invocation-rate');
-  const huntsInflight = document.getElementById('hunts-inflight');
-  const spendRate = document.getElementById('spend-rate');
-  const spendBar = document.getElementById('spend-bar');
-  const spendPct = document.getElementById('spend-pct');
-  const invVerified = document.getElementById('inv-verified');
-
+  // (Mock setIntervals removed 2026-05-12 — were rendering fake spend, fake
+  // invocation rate, fake hunts-in-flight, fake inv-verified, and fake "new
+  // cycle" flash effects. Real spend now comes from snapshot.spend; the other
+  // panels are blanked until real sources exist for them.)
   function flash(el) {
     if (!el) return;
     el.classList.remove('tick-flash');
     void el.offsetWidth;
     el.classList.add('tick-flash');
   }
-
-  setInterval(() => {
-    // Invocation rate small jitter
-    const r = 1500 + Math.floor(Math.random() * 80) - 40;
-    if (invRate) { invRate.textContent = r.toLocaleString(); flash(invRate); }
-  }, 6000);
-
-  setInterval(() => {
-    const h = 6 + Math.floor(Math.random() * 6);
-    if (huntsInflight) { huntsInflight.textContent = h; flash(huntsInflight); }
-  }, 4500);
-
-  // Ceiling-tier spend: $1,670/day budget = ~$70/hour, jittering $65–$75
-  setInterval(() => {
-    const s = (65 + Math.random() * 10).toFixed(2);
-    if (spendRate) { spendRate.textContent = s; flash(spendRate); }
-    // Daily budget = $1,670 ($50K/month / 30 days). At $70/hour avg over 24h = $1,680.
-    // Show how saturated the daily budget is relative to a 24h pace.
-    const hourlyToDaily = parseFloat(s) * 24;
-    const pct = Math.min(100, Math.round((hourlyToDaily / 1670) * 100));
-    if (spendBar) spendBar.style.width = pct + '%';
-    if (spendPct) spendPct.textContent = pct + '%';
-  }, 5500);
-
-  // "Today" cumulative spend ticker — slowly creeps up
-  let todaySpend = 1180; // start at midday-ish position
-  setInterval(() => {
-    todaySpend += Math.round(2 + Math.random() * 4); // ~$3-6 every ~8s = roughly $1.20-2.50/min, matches $70/h
-    const todayEl = document.getElementById('spend-today');
-    if (todayEl) {
-      todayEl.textContent = '$' + todaySpend.toLocaleString();
-      flash(todayEl);
-    }
-  }, 8000);
-
-  // MTD spend ticker — slow creep
-  let mtdSpend = 36740;
-  setInterval(() => {
-    mtdSpend += Math.round(2 + Math.random() * 4);
-    const mtdEl = document.getElementById('spend-mtd');
-    if (mtdEl) mtdEl.textContent = '$' + mtdSpend.toLocaleString();
-  }, 8000);
-
-  setInterval(() => {
-    if (!invVerified) return;
-    const cur = parseInt(invVerified.textContent.replace(/,/g, ''));
-    const next = Math.min(1500, cur + 1);
-    invVerified.textContent = next.toLocaleString();
-    if (next > cur) flash(invVerified);
-  }, 12000);
-
-  // Subtle attest-row "new" effect every ~30s
-  let cycleCounter = 0;
-  setInterval(() => {
-    cycleCounter++;
-    const rows = document.querySelectorAll('.attest-row');
-    if (!rows.length) return;
-    const row = rows[0];
-    row.style.background = 'rgba(245,184,0,0.1)';
-    setTimeout(() => { row.style.background = ''; }, 1200);
-  }, 30000);
+  ['invocation-rate', 'hunts-inflight', 'spend-rate', 'inv-verified',
+   'spend-mtd'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '—';
+  });
+  const _spendBar = document.getElementById('spend-bar');
+  if (_spendBar) _spendBar.style.width = '0%';
+  const _spendPct = document.getElementById('spend-pct');
+  if (_spendPct) _spendPct.textContent = '—';
 
 })();
 </script>
@@ -1559,6 +1503,20 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     const uptimeEl = document.getElementById('ops-uptime');
     if (uptimeEl && manifest.loop_uptime_human) {
       uptimeEl.textContent = String(manifest.loop_uptime_human);
+    }
+
+    // Real LLM spend — replaces the fake setInterval tickers that were
+    // rendering "$1,180+" / "$36,740+" with no real source.
+    const spend = manifest.spend || {};
+    const todayEl = document.getElementById('spend-today');
+    if (todayEl) {
+      const v = spend.today_usd;
+      todayEl.textContent = (typeof v === 'number') ? '$' + v.toFixed(2) : '—';
+    }
+    const mtdEl = document.getElementById('spend-mtd');
+    if (mtdEl) {
+      const v = spend.total_usd;
+      mtdEl.textContent = (typeof v === 'number') ? '$' + v.toFixed(2) : '—';
     }
   }
 

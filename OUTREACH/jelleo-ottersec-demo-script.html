@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Jelleo · OtterSec Demo Script · Thursday May 7, 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0a0a0a; --ink-2: #2d2d2d; --ink-3: #595959; --ink-4: #8a8a8a;
+    --rule: #d4d4d4; --rule-2: #e8e8e8;
+    --bg: #ffffff; --bg-2: #fafafa;
+    --accent: #b45309; --accent-2: #f59e0b; --accent-soft: #fef3c7; --accent-tint: #fffbeb;
+    --green: #166534; --red: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 11pt; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  code, .mono { font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+    font-size: .9em; background: var(--bg-2); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--rule-2); }
+  @page { size: letter; margin: 0.6in; }
+  @media print {
+    section, .act { page-break-inside: auto; }
+    h2, h3 { page-break-after: avoid; break-after: avoid; }
+    .say-box, .click-box { page-break-inside: avoid; }
+    .act { page-break-before: always; }
+    .act.cover { page-break-before: auto; }
+  }
+  .shell { max-width: 8.5in; margin: 0 auto; padding: 0.4in 0.7in; }
+
+  /* Cover */
+  .cover { padding: 0.5in 0.7in 0.4in; border-bottom: 2px solid var(--accent); margin-bottom: 0.3in; }
+  .cover .wordmark {
+    display: inline-block; font-weight: 700; letter-spacing: .26em;
+    font-size: 13px; padding: 5px 11px; border: 1.5px solid var(--ink); position: relative; line-height: 1; margin-bottom: 0.25in;
+  }
+  .cover h1 { font-size: 26pt; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 0.08in; }
+  .cover h2 { font-size: 13pt; font-weight: 500; color: var(--ink-2); letter-spacing: -0.01em; margin: 0; line-height: 1.4; }
+  .cover .lede { font-size: 10.5pt; color: var(--ink-2); margin-top: 0.18in; max-width: 6in; line-height: 1.6; }
+
+  /* Section heads */
+  h2.act-head {
+    font-size: 14pt; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 0.16in;
+    padding: 0.08in 0.14in; background: var(--accent-tint); border-left: 4px solid var(--accent);
+  }
+  h2.act-head .time { font-family: 'JetBrains Mono', monospace; color: var(--accent); margin-right: 0.12in; font-size: 11.5pt; }
+  h2.act-head .duration { float: right; font-size: 10pt; color: var(--ink-3); font-weight: 500; letter-spacing: .04em; }
+  h3.sub-head {
+    font-size: 11pt; font-weight: 700; margin: 0.2in 0 0.06in; color: var(--ink);
+    text-transform: uppercase; letter-spacing: .08em; font-size: 9.5pt;
+  }
+  h3.sub-head.click { color: var(--accent); }
+  h3.sub-head.say { color: var(--green); }
+  h3.sub-head.tactical { color: var(--ink-3); }
+
+  /* Boxes */
+  .click-box, .say-box, .tactical-box, .warn-box, .star-box, .honest-box {
+    padding: 0.13in 0.18in; border-radius: 4px; margin: 0.05in 0 0.15in;
+    font-size: 10.5pt; line-height: 1.6;
+  }
+  .click-box { background: #fff7ed; border-left: 3px solid var(--accent); }
+  .say-box { background: #f0fdf4; border-left: 3px solid var(--green); font-style: italic; }
+  .say-box em { font-style: normal; font-weight: 600; }
+  .say-box strong { font-weight: 700; color: var(--ink); }
+  .tactical-box { background: var(--bg-2); border-left: 3px solid var(--ink-3); font-size: 10pt; color: var(--ink-2); }
+  .warn-box { background: #fef2f2; border-left: 3px solid var(--red); color: var(--ink); }
+  .star-box { background: var(--accent-tint); border: 1px solid var(--accent); color: var(--ink); padding: 0.18in; }
+  .honest-box { background: #fffbeb; border: 2px solid var(--accent); padding: 0.16in; font-weight: 500; }
+
+  /* Stage box — what window is open + what to click, above each green box */
+  .stage-box {
+    background: #eff6ff; border-left: 3px solid #1d4ed8;
+    padding: 0.07in 0.14in; margin: 0.18in 0 0.04in;
+    font-size: 9.5pt; line-height: 1.5;
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+  }
+  .stage-box .stage-row { display: flex; align-items: baseline; }
+  .stage-box .stage-label { font-weight: 700; color: #1d4ed8; min-width: 64px; letter-spacing: .06em; font-size: 9pt; }
+  .stage-box .stage-val { color: var(--ink); flex: 1; }
+  .stage-box .stage-val code { font-size: .92em; }
+  .stage-box .stage-val .dim { color: var(--ink-3); }
+
+  ol.click-list, ul.click-list { margin: 0.04in 0 0.08in 0; padding-left: 0.28in; }
+  ol.click-list li, ul.click-list li { margin: 0.04in 0; }
+
+  /* Timeline table */
+  table.timeline { width: 100%; border-collapse: collapse; margin: 0.15in 0; font-size: 10pt; }
+  table.timeline th { text-align: left; font-weight: 700; padding: 0.06in 0.1in;
+    background: var(--accent-tint); border-bottom: 1px solid var(--accent); font-size: 9.5pt;
+    text-transform: uppercase; letter-spacing: .06em; }
+  table.timeline td { padding: 0.07in 0.1in; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
+  table.timeline td.time-col { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--accent); white-space: nowrap; }
+  table.timeline td.act-col { font-weight: 600; }
+
+  /* Q&A table */
+  table.qa { width: 100%; border-collapse: collapse; margin: 0.1in 0 0.2in; font-size: 10pt; }
+  table.qa th { text-align: left; padding: 0.08in 0.1in; background: var(--accent-tint);
+    border-bottom: 1px solid var(--accent); font-size: 9.5pt; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+  table.qa td { padding: 0.09in 0.12in; border-bottom: 1px solid var(--rule-2); vertical-align: top; line-height: 1.5; }
+  table.qa td.q { font-weight: 600; width: 38%; color: var(--ink); }
+  table.qa td.a { color: var(--ink-2); }
+
+  /* Footer */
+  .footer { margin-top: 0.4in; padding-top: 0.15in; border-top: 1px solid var(--rule);
+    color: var(--ink-3); font-size: 9pt; display: flex; justify-content: space-between; }
+
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 9px; font-size: 9pt;
+    font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  .pill.green { background: #dcfce7; color: var(--green); }
+  .pill.amber { background: var(--accent-soft); color: var(--accent); }
+  .pill.red { background: #fee2e2; color: var(--red); }
+
+  .checklist { list-style: none; padding-left: 0; margin: 0.1in 0; font-size: 10.5pt; }
+  .checklist li { padding: 0.04in 0 0.04in 0.32in; position: relative; }
+  .checklist li::before { content: '☐'; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+  .checklist li.done::before { content: '✓'; color: var(--green); }
+
+  .print-bar { position: fixed; top: 12px; right: 12px; padding: 8px 14px;
+    background: var(--ink); color: white; border-radius: 4px;
+    font-size: 11pt; cursor: pointer; border: none; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  @media print { .print-bar { display: none; } }
+
+  hr.divider { border: 0; border-top: 1px solid var(--rule); margin: 0.25in 0; }
+  .duration-tag { font-family: 'JetBrains Mono', monospace; font-size: 9.5pt;
+    color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<button class="print-bar" onclick="window.print()">Print to PDF →</button>
+
+<div class="shell">
+
+<!-- COVER -->
+<div class="act cover">
+  <span class="wordmark">JELLEO</span>
+  <h1>OtterSec Demo Script</h1>
+  <h2>Thursday May 7, 2026 · 9:30 AM EST · 30-minute call</h2>
+  <p class="lede">A click-by-click, word-by-word practice script. Read it through twice. Then practice each section out loud until you can say it without looking. The goal isn't to recite — it's to internalize so the language is yours when you're live.</p>
+  <p class="lede"><strong>Single most important rule:</strong> Mention <em>"Sentinel"</em> exactly ONCE at the start (to bridge the rebrand). After that, everything is <strong>Jelleo</strong> — the platform, the engine, the website, the methodology. All Jelleo.</p>
+</div>
+
+<!-- PRE-CALL SETUP -->
+<div class="act">
+<h2 class="act-head"><span class="time">PRE</span> 15 minutes before the call <span class="duration">setup</span></h2>
+
+<h3 class="sub-head click">Tabs to have open in your browser, in order:</h3>
+<ol class="click-list">
+  <li><strong>Tab 1 — F7 PR:</strong> <code>github.com/aeyakovenko/percolator-prog/pull/39</code></li>
+  <li><strong>Tab 2 — Jelleo engine repo:</strong> <code>github.com/Copenhagen0x/audit-pipeline-cli</code></li>
+  <li><strong>Tab 3 — jelleo.com</strong></li>
+  <li><strong>Tab 4 — Glossary PDF</strong> on second monitor for Q&A reference</li>
+</ol>
+
+<h3 class="sub-head click">Other prep:</h3>
+<ul class="click-list">
+  <li>Coffee, water, headphones plugged in</li>
+  <li>Phone on Do Not Disturb · close email, Slack, all notifications</li>
+  <li>5 min before: open all 4 tabs, test the screen-share button</li>
+  <li>Open the Zoom link they sent · join 1 minute early, mute on entry</li>
+</ul>
+</div>
+
+<!-- TIMELINE -->
+<div class="act">
+<h2 class="act-head"><span class="time">MAP</span> Timeline at a glance <span class="duration">30 min total</span></h2>
+
+<table class="timeline">
+  <thead>
+    <tr><th style="width:18%">Time</th><th style="width:22%">Section</th><th>What happens</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="time-col">0:00 — 0:02</td><td class="act-col">Opener</td><td>Set the room · 30-sec pitch · F7 hook · ask to share</td></tr>
+    <tr><td class="time-col">0:02 — 0:06</td><td class="act-col">Act 1 · F7</td><td>Show pull request 39 · the bug · the regression that landed on main</td></tr>
+    <tr><td class="time-col">0:06 — 0:11</td><td class="act-col">Act 2 · Engine</td><td>Show what runs on Percolator today · hyps, formal proofs, receipts</td></tr>
+    <tr><td class="time-col">0:11 — 0:17</td><td class="act-col">Act 3 · jelleo.com</td><td>Year-one vision · 11 sections with drive-bys</td></tr>
+    <tr><td class="time-col">0:17 — 0:27</td><td class="act-col">Act 4 · Q&amp;A</td><td>Hand it back · listen 3× more than talk</td></tr>
+    <tr><td class="time-col">0:27 — 0:30</td><td class="act-col">Close</td><td>Lock the next step · thank them</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- OPENER -->
+<div class="act">
+<h2 class="act-head"><span class="time">0:00</span> Opener — the hook <span class="duration">2 min</span></h2>
+
+<p>Brief greeting (smile, names if you know them). Then say this — internalize the structure, deliver it like you're explaining it to a friend, not reading off a card:</p>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><span class="dim">camera only · screen NOT shared yet</span></span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">eye contact · do NOT click anything · at end of this block, click <strong>Share screen → Tab 1 (PR #39)</strong></span></div>
+</div>
+
+<div class="say-box">
+"Hey — thanks for making time for this, really appreciate it.<br><br>
+Quick context to set the stage. About a week ago I emailed Robert asking where this kind of work might fit at OtterSec. Since then I've rebranded — what I described as <strong>Sentinel</strong> in that email is now <strong>Jelleo</strong>, the productized commercial layer of the same engine. From here on, everything I say is Jelleo.<br><br>
+Let me give you the thirty-second version of what Jelleo does. Jelleo runs continuous checks on Solana DeFi code, looking for bugs in the core invariants. Every commit, hundreds of these checks fire automatically and produce a signed receipt — either <em>"rules still hold"</em> or <em>"here's the bug, here's the proof."</em> The buyers are DeFi insurance protocols and the Solana Foundation. They consume the receipts as a live signal of code safety <em>between</em> formal audit cycles.<br><br>
+Important framing before I show anything: <strong>Jelleo is built to complement audit firms, not replace them.</strong> Audits do the deep, expert work that requires human review — that's the gold standard. Jelleo handles the commit-by-commit layer in between, where doing it with humans isn't economical.<br><br>
+The proof this works is <strong>F7</strong> — a real insurance-siphon bug Jelleo found in Percolator about a month ago and disclosed via pull request thirty-nine. F7 came out of the same methodology that's running continuously now.<br><br>
+So here's what I want to do. I'll show you three things — F7 and the bug, the engine that found it, and where Jelleo's headed at scale. Then I'd love to flip it back to you. Cool if I share my screen?"
+</div>
+
+<div class="warn-box">
+<strong>That's the only time you say "Sentinel."</strong> Every reference after this — to the platform, the engine, the methodology, the disclosure pipeline — is <strong>Jelleo</strong>. If they say "Sentinel" first, gently bridge: <em>"Yeah, that's now Jelleo — same engine, productized commercial layer."</em>
+</div>
+
+<div class="tactical-box">
+<strong>Pacing:</strong> ~2 minutes. Take a real breath between blocks — the line breaks in the script are pause points, use them. Don't rush, don't fill silence. The demo is where details go; the opener is where you set the room.
+</div>
+</div>
+
+<!-- ACT 1 -->
+<div class="act">
+<h2 class="act-head"><span class="time">0:02</span> Act 1 — F7: show them the receipt <span class="duration">~4-5 min</span></h2>
+
+<h3 class="sub-head click">What you click:</h3>
+<ol class="click-list">
+  <li>Switch to <strong>Tab 1 — PR #39</strong></li>
+  <li>Show the title and description of the PR</li>
+  <li>Click into the LiteSVM PoC test commit (<code>43cdcd8</code>)</li>
+  <li>Switch back to PR · scroll to A1 regression on main (<code>a1afd2e</code>)</li>
+</ol>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">Tab 1 — <code>github.com/aeyakovenko/percolator-prog/pull/39</code></span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll to top of PR · show title + description · <span class="dim">no clicks yet</span></span></div>
+</div>
+
+<div class="say-box">
+"OK so on screen now — pull request thirty-nine in the Percolator repository. This is where I disclosed F7. Let me give you what F7 actually is in plain English.<br><br>
+There's a helper function in Percolator's engine that handles insurance absorption. When a loss gets routed to the insurance buffer, this helper shrinks an internal counter that tracks absorption. <strong>The bug — it shrinks the counter without actually pulling money out of the vault.</strong><br><br>
+So the books say the insurance paid out a loss, but the cash is still sitting in the vault. An attacker on the winning side of that trade claims the gap. Real bug, real exploit path. And I built a working test for it — let me show you that next."
+</div>
+<p style="font-size: 10pt; color: var(--ink-3); margin: 0 0 0.15in;">Pause. Let them digest. They'll either nod or ask a quick clarifier.</p>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">Tab 1 — PR #39</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">click commit <code>43cdcd8</code> (the LiteSVM PoC test) · let the diff render</span></div>
+</div>
+
+<div class="say-box">
+"This commit is the proof-of-concept test. It runs on <strong>LiteSVM</strong> and reproduces the exploit end-to-end against the same compiled program code that deploys to mainnet. Not a Rust unit test, the actual bytecode that runs on-chain.<br><br>
+Most disclosure pipelines don't include this — most stop at <em>"here's the theory of the bug."</em> Jelleo generates these end-to-end PoC tests as part of every disclosure — the protocol team gets a working exploit they can reproduce themselves. They don't have to take my word for it."
+</div>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">Tab 1 — PR #39</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">browser back · scroll to A1 regression note · point to commit <code>a1afd2e</code> on main</span></div>
+</div>
+
+<div class="say-box">
+"OK now back to the PR thread — I want to be straight with you about what happened next.<br><br>
+<strong>The pull request closed without merge.</strong> Anatoly's team reviewed it and decided their existing engine defenses already covered this attack class — they didn't need the patch I proposed. The patch didn't land.<br><br>
+But here's what's interesting — <strong>the regression test suite I shipped along with the patch DID land.</strong> It's on main now. So the patch didn't make it in, but the test cases that prevent F7 from coming back are permanently in the codebase. The pull request closed but the methodology landed. In audit-pipeline terms, that's actually the win I wanted — I don't need credit for the fix; what I need is the receipt that the methodology found something real."
+</div>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">Tab 1 — PR #39</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val"><span class="dim">stay here · talking only · no click</span></span></div>
+</div>
+
+<div class="say-box">
+"And before I move on, here's the part worth landing — because it would be easy to look at F7 and assume it came from deep Rust and Solana expertise on my end. It didn't.<br><br>
+An autonomous agent flagged the hypothesis — <em>"this helper might have an asymmetry between the counter and the vault."</em> A second agent scaffolded the proof-of-concept. A third synthesized regression coverage. <strong>I triaged the result and pressed Disclose.</strong><br><br>
+Three agents, one human reviewer at the end. <strong>The pipeline doesn't need a Solana expert in the chair</strong> — which means Jelleo can run across many protocols at once. That's exactly where year-one Jelleo lands."
+</div>
+
+<div class="tactical-box">
+<strong>Why that closing line matters:</strong> It pre-empts the <em>"how autonomous is it really?"</em> question before they ask. They might still ask, but your answer is now warm, not cold.
+</div>
+</div>
+
+<!-- ACT 2 -->
+<div class="act">
+<h2 class="act-head"><span class="time">0:06</span> Act 2 — what runs today on Percolator <span class="duration">~5-6 min</span></h2>
+
+<h3 class="sub-head click">What you click (2 real drill-downs · Kani is verbal):</h3>
+<ol class="click-list">
+  <li>Switch to <strong>Tab 2 — Jelleo engine repo</strong> (top-level)</li>
+  <li>Drill: <code>src/</code> → <code>audit_pipeline/</code> → <code>templates/</code> → <code>hypotheses/</code> → open <strong>percolator_deep.yaml</strong> (the 101-hyp file)</li>
+  <li>Browser back to repo root · drill: <code>examples/</code> → <code>confirmed-tests/</code> → click <strong>test_confirm_v4_vault_cap_respect.summary.json</strong> (the receipt format)</li>
+  <li>Kani: NO click · verbal only — "synthesizes from <code>commands/synth_kani.py</code>, dispatches to a separate compute layer"</li>
+</ol>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">switch to Tab 2 — <code>github.com/Copenhagen0x/audit-pipeline-cli</code></span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">show top-level repo file tree · don't click anything yet</span></div>
+</div>
+
+<div class="say-box">
+"OK so that was F7 — the receipt. <strong>Now let me show you the engine that found it.</strong> Switching tabs.<br><br>
+This is the engine repo. Python orchestrator, YAML hyp library, confirmed tests — all open-source, every line public.<br><br>
+What runs every commit is what I call a <strong>hunt cycle</strong> — five stages, fully autonomous. <strong>Recon</strong> scans new code. <strong>Adversarial debate</strong> — agents argue against each other about what could break. <strong>PoC scaffolding</strong> generates exploit candidates. <strong>Formal verification</strong> mathematically proves invariants. <strong>Triage</strong> scores the findings. F7 came out of a triage that scored high enough to disclose.<br><br>
+Let me drill into the hypothesis library."
+</div>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">Tab 2 — Jelleo engine repo</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">drill in: click <code>src/</code> → <code>audit_pipeline/</code> → <code>templates/</code> → <code>hypotheses/</code> → open <strong>percolator_deep.yaml</strong> · let them see real YAML hyps</span></div>
+</div>
+
+<div class="say-box">
+"Alright — three YAML files here. <strong>A hundred and twenty-five total checks</strong>, each one tailored to Percolator's actual invariants. Every hypothesis is a yes-or-no question about the code — and F7 came from one of these firing positive. As Jelleo scales across protocols, this library grows substantially — each new protocol brings its own hyp set, and cross-protocol propagation generates more from each finding.<br><br>
+Let me open the deep file — that's the big one with about a hundred of them."
+</div>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">Tab 2 — stay on the open <code>percolator_deep.yaml</code> · NO click</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val"><strong>verbal only — do NOT navigate away</strong> · this is a quick callout while their eyes are still on the YAML hyps</span></div>
+</div>
+
+<div class="say-box">
+"Quick callout while you're looking at this — these hyps run two ways.<br><br>
+<strong>One is mathematical proof.</strong> Jelleo uses Kani for those — meaning if a hyp passes, it passes for every possible input, not just the ones I thought to try. About thirty of the hyps in this library have Kani proofs behind them today; that grows over time.<br><br>
+<strong>The other is integration tests against Percolator's real engine.</strong> Let me show you those — browser back."
+</div>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">Tab 2 — Jelleo engine repo</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">browser back to repo root · drill: <code>examples/</code> → <code>confirmed-tests/</code> · <strong>hover</strong> the file list (3 tests × 3 files: <code>.rs</code> + <code>.cargo.log</code> + <code>.summary.json</code>) — DON'T click yet</span></div>
+</div>
+
+<div class="say-box">
+"OK so here are the <strong>real receipts</strong>. Three confirmed tests, three files each — Rust source, build log, JSON receipt.<br><br>
+The JSON receipt is the part that matters for the customers — machine-readable, signable, subscribable. That's what an insurance protocol or the Foundation would consume in production. The other two files are there for human auditors who want to verify the work themselves.<br><br>
+Let me open the vault-cap-respect one to show you the format."
+</div>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">Tab 2 — confirmed-tests/</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">click <strong>test_confirm_v4_vault_cap_respect.summary.json</strong> · let the JSON render</span></div>
+</div>
+
+<div class="say-box">
+"OK this is what a receipt looks like. Verdict, file-and-line citations, the engine commit hash it ran against. That last part matters — it pins this receipt to a specific point in time, a specific version of Percolator. <strong>Audit-trail JSON, not a marketing claim.</strong><br><br>
+All three tests here came back as <strong>safety attestations</strong> — the assertion held. Positive receipts, invariants intact.<br><br>
+And here's the connection to F7. <strong>F7 came out of this exact same pipeline.</strong> Same hyp library, same test runner, same receipt format. The only difference — F7's test came back <em>fired</em> instead of <em>safety attestation</em>. The assertion failed. That kicked off the disclosure flow, which became pull request thirty-nine. Same machinery, two outcomes."
+</div>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">Tab 2 — Jelleo engine repo</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val"><span class="dim">stay here · talking only · this is your wrap before switching to jelleo.com</span></span></div>
+</div>
+
+<div class="say-box">
+"OK three things to land before I move on.<br><br>
+<strong>First — it's continuous.</strong> Every commit fires a hunt cycle, not every audit cycle.<br><br>
+<strong>Second — it's autonomous.</strong> The pipeline runs without a Solana expert in the loop. Human is only on triage and disclosure approval.<br><br>
+<strong>Third — it's open-source.</strong> Everything I just showed lives in a public repo. Anyone can audit the methodology. The moat is the cluster scale, not the code — which is what I'll talk about next."
+</div>
+
+<div class="tactical-box">
+<strong>What this section pre-empts:</strong> the "how is this different from Hypernative / Range / Sec3?" question. By saying <em>"watches invariants in source on every commit,"</em> you're already drawing the line vs. <em>"watches transactions at runtime."</em> If they still ask, your answer is "exactly what I just covered — different layers."
+</div>
+</div>
+
+<!-- ACT 3 -->
+<div class="act">
+<h2 class="act-head"><span class="time">0:11</span> Act 3 — where Jelleo's headed: jelleo.com <span class="duration">6 min</span></h2>
+
+<h3 class="sub-head click">What you click — full scroll, with brief drive-by lines for the in-between sections:</h3>
+<ol class="click-list">
+  <li>Switch to <strong>Tab 3 — jelleo.com</strong></li>
+  <li>Stay on Hero · 10 sec</li>
+  <li>Scroll to <strong>§02 Coverage</strong> ("27 protocols. Always on.")</li>
+  <li>Scroll to <strong>§03 Pillars</strong> ("Four pillars. One adaptive loop.") — <span class="pill amber">slow down</span></li>
+  <li>Scroll to <strong>§05 Live-ops</strong> ("What this looks like at scale")</li>
+  <li>Scroll to <strong>§05.5 Surveillance</strong> ("Watching the cluster type") — <span class="pill amber">drive-by, 7 sec</span></li>
+  <li>Scroll to <strong>§05.7 Dashboard preview</strong> — <span class="pill amber">CALL OUT THE PREVIEW TAG</span></li>
+  <li>Scroll to <strong>§06 Disclosures</strong> ("Public ledger. 184 cycles at Year-1 exit") — <span class="pill amber">drive-by, 7 sec</span></li>
+  <li>Scroll to <strong>§07 Attestation registry</strong> ("Every cycle. On-chain. Forever.") — <span class="pill amber">drive-by, 7 sec</span></li>
+  <li>Scroll to <strong>§08 STRIDE</strong> ("STRIDE certifies. Jelleo provides the artifacts.") — <span class="pill amber">slow down</span></li>
+  <li>Scroll to <strong>§09 Case study — F7</strong></li>
+  <li>Scroll to <strong>§10 Open source</strong></li>
+</ol>
+
+<h3 class="sub-head say">⚠️ HONESTY DISCLOSURE — say this BEFORE you start scrolling:</h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">switch to Tab 3 — <code>jelleo.com</code> (just landed at top)</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val"><strong>DO NOT scroll yet</strong> · stay at hero · deliver the disclosure with their full attention before any motion</span></div>
+</div>
+
+<div class="honest-box">
+"OK switching to jelleo.com — last tab.<br><br>
+Quick disclosure first, this matters: <strong>jelleo.com is a year-one preview.</strong> What you're about to see represents Jelleo at production scale — twenty-seven protocols under coverage, enterprise dashboards, the full operations layer.<br><br>
+<strong>Today Jelleo covers one protocol — Percolator. That's where F7 came from.</strong> The roadmap scales coverage from one to twenty-seven. Watch for the <em>preview</em> tags as I scroll — I put them there on purpose. I don't fake live data. If something's mocked, it's labeled."
+</div>
+
+<hr class="divider">
+
+<h3 class="sub-head say">§ Hero · <span class="duration-tag">10 sec</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — Hero (top of page)</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">stay at top · let the cluster animation play behind you · point at the moving nodes</span></div>
+</div>
+
+<div class="say-box">
+"Top of the page — cluster visualization. Each node is a protocol under coverage. Right now one node, Percolator. At year-one scale — fills out to twenty-seven."
+</div>
+
+<h3 class="sub-head say">§02 Coverage · <span class="duration-tag">45 sec</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — §02 Coverage</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll down to <strong>"27 protocols. Always on."</strong> · land the headline in the middle of the screen</span></div>
+</div>
+
+<div class="say-box">
+"Let me jump down to where the year-one target lives. Twenty-seven protocols, always-on coverage, no gaps between audit cycles.<br><br>
+The positioning I want to land here clearly — because it's the whole frame. <strong>Audit firms ship the deep snapshot.</strong> Every six months or so, a protocol gets a thorough human review and a comprehensive report — that's the gold standard, the work that requires expert judgment. Jelleo's role is to hold the protocol accountable to that snapshot in the period between audits, every commit, every change.<br><br>
+Different time horizons, complementary roles. Audits handle depth — Jelleo handles continuity."
+</div>
+
+<h3 class="sub-head say">§03 Pillars · <span class="duration-tag">75 sec</span> · <span class="pill amber">DENSEST · don't rush</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — §03 Pillars</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll to <strong>"Four pillars. One adaptive loop."</strong> · point at each pillar card (P1 → P2 → P3 → P4) as you say them</span></div>
+</div>
+
+<div class="say-box">
+"OK what does the platform actually do? <strong>Four pillars.</strong> Let me walk through each.<br><br>
+<strong>Pillar one — counterfactual mainnet detection.</strong> Jelleo simulates exploits against current mainnet state. The question being asked — <em>"if a malicious user submitted this transaction right now, against actual on-chain state, would they steal something?"</em> F7 lives here.<br><br>
+<strong>Pillar two — cross-protocol propagation. This is where the real moat lives.</strong> When Jelleo finds F7 in Percolator, the engine doesn't stop there. It generates the equivalent hypothesis for every other protocol in the cluster. So if Drift, MarginFi, Mango all have similar insurance accounting, the F7 hyp gets ported to each one and runs against their codebase. <strong>This is what Certora and Runtime Verification can't do</strong> — they need humans to write specs for each protocol from scratch. Jelleo propagates across the cluster automatically. One bug found, twenty-six other protocols checked.<br><br>
+<strong>Pillar three — closed-loop fix bundle.</strong> When Jelleo discloses, it doesn't just send <em>"hey, your protocol has a bug."</em> The disclosure packages the PoC test, regression suite, and suggested patch together. F7 was a P3.<br><br>
+<strong>Pillar four — on-chain attestation registry.</strong> Every safety attestation gets a cryptographic signature, written on-chain so insurers can subscribe programmatically. They don't have to trust me — they verify independently. Deploys at month six.<br><br>
+Pillar one runs today. Two, three, four deploy as Jelleo scales across the cluster."
+</div>
+
+<h3 class="sub-head say">§05 Live-ops · <span class="duration-tag">45 sec</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — §05 Live-ops</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll to <strong>"What this looks like at scale"</strong> · scroll past §04 Methodology (already covered in Act 2 — no need to narrate)</span></div>
+</div>
+
+<div class="say-box">
+"Quick stop — operations view at scale. Cluster status, hunt cycle counts, hyp pass rates, all real-time. Today: dashboard runs on one node. At year-one: twenty-seven nodes feeding it."
+</div>
+
+<h3 class="sub-head say">§05.5 Surveillance · <span class="duration-tag">7 sec drive-by</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — §05.5 Surveillance terminal</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll <em>through</em> as you say this · don't stop · 7 seconds max</span></div>
+</div>
+
+<div class="say-box">
+"Surveillance terminal — live view of the hunt agents working in real-time, streamed character-by-character. Running against the live Percolator node right now."
+</div>
+
+<h3 class="sub-head say">§05.7 Dashboard preview · <span class="duration-tag">30 sec</span> · <span class="pill amber">CALL OUT THE PREVIEW TAG</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — §05.7 Customer dashboard</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll to <strong>"What customers see. Single-tenant view."</strong> · <strong>physically point at the orange PREVIEW tag</strong> on screen as you mention it</span></div>
+</div>
+
+<div class="say-box">
+"OK this is the single-tenant dashboard a customer sees — and this is the part that actually matters most for the buyer. So if a DeFi insurance protocol is underwriting Percolator, this is what their evidence base looks like in real time.<br><br>
+At a glance — every hunt cycle from the last hour, the live attestation feed pinned to the protocol's current commit, any fired findings that need attention, a coverage map showing which hyps are active, recent disclosures, integration health for their own alert routing — Slack, email, ticketing. <strong>This is what they actually use to make underwriting or endorsement decisions in real time</strong> — every signal live, every receipt verifiable on-chain.<br><br>
+<strong>See the PREVIEW tag in the corner?</strong> Honest one — this dashboard is mocked. Real implementation lands at month six. Same standard I hold to: if it's not built yet, I label it. I don't fake live data."
+</div>
+
+<h3 class="sub-head say">§06 Disclosures · <span class="duration-tag">7 sec drive-by</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — §06 Disclosures ledger</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll <em>through</em> · don't stop · 7 seconds max</span></div>
+</div>
+
+<div class="say-box">
+"Public disclosure ledger — every hunt cycle that came back fired and went to disclosure. F7 sits at the top. Year-one target: around a hundred and eighty cycles."
+</div>
+
+<h3 class="sub-head say">§07 Attestation registry · <span class="duration-tag">7 sec drive-by</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — §07 Attestation registry tower</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll <em>through</em> · don't stop · 7 seconds max</span></div>
+</div>
+
+<div class="say-box">
+"Right next to it — on-chain attestation registry. Pillar four. Every safety attestation gets a cryptographic signature, written on-chain. Insurers verify independently. Deploys at month six."
+</div>
+
+<h3 class="sub-head say">§08 STRIDE · <span class="duration-tag">60 sec</span> · <span class="pill amber">IMPORTANT</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — §08 Where Jelleo fits</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">land on <strong>"STRIDE certifies. Jelleo provides the artifacts."</strong> · slow down here — this is where customer-model lands</span></div>
+</div>
+
+<div class="say-box">
+"OK STRIDE. <strong>Jelleo produces the artifacts for the smart-contract-integrity pillar</strong> — so when a protocol comes up for STRIDE certification, Foundation reviewers can pull Jelleo's attestations as one input to the score. They don't have to take my word, the receipts are signed and on-chain.<br><br>
+And this also defines the two direct customer types. <strong>DeFi insurance protocols</strong> who underwrite coverage and want a live signal of code safety — that's customer one. And <strong>Solana Foundation through STRIDE</strong> — that's customer two. Neither is the protocol team itself. <em>The protocol is the target, but the buyer is the insurer or the Foundation.</em><br><br>
+And then there's a third group I want to flag — <strong>audit firms.</strong> They sit naturally in this picture too. There's a shape where what Jelleo generates continuously feeds into what an audit firm offers their clients between audit engagements — and where what auditors find informs the hyp library. I haven't wired that up yet — it's something I'd genuinely like to figure out the right shape for."
+</div>
+
+<h3 class="sub-head say">§09 Case study — F7 · <span class="duration-tag">30 sec</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — §09 Inaugural disclosure</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll to <strong>"F7 — cycle one."</strong> · brief reference only · don't re-explain F7</span></div>
+</div>
+
+<div class="say-box">
+"And this closes the loop — F7 documented as the inaugural disclosure. Public-facing version of what I walked through in PR thirty-nine."
+</div>
+
+<h3 class="sub-head say">§10 Open source · <span class="duration-tag">15 sec</span></h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com — §10 Open source</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">scroll to <strong>"Every claim links to public code"</strong> · this is your visual close · then scroll back up to top so they can ask</span></div>
+</div>
+
+<div class="say-box">
+"And finally — every claim on the site links to public code. No black box. The moat is methodology and cluster scale, not the source.<br><br>
+That's the walk-through."
+</div>
+
+<div class="tactical-box">
+<strong>Two ways to handle the in-between sections (§05.5 / §06 / §07):</strong> the script gives you a 7-second drive-by line for each — say it while you scroll <em>through</em>, don't stop. If they raise a hand on any of them, stop and dwell. Otherwise keep moving toward STRIDE which is where the customer model lands.<br><br>
+<strong>Truly skipped:</strong> §01 stats section · §04 Methodology (already covered in Act 2). Don't narrate these — just scroll past silently.
+</div>
+</div>
+
+<!-- ACT 4 - Q&A -->
+<div class="act">
+<h2 class="act-head"><span class="time">0:17</span> Act 4 — Q&amp;A: hand it back to them <span class="duration">10 min</span></h2>
+
+<h3 class="sub-head say">The handoff line:</h3>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val">jelleo.com still on screen (or stop sharing — your call)</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val"><strong>look at camera</strong> · pen and paper ready for notes · breathe</span></div>
+</div>
+
+<div class="say-box">
+"That's the walk-through. Original question I asked Robert was where this fits at OtterSec — customer relationship, partnership, something I haven't thought of. Now that you've seen what's there, <strong>how do you read it?</strong>"
+</div>
+
+<div class="warn-box">
+<strong>Then SHUT UP and listen.</strong> Take notes. Most of the value of this entire call lives here. If there's silence — let it sit. Don't fill it.
+</div>
+
+<h3 class="sub-head tactical">Probe-answer cheat sheet</h3>
+
+<table class="qa">
+<thead>
+  <tr><th>If they ask</th><th>You answer (short, confident)</th></tr>
+</thead>
+<tbody>
+  <tr>
+    <td class="q">"How is this different from Certora / Runtime Verification?"</td>
+    <td class="a">"Formal verification needs humans to write specifications per protocol. Jelleo's hyp library generates checks autonomously per-commit. Complement, not replacement — FV proves once with a human; Jelleo runs continuously without one."</td>
+  </tr>
+  <tr>
+    <td class="q">"How is this different from Hypernative / Riverguard / Range / Sec3 X-Ray?"</td>
+    <td class="a">"They watch transactions at runtime — alert when something exploit-shaped lands on-chain. Jelleo watches invariants in source on every commit. Catches bugs <em>before</em> they ship. Different layers."</td>
+  </tr>
+  <tr>
+    <td class="q">"How autonomous is it really?"</td>
+    <td class="a">"Hunt cycle is fully autonomous — recon, debate, PoC scaffolding, Kani harness, triage. A human reviews the triaged-confirmed findings before disclosure. That's the only loop."</td>
+  </tr>
+  <tr>
+    <td class="q">"What's your team?"</td>
+    <td class="a">"Solo founder right now. Funding scales the team — first hire is a senior auditor for cross-protocol propagation."</td>
+  </tr>
+  <tr>
+    <td class="q">"What's the customer model?"</td>
+    <td class="a">"Two types: DeFi insurance protocols who buy attestation feeds for underwriting, and Solana Foundation through STRIDE. Three subscription tiers per protocol — entry around $30K/month, ceiling at $120K/month. The ceiling tier is the number shown on the customer dashboard preview on the site."</td>
+  </tr>
+  <tr>
+    <td class="q">"Have you been audited?"</td>
+    <td class="a">"Open-source — every commit public, every check transparent. No external audit on Jelleo itself yet; planning one in year-one. Credibility today is F7 plus the public disclosure track record."</td>
+  </tr>
+  <tr>
+    <td class="q">"How are you funded?"</td>
+    <td class="a">"Closing pre-seed now. Proposal in Anatoly's office. Plan is 18-month runway to scale 1 → 27 protocols."</td>
+  </tr>
+  <tr>
+    <td class="q">"How much / what terms?"</td>
+    <td class="a">"$1.32M at $10M post, staged with a 90-day Tranche 2 trigger." (Don't elaborate further unless they ask twice.)</td>
+  </tr>
+  <tr>
+    <td class="q">"What if Anatoly passes?"</td>
+    <td class="a">"Then I look for the right partner. Methodology already worked once — F7 is the receipt — and the engine's running. Funding scales it; doesn't prove it."</td>
+  </tr>
+  <tr>
+    <td class="q">"What do you want from us / from OtterSec?"</td>
+    <td class="a">"Genuinely open question. Possibilities: continuous coverage layer for your audit clients between engagements, a triage tool your auditors use during engagements, joint research / Foundation-funded grant work, something I'm not thinking of. <strong>What's your read?</strong>"</td>
+  </tr>
+  <tr>
+    <td class="q">Anything you don't know</td>
+    <td class="a">"Great question — let me think. <strong>What's your read?</strong>"</td>
+  </tr>
+</tbody>
+</table>
+
+<div class="star-box">
+<strong>The golden move:</strong> "What's your read?" is your best friend. It flips ANY question back to them and admits gaps without weakness. Use it freely. Audit firms <em>love</em> being asked their read — it's the language of their world.
+</div>
+</div>
+
+<!-- CLOSE -->
+<div class="act">
+<h2 class="act-head"><span class="time">0:27</span> Close — lock the next step <span class="duration">3 min</span></h2>
+
+<p>When the clock hits ~27 minutes, say:</p>
+
+<div class="stage-box">
+  <div class="stage-row"><span class="stage-label">WINDOW</span><span class="stage-val"><strong>STOP screen share</strong> · go camera-only for the close</span></div>
+  <div class="stage-row"><span class="stage-label">ACTION</span><span class="stage-val">eye contact with the lens · slow down · this is the most important sentence of the whole call</span></div>
+</div>
+
+<div class="say-box">
+"Last thought from me — original question was where this fits at OtterSec. I heard a few directions today — <em>[recap what they said in 1-2 sentences]</em>. <strong>What would you want as a next step?</strong>"
+</div>
+
+<h3 class="sub-head tactical">Three likely outcomes — handle each:</h3>
+
+<div class="click-box">
+<strong>1. "Let's set up a follow-up."</strong><br>
+You: <em>"Yes, send a calendar invite when you're ready. Looking forward."</em>
+</div>
+
+<div class="click-box">
+<strong>2. "Send us X."</strong><br>
+You: <em>"Yes, will do, end of week."</em><br>
+<span style="color: var(--red); font-weight: 600;">⚠ Send only what they specifically asked for. NOT the proposal PDF.</span>
+</div>
+
+<div class="click-box">
+<strong>3. "Let us think about it."</strong><br>
+You: <em>"Appreciate that. Happy to be a resource if questions come up."</em>
+</div>
+
+<p>End with:</p>
+<div class="say-box">
+"Thanks for the time — really appreciated you all looking at this seriously."
+</div>
+</div>
+
+<!-- POST-CALL -->
+<div class="act">
+<h2 class="act-head"><span class="time">POST</span> Same-day follow-up <span class="duration">within 4 hours</span></h2>
+
+<p>Send a short thank-you · text-only signature · Reply All:</p>
+
+<div class="say-box">
+Hi all —<br><br>
+Thanks for the time today. Quick recap: <em>[1-2 sentences on the next step they proposed]</em>. I'll <em>[follow up on whatever they asked]</em>.<br><br>
+Reach out anytime.<br><br>
+Best,<br>
+Kirill
+</div>
+</div>
+
+<!-- DON'T DO -->
+<div class="act">
+<h2 class="act-head"><span class="time">⚠️</span> What you DO NOT do <span class="duration">non-negotiable</span></h2>
+
+<ul class="click-list">
+  <li>❌ Don't pitch the SAFE</li>
+  <li>❌ Don't volunteer dollar amounts unprompted</li>
+  <li>❌ Don't ask for a job</li>
+  <li>❌ Don't badmouth Halborn, Trail of Bits, Asymmetric, Sherlock, Cantina, or any other audit firm</li>
+  <li>❌ Don't promise integrations or timelines you can't keep</li>
+  <li>❌ Don't pretend to know things you don't — use <em>"What's your read?"</em></li>
+  <li>❌ Don't say "Sentinel" after the opener — the platform is <strong>Jelleo</strong></li>
+  <li>❌ Don't run live <code>./status.sh</code> — the repo + PR is enough proof</li>
+  <li>❌ Don't oversell the team — solo is not a weakness if you frame it as <em>"funding scales the team"</em></li>
+  <li>❌ Don't lecture — they're auditors, they know the space; talk WITH them, not AT them</li>
+</ul>
+</div>
+
+<!-- MEMORIZATION -->
+<div class="act">
+<h2 class="act-head"><span class="time">REP</span> Memorization checklist <span class="duration">by Wednesday night</span></h2>
+
+<p>Practice each of these out loud, multiple times, until it sounds like <em>you</em> and not a script:</p>
+
+<ul class="checklist">
+  <li>The opener (~2 minutes) — internalize the structure, not the words — <span class="duration-tag">5+ times</span></li>
+  <li>The "Jelleo in plain English" 30-second pitch — <span class="duration-tag">5+ times</span></li>
+  <li>The honesty disclosure for jelleo.com (the "year-one preview" intro + roadmap framing) — <span class="duration-tag">5+ times</span></li>
+  <li>The §03 Pillars block (P1 / P2 / P3 / P4) — <span class="duration-tag">3+ times</span></li>
+  <li>The "What's your read?" reflex — <span class="duration-tag">until automatic</span></li>
+  <li>The Certora/RV vs Hypernative/Range answers — <span class="duration-tag">until automatic</span></li>
+  <li>The "Sentinel mentioned only ONCE at the start" rule — <span class="duration-tag">internalized</span></li>
+  <li>The full F7 framing (bug · LiteSVM proof · PR closed · regression on main) — <span class="duration-tag">3+ times</span></li>
+</ul>
+
+<div class="star-box">
+<strong>The point isn't to recite the script.</strong> The point is to internalize the language so when they ask something off-piste, you have the right vocabulary, the right honesty boundaries, and the right reflexes already loaded. Practice the script enough that you can <em>abandon</em> it when the conversation goes its own way.
+</div>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <span>Jelleo · OtterSec Demo Script · Practice document — not for distribution</span>
+  <span>Thursday May 7, 2026 · 9:30 AM EST</span>
+</div>
+
+</div>
+</body>
+</html>
