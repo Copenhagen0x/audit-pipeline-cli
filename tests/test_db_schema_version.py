@@ -18,8 +18,6 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 
 def test_fresh_db_initializes_schema_version(tmp_path: Path) -> None:
     from audit_pipeline.db import FindingsDB

@@ -46,7 +46,8 @@ def test_redact_proposer_evidence_strips_evidence(tmp_path: Path, monkeypatch) -
     def fake_complete(prompt, **kwargs):
         captured["prompt"] = prompt
         captured["kwargs"] = kwargs
-        class R: pass
+        class R:
+            pass
         r = R()
         r.text = "## Verdict\nAGREE / HIGH\n"
         r.input_tokens = 100
@@ -92,7 +93,8 @@ def test_full_proposer_evidence_is_default(tmp_path: Path, monkeypatch) -> None:
     def fake_complete(prompt, **kwargs):
         captured["prompt"] = prompt
         captured["kwargs"] = kwargs
-        class R: pass
+        class R:
+            pass
         r = R()
         r.text = "## Verdict\nAGREE / HIGH\n"
         r.input_tokens = 100
@@ -135,7 +137,8 @@ def test_challenger_model_passed_to_complete(tmp_path: Path, monkeypatch) -> Non
 
     def fake_complete(prompt, **kwargs):
         captured["kwargs"] = kwargs
-        class R: pass
+        class R:
+            pass
         r = R()
         r.text = "## Verdict\nAGREE / HIGH\n"
         r.input_tokens = 100
@@ -178,7 +181,8 @@ def test_default_no_model_argument_uses_complete_default(tmp_path: Path, monkeyp
 
     def fake_complete(prompt, **kwargs):
         captured["kwargs"] = kwargs
-        class R: pass
+        class R:
+            pass
         r = R()
         r.text = "## Verdict\nAGREE / HIGH\n"
         r.input_tokens = 100

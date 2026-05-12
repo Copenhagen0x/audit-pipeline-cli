@@ -6,17 +6,18 @@ Exercises real Ed25519 math via the cryptography package.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+# Imports after importorskip are intentional — the module-level skip
+# protects us from ImportError on machines without `cryptography`.
+from cryptography.hazmat.primitives import serialization  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 
-from audit_pipeline.commands import sign as sign_mod
+from audit_pipeline.commands import sign as sign_mod  # noqa: E402
 
 
 @pytest.fixture

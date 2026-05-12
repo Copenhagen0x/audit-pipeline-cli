@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 from click.testing import CliRunner
 
 
@@ -73,7 +72,8 @@ def test_use_tools_flag_calls_tool_using_agent(tmp_path: Path, monkeypatch) -> N
 
     def fake_complete(prompt):
         calls["complete"] += 1
-        class R: pass
+        class R:
+            pass
         r = R()
         r.text = "## Verdict\nFALSE / LOW"
         r.input_tokens = 100
@@ -129,7 +129,8 @@ def test_default_mode_uses_single_shot_complete(tmp_path: Path, monkeypatch) -> 
 
     def fake_complete(prompt):
         calls["complete"] += 1
-        class R: pass
+        class R:
+            pass
         r = R()
         r.text = "## Verdict\nTRUE / HIGH"
         r.input_tokens = 100

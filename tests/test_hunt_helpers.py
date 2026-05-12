@@ -11,9 +11,6 @@ regressions surface fast.
 
 from __future__ import annotations
 
-import pytest
-
-
 # ─────────────────── SSRF guard (Orchestration Defect 08) ───────────────────
 
 

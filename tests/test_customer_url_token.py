@@ -17,7 +17,9 @@ import pytest
 
 cryptography = pytest.importorskip("cryptography")
 
-from audit_pipeline.customers import (
+# Imports after importorskip are intentional — protects us from a fresh
+# pip install without cryptography.
+from audit_pipeline.customers import (  # noqa: E402
     issue_customer_url_token,
     verify_customer_url_token,
 )
