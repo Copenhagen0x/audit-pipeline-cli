@@ -65,20 +65,43 @@ DEFAULT_SERVICES = (
 # ---------------------------------------------------------------------------
 
 
+def _previous_heartbeat_sha(out_path: Path | None) -> str | None:
+    """P3+P4 audit Defect 07 (MED): return the sha256 of the prior signed
+    heartbeat payload at ``out_path``, if any. Used to chain heartbeats
+    so an observer can detect replay (an attacker who exfiltrated the
+    key but is now offline cannot re-serve yesterday's heartbeat as
+    today's — the chain breaks)."""
+    if not out_path or not out_path.is_file():
+        return None
+    try:
+        import hashlib
+        return hashlib.sha256(out_path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
 def build_heartbeat(
     workspace: Path,
     *,
     repo_dir: Path | None = None,
     services: tuple[str, ...] = DEFAULT_SERVICES,
     now: datetime | None = None,
+    prev_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Build the heartbeat payload (no signing). Pure data-collection function."""
+    """Build the heartbeat payload (no signing). Pure data-collection function.
+
+    When ``prev_path`` points at a prior signed heartbeat (e.g. the
+    output file from the previous run), embed its sha256 as
+    ``prev_heartbeat_sha256`` so observers can verify the chain. First
+    heartbeat (no prior) gets ``prev_heartbeat_sha256: null``.
+    """
     now = now or datetime.now(timezone.utc)
 
     payload: dict[str, Any] = {
-        "schema":        "jelleo-heartbeat-v1",
+        "schema":        "jelleo-heartbeat-v2",   # bumped to v2 for chain field
         "generated_at":  now.isoformat(timespec="seconds"),
         "hostname":      socket.gethostname(),
+        "prev_heartbeat_sha256": _previous_heartbeat_sha(prev_path),
     }
 
     sha = _engine_sha(repo_dir)
@@ -128,7 +151,11 @@ def heartbeat_cmd(
 ) -> None:
     """Emit a signed, public proof-of-running heartbeat."""
     workspace = Path(ctx.obj["workspace"])
-    payload = build_heartbeat(workspace, repo_dir=repo_dir)
+    # P3+P4 Defect 07: pass the existing heartbeat file (if any) so the
+    # new payload commits to its sha256 as ``prev_heartbeat_sha256`` —
+    # forming a chain observers can verify for replay-resistance.
+    target_path = out_path or (workspace / "public" / "heartbeat.json")
+    payload = build_heartbeat(workspace, repo_dir=repo_dir, prev_path=target_path)
     body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
     if print_only:

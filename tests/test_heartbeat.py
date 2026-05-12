@@ -39,8 +39,24 @@ def test_payload_has_required_fields(workspace_with_pubkey: Path) -> None:
 
 
 def test_schema_constant(workspace_with_pubkey: Path) -> None:
+    # P3+P4 audit Defect 07: schema bumped to v2 for the
+    # prev_heartbeat_sha256 chain field (replay resistance).
     p = build_heartbeat(workspace_with_pubkey, services=())
-    assert p["schema"] == "jelleo-heartbeat-v1"
+    assert p["schema"] == "jelleo-heartbeat-v2"
+    assert "prev_heartbeat_sha256" in p
+    assert p["prev_heartbeat_sha256"] is None   # no prior file
+
+
+def test_heartbeat_chains_to_prior(workspace_with_pubkey: Path, tmp_path) -> None:
+    """Build one heartbeat, write it, build another pointing at the first
+    via prev_path — second must commit to first's sha256."""
+    import hashlib, json
+    prev = tmp_path / "h1.json"
+    p1 = build_heartbeat(workspace_with_pubkey, services=())
+    body1 = (json.dumps(p1, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    prev.write_bytes(body1)
+    p2 = build_heartbeat(workspace_with_pubkey, services=(), prev_path=prev)
+    assert p2["prev_heartbeat_sha256"] == hashlib.sha256(body1).hexdigest()
 
 
 def test_pubkey_fingerprint_format(workspace_with_pubkey: Path) -> None:
