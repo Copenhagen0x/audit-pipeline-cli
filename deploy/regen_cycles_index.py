@@ -65,8 +65,16 @@ def _scan_cycles(cycles_dir: Path) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     if not cycles_dir.is_dir():
         return out
+    # Disclosure audit Defect 07 (MED): validate cycle dir names BEFORE
+    # interpolating them into HTML (and into the verify-command snippet
+    # in wrap_per_cycle_landing.py). A maliciously-named subdir like
+    # `foo"><script>alert(1)</script>` would otherwise reach output raw.
+    _SAFE_CYCLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
     for child in cycles_dir.iterdir():
         if not child.is_dir() or child.name.startswith("."):
+            continue
+        if not _SAFE_CYCLE_RE.match(child.name):
+            # Skip cycle dirs whose names don't match the strict format.
             continue
         # Detect the signed HTML artefact (either naming convention).
         sig: Path | None = None
@@ -83,6 +91,14 @@ def _scan_cycles(cycles_dir: Path) -> list[dict[str, str]]:
             continue
         # Optional PDF, same naming family as the HTML.
         pdf_name = f"{html_name[:-5]}.pdf"  # strip .html, append .pdf
+        # Disclosure audit Defect 08 (MED): surface retracted cycles
+        # visually in the archive. Two signals:
+        #   * directory name starts with ``RETRACTED-``
+        #   * ``retraction.json`` sidecar exists
+        retracted = (
+            child.name.upper().startswith("RETRACTED-")
+            or (child / "retraction.json").is_file()
+        )
         out.append({
             "cycle_id":  child.name,
             "signed_at": _read_signed_at(sig) or "",
@@ -90,26 +106,47 @@ def _scan_cycles(cycles_dir: Path) -> list[dict[str, str]]:
             "html_name": html_name,
             "pdf_name":  pdf_name,
             "sig_name":  sig_name,
+            "retracted": "y" if retracted else "n",
         })
-    out.sort(key=lambda r: r["cycle_id"], reverse=True)
+    # Disclosure audit Defect 08: sort by parsed signed_at timestamp,
+    # NOT by directory name. A ``RETRACTED-`` prefix would otherwise
+    # alpha-sort above a fresh ``20260512-`` cycle in some locales.
+    # Cycles without a parseable timestamp fall to the end.
+    def _sort_key(r: dict[str, str]) -> tuple[int, str]:
+        ts = r.get("signed_at") or ""
+        # Negative-string sort by ISO timestamp = newest first
+        return (0 if ts else 1, ts)
+    out.sort(key=_sort_key, reverse=True)
     return out
 
 
 def _row_html(row: dict[str, str]) -> str:
-    cid = row["cycle_id"]
+    from html import escape as _esc
+    # Defense-in-depth on top of the _SAFE_CYCLE_RE filter in _scan_cycles.
+    cid = _esc(row["cycle_id"])
     label = _short_id(cid)
     pdf_cell = (
-        f'<a class="cyc-link" href="{cid}/{row["pdf_name"]}">PDF</a>'
+        f'<a class="cyc-link" href="{cid}/{_esc(row["pdf_name"])}">PDF</a>'
         if row["has_pdf"] == "y" else '<span class="cyc-muted">—</span>'
     )
-    signed_at = row["signed_at"] or '<span class="cyc-muted">unknown</span>'
+    signed_at = _esc(row["signed_at"]) if row["signed_at"] else '<span class="cyc-muted">unknown</span>'
+    # Disclosure audit Defect 08: render a visible "RETRACTED" badge on
+    # retracted cycle rows so the public archive doesn't display a bad
+    # cycle as if it were signed-and-valid.
+    retracted_badge = (
+        ' <span style="background:#7a1a1a;color:#fff;padding:1px 6px;'
+        'border-radius:3px;font-size:10px;margin-left:6px;letter-spacing:.1em;">'
+        'RETRACTED</span>'
+        if row.get("retracted") == "y" else ""
+    )
+    row_class = ' class="cyc-retracted"' if row.get("retracted") == "y" else ""
     return (
-        '<tr>'
-        f'<td><a class="cyc-row-link" href="{cid}/{row["html_name"]}">{label}</a></td>'
+        f'<tr{row_class}>'
+        f'<td><a class="cyc-row-link" href="{cid}/{_esc(row["html_name"])}">{label}</a>{retracted_badge}</td>'
         f'<td class="cyc-muted">{signed_at}</td>'
-        f'<td><a class="cyc-link" href="{cid}/{row["html_name"]}">HTML</a></td>'
+        f'<td><a class="cyc-link" href="{cid}/{_esc(row["html_name"])}">HTML</a></td>'
         f'<td>{pdf_cell}</td>'
-        f'<td><a class="cyc-link" href="{cid}/{row["sig_name"]}">sig</a></td>'
+        f'<td><a class="cyc-link" href="{cid}/{_esc(row["sig_name"])}">sig</a></td>'
         '</tr>'
     )
 
