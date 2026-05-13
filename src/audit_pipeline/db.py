@@ -44,33 +44,24 @@ def _propagate_target(workspace: Path, finding_id: int) -> None:
 def _resolve_findings_db_path(workspace_path: Path) -> Path:
     """Return the path to findings.db for ``workspace_path``.
 
+    Customer-eval rollup detection (priority): when the workspace
+    layout looks like ``<root>/<cust>-eval/workspaces/<cell>/`` AND
+    a shared DB exists at ``<root>/<cust>-eval/findings.db``, that
+    shared DB is the source of truth. ``hunt.py`` writes ALL findings
+    from every per-cell cycle into this shared DB so downstream
+    subcommands (bundle, narrative, propagate) can correlate across
+    cells. A per-cell ``findings.db`` may also exist on disk as
+    legacy clutter — don't prefer it just because it's there.
+
     Default: ``<workspace>/findings.db`` — the long-standing single-
     workspace layout.
 
-    Multi-workspace shared DB: when the workspace is a per-cell dir
-    under a customer-eval rollup (e.g. ``audit_runs/ottersec-eval/
-    workspaces/aptos-small/``), the DB lives at the customer-eval
-    root (``audit_runs/ottersec-eval/findings.db``) so every cell
-    shares one finding store. ``hunt.py`` already walks up to that
-    location when ``customer_id`` is set — bundle / narrative /
-    every other subcommand needs the same behaviour or
-    ``finding_id`` lookups fail with "Finding 41 not found".
-
-    Detection: if the per-workspace path doesn't have a DB but
-    ``parent.parent / findings.db`` exists AND the parent.parent
-    dir name ends with ``-eval`` (the customer-rollup convention),
-    use that. Falls back to the legacy per-workspace path for
-    single-workspace layouts.
-
     Operator-caught regression on cycle 20260513-191318: bundle +
     narrative emitted "Error: Finding 41 not found" for every
-    confirmed finding because the per-workspace DB at
-    ``workspaces/aptos-small/findings.db`` was empty — the real
-    rows lived in the shared customer DB.
+    confirmed finding. Root cause was choosing the per-cell DB
+    (which existed but was empty) over the shared customer DB at
+    ``ottersec-eval/findings.db`` where the actual rows lived.
     """
-    default = workspace_path / "findings.db"
-    if default.is_file():
-        return default
     try:
         candidate = workspace_path.parent.parent
         shared = candidate / "findings.db"
@@ -82,7 +73,7 @@ def _resolve_findings_db_path(workspace_path: Path) -> Path:
             return shared
     except (AttributeError, OSError):
         pass
-    return default  # fall back to default path even if missing — caller will see ENOENT
+    return workspace_path / "findings.db"
 
 
 def open_findings_db(workspace_path: Path) -> Any:

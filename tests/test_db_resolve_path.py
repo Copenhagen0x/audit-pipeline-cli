@@ -67,16 +67,24 @@ class TestResolveFindingsDbPath:
         # No findings.db anywhere
         assert _resolve_findings_db_path(cell_ws) == cell_ws / "findings.db"
 
-    def test_per_workspace_db_takes_precedence_over_shared(self, tmp_path: Path):
-        """If a per-workspace DB exists, use it (don't override with the
-        shared DB even if it also exists). Back-compat for legacy
-        single-workspace setups that happen to live under a -eval root."""
+    def test_shared_db_takes_precedence_when_both_exist(self, tmp_path: Path):
+        """When the layout is a customer-eval rollup, prefer the SHARED
+        DB at the eval root over the per-cell ``findings.db`` even if
+        both exist. Per-cell DBs from prior runs may be present as
+        empty clutter — hunt.py writes ALL rows into the shared DB so
+        that's the authoritative source for cross-cell correlation
+        (bundle, narrative, propagate).
+
+        Regression for cycle 20260513-191318: per-cell findings.db
+        existed empty, shared had the 7 confirmed rows. Choosing
+        per-cell silently broke every downstream subcommand.
+        """
         eval_root = tmp_path / "ottersec-eval"
         cell_ws = eval_root / "workspaces" / "aptos-small"
         cell_ws.mkdir(parents=True)
-        (cell_ws / "findings.db").write_bytes(b"per-ws")
-        (eval_root / "findings.db").write_bytes(b"shared")
-        assert _resolve_findings_db_path(cell_ws) == cell_ws / "findings.db"
+        (cell_ws / "findings.db").write_bytes(b"per-cell-empty")
+        (eval_root / "findings.db").write_bytes(b"shared-with-rows")
+        assert _resolve_findings_db_path(cell_ws) == eval_root / "findings.db"
 
 
 if __name__ == "__main__":
