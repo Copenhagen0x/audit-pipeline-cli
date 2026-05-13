@@ -1038,6 +1038,14 @@ def _in_progress_cycle_progress(
     recon = cycle_dir / "recon"
     if not recon.is_dir():
         return None
+    # A retracted cycle is terminal — even if hunt_summary.json never
+    # landed (because the cycle was killed mid-publish), the
+    # retraction.json sidecar from `audit-pipeline cycle retract` IS
+    # the authoritative "this cycle is dead" marker. Treat it like
+    # finished/publishing so the dashboard doesn't keep reporting
+    # "in_progress: true" on a cycle that was retracted hours ago.
+    if (cycle_dir / "retraction.json").is_file():
+        return None
     try:
         n_prompts = sum(1 for _ in recon.glob("*_prompt.md"))
         n_responses = sum(1 for _ in recon.glob("*_response.md"))
