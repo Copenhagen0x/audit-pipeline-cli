@@ -752,15 +752,6 @@ def _hunt_run(
             cycle_dir = hunts_dir / cycle_id
         cycle_dir.mkdir(parents=True, exist_ok=True)
 
-        # Live-dashboard event emission: every subprocess (recon, debate,
-        # poc-llm, ...) inherits JELLEO_CYCLE_LOG_PATH so its emit_event
-        # calls write into THIS cycle's hunt.log.jsonl, which the SSE
-        # service tails and broadcasts to subscribed customer dashboards.
-        # The python process running hunt.py reads the same env var.
-        import os as _os
-        _os.environ["JELLEO_CYCLE_LOG_PATH"] = str(cycle_dir / "hunt.log.jsonl")
-        _os.environ["JELLEO_WORKSPACE"] = str(workspace)
-
         db.insert_cycle(
             target_id=target_id,
             cycle_id=cycle_id,
@@ -768,6 +759,22 @@ def _hunt_run(
             wrapper_sha=config.get("wrapper", {}).get("sha"),
             summary_json_path=str(cycle_dir / "hunt_summary.json"),
         )
+
+    # Live-dashboard event emission: every subprocess (recon, debate,
+    # poc-llm, ...) inherits JELLEO_CYCLE_LOG_PATH so its emit_event
+    # calls write into THIS cycle's hunt.log.jsonl, which the SSE
+    # service tails and broadcasts to subscribed customer dashboards.
+    # The python process running hunt.py reads the same env var.
+    #
+    # POST-AUDIT FIX: hoisted out of the new-cycle `else:` branch so
+    # resumed cycles (--resume-cycle) ALSO set these vars. Previously
+    # resume bypassed the assignments, so subprocesses spawned during
+    # a resumed cycle wrote events into whatever cycle the
+    # event_log fallback resolved (latest dir by mtime) — could leak
+    # events into a different cycle's log.
+    import os as _os
+    _os.environ["JELLEO_CYCLE_LOG_PATH"] = str(cycle_dir / "hunt.log.jsonl")
+    _os.environ["JELLEO_WORKSPACE"] = str(workspace)
 
     source_mode_line = (
         f"Source mode:  snapshot ({source_repo}@{resolved_sha[:10]})"
@@ -891,7 +898,12 @@ def _hunt_run(
     summary = json.loads(summary_path.read_text())
     layer1_cost = float(summary.get("total_cost_usd", 0.0))
     total_cost += layer1_cost
-    daily_cap.record_spend(layer1_cost)
+    # POST-AUDIT FIX: on resume, the daily_cap already recorded this
+    # cost during the original cycle. Re-recording it here over multiple
+    # resumes would artificially exhaust the cap. Only record when we
+    # actually ran Layer 1 in this invocation.
+    if not summary_is_valid_for_resume:
+        daily_cap.record_spend(layer1_cost)
     verdicts: list[dict[str, Any]] = summary.get("verdicts", [])
 
     # Build a hyp_id -> hypothesis-meta map (need class for severity derivation)
@@ -1258,80 +1270,23 @@ def _hunt_run(
                 except Exception as e:  # noqa: BLE001
                     log("poc_test_error", hypothesis_id=hyp_id, error=str(e))
 
-    # ---------- Layer 4: LiteSVM exploit-chain authoring (on PoC-fired) ----------
-    # Pre-declare results dicts so synthesis works regardless of which layers ran
-    kani_results: dict[str, dict[str, Any]] = {}
-    litesvm_results: dict[str, dict[str, Any]] = {}
-    narrative_results: dict[str, str] = {}
-    fired_for_litesvm = [
-        v for v in candidates
-        if poc_results.get(v["hypothesis_id"], {}).get("fired")
-    ]
-    if not skip_litesvm and fired_for_litesvm:
-        console.print()
-        console.print(
-            f"[bold]Layer 4 - LiteSVM exploit-chain authoring + dispatch on "
-            f"{len(fired_for_litesvm)} PoC-fired findings[/bold]"
-        )
-        litesvm_out = cycle_dir / "litesvm"
-        litesvm_out.mkdir(parents=True, exist_ok=True)
-        # FIX 3: After authoring, actually invoke dispatch_litesvm.sh to run
-        # the LiteSVM test. Pass the actual wrapper path (workspace config)
-        # so the script does NOT depend on /tmp/audit symlinks. If vps.host
-        # is null (running on the VPS itself), use "-" "-" to skip SSH.
-        vps_host = config.get("vps", {}).get("host") or "-"
-        vps_key = config.get("vps", {}).get("ssh_key") or "-"
-        from audit_pipeline import __file__ as pkg_init_path
-        dispatch_script = Path(pkg_init_path).parent / "scripts" / "dispatch_litesvm.sh"
-        # The wrapper lives under the workspace at config.wrapper.local
-        wrapper_dir = workspace / config.get("wrapper", {}).get("local", "target/wrapper")
-        for v in fired_for_litesvm:
-            hyp_id = v["hypothesis_id"]
-            finding_name = _slugify(hyp_id)
-            litesvm_file = litesvm_out / f"test_{finding_name}_bound_analysis.rs"
-            # RESUME: if the LiteSVM author wrote its output already, skip the
-            # author call (it would error on "file exists" with C4 fix
-            # converting that to a yellow notice; still cheaper to skip).
-            if resume_cycle and litesvm_file.exists():
-                log("litesvm_resumed_from_existing", hypothesis_id=hyp_id)
-                rc_author = 0
-            else:
-                rc_author = _run([
-                    _audit_pipeline_bin(), "--workspace", str(workspace),
-                    "litesvm", "author",
-                    "--finding", finding_name,
-                    "--template", "litesvm_bound_analysis",
-                    "--output", str(litesvm_out),
-                ])
-            dispatch_rc: int | None = None
-            if rc_author == 0 and dispatch_script.exists():
-                # Test naming convention from litesvm.py: test_<finding>_bound_analysis
-                test_name = f"test_{finding_name}_bound_analysis"
-                dispatch_rc = _run(
-                    [
-                        "bash", str(dispatch_script),
-                        vps_host, vps_key, test_name, str(wrapper_dir),
-                    ],
-                    timeout=600,
-                )
-                log("litesvm_dispatched", hypothesis_id=hyp_id,
-                    test=test_name, returncode=dispatch_rc)
-            litesvm_results[hyp_id] = {
-                "returncode": rc_author,
-                "dispatch_returncode": dispatch_rc,
-                "scaffold_dir": str(litesvm_out),
-            }
-            log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc_author)
-
     # ---------- Layer 2.5: fire triage (STRONG / SOFT / FALSE / LOST) ----------
     # Productized from the manual STRONG/SOFT/FALSE bucket-sort that
     # collapsed cycle 20260511's 64 PoC fires down to 7 STRONG (4 root
     # causes). Without this stage, Layer 3 + Layer 4 would burn $300+
     # on Kani/LiteSVM against false-fire PoC infra panics.
     #
-    # Default: ON when --use-tools is on (matches the rest of the
-    # source-grounding posture). Skipped when triage_fires is off OR
-    # there are zero PoC fires.
+    # POST-AUDIT FIX: this block was previously BELOW Layer 4, so the
+    # triage filter narrowed Kani but NOT LiteSVM — false fires still
+    # incurred the LiteSVM author + dispatch spend. Now correctly runs
+    # before both downstream layers so `layer3_dispatch_filter` gates
+    # ALL costly downstream layers.
+    #
+    # Default: ON when --use-tools is on. Skipped when triage_fires is
+    # off OR there are zero PoC fires.
+    kani_results: dict[str, dict[str, Any]] = {}
+    litesvm_results: dict[str, dict[str, Any]] = {}
+    narrative_results: dict[str, str] = {}
     layer3_dispatch_filter: set[str] | None = None
     triage_summary: dict[str, Any] | None = None
     if triage_fires and any(pr.get("fired") for pr in poc_results.values()):
@@ -1398,6 +1353,69 @@ def _hunt_run(
             console.print(f"[yellow]triage failed ({e}); falling back to all-fires dispatch[/yellow]")
             layer3_dispatch_filter = None
             triage_summary = {"error": str(e)[:300]}
+
+    # ---------- Layer 4: LiteSVM exploit-chain authoring (PoC-fired + triage-filtered) ----------
+    # POST-AUDIT FIX: now runs AFTER L2.5 triage so `layer3_dispatch_filter`
+    # (which also gates L4 — the variable name is historical; it covers
+    # both Kani + LiteSVM) drops FALSE / SOFT / LOST fires. Cycle 20260511
+    # would have skipped 45 of 64 fires here, saving ~$280 of LiteSVM
+    # author + dispatch spend.
+    fired_for_litesvm = [
+        v for v in candidates
+        if poc_results.get(v["hypothesis_id"], {}).get("fired")
+        and (layer3_dispatch_filter is None
+             or v["hypothesis_id"] in layer3_dispatch_filter)
+    ]
+    if not skip_litesvm and fired_for_litesvm:
+        console.print()
+        console.print(
+            f"[bold]Layer 4 - LiteSVM exploit-chain authoring + dispatch on "
+            f"{len(fired_for_litesvm)} PoC-fired findings[/bold]"
+        )
+        litesvm_out = cycle_dir / "litesvm"
+        litesvm_out.mkdir(parents=True, exist_ok=True)
+        # FIX 3: After authoring, actually invoke dispatch_litesvm.sh to run
+        # the LiteSVM test. Pass the actual wrapper path (workspace config)
+        # so the script does NOT depend on /tmp/audit symlinks. If vps.host
+        # is null (running on the VPS itself), use "-" "-" to skip SSH.
+        vps_host = config.get("vps", {}).get("host") or "-"
+        vps_key = config.get("vps", {}).get("ssh_key") or "-"
+        from audit_pipeline import __file__ as pkg_init_path
+        dispatch_script = Path(pkg_init_path).parent / "scripts" / "dispatch_litesvm.sh"
+        wrapper_dir = workspace / config.get("wrapper", {}).get("local", "target/wrapper")
+        for v in fired_for_litesvm:
+            hyp_id = v["hypothesis_id"]
+            finding_name = _slugify(hyp_id)
+            litesvm_file = litesvm_out / f"test_{finding_name}_bound_analysis.rs"
+            if resume_cycle and litesvm_file.exists():
+                log("litesvm_resumed_from_existing", hypothesis_id=hyp_id)
+                rc_author = 0
+            else:
+                rc_author = _run([
+                    _audit_pipeline_bin(), "--workspace", str(workspace),
+                    "litesvm", "author",
+                    "--finding", finding_name,
+                    "--template", "litesvm_bound_analysis",
+                    "--output", str(litesvm_out),
+                ])
+            dispatch_rc: int | None = None
+            if rc_author == 0 and dispatch_script.exists():
+                test_name = f"test_{finding_name}_bound_analysis"
+                dispatch_rc = _run(
+                    [
+                        "bash", str(dispatch_script),
+                        vps_host, vps_key, test_name, str(wrapper_dir),
+                    ],
+                    timeout=600,
+                )
+                log("litesvm_dispatched", hypothesis_id=hyp_id,
+                    test=test_name, returncode=dispatch_rc)
+            litesvm_results[hyp_id] = {
+                "returncode": rc_author,
+                "dispatch_returncode": dispatch_rc,
+                "scaffold_dir": str(litesvm_out),
+            }
+            log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc_author)
 
     # ---------- Layer 3: Kani harness (only on PoC-fired, optionally triage-filtered) ----------
     fired_for_kani = [

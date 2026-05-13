@@ -156,6 +156,13 @@ use percolator::*;
 fn params_for_{finding_name}() -> RiskParams {{
     // Construct RiskParams matching the path under test.
     // Use values that ENABLE the bug to fire (e.g. tight margins for liquidation tests).
+    //
+    // CRITICAL: every field below MUST satisfy `RiskParams::validate()` in
+    // the engine constructor. Cycle 20260511 ran with bogus values that
+    // failed validation; the engine panicked with "invalid RiskParams:
+    // Overflow" BEFORE the test reached the claim — 41 of 45 FALSE fires
+    // came from this exact factory. If you need bounds outside the safe
+    // defaults below, override per-test in the test body, not here.
     RiskParams {{
         maintenance_margin_bps: 500,
         initial_margin_bps: 1000,
@@ -171,8 +178,10 @@ fn params_for_{finding_name}() -> RiskParams {{
         resolve_price_deviation_bps: 1000,
         max_accrual_dt_slots: 100,
         max_abs_funding_e9_per_slot: 10_000,
-        min_funding_lifetime_slots: 10_000_000,
-        max_active_positions_per_side: MAX_ACCOUNTS as u64,
+        // Safe bound — fits engine validation. Was 10_000_000 (overflow).
+        min_funding_lifetime_slots: 100,
+        // Match max_accounts. Was `MAX_ACCOUNTS as u64` (out-of-scope const).
+        max_active_positions_per_side: 64,
         max_price_move_bps_per_slot: 4,
     }}
 }}

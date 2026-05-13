@@ -114,6 +114,22 @@ SCHEMA_PG = [
         PRIMARY KEY(engine_sha, hypothesis_id, poc_hash)
     )
     """,
+    # Hook idempotency table — mirrors the SQLite schema. Without this,
+    # a re-CONFIRMED finding on the Postgres backend would double-fire
+    # propagation + sibling derivation. Defect 14 fix was originally
+    # SQLite-only; this brings Postgres to parity.
+    """
+    CREATE TABLE IF NOT EXISTS hook_runs (
+        id             BIGSERIAL PRIMARY KEY,
+        finding_id     BIGINT NOT NULL,
+        hook_name      TEXT NOT NULL,
+        started_at     TEXT NOT NULL,
+        completed_at   TEXT,
+        outcome        TEXT,
+        error_msg      TEXT,
+        UNIQUE(finding_id, hook_name)
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_findings_target    ON findings(target_id)",
     "CREATE INDEX IF NOT EXISTS idx_findings_status    ON findings(status)",
     "CREATE INDEX IF NOT EXISTS idx_findings_severity  ON findings(severity)",
@@ -608,8 +624,15 @@ class PostgresFindingsDB:
 
 
 def _run_one_hook_pg(workspace, finding_id: int, hook_name: str, target) -> None:
-    """Postgres equivalent of FindingsDB._run_one_hook (writes to <ws>/hooks/)."""
+    """Postgres equivalent of FindingsDB._run_one_hook (writes to <ws>/hooks/).
+
+    POST-AUDIT FIX: now claims `hook_runs(finding_id, hook_name)` in the
+    Postgres backend before executing — mirrors the SQLite-side Defect 14
+    fix. Without this, a re-CONFIRMED finding double-fires propagation
+    and sibling derivation on the Postgres backend.
+    """
     import json as _json
+    import os as _os
     import traceback as _tb
     from datetime import datetime, timezone
 
@@ -630,15 +653,77 @@ def _run_one_hook_pg(workspace, finding_id: int, hook_name: str, target) -> None
             pass
 
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    # Idempotency claim — same logic as SQLite path.
+    dsn = _os.environ.get("JELLEO_DB_URL", "").strip()
+    pg_conn = None
+    if dsn:
+        try:
+            import psycopg
+            pg_conn = psycopg.connect(dsn, autocommit=True)
+            cur = pg_conn.cursor()
+            cur.execute(
+                "SELECT outcome FROM hook_runs WHERE finding_id = %s AND hook_name = %s",
+                (finding_id, hook_name),
+            )
+            existing = cur.fetchone()
+            if existing and existing[0] == "ok":
+                pg_conn.close()
+                return  # already succeeded — skip silently
+            if existing:
+                cur.execute(
+                    "DELETE FROM hook_runs WHERE finding_id = %s AND hook_name = %s",
+                    (finding_id, hook_name),
+                )
+            cur.execute(
+                "INSERT INTO hook_runs (finding_id, hook_name, started_at) "
+                "VALUES (%s, %s, %s) ON CONFLICT (finding_id, hook_name) DO NOTHING",
+                (finding_id, hook_name, started),
+            )
+            cur.close()
+        except Exception:  # noqa: BLE001 — never crash hook over idempotency
+            if pg_conn:
+                try: pg_conn.close()
+                except Exception: pass
+            pg_conn = None
+
     _write({"phase": "started", "ts": started, "finding_id": finding_id,
             "hook": hook_name, "backend": "postgres"})
 
     try:
         target(workspace, finding_id)
-        _write({"phase": "completed", "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        completed = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        _write({"phase": "completed", "ts": completed,
                 "finding_id": finding_id, "hook": hook_name, "outcome": "ok"})
+        if pg_conn:
+            try:
+                cur = pg_conn.cursor()
+                cur.execute(
+                    "UPDATE hook_runs SET completed_at = %s, outcome = %s "
+                    "WHERE finding_id = %s AND hook_name = %s",
+                    (completed, "ok", finding_id, hook_name),
+                )
+                cur.close()
+            except Exception:  # noqa: BLE001
+                pass
     except Exception as e:  # noqa: BLE001
-        _write({"phase": "failed", "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        completed = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        _write({"phase": "failed", "ts": completed,
                 "finding_id": finding_id, "hook": hook_name, "outcome": "error",
                 "error_type": type(e).__name__, "error_msg": str(e)[:500],
                 "traceback": _tb.format_exc()[-2000:]})
+        if pg_conn:
+            try:
+                cur = pg_conn.cursor()
+                cur.execute(
+                    "UPDATE hook_runs SET completed_at = %s, outcome = %s, error_msg = %s "
+                    "WHERE finding_id = %s AND hook_name = %s",
+                    (completed, "error", str(e)[:500], finding_id, hook_name),
+                )
+                cur.close()
+            except Exception:  # noqa: BLE001
+                pass
+    finally:
+        if pg_conn:
+            try: pg_conn.close()
+            except Exception: pass

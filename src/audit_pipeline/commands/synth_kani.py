@@ -16,6 +16,7 @@ verified proof attempt back."
 """
 
 import json
+import re
 from pathlib import Path
 
 import click
@@ -306,6 +307,7 @@ def synth_kani_cmd(
             f"See {transcript_path} for the raw response."
         )
     harness_path.parent.mkdir(parents=True, exist_ok=True)
+    code = _strip_kani_unwind(code)
     harness_path.write_text(code, encoding="utf-8")
     transcript.append(f"Wrote {harness_path}\n")
 
@@ -363,7 +365,7 @@ def synth_kani_cmd(
                 "  [red]LLM fix response had no code block. Stopping.[/red]"
             )
             break
-        code = new_code
+        code = _strip_kani_unwind(new_code)
         harness_path.write_text(code, encoding="utf-8")
         transcript.append(f"Rewrote {harness_path}\n")
 
@@ -401,6 +403,31 @@ def synth_kani_cmd(
     }.get(kani.verdict, "dim")
     console.print(f"[bold {color}]Kani verdict: {kani.verdict}[/bold {color}]")
     console.print(f"Iteration log: {transcript_path}")
+
+
+_KANI_UNWIND_RE = re.compile(
+    r"^\s*#\[kani::unwind\([^)]*\)\]\s*\n?", re.MULTILINE
+)
+
+
+def _strip_kani_unwind(code: str) -> str:
+    """Strip ALL `#[kani::unwind(N)]` attributes from harness source.
+
+    Per-function unwind attributes OVERRIDE `--default-unwind` at cargo
+    kani invocation. Cycle 20260511's L3 verdicts were trivially
+    SUCCESSFUL because templates shipped `#[kani::unwind(8)]` and the
+    LLM was instructed to emit `#[kani::unwind(128)]` — both bounds too
+    tight to find the bug regardless of dispatcher's --default-unwind.
+    The v2 dispatcher (`deploy/dispatch_layer3_v2.py:533,563`) stripped
+    these but the in-pipeline path (`synth-kani --auto`) did not, so
+    every clean cycle reintroduced the bug.
+
+    This helper centralizes the strip so both write sites (initial
+    author + fix-loop rewrite) share the same regex.
+    """
+    if not code:
+        return code
+    return _KANI_UNWIND_RE.sub("", code)
 
 
 def _resolve_engine_dir(workspace: Path) -> Path | None:

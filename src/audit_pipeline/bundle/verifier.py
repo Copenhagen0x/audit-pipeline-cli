@@ -73,13 +73,23 @@ class GateResult:
     passed: bool | None       # True / False / None (skipped)
     reason: str
     duration_s: float
+    # Optional structured payload — pre/post-patch gates use this to surface
+    # parse_test_outcome.status ("fired" / "passed" / etc) so downstream
+    # callers can branch on it without re-parsing the cargo log.
+    # Audit caught: previously GateResult had no `details` field but two
+    # callers passed `details=`, raising TypeError on the SUCCESS path of
+    # the pre/post-patch gates — silently disabling them on real cargo runs.
+    details: dict | None = None
 
     def to_json(self) -> dict:
-        return {
+        out = {
             "passed": self.passed,
             "reason": self.reason,
             "duration_s": round(self.duration_s, 3),
         }
+        if self.details is not None:
+            out["details"] = self.details
+        return out
 
 
 def _gate_patch_well_formed(workspace: Path, finding_id: int) -> GateResult:

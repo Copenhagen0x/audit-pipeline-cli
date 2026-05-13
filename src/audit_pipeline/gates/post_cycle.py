@@ -153,10 +153,16 @@ def check_post_cycle(
     t0 = time.time()
     search_dirs = [d for d in (engine_src_dir, wrapper_src_dir) if d and d.is_dir()]
     rows: list[dict] = []
+    # POST-AUDIT FIX: was reimplementing slug locally with no length cap,
+    # diverging from canonical `slug_for_hypothesis` (which truncates at
+    # 60 chars). For hypothesis IDs > 60 chars (19 such hyps in the live
+    # library), post_cycle looked up `test_<78chars>.rs` while hunt +
+    # poc_llm wrote `test_<60chars>.rs` — file not found → publish
+    # falsely blocked. Use the canonical helper everywhere.
+    from audit_pipeline.utils.slug import slug_for_hypothesis
     for f in confirmed_findings:
         hyp_id = f.get("hypothesis_id") or ""
-        # Hunt's _slugify is `.lower().replace("-", "_")` (commands/hunt.py).
-        slug = re.sub(r"[^a-z0-9_]+", "_", hyp_id.lower()).strip("_")
+        slug = slug_for_hypothesis(hyp_id)
         test_name = f"test_{slug}"
         poc_path = cycle_dir / "poc" / f"{test_name}.rs"
         row = _check_one_poc(poc_path, test_name, search_dirs)

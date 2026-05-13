@@ -291,6 +291,16 @@ def derive_siblings_async(
             if isinstance(s, dict):
                 s.setdefault("derived_from", finding.get("hypothesis_id") or f"finding-{finding_id}")
 
+        # POST-AUDIT FIX: the diversity filter was previously wired ONLY
+        # to the manual `--append-to` path (via `_append_siblings` at
+        # line 434). The lifecycle-hook auto-fire path (this function)
+        # wrote raw LLM output verbatim, re-introducing Defect 06 —
+        # near-duplicate siblings that multiplied the parent's false-
+        # positive rate. Now both paths share the diversity filter.
+        siblings = _enforce_sibling_diversity(siblings)
+        if not siblings:
+            return
+
         derived_dir.mkdir(parents=True, exist_ok=True)
         slug = (finding.get("hypothesis_id") or f"finding-{finding_id}").replace("/", "-")
         out_path = derived_dir / f"{slug}-siblings.yaml"
@@ -396,9 +406,18 @@ def _enforce_sibling_diversity(siblings: list[dict[str, Any]]) -> list[dict[str,
       * have a unique ``bug_class`` within this batch (no two siblings
         of the same bug class — that's the parent's class repeated)
       * have a claim with sufficient n-gram distance from every other
-        kept sibling (Jaccard ≤ 0.6 over 3-token shingles)
+        kept sibling (Jaccard < 0.3 over 3-token shingles)
+
+    POST-AUDIT FIX: threshold tightened from 0.6 → 0.3. The original
+    0.6 was nominally documented but the implementation used > 0.6
+    (drops only at >60% overlap), so siblings with 50% shingle overlap
+    were kept. Tighter 0.3 cutoff catches the rephrased-same-idea
+    failure mode that motivated this filter.
+
     Returns the de-duplicated, diversity-checked list (typically <= N).
     """
+    JACCARD_THRESHOLD = 0.3
+
     def _shingles(text: str) -> set[tuple[str, ...]]:
         toks = (text or "").lower().split()
         return {tuple(toks[i:i + 3]) for i in range(max(0, len(toks) - 2))}
@@ -420,7 +439,7 @@ def _enforce_sibling_diversity(siblings: list[dict[str, Any]]) -> list[dict[str,
         if bc and bc in seen_classes:
             continue
         sh = _shingles(s.get("claim") or "")
-        if any(_jaccard(sh, prev) > 0.6 for prev in kept_shingles):
+        if any(_jaccard(sh, prev) >= JACCARD_THRESHOLD for prev in kept_shingles):
             continue
         kept.append(s)
         if bc:
