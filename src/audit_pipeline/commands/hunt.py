@@ -96,17 +96,21 @@ console = Console()
 )
 @click.option(
     "--budget-cap-usd",
-    type=float, default=10.0, show_default=True,
-    help="Total Claude spend cap for one hunt cycle",
+    type=float, default=1_000_000.0, show_default=True,
+    help=(
+        "Total Claude spend cap for one hunt cycle. Default is effectively "
+        "unlimited ($1M) — caps were removed per operator request 2026-05-13 "
+        "after $10/cycle defaults kept clipping real cycles mid-flight. "
+        "Pass a positive value if you want an explicit cap."
+    ),
 )
 @click.option(
     "--daily-cap-usd",
     type=float, default=0.0, show_default=True, envvar="AUDIT_DAILY_CAP_USD",
     help=(
-        "Total Claude spend cap PER DAY across all cycles. Pass 0 (default) "
-        "to disable the daily cap entirely — the per-cycle --budget-cap-usd "
-        "is the only limit. Pass a positive value to enforce a daily ceiling "
-        "(hunt aborts at start if today's spend + cycle budget would exceed)."
+        "Total Claude spend cap PER DAY across all cycles. Default 0 = "
+        "no daily cap (the per-cycle --budget-cap-usd is the only limit, "
+        "and that's also effectively unlimited by default)."
     ),
 )
 @click.option(

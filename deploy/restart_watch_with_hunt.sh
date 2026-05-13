@@ -17,7 +17,6 @@ if [[ ! -f "$ENV_FILE" ]]; then
     echo "  umask 077"
     echo "  cat > $ENV_FILE <<EOF"
     echo '  export ANTHROPIC_API_KEY="sk-ant-..."'
-    echo '  export AUDIT_BUDGET_CAP_USD="10"'
     echo "EOF"
     echo "  chmod 600 $ENV_FILE"
     exit 1

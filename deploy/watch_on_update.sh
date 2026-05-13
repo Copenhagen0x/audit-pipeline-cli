@@ -22,8 +22,10 @@ mkdir -p "$(dirname "$LOG")"
     echo "=== watch_on_update $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
     echo "args: $@"
     # Cheap triage cycle: recon + Pillar 4 only. No PoC / debate / Kani / P2 / P3.
+    # Budget cap removed 2026-05-13 per operator request — hunt now runs
+    # with hunt.py's default (effectively unlimited). Scope is constrained
+    # by --skip-* flags instead.
     audit-pipeline --workspace "$WORKSPACE" hunt \
-        --budget-cap-usd 3 \
         --skip-poc --skip-debate --skip-narrative \
         --skip-kani --skip-propagate --skip-bundle \
         "$@"

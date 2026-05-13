@@ -1295,15 +1295,22 @@ def _spend_summary() -> dict:
     from datetime import timezone as _tz
 
     log_path = Path(_os.environ.get("JELLEO_SPEND_LOG", "/root/.audit_api_calls.jsonl"))
+    # Defensive .is_file() — if the path is unreadable (CI runs as a
+    # non-root user where /root/ is permission-denied) we treat it as
+    # missing rather than crashing the whole snapshot/dashboard cycle.
+    try:
+        log_exists = log_path.is_file()
+    except (PermissionError, OSError):
+        log_exists = False
     out = {
         "today_usd": 0.0,
         "total_usd": 0.0,
         "last_24h_usd": 0.0,
         "last_call_at": None,
         "n_calls_total": 0,
-        "source": str(log_path) if log_path.is_file() else "missing",
+        "source": str(log_path) if log_exists else "missing",
     }
-    if not log_path.is_file():
+    if not log_exists:
         return out
 
     today_str = datetime.now(_tz.utc).strftime("%Y-%m-%d")
