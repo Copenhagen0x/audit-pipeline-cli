@@ -1227,7 +1227,19 @@ main.bridge {
     const h = Math.floor(m / 60);
     return h + 'h ' + (m % 60) + 'm';
   };
-  const safeStr = (s, n) => (s == null ? '' : String(s)).slice(0, n || 80);
+  // POST-AUDIT FIX: safeStr now HTML-escapes in addition to length-
+  // clipping. Every site that interpolates event data into innerHTML
+  // routes through this helper. The previous slice-only implementation
+  // was an XSS surface if a cycle_id, phase_label, or finding title
+  // ever contained an `<` or `&`. Today engine-controlled fields are
+  // safe, but defense-in-depth.
+  const _HTML_ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  const safeStr = (s, n) => {
+    const str = (s == null ? '' : String(s)).slice(0, n || 80);
+    return str.replace(/[&<>"']/g, ch => _HTML_ENTITIES[ch]);
+  };
+  // Escape-aware alias for places we explicitly need the same behavior
+  const escHtml = safeStr;
 
   // ───── Health banner — rolls up 3 checks into one customer-facing state ─────
   // The customer should never need a terminal to know if Jelleo is up.

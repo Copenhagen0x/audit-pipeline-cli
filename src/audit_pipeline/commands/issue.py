@@ -239,18 +239,24 @@ def sync_cmd(
         n_synced += 1
         if state == "CLOSED" and reason in {"NOT_PLANNED", "NOTPLANNED"}:
             if dry_run:
-                console.print(f"[dim]DRY-RUN[/dim] would reject finding {f['id']} (#{issue_no})")
+                console.print(f"[dim]DRY-RUN[/dim] would mark finding {f['id']} (#{issue_no}) closed-not-planned")
                 continue
+            # POST-AUDIT FIX: was transitioning to REJECTED (which means
+            # "we got the finding wrong"). The correct semantics for an
+            # upstream "won't fix / by-design" close is the new
+            # CLOSED_NOT_PLANNED state — we got the path right, the
+            # maintainer chose not to address it. Distinct signal for
+            # renewal conversations + dashboards.
             db.transition_finding(
                 finding_id=f["id"],
-                to_status=Status.REJECTED,
+                to_status=Status.CLOSED_NOT_PLANNED,
                 reason=f"upstream closed-not-planned: {url}",
                 actor="audit-pipeline issue sync",
             )
             n_rejected += 1
-            console.print(f"[red]rejected[/red] finding {f['id']} (#{issue_no} closed-not-planned)")
+            console.print(f"[yellow]closed-not-planned[/yellow] finding {f['id']} (#{issue_no})")
 
-    console.print(f"\nSynced {n_synced} finding(s); transitioned {n_rejected} to REJECTED.")
+    console.print(f"\nSynced {n_synced} finding(s); transitioned {n_rejected} to CLOSED_NOT_PLANNED.")
 
 
 @issue_cmd.command(name="auto-file-confirmed")

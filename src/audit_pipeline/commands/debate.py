@@ -268,7 +268,11 @@ def _debate_body(
         HYPOTHESIS_ID=hypothesis_id,
         HYPOTHESIS_CLAIM=hypothesis_claim,
         TARGET_FILE=target_file,
-        PROPOSER_VERDICT=_extract_verdict_section(proposer_text),
+        # POST-AUDIT FIX: pass redacted=True so the verdict section is
+        # collapsed to a single line under redaction. Otherwise a verbose
+        # proposer can write "TRUE / HIGH because foo.rs:42..." inside
+        # the verdict block and leak evidence through this placeholder.
+        PROPOSER_VERDICT=_extract_verdict_section(proposer_text, redacted=redact_proposer_evidence),
         PROPOSER_EVIDENCE=proposer_evidence_for_challenger,
     )
 
@@ -354,6 +358,12 @@ def _verdicts_disagree(proposer: str, challenger: str) -> bool:
 
     Looks for TRUE/FALSE/AGREE/DISAGREE tokens. If unclear, defaults to
     True (escalate) — better to over-investigate than miss a finding.
+
+    POST-AUDIT FIX: the previous `return False` fallback contradicted
+    the docstring's "defaults to True" promise. A garbage / unparseable
+    challenger response silently downgraded to "no disagreement" — i.e.
+    rubber-stamped the proposer. Now correctly returns True on unclear
+    output so the cycle escalates to Layer 2 PoC.
     """
     p = proposer.upper()
     c = challenger.upper()
@@ -366,13 +376,23 @@ def _verdicts_disagree(proposer: str, challenger: str) -> bool:
     c_false = "FALSE" in c and "TRUE" not in c
     if p_true and c_false:
         return True
-    return False
+    # Unclear / no parseable verdict tokens — err toward escalation per
+    # the "over-investigate beats miss-a-finding" invariant.
+    return True
 
 
-def _extract_verdict_section(text: str) -> str:
+def _extract_verdict_section(text: str, redacted: bool = False) -> str:
     """Extract just the '## Verdict' section from a markdown agent response.
 
-    Falls back to first 500 chars if no Verdict section is found.
+    When ``redacted=True`` (the L1.5 independence mode), strip everything
+    except a SINGLE LINE containing the verdict tokens (TRUE / FALSE /
+    INCONCLUSIVE + confidence). A proposer who wrote inline reasoning
+    inside the verdict block can otherwise leak evidence through this
+    placeholder even though the operator passed --redact-proposer-evidence.
+
+    Falls back to a very small slice (200 chars) when no Verdict header
+    is present; the previous 500-char fallback occasionally pulled in
+    the entire evidence section verbatim.
     """
     lines = text.splitlines()
     in_verdict = False
@@ -387,6 +407,36 @@ def _extract_verdict_section(text: str) -> str:
         if in_verdict:
             out_lines.append(line)
 
-    if out_lines:
-        return "\n".join(out_lines).strip()
-    return text[:500] + ("..." if len(text) > 500 else "")
+    if not out_lines:
+        # No `## Verdict` header. Look for a single-line verdict pattern
+        # ("TRUE / HIGH", "FALSE / LOW", etc) anywhere in the text. If
+        # found, return only that line — never a freeform prose slice.
+        import re as _re
+        m = _re.search(
+            r"\b(TRUE|FALSE|INCONCLUSIVE|NEEDS_LAYER_2(?:_TO_DECIDE)?|AGREE|DISAGREE)\b\s*/\s*\b(HIGH|MEDIUM|LOW)\b",
+            text,
+        )
+        if m:
+            return m.group(0)
+        # Last resort: a tight 200-char slice (was 500 — too much room
+        # for the proposer's evidence to leak into the challenger prompt).
+        return text[:200] + ("..." if len(text) > 200 else "")
+
+    section = "\n".join(out_lines).strip()
+    if not redacted:
+        return section
+
+    # Redacted mode: keep ONLY the first verdict-shaped line found
+    # inside the verdict section. Strips any "TRUE / HIGH because the
+    # haircut residual at line 1684 grows by..." style smuggling.
+    import re as _re
+    for ln in section.splitlines():
+        m = _re.search(
+            r"\b(TRUE|FALSE|INCONCLUSIVE|NEEDS_LAYER_2(?:_TO_DECIDE)?|AGREE|DISAGREE)\b\s*/\s*\b(HIGH|MEDIUM|LOW)\b",
+            ln,
+        )
+        if m:
+            return m.group(0)
+    # Header present but no parseable verdict line. Return the header
+    # itself only (no body), so we don't leak the body.
+    return "## Verdict\n(unparseable verdict — challenger should treat as INCONCLUSIVE)"

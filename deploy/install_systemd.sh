@@ -38,6 +38,13 @@ cp "$DEPLOY_DIR/jelleo-watch.service"  "$UNIT_DIR/"
 [[ -f "$DEPLOY_DIR/jelleo-alert-failure@.service" ]] && \
     cp "$DEPLOY_DIR/jelleo-alert-failure@.service" "$UNIT_DIR/" && \
     echo "  installed jelleo-alert-failure@.service (OnFailure handler)"
+# HMAC token verification sidecar for customer manifest gating. Stops
+# /customer/<id>/manifest.json from being readable on customer_id
+# obscurity alone. Wired into nginx via deploy/nginx-customer-auth-snippet.conf
+# (operator-opt-in — requires nginx reload after editing config).
+[[ -f "$DEPLOY_DIR/jelleo-token-auth.service" ]] && \
+    cp "$DEPLOY_DIR/jelleo-token-auth.service" "$UNIT_DIR/" && \
+    echo "  installed jelleo-token-auth.service (HMAC customer URL gate)"
 # Operational (health + backup)
 [[ -f "$DEPLOY_DIR/jelleo-health.service" ]] && cp "$DEPLOY_DIR/jelleo-health.service" "$UNIT_DIR/"
 [[ -f "$DEPLOY_DIR/jelleo-health.timer"   ]] && cp "$DEPLOY_DIR/jelleo-health.timer"   "$UNIT_DIR/"
@@ -106,6 +113,13 @@ systemctl enable jelleo-shadow.service
 systemctl enable jelleo-watch.service
 systemctl restart jelleo-shadow.service
 systemctl restart jelleo-watch.service
+# HMAC token-auth sidecar (loopback :8766). Listens for nginx auth_request
+# subrequests. Safe to enable always — does nothing until nginx is wired
+# via deploy/nginx-customer-auth-snippet.conf.
+if [[ -f "$UNIT_DIR/jelleo-token-auth.service" ]]; then
+    systemctl enable jelleo-token-auth.service
+    systemctl restart jelleo-token-auth.service
+fi
 
 if [[ -f "$UNIT_DIR/jelleo-health.timer" ]]; then
     systemctl enable jelleo-health.timer

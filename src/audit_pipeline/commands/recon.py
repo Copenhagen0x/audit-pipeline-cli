@@ -493,34 +493,29 @@ Notes:        {hyp.get("notes", "(none)")}
                 pass
             if use_tools:
                 # L1 recon Defect 01 fix: source-grounded tool loop.
+                # POST-AUDIT FIX: previously stashed the active hyp_id in
+                # the process env var JELLEO_ACTIVE_HYP_ID for
+                # llm_tools.emit_event to read. That raced across
+                # concurrent ThreadPoolExecutor workers — tool_call events
+                # got cross-attributed. Now passed in as a per-call kwarg.
                 from audit_pipeline.utils.llm_tools import run_tool_using_agent
-                # Stash hyp id in env so llm_tools.emit_event for tool_call
-                # can associate the call with the active hypothesis.
-                import os as _os
-                _prev_hyp = _os.environ.get("JELLEO_ACTIVE_HYP_ID")
-                _os.environ["JELLEO_ACTIVE_HYP_ID"] = hyp_id
-                try:
-                    system_prompt = (
-                        "You are an expert Solana security auditor running Layer 1 "
-                        "recon. You have read_file, grep, and find_function tools "
-                        "against the live workspace source. Use them to verify "
-                        "every claim before rendering a verdict — do NOT speculate. "
-                        "Cite concrete file paths and line numbers. End your final "
-                        "answer with a `## Verdict` section containing one of "
-                        "TRUE / FALSE / INCONCLUSIVE and a confidence "
-                        "(HIGH / MEDIUM / LOW)."
-                    )
-                    tu_result = run_tool_using_agent(
-                        workspace,
-                        system_prompt,
-                        prompt_text,
-                        max_turns=tool_max_turns,
-                    )
-                finally:
-                    if _prev_hyp is None:
-                        _os.environ.pop("JELLEO_ACTIVE_HYP_ID", None)
-                    else:
-                        _os.environ["JELLEO_ACTIVE_HYP_ID"] = _prev_hyp
+                system_prompt = (
+                    "You are an expert Solana security auditor running Layer 1 "
+                    "recon. You have read_file, grep, and find_function tools "
+                    "against the live workspace source. Use them to verify "
+                    "every claim before rendering a verdict — do NOT speculate. "
+                    "Cite concrete file paths and line numbers. End your final "
+                    "answer with a `## Verdict` section containing one of "
+                    "TRUE / FALSE / INCONCLUSIVE and a confidence "
+                    "(HIGH / MEDIUM / LOW)."
+                )
+                tu_result = run_tool_using_agent(
+                    workspace,
+                    system_prompt,
+                    prompt_text,
+                    max_turns=tool_max_turns,
+                    hyp_id=hyp_id,
+                )
                 # Emit verdict event for the dashboard's hypothesis grid
                 try:
                     _verdict_match = _parse_verdict(tu_result.text)

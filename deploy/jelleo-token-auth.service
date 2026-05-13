@@ -1,0 +1,25 @@
+[Unit]
+Description=Jelleo - HMAC token verification sidecar for customer manifests
+Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
+After=network-online.target
+Wants=network-online.target
+OnFailure=jelleo-alert-failure@%n.service
+
+[Service]
+Type=simple
+User=root
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=JELLEO_PLATFORM_KEY_PATH=/root/audit_runs/percolator-live/keys/jelleo.ed25519
+ExecStart=/usr/bin/python3 /root/audit-pipeline-cli/deploy/jelleo-token-auth.py
+Restart=on-failure
+RestartSec=10s
+# Listening on loopback only — nginx subrequests via auth_request.
+# Hardening for a sidecar that only validates a small surface.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+StandardOutput=append:/root/audit_runs/percolator-live/token-auth.log
+StandardError=append:/root/audit_runs/percolator-live/token-auth.log
+
+[Install]
+WantedBy=multi-user.target

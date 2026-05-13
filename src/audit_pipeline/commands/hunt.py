@@ -1513,7 +1513,7 @@ def _hunt_run(
         status = from_hunt_outcome(verdict, debate_promoted, poc_fired)
         title = (meta.get("claim", hyp_id)[:120].replace("\n", " ")) or hyp_id
 
-        db.upsert_finding(
+        finding_id = db.upsert_finding(
             target_id=target_id,
             cycle_id=cycle_id,
             hypothesis_id=hyp_id,
@@ -1534,6 +1534,17 @@ def _hunt_run(
                 "output_tokens": v.get("output_tokens"),
             },
         )
+        # POST-AUDIT FIX: emit a finding_persisted event so the Bridge
+        # dashboard's findings waterfall populates in real time, not
+        # only on the next 60s snapshot poll.
+        log("finding_persisted",
+            id=finding_id,
+            hypothesis_id=hyp_id,
+            severity=sev.value if hasattr(sev, "value") else str(sev),
+            status=status.value if hasattr(status, "value") else str(status),
+            title=title,
+            cycle_id=cycle_id,
+            poc_fired=poc_fired)
 
     cycle_summary = {
         "schema": "audit-pipeline.hunt.v1",
@@ -1810,6 +1821,14 @@ def _hunt_run(
     console.print(f"Cycle artifacts: [cyan]{cycle_dir}[/cyan]")
     console.print(f"Findings DB:     [cyan]{workspace / 'findings.db'}[/cyan]")
     log("hunt_done", elapsed=elapsed, n_confirmed=len(confirmed), cost=total_cost)
+    # Bridge dashboard listens for `cycle_complete` and `hunt_complete`
+    # in addition to `hunt_done`. Emit all three so any handler shape
+    # the frontend uses sees the cycle finishing.
+    log("cycle_complete", cycle_id=cycle_id,
+        elapsed=elapsed, n_confirmed=len(confirmed),
+        cost_usd=round(total_cost, 4))
+    log("hunt_complete", cycle_id=cycle_id,
+        elapsed=elapsed, n_confirmed=len(confirmed))
 
     if webhook_url and confirmed:
         try:

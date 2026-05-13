@@ -3,6 +3,9 @@ Description=Jelleo - dashboard snapshot writer (DB -> jelleo.com/snapshot.json)
 Documentation=https://jelleo.com/methodology.html#reporting
 After=network-online.target
 Wants=network-online.target
+# Silent snapshot failures freeze the dashboard. Alert via the
+# templated handler so operators see degradation in real time.
+OnFailure=jelleo-alert-failure@%n.service
 
 [Service]
 Type=oneshot

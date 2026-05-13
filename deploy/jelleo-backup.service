@@ -1,6 +1,8 @@
 [Unit]
 Description=Jelleo - daily findings DB backup
 Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
+# Silent backup failures = data-retention SLA breach. Alert always.
+OnFailure=jelleo-alert-failure@%n.service
 
 [Service]
 Type=oneshot

@@ -1,13 +1,19 @@
 """Finding lifecycle state machine.
 
 States:
-  new        — fresh from a hunt cycle, not yet reviewed
-  triaged    — human (or automation) confirmed it's a real candidate
-  confirmed  — empirical proof exists (PoC fired)
-  disclosed  — reported to the maintainer (issue filed / email sent)
-  fixed      — maintainer shipped a patch
-  verified   — patch confirmed effective via a re-run cycle
-  rejected   — refuted (debate flipped it, or PoC didn't fire)
+  new                 — fresh from a hunt cycle, not yet reviewed
+  triaged             — human (or automation) confirmed it's a real candidate
+  confirmed           — empirical proof exists (PoC fired)
+  disclosed           — reported to the maintainer (issue filed / email sent)
+  fixed               — maintainer shipped a patch
+  verified            — patch confirmed effective via a re-run cycle
+  rejected            — refuted INTERNALLY (debate flipped it, PoC didn't
+                        fire, retraction). We got the call wrong.
+  closed_not_planned  — maintainer reviewed and CLOSED upstream as
+                        "won't fix" / not-planned / by-design. We were
+                        right that it's a real path, but the maintainer
+                        chose not to address it. Different signal from
+                        REJECTED for renewal conversations + dashboards.
 
 Transitions are restricted: you can't jump from `new` straight to
 `fixed`, you have to walk the chain. This keeps the audit trail
@@ -27,16 +33,23 @@ class Status(str, Enum):
     FIXED = "fixed"
     VERIFIED = "verified"
     REJECTED = "rejected"
+    # POST-AUDIT: distinct terminal state for upstream "closed as
+    # not-planned / won't-fix". Previously conflated with REJECTED,
+    # which lost important signal for customer dashboards.
+    CLOSED_NOT_PLANNED = "closed_not_planned"
 
 
 VALID_TRANSITIONS: dict[Status, set[Status]] = {
     Status.NEW: {Status.TRIAGED, Status.CONFIRMED, Status.REJECTED},
     Status.TRIAGED: {Status.CONFIRMED, Status.REJECTED},
     Status.CONFIRMED: {Status.DISCLOSED, Status.REJECTED},
-    Status.DISCLOSED: {Status.FIXED, Status.REJECTED},
+    Status.DISCLOSED: {
+        Status.FIXED, Status.REJECTED, Status.CLOSED_NOT_PLANNED,
+    },
     Status.FIXED: {Status.VERIFIED, Status.REJECTED},
     Status.VERIFIED: set(),
     Status.REJECTED: set(),
+    Status.CLOSED_NOT_PLANNED: set(),
 }
 
 
@@ -84,4 +97,5 @@ def emoji(s: Status) -> str:
         Status.FIXED: "🔧",
         Status.VERIFIED: "🛡️",
         Status.REJECTED: "❌",
+        Status.CLOSED_NOT_PLANNED: "🚫",
     }[s]

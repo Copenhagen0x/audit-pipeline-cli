@@ -196,6 +196,7 @@ def run_tool_using_agent(
     model: str = "claude-sonnet-4-6",
     max_turns: int = 20,
     max_tokens_per_turn: int = 8192,
+    hyp_id: str = "",
 ) -> ToolUsingResult:
     """Run a tool-using Claude agent loop.
 
@@ -249,12 +250,16 @@ def run_tool_using_agent(
                 # Live-feed the tool call to subscribed customer dashboards
                 # (the Bridge view's tool-call stream + hypothesis grid
                 # "thinking" animations). Best-effort; never raises.
+                #
+                # POST-AUDIT FIX: previously read hyp_id from a process-global
+                # env var (JELLEO_ACTIVE_HYP_ID), which races across
+                # concurrent ThreadPoolExecutor workers — tool_call events
+                # got cross-attributed. Now passed in as a per-call kwarg.
                 try:
                     from audit_pipeline.utils.event_log import emit_event
-                    _hyp_id = os.environ.get("JELLEO_ACTIVE_HYP_ID", "")
                     emit_event(
                         "tool_call",
-                        hyp_id=_hyp_id,
+                        hyp_id=hyp_id,
                         tool=tool_name,
                         path=str(tool_input.get("path", ""))[:200],
                         pattern=str(tool_input.get("pattern", ""))[:200],

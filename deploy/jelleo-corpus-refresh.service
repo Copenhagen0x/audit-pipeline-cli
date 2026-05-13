@@ -3,6 +3,8 @@ Description=Jelleo - daily corpus refresh (P2 corpus freshness)
 Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli/blob/main/docs/methodology/04-propagation.md
 After=network-online.target
 Wants=network-online.target
+# Stale corpus = stale propagation results. Alert on hard failure.
+OnFailure=jelleo-alert-failure@%n.service
 
 [Service]
 Type=oneshot

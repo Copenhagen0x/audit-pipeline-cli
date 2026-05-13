@@ -477,26 +477,84 @@ class FindingsDB:
                 (target_id, cycle_id, hypothesis_id),
             ).fetchone()
             if row:
-                c.execute(
-                    """
-                    UPDATE findings
-                       SET verdict = ?, confidence = ?, severity = ?,
-                           title = COALESCE(?, title),
-                           poc_path = COALESCE(?, poc_path),
-                           poc_fired = ?, debate_promoted = ?,
-                           engine_sha = COALESCE(?, engine_sha),
-                           wrapper_sha = COALESCE(?, wrapper_sha),
-                           details_json = COALESCE(?, details_json),
-                           bug_class = COALESCE(?, bug_class),
-                           updated_at = ?
-                     WHERE id = ?
-                    """,
-                    (
-                        verdict, confidence, severity.value,
-                        title, poc_path, int(poc_fired), int(debate_promoted),
-                        engine_sha, wrapper_sha, details_json, bug_class, now, row["id"],
-                    ),
-                )
+                # POST-AUDIT FIX: previously the UPDATE branch left status
+                # alone — a re-run with a "stronger" outcome (PoC now fired
+                # where it didn't before) could not advance the row, but
+                # a re-run with a "weaker" outcome (verdict downgraded)
+                # also couldn't accidentally regress it. Compromise: allow
+                # the status to change IFF the proposed transition is
+                # valid per `assert_transition`; otherwise keep the current
+                # status. This preserves the state-machine invariant on
+                # the UPDATE path without making re-runs lossy.
+                current_status_str = row["status"]
+                new_status_str = status.value
+                allow_status_change = False
+                if current_status_str != new_status_str:
+                    try:
+                        assert_transition(
+                            Status(current_status_str), status,
+                        )
+                        allow_status_change = True
+                    except ValueError:
+                        # Forbidden transition (e.g. CONFIRMED → NEW). Keep
+                        # the current status. The row's other fields still
+                        # update so re-runs aren't entirely no-ops.
+                        allow_status_change = False
+                if allow_status_change:
+                    c.execute(
+                        """
+                        UPDATE findings
+                           SET verdict = ?, confidence = ?, severity = ?,
+                               status = ?,
+                               title = COALESCE(?, title),
+                               poc_path = COALESCE(?, poc_path),
+                               poc_fired = ?, debate_promoted = ?,
+                               engine_sha = COALESCE(?, engine_sha),
+                               wrapper_sha = COALESCE(?, wrapper_sha),
+                               details_json = COALESCE(?, details_json),
+                               bug_class = COALESCE(?, bug_class),
+                               updated_at = ?
+                         WHERE id = ?
+                        """,
+                        (
+                            verdict, confidence, severity.value, new_status_str,
+                            title, poc_path, int(poc_fired), int(debate_promoted),
+                            engine_sha, wrapper_sha, details_json, bug_class, now, row["id"],
+                        ),
+                    )
+                    # Record the transition for audit trail
+                    c.execute(
+                        """
+                        INSERT INTO transitions (finding_id, from_status, to_status, reason, actor, ts)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            row["id"], current_status_str, new_status_str,
+                            "advance via upsert_finding (state-machine validated)",
+                            "system", now,
+                        ),
+                    )
+                else:
+                    c.execute(
+                        """
+                        UPDATE findings
+                           SET verdict = ?, confidence = ?, severity = ?,
+                               title = COALESCE(?, title),
+                               poc_path = COALESCE(?, poc_path),
+                               poc_fired = ?, debate_promoted = ?,
+                               engine_sha = COALESCE(?, engine_sha),
+                               wrapper_sha = COALESCE(?, wrapper_sha),
+                               details_json = COALESCE(?, details_json),
+                               bug_class = COALESCE(?, bug_class),
+                               updated_at = ?
+                         WHERE id = ?
+                        """,
+                        (
+                            verdict, confidence, severity.value,
+                            title, poc_path, int(poc_fired), int(debate_promoted),
+                            engine_sha, wrapper_sha, details_json, bug_class, now, row["id"],
+                        ),
+                    )
                 return int(row["id"])
 
             cur = c.execute(

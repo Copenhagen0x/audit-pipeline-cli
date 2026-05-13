@@ -1,6 +1,11 @@
 [Unit]
 Description=Jelleo - daemon health check (one-shot)
 Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
+# Health-check crashes are invisible without this. Exit code 2 means
+# degradation per `audit-pipeline health` — that's the EXPECTED unhappy
+# path and is captured via webhook inside the command itself. OnFailure
+# here covers the unexpected: the command itself crashing.
+OnFailure=jelleo-alert-failure@%n.service
 
 [Service]
 Type=oneshot
