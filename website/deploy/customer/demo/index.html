@@ -21,6 +21,19 @@
 section.dash { padding: 100px 0 60px; }
 @media (max-width: 768px) { section.dash { padding: 60px 0 32px; } }
 
+/* POST-AUDIT FIX (2026-05-13): force the scrolled-look glassmorphism
+   on the nav from first paint. shared.css's `.nav` is transparent
+   until JS toggles `.scrolled`, which is fine on the marketing site
+   but feels janky on the customer dashboard (the nav flashes opaque
+   on first scroll). The <nav> on this page carries the `dashboard`
+   class so this rule applies on every render. */
+.nav.dashboard {
+  background: rgba(5,5,4,0.7);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border-bottom-color: var(--rule);
+}
+
 .dash-header {
   display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
   gap: 24px;
@@ -352,7 +365,11 @@ section.dash { padding: 100px 0 60px; }
 <div class="cursor-ring" id="ring"></div>
 <div class="cursor-dot" id="dot"></div>
 
-<nav class="nav" id="nav">
+<!-- POST-AUDIT FIX (2026-05-13): `dashboard` class makes the nav opaque
+     from first paint (shared.css's .nav is transparent until scrolled),
+     matching the bridge/full view. Pure visual consistency on this page
+     — the lobby's section.dash already has 100px top padding so there's
+     no overlap to fix, just glassy-nav-at-rest polish. --><nav class="nav dashboard" id="nav">
   <a href="/" class="nav-logo">jelleo</a>
   <div class="nav-center">
       <a href="/protocols/">Protocols</a>

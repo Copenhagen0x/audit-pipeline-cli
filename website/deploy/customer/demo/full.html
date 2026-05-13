@@ -37,13 +37,32 @@
 }
 
 main.bridge {
-  /* Top padding leaves room for the sticky nav. shared.css's .nav is
-     ~64px tall; we add 8px of breathing room before the header strip. */
-  padding: 24px 0 0;
+  /* POST-AUDIT FIX (2026-05-13): top padding now actually clears the
+     fixed nav. shared.css's .nav is 22+42+22 = 86px tall at rest (and
+     14+42+14 = 70px scrolled). The previous 24px value didn't clear
+     either state — the comment claimed "shared.css's .nav is ~64px
+     tall" and "8px of breathing room" but the math never added up, so
+     the health-banner rendered behind a transparent nav and overlapped
+     the logo. 96px = 86px nav + 10px breathing room. */
+  padding: 96px 0 0;
   min-height: 100vh;
   background:
     radial-gradient(ellipse at top, rgba(245,184,0,0.04) 0%, transparent 50%),
     var(--bridge-bg);
+}
+
+/* POST-AUDIT FIX (2026-05-13): on the dashboard page, the nav must
+   have a solid background at ALL times — not just when scrolled.
+   shared.css's `.nav` is transparent until the JS toggles `.scrolled`,
+   which is fine for the marketing homepage but breaks the customer
+   dashboard: at first paint the nav is invisible, so the health-banner
+   shows through it. The <nav> element on this page carries the
+   `dashboard` class so this rule applies on every render. */
+.nav.dashboard {
+  background: rgba(5,5,4,0.7);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border-bottom-color: var(--rule);
 }
 
 /* ===== HERO HEADER STRIP ===== */
@@ -884,7 +903,10 @@ main.bridge {
      needs to be able to navigate AWAY from the Bridge view, not just
      scroll to the footer. Sticky at top, slim, dense — matches the
      mission-control aesthetic. -->
-<nav class="nav" id="nav" style="--nav-h: 48px;">
+<!-- POST-AUDIT FIX (2026-05-13): add `dashboard` class so the nav gets
+     a permanent solid background (shared.css makes .nav transparent at
+     rest, which made the health-banner show through it on the customer
+     view and overlap the logo). --><nav class="nav dashboard" id="nav" style="--nav-h: 86px;">
   <a href="/" class="nav-logo">jelleo</a>
   <div class="nav-center">
     <a href="/customer/demo/">← Lobby</a>
