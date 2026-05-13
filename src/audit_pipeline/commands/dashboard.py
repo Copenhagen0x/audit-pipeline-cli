@@ -336,7 +336,13 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
             entry["n_planned"] = prog["phase_total"]
             entry["progress_pct"] = prog["pct_complete"]
             entry["finished_at"] = None
-            # Richer per-layer counters for the dashboard
+        # n_true_layer1, n_contested etc. computed from recon_summary —
+        # surface them on BOTH in_progress AND finished cycles so the
+        # dashboard hyp grid can paint the correct # of fire tiles
+        # when looking at a finished cycle (previously these fields
+        # were only set inside the in_progress branch → finished
+        # cycles showed all 40 tiles as "ok" even when 14 were TRUE).
+        if prog:
             entry["n_contested"] = prog.get("n_contested", 0)
             entry["n_true_layer1"] = prog.get("n_true_layer1", 0)
             entry["n_debate_done"] = prog.get("n_debate_done", 0)
@@ -845,14 +851,15 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
             entry["phase_label"] = prog["phase_label"]
             entry["phase_done"] = prog["phase_done"]
             entry["phase_total"] = prog["phase_total"]
-            # Keep n_dispatched / n_planned for back-compat with old JS that
-            # only knew about Layer 1. Map them to the current phase so the
-            # headline counter stays correct as phases advance.
             entry["n_dispatched"] = prog["phase_done"]
             entry["n_planned"] = prog["phase_total"]
             entry["progress_pct"] = prog["pct_complete"]
             entry["finished_at"] = None
-            # Richer per-layer counters for the dashboard
+        # Surface n_true_layer1 etc. on BOTH in_progress AND finished
+        # cycles so the dashboard grid paints correct fire counts on
+        # finished cycles too. Without this, finished cycles showed
+        # all 40 hyps as "ok" tiles even when 14 were L1-TRUE.
+        if prog:
             entry["n_contested"] = prog.get("n_contested", 0)
             entry["n_true_layer1"] = prog.get("n_true_layer1", 0)
             entry["n_debate_done"] = prog.get("n_debate_done", 0)
