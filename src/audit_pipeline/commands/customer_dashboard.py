@@ -184,6 +184,11 @@ def _identity_substitutions(
     ``./manifest.json`` instead of the demo's api.jelleo.com endpoint,
     which doesn't exist for new customers and falls back (wrongly) to
     the public Percolator snapshot.
+
+    These substitutions fire for EVERY customer (single- or multi-target).
+    Multi-target customers get additional surgical edits in _patch_lobby
+    that rewrite the dash-meta block, the dash-sub line, and the
+    section-number markers (since sections 02+03 are dropped).
     """
     cid = entry["id"]
     name = entry.get("name", cid)
@@ -208,9 +213,27 @@ def _identity_substitutions(
         ("Continuous audit · Percolator", hero),
         ("Customer · <span class=\"name\">Percolator team</span>",
          f"Customer · <span class=\"name\">{name}</span>"),
-        # Page <title>
+        # Page <title> — the demo template uses several variants depending
+        # on which page you're on (lobby vs Bridge). Cover all known forms.
+        ("Jelleo · Demo customer portal", f"{name} · Jelleo"),
+        ("Jelleo · Bridge view · Demo",   f"{name} · Bridge · Jelleo"),
         ("Customer dashboard · Jelleo", f"{name} · Jelleo"),
         ("Live audit · Jelleo",         f"{name} · Live · Jelleo"),
+        ("Demo customer portal",         f"{name} portal"),
+        # Footer bottom — strip the "Demo view" tag from EVERY customer's
+        # footer. v0.1 / Customer portal stays as the Jelleo product
+        # versioning; we just drop the demo-specific suffix.
+        ("v0.1 · Customer portal · Demo view", "v0.1 · Customer portal"),
+        # <meta name="description"> — appears in social-media link
+        # previews. The demo template's copy mentions "demo view" + the
+        # single-protocol shape (per-protocol findings, signed receipts,
+        # propagation hits). For private customer portals, replace with
+        # a generic + customer-named description so unfurls don't leak
+        # the demo flavor.
+        (
+            'content="Jelleo customer portal — demo view. What a real customer sees: per-protocol findings, signed cycle receipts, propagation hits."',
+            f'content="{name} audit portal · Jelleo. Token-gated live view of the continuous audit."',
+        ),
         # URL paths under /customer/demo/ → /customer/<id>/
         ("/customer/demo/", f"/customer/{cid}/"),
         ("api.jelleo.com/customer/demo/", f"api.jelleo.com/customer/{cid}/"),
@@ -738,9 +761,16 @@ def _inject_customer_logo(html: str, name: str, logo_src: str | None) -> str:
         f'padding-left:12px;margin-left:4px;">Jelleo</span>'
         f'</a>'
     )
+    # Only swap the FIRST occurrence — that's the nav. The footer-brand
+    # block also contains <a href="/" class="nav-logo">jelleo</a> but
+    # that's about who BUILT the tool (Jelleo), not who's USING it.
+    # Keeping the footer's Jelleo wordmark is correct attribution; the
+    # earlier code replaced both and made the footer self-attribute to
+    # the customer, which felt wrong.
     return html.replace(
         '<a href="/" class="nav-logo">jelleo</a>',
         new_anchor,
+        1,
     )
 
 
@@ -768,12 +798,22 @@ def _patch_lobby(
     # don't apply yet. Each transformation below is independently
     # tested; together they leave a clean multi-target lobby.
     if len(rollups) > 1:
+        protocol_name = entry.get("protocol_name", "Multi-target audit")
+
         # 1. Drop the "Classic · 4-panel" dash-launcher card. We don't
         #    clone full.legacy.html for new customers (it's a Percolator
         #    artifact). Leaving the link would land them on a 404.
         html = _remove_classic_view_card(html)
 
-        # 2. Replace the findings table with the multi-target grid.
+        # 2. Rewrite the dash-sub line + dash-meta block so the lobby
+        #    speaks vendor-eval semantics instead of continuous-monitoring
+        #    semantics. "Pilot since · N cycles · M open findings" →
+        #    "Engagement since · N targets · M open findings". "Loop
+        #    uptime · X" + "Plan · Tier 1 · v0.1" → "Targets scanned ·
+        #    X / N" + "Engagement · <protocol_name>".
+        html = _rewrite_dash_header_multi_target(html, len(rollups), protocol_name)
+
+        # 3. Replace the findings table with the multi-target grid.
         grid_html = _render_lobby_target_grid(cid, rollups)
         m = re.search(
             r'<!--\s*Findings\s*-->.*?(?=<!--\s*Cycle receipts)',
@@ -782,26 +822,83 @@ def _patch_lobby(
         if m:
             html = html[:m.start()] + grid_html + "\n\n    " + html[m.end():]
 
-        # 3. Drop the "02 · Cycle receipts" section. No signed receipts
+        # 4. Drop the "02 · Cycle receipts" section. No signed receipts
         #    for a fresh customer, and the demo JS that populates this
         #    block crashes if its DOM target is missing data shaped
         #    like the public snapshot.
         html = _drop_section(html, "Cycle receipts", "Propagation")
 
-        # 4. Drop the "03 · Cross-protocol propagation" section. Doesn't
+        # 5. Drop the "03 · Cross-protocol propagation" section. Doesn't
         #    apply during a multi-repo vendor evaluation.
         html = _drop_section(html, "Propagation", "Actions")
 
-        # 5. Trim the "04 · More" action bar — remove Percolator-
-        #    specific external links (last-cycle, public archive) that
-        #    don't exist for this customer yet.
+        # 6. Renumber the surviving sections so the section ordinals stay
+        #    contiguous after dropping 02 + 03. "01 · Targets" stays as
+        #    01; "04 · More" becomes "02 · More".
+        html = html.replace(
+            '<div class="dash-section-label">04 · More</div>',
+            '<div class="dash-section-label">02 · More</div>',
+        )
+
+        # 7. Trim the "More" action bar — remove Percolator-specific
+        #    external links (last-cycle, public archive) that don't
+        #    exist for this customer yet.
         html = _trim_action_bar(html)
 
-        # 6. Replace the data-wiring <script> block with a multi-target-
+        # 8. Replace the data-wiring <script> block with a multi-target-
         #    aware version that reads our manifest.json shape and is
         #    null-safe on the absent DOM elements.
         html = _replace_lobby_wiring_script(html)
 
+    return html
+
+
+def _rewrite_dash_header_multi_target(
+    html: str, n_targets: int, protocol_name: str,
+) -> str:
+    """Rewrite the dash-sub line + dash-meta right column for multi-target.
+
+    The demo's dash-header speaks continuous-monitoring vocabulary:
+        Pilot since X · N cycles · M open findings
+        Loop active / Last cycle · Y ago / Loop uptime · Z / Plan · Tier 1 · v0.1
+
+    For a vendor evaluation / multi-target engagement, the customer
+    cares about a different set of facts:
+        Engagement since X · N targets · M open findings
+        Loop status / Last scan · Y / Targets scanned · A / N / Engagement · <protocol>
+
+    Both blocks keep the SAME element IDs (dash-since, dash-cycles-count,
+    last-cycle-rel, etc.) so the wiring JS doesn't need to know which
+    flavor it's running against. Only the surrounding LABELS change.
+    """
+    # dash-sub: replace the whole one-liner so the visible labels read
+    # right. dash-cycles-count is repurposed to mean "n_targets" — the
+    # wiring JS sets it to targets.length which now matches the label.
+    new_sub = (
+        f'<div class="dash-sub">Engagement since '
+        f'<strong id="dash-since">—</strong> · '
+        f'<span id="dash-cycles-count">{n_targets}</span> targets · '
+        f'<span id="dash-findings-count">—</span> open findings</div>'
+    )
+    html = re.sub(
+        r'<div class="dash-sub">Pilot since[\s\S]*?open findings</div>',
+        new_sub,
+        html,
+        count=1,
+    )
+
+    # dash-meta: keep the live-pill, replace the three other rows.
+    new_meta_rows = (
+        '<div>Last scan · <span id="last-cycle-rel">—</span></div>\n'
+        f'        <div>Targets scanned · <span id="scanned-count">0</span> / {n_targets}</div>\n'
+        f'        <div>Engagement · {protocol_name}</div>'
+    )
+    html = re.sub(
+        r'<div>Last cycle ·[\s\S]*?Plan · Tier 1 · v0\.1</div>',
+        new_meta_rows,
+        html,
+        count=1,
+    )
     return html
 
 
@@ -927,13 +1024,17 @@ _LOBBY_WIRING_SCRIPT = """
     const totals  = snap.totals   || {};
     const targets = snap.targets  || [];
     const sev     = totals.by_severity || {};
+    const scannedTargets = targets.filter(t => t.last_cycle_id);
 
-    // Header
+    // Header line: "Engagement since <since> · <N> targets · <M> open findings"
+    // dash-cycles-count is repurposed as the target count (the surrounding
+    // label was rewritten to read "targets" instead of "cycles" for
+    // multi-target customers — see _rewrite_dash_header_multi_target).
     set('dash-since',           cust.since || '—');
     set('dash-cycles-count',    targets.length);
     set('dash-findings-count',  totals.n_findings || 0);
 
-    // Most-recent cycle across all targets
+    // dash-meta right column: Last scan + Targets scanned + Engagement.
     let lastCycleAt = null;
     for (const t of targets) {
       if (t.last_cycle_at && (!lastCycleAt || t.last_cycle_at > lastCycleAt)) {
@@ -941,15 +1042,18 @@ _LOBBY_WIRING_SCRIPT = """
       }
     }
     set('last-cycle-rel', lastCycleAt ? relTime(lastCycleAt) : 'awaiting first scan');
-    set('loop-uptime',    snap.generated_at ? relTime(snap.generated_at) : '—');
+    set('scanned-count', scannedTargets.length);
 
     // Counters — same DOM as demo, multi-target semantics
     set('ct-critical', sev.Critical || 0);
     set('ct-high',     sev.High     || 0);
-    set('ct-cycles',   targets.filter(t => t.last_cycle_id).length);
-    set('ct-receipt',  '100%');  /* always 100% verifiable while there are receipts; updates as cycles run */
+    set('ct-cycles',   scannedTargets.length);
+    // Receipt verifiability: blank until any cycle has signed receipts.
+    // Showing "100%" when there are no receipts to verify is misleading.
+    const nWithReceipts = targets.filter(t => t.last_cycle_id).length;
+    set('ct-receipt',  nWithReceipts > 0 ? '100%' : '—');
 
-    // Loop pill — "active" if any target is scanning, else "idle"
+    // Loop pill — "active" if any target is scanning, else "idle".
     const txt  = $('loop-pill-text');
     const pill = $('loop-pill');
     if (txt && pill) {
@@ -957,7 +1061,9 @@ _LOBBY_WIRING_SCRIPT = """
       if (scanning) {
         txt.textContent = 'Loop active';
       } else {
-        txt.textContent = 'Loop idle · awaiting first scan';
+        txt.textContent = scannedTargets.length === 0
+          ? 'Loop idle · awaiting first scan'
+          : 'Loop idle';
         pill.style.color = 'var(--ink-3)';
         pill.style.background = 'var(--surface)';
         pill.style.borderColor = 'var(--rule)';
@@ -1020,9 +1126,26 @@ def _patch_bridge(
     logo_src: str | None,
 ) -> str:
     name = entry.get("name", entry["id"])
+    cid = entry["id"]
 
     html = _apply_substitutions(template, _identity_substitutions(entry, brand))
     html = _inject_customer_logo(html, name, logo_src)
+
+    # Remove ALL "Classic 4-panel" references — three of them, in the
+    # nav, mobile menu, and footer of the Bridge view. We don't clone
+    # full.legacy.html for new customers, so every classic-view link
+    # would 404. The classic view is a Percolator-era artifact; new
+    # customers only get the Bridge view.
+    classic_link_patterns = [
+        # Nav (desktop)
+        rf'<a\s+href="/customer/{re.escape(cid)}/full\.html\?legacy=1"[^>]*>\s*Classic view\s*</a>\s*',
+        # Mobile menu
+        rf'<a\s+href="/customer/{re.escape(cid)}/full\.html\?legacy=1"\s+role="menuitem"[^>]*>\s*Classic 4-panel view\s*</a>\s*',
+        # Footer action bar (relative href)
+        r'<a\s+href="\?legacy=1"[^>]*>\s*Classic 4-panel view\s*↗\s*</a>\s*',
+    ]
+    for pat in classic_link_patterns:
+        html = re.sub(pat, "", html, flags=re.DOTALL)
 
     # For multi-target: inject the tab bar INSIDE <main class="bridge">,
     # immediately AFTER the health banner and BEFORE the bridge-header

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Jelleo · Demo customer portal</title>
-<meta name="description" content="Jelleo customer portal — demo view. What a real customer sees: per-protocol findings, signed cycle receipts, propagation hits.">
+<title>OtterSec · Jelleo</title>
+<meta name="description" content="OtterSec audit portal · Jelleo. Token-gated live view of the continuous audit.">
 <link rel="canonical" href="https://jelleo.com/customer/ottersec/">
 <meta name="theme-color" content="#050504">
 <meta name="robots" content="noindex,nofollow">
@@ -408,13 +408,13 @@ section.dash { padding: 100px 0 60px; }
       <div>
         <div class="dash-customer">Customer · <span class="name">OtterSec</span></div>
         <h1 class="dash-title">OtterSec × Jelleo · Vendor Evaluation</h1>
-        <div class="dash-sub">Pilot since <strong id="dash-since">—</strong> · <span id="dash-cycles-count">—</span> cycles · <span id="dash-findings-count">—</span> open findings</div>
+        <div class="dash-sub">Engagement since <strong id="dash-since">—</strong> · <span id="dash-cycles-count">12</span> targets · <span id="dash-findings-count">—</span> open findings</div>
       </div>
       <div class="dash-meta">
         <div class="live-pill" id="loop-pill"><span class="dot"></span><span id="loop-pill-text">Connecting…</span></div>
-        <div>Last cycle · <span id="last-cycle-rel">—</span></div>
-        <div>Loop uptime · <span id="loop-uptime">—</span></div>
-        <div>Plan · Tier 1 · v0.1</div>
+        <div>Last scan · <span id="last-cycle-rel">—</span></div>
+        <div>Targets scanned · <span id="scanned-count">0</span> / 12</div>
+        <div>Engagement · Vendor evaluation pilot</div>
       </div>
     </div>
 
@@ -843,7 +843,7 @@ section.dash { padding: 100px 0 60px; }
 
     <!-- Actions — dashboard CTAs hoisted to top; this block is now just
          supplementary links (archive / key / contact). -->
-    <div class="dash-section-label">04 · More</div>
+    <div class="dash-section-label">02 · More</div>
     <h2 class="dash-section-title">Reports and references</h2>
     <div class="action-bar">
       <a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Platform public key ↗</a>
@@ -861,7 +861,7 @@ section.dash { padding: 100px 0 60px; }
   <div class="container">
     <div class="footer-grid">
       <div class="footer-brand">
-        <a href="/" class="nav-logo" aria-label="OtterSec portal" style="display:inline-flex;align-items:center;gap:12px;"><img src="./logo.svg" alt="OtterSec logo" style="max-height: 28px; width: auto;"><span style="font-family:var(--font);font-weight:700;font-size:18px;letter-spacing:-0.01em;color:var(--ink);">OtterSec</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3);letter-spacing:0.12em;text-transform:uppercase;border-left:1px solid var(--rule);padding-left:12px;margin-left:4px;">Jelleo</span></a>
+        <a href="/" class="nav-logo">jelleo</a>
         <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
       </div>
       <div class="footer-col">
@@ -891,7 +891,7 @@ section.dash { padding: 100px 0 60px; }
     </div>
     <div class="footer-bottom">
       <span>© 2026 Jelleo · Apache-2.0</span>
-      <span>v0.1 · Customer portal · Demo view</span>
+      <span>v0.1 · Customer portal</span>
     </div>
   </div>
 </footer>
@@ -939,13 +939,17 @@ section.dash { padding: 100px 0 60px; }
     const totals  = snap.totals   || {};
     const targets = snap.targets  || [];
     const sev     = totals.by_severity || {};
+    const scannedTargets = targets.filter(t => t.last_cycle_id);
 
-    // Header
+    // Header line: "Engagement since <since> · <N> targets · <M> open findings"
+    // dash-cycles-count is repurposed as the target count (the surrounding
+    // label was rewritten to read "targets" instead of "cycles" for
+    // multi-target customers — see _rewrite_dash_header_multi_target).
     set('dash-since',           cust.since || '—');
     set('dash-cycles-count',    targets.length);
     set('dash-findings-count',  totals.n_findings || 0);
 
-    // Most-recent cycle across all targets
+    // dash-meta right column: Last scan + Targets scanned + Engagement.
     let lastCycleAt = null;
     for (const t of targets) {
       if (t.last_cycle_at && (!lastCycleAt || t.last_cycle_at > lastCycleAt)) {
@@ -953,15 +957,18 @@ section.dash { padding: 100px 0 60px; }
       }
     }
     set('last-cycle-rel', lastCycleAt ? relTime(lastCycleAt) : 'awaiting first scan');
-    set('loop-uptime',    snap.generated_at ? relTime(snap.generated_at) : '—');
+    set('scanned-count', scannedTargets.length);
 
     // Counters — same DOM as demo, multi-target semantics
     set('ct-critical', sev.Critical || 0);
     set('ct-high',     sev.High     || 0);
-    set('ct-cycles',   targets.filter(t => t.last_cycle_id).length);
-    set('ct-receipt',  '100%');  /* always 100% verifiable while there are receipts; updates as cycles run */
+    set('ct-cycles',   scannedTargets.length);
+    // Receipt verifiability: blank until any cycle has signed receipts.
+    // Showing "100%" when there are no receipts to verify is misleading.
+    const nWithReceipts = targets.filter(t => t.last_cycle_id).length;
+    set('ct-receipt',  nWithReceipts > 0 ? '100%' : '—');
 
-    // Loop pill — "active" if any target is scanning, else "idle"
+    // Loop pill — "active" if any target is scanning, else "idle".
     const txt  = $('loop-pill-text');
     const pill = $('loop-pill');
     if (txt && pill) {
@@ -969,7 +976,9 @@ section.dash { padding: 100px 0 60px; }
       if (scanning) {
         txt.textContent = 'Loop active';
       } else {
-        txt.textContent = 'Loop idle · awaiting first scan';
+        txt.textContent = scannedTargets.length === 0
+          ? 'Loop idle · awaiting first scan'
+          : 'Loop idle';
         pill.style.color = 'var(--ink-3)';
         pill.style.background = 'var(--surface)';
         pill.style.borderColor = 'var(--rule)';
