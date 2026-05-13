@@ -31,6 +31,7 @@ from audit_pipeline.utils import (
     is_available,
     render_placeholders,
 )
+
 # POST-AUDIT FIX (2026-05-12 re-audit catch): hoist emit_event to module
 # scope. Previously imported INSIDE a try block at line 490 — on a cold
 # install where the event_log module is broken (eg syntax error during

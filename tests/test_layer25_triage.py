@@ -20,7 +20,6 @@ from pathlib import Path
 
 from audit_pipeline.layer25_triage import (
     FALSE_PATTERNS,
-    TriageResult,
     _parse_judge_response,
     build_judge_user_prompt,
     classify_by_pattern,
@@ -28,7 +27,6 @@ from audit_pipeline.layer25_triage import (
     extract_panic_line,
     triage_cycle,
 )
-
 
 # ─────────────────── Fast-path FALSE patterns ───────────────────
 

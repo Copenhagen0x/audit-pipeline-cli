@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import re
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -110,7 +109,7 @@ def _scan_one(yaml_path: Path, engine_src: Path | None) -> list[dict[str, Any]]:
         if hid in seen_ids:
             issues.append({"file": str(yaml_path), "id": hid,
                            "severity": "error",
-                           "reason": f"duplicate id within file"})
+                           "reason": "duplicate id within file"})
         seen_ids.add(hid)
 
         key = (

@@ -19,7 +19,6 @@ Used by: ``commands/issue.py`` (file_cmd, auto_file_cmd) before invoking
 
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 import time

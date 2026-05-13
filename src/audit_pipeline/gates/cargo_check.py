@@ -32,7 +32,6 @@ from pathlib import Path
 
 from audit_pipeline.gates import GateResult
 
-
 # Phase B self-audit Defect 06: validate test_name so a malicious value
 # like ``../poc_evil`` can't cause a write/unlink outside ``tests/``.
 _TEST_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,127}$")

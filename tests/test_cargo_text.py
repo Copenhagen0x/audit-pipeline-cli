@@ -8,12 +8,10 @@ from __future__ import annotations
 import pytest
 
 from audit_pipeline.utils.cargo_text import (
-    TestOutcome,
     is_test_fired,
     is_test_passed,
     parse_test_outcome,
 )
-
 
 # ---- fired (test ran and FAILED) ---------------------------------------
 

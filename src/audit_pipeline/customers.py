@@ -290,7 +290,7 @@ def issue_customer_url_token(
     if expires_at is None:
         expires_at = int(time.time()) + int(ttl_seconds)
     key = _hmac_url_key(platform_priv_bytes, customer_id, salt=salt)
-    msg = f"{customer_id}|{expires_at}".encode("utf-8")
+    msg = f"{customer_id}|{expires_at}".encode()
     digest = hmac.new(key, msg, sha256).digest()
     tok = f"{expires_at}.{base64.urlsafe_b64encode(digest).rstrip(b'=').decode()}"
     return tok, expires_at
@@ -322,7 +322,7 @@ def verify_customer_url_token(
     if exp < int(time.time()):
         return False
     key = _hmac_url_key(platform_priv_bytes, customer_id, salt=salt)
-    msg = f"{customer_id}|{exp}".encode("utf-8")
+    msg = f"{customer_id}|{exp}".encode()
     expected = hmac.new(key, msg, sha256).digest()
     # Pad sig_b64 to multiple of 4 for urlsafe_b64decode
     pad = "=" * (-len(sig_b64) % 4)

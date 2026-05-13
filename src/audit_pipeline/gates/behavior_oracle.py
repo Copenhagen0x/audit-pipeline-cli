@@ -35,7 +35,6 @@ import time
 
 from audit_pipeline.gates import GateResult
 
-
 # Cheaper model by default — this is a verification gate, not an authoring
 # step. Operator can override with a more capable model when the cost
 # differential is acceptable.
@@ -221,7 +220,8 @@ def check_behavior(
     if complete_fn is None:
         # Lazy import so the gates module doesn't drag in anthropic SDK
         # for callers that pass complete_fn explicitly (unit tests).
-        from audit_pipeline.utils.llm import LLMUnavailable, complete as _complete
+        from audit_pipeline.utils.llm import LLMUnavailable
+        from audit_pipeline.utils.llm import complete as _complete
         complete_fn = _complete
         # surface LLMUnavailable for cleaner skip handling
         _llm_unavailable_cls = LLMUnavailable

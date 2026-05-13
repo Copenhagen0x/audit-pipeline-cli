@@ -757,13 +757,17 @@ def _run_one_hook_pg(workspace, finding_id: int, hook_name: str, target) -> None
                     "hook": hook_name,
                     "backend": "postgres",
                 })
-                try: pg_conn.close()
-                except Exception: pass
+                try:
+                    pg_conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
                 return
         except Exception:  # noqa: BLE001 — never crash hook over idempotency
             if pg_conn:
-                try: pg_conn.close()
-                except Exception: pass
+                try:
+                    pg_conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
             pg_conn = None
 
     _write({"phase": "started", "ts": started, "finding_id": finding_id,
@@ -804,5 +808,7 @@ def _run_one_hook_pg(workspace, finding_id: int, hook_name: str, target) -> None
                 pass
     finally:
         if pg_conn:
-            try: pg_conn.close()
-            except Exception: pass
+            try:
+                pg_conn.close()
+            except Exception:  # noqa: BLE001
+                pass

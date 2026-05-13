@@ -30,7 +30,6 @@ from pathlib import Path
 
 from audit_pipeline.gates import GateResult
 
-
 # snake_case identifier: at least one underscore, at least 4 chars, no
 # leading underscore (private/internal markers). Catches function and field
 # names like ``compute_trade_pnl``, ``oracle_leg_feed_id``.

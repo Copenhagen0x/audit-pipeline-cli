@@ -30,7 +30,6 @@ from audit_pipeline.utils import (
     render_placeholders,
 )
 from audit_pipeline.utils.rust_compile import (
-    cargo_check_tests,
     cargo_kani,
     cargo_kani_codegen_check,
     extract_rust_code_block,

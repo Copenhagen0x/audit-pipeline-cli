@@ -376,8 +376,7 @@ def _md_safe(s: str | None, *, max_len: int = 400) -> str:
     text = text.replace("|", "\\|")
     # CR/LF collapse to single space so a multi-line claim doesn't
     # smuggle "fake maintainer reply" block-quote lines.
-    text = re.sub(r"[\r\n]+", " ", text)
-    return text
+    return re.sub(r"[\r\n]+", " ", text)
 
 
 def _render_issue_body(finding: dict, db: FindingsDB) -> str:

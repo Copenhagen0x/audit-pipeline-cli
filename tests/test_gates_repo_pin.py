@@ -16,7 +16,6 @@ from audit_pipeline.gates.repo_pin import (
     extract_candidate_shas,
 )
 
-
 # ---------- extract_candidate_shas ---------------------------------------
 
 class TestExtractCandidateShas:

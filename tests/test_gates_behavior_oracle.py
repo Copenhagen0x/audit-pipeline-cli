@@ -11,7 +11,6 @@ from dataclasses import dataclass
 import pytest
 
 from audit_pipeline.gates.behavior_oracle import (
-    PROMPT_TEMPLATE,
     _parse_verdict,
     check_behavior,
 )

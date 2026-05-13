@@ -92,6 +92,17 @@ ignore = [
     "F841",   # unused variable — sometimes intentional for typing/destructure
 ]
 
+# Test code legitimately uses naming conventions that violate PEP 8 — test
+# methods sometimes embed CAPS for emphasis (test_foo_does_NOT_bar) and
+# fixture/factory helpers occasionally use snake_case for parametrized
+# class names. CI was failing on these stylistic flags; gate strictness
+# stays on `src/`, tests get the relaxed set.
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "N802",  # function name not lowercase — tests intentionally CAPS-ize words for emphasis
+    "N803",  # arg name not lowercase — pytest fixtures via class names
+]
+
 [tool.mypy]
 python_version = "3.10"
 strict = true

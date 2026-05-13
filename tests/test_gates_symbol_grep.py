@@ -11,7 +11,6 @@ from audit_pipeline.gates.symbol_grep import (
     extract_project_symbols,
 )
 
-
 # ---------- extract_project_symbols -------------------------------------
 
 class TestExtractProjectSymbols:

@@ -44,4 +44,4 @@ class TestMdSafe:
         """A clean title from yesterday's library passes through unchanged
         modulo escape transforms — no false positives."""
         out = _md_safe("Post-haircut residual cash conservation")
-        assert "Post-haircut residual cash conservation" == out
+        assert out == "Post-haircut residual cash conservation"

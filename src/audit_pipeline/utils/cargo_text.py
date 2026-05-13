@@ -48,7 +48,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
-
 # `test <name> ... <result>` — emitted by libtest for each test.
 # Result is one of: ok | FAILED | ignored | bench
 _TEST_RESULT_LINE_RE = re.compile(

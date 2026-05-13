@@ -45,7 +45,6 @@ from typing import Any
 
 from audit_pipeline.gates import GateResult
 
-
 _REJECTED_DECISIONS = {"rejected", "wontfix", "declined", "closed-not-planned"}
 _RESOLVED_DECISIONS = {"merged", "fixed", "resolved", "patched"}
 _VALID_DECISIONS = (

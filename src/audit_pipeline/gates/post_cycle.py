@@ -36,14 +36,11 @@ Optionally (opt-in via ``include_behavior_oracle=True``):
 
 from __future__ import annotations
 
-import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from audit_pipeline.gates import GateResult
 from audit_pipeline.gates.symbol_grep import check_symbols
-
 
 # Markers that mean a PoC didn't really test the bug.
 _PSEUDO_PASS_MARKERS = (
