@@ -105,16 +105,23 @@ def _normalize_path(workspace: Path, path: str) -> Path | None:
             candidates.append((workspace / path).resolve())
         except OSError:
             pass
-        # Then try each engine_root as a fallback so the agent can
-        # use bare paths like "sources/access_control.move" without
-        # needing to prefix "./engine/". This was the silent failure
-        # mode in the aptos-small dry-run (5/40 responses returned
-        # "file not found" for bare-relative source paths).
+        # Then try each engine_root + several common source-prefixes
+        # as fallbacks. Agents inconsistently call read_file with:
+        #   - "sources/access_control.move"  (works under engine_root)
+        #   - "access_control.move"           (bare — needs sources/ prefix)
+        #   - "src/foo.c"                     (works under engine_root)
+        #   - "foo.c"                         (bare C — needs src/ prefix)
+        # This was caught during the 2026-05-13 aptos-small dry-run when
+        # 3 of 8 hyps came back INCONCLUSIVE because the agent used bare
+        # filenames the resolver couldn't find. Now we try every plausible
+        # prefix so bare-named requests resolve when the file exists.
+        _SOURCE_PREFIXES = ("", "sources/", "src/", "contracts/", "programs/")
         for engine_root in _workspace_engine_roots(workspace):
-            try:
-                candidates.append((engine_root / path).resolve())
-            except OSError:
-                pass
+            for prefix in _SOURCE_PREFIXES:
+                try:
+                    candidates.append((engine_root / prefix / path).resolve())
+                except OSError:
+                    pass
 
     # Pick the first candidate that EXISTS and is under a trusted root.
     # Falling back to first candidate (existence-unchecked) if nothing
