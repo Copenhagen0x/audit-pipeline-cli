@@ -1211,7 +1211,7 @@ main.bridge {
       </span>
       <span class="bridge-cost">
         <span id="cost-now">$ 0.000</span>
-        <span class="cap">this cycle</span>
+        <span class="cap">this cycle · <span id="cost-session">$ 0.000</span> session</span>
         <span class="bridge-cost-bar"><div id="cost-bar-fill" style="width: 0%"></div></span>
       </span>
     </div>
@@ -2380,6 +2380,19 @@ main.bridge {
         state.lastCycleAt = t;
         $('last-cycle-rel').textContent = fmtRel(t);
       }
+    }
+    // PERSISTENT spend display — driven by heartbeat, NOT only by
+    // in-page SSE accumulation. Survives page refresh because the
+    // server recomputes from hunt.log.jsonl every snapshot tick.
+    // - $X.XXX this cycle    ← active cycle spend
+    // - $X.XXX session        ← cumulative across every cycle for this customer
+    if (typeof d.active_cycle_spend_usd === 'number') {
+      state.cycleSpendUsd = d.active_cycle_spend_usd;
+      setCost(d.active_cycle_spend_usd);
+    }
+    if (typeof d.session_total_spend_usd === 'number') {
+      const el = $('cost-session');
+      if (el) el.textContent = '$ ' + d.session_total_spend_usd.toFixed(3);
     }
     // service_summary is an object; count active.
     if (d.service_summary && typeof d.service_summary === 'object') {
