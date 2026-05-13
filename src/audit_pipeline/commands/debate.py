@@ -33,6 +33,137 @@ from audit_pipeline.utils.github_snapshot import GitHubSnapshot, SnapshotDownloa
 console = Console()
 
 
+# Language-specific failure-mode hints injected into the challenger prompt
+# at the {LANGUAGE_CONTEXT} placeholder. Steers the challenger to look for
+# bug-class violations specific to the language under test, BEYOND the
+# universal failure modes already in the template (doc-comment trust,
+# path collapse, etc.). For Solana / Rust the original template was already
+# tuned, so we keep that prompt vocabulary as the default.
+_CHALLENGER_LANGUAGE_FRAMES: dict[str, str] = {
+    "solana": (
+        "## Solana / Rust-specific failure modes to check\n\n"
+        "Beyond the universal failure modes below, the codebase is a "
+        "Solana program (Rust + Anchor). Pressure-test the proposer's "
+        "verdict against these Solana-specific holes:\n\n"
+        "- **Account validation gaps.** Does each account in the "
+        "  instruction context get its owner, mint, authority, and PDA "
+        "  seed checked? Missing owner check is the classic account-"
+        "  confusion primitive.\n"
+        "- **Signer/owner conflation.** Did the proposer treat "
+        "  `is_signer` and `is_owner` as equivalent? They are not.\n"
+        "- **u64/u128 arithmetic.** Did the proposer dismiss overflow "
+        "  because 'in practice the values are small'? Auditor must "
+        "  assume adversarial inputs at the surface bounds.\n"
+        "- **CPI program-id trust.** Cross-program invocations need the "
+        "  callee program-id explicitly verified.\n"
+        "- **Lamports / rent-exempt edge cases.** Closing or draining "
+        "  accounts that the engine still treats as live."
+    ),
+    "c": (
+        "## C-specific failure modes to check\n\n"
+        "The codebase is plain C (no smart-contract VM). Beyond the "
+        "universal failure modes below, the proposer may have missed:\n\n"
+        "- **Buffer write off-by-one.** `<= sizeof(buf)` checks instead "
+        "  of `< sizeof(buf)` before a null-terminator write.\n"
+        "- **Integer overflow in size calc.** `malloc(a * b)` or "
+        "  `malloc(a + b)` without overflow guards on attacker-controlled "
+        "  inputs.\n"
+        "- **Sign conversion on length.** Signed int read from a frame "
+        "  field, then implicitly converted to `size_t` — negative input "
+        "  wraps to a huge unsigned value.\n"
+        "- **UAF / double-free.** Free path that doesn't null the "
+        "  pointer; multiple cleanup branches.\n"
+        "- **Format-string injection.** `printf(user_input)` patterns.\n"
+        "- **Uninitialized stack reads.** Local structs passed by ref to "
+        "  a function that reads fields before they're written.\n"
+        "- **TOCTOU.** Check-then-use of files, sessions, state where the "
+        "  window between check and use is attacker-controlled.\n"
+        "- **strncpy without null-term.** strncpy(dst, src, n) doesn't "
+        "  null-terminate if src length >= n.\n"
+        "- **Realloc leak.** `p = realloc(p, n)` overwrites p before "
+        "  checking the return value."
+    ),
+    "solidity": (
+        "## Solidity / EVM-specific failure modes to check\n\n"
+        "The codebase is Solidity 0.8+ contracts. Beyond the universal "
+        "failure modes below, the proposer may have missed:\n\n"
+        "- **Reentrancy variants.** Classic CEI violation, read-only "
+        "  reentrancy (view function returning stale state during a "
+        "  reentrancy window), cross-function reentrancy (two functions "
+        "  share state but only one has the guard), ERC777 fallback "
+        "  reentrancy.\n"
+        "- **Access control bypass.** `tx.origin` instead of `msg.sender`, "
+        "  front-runnable `initialize`, uninitialized implementation "
+        "  contract.\n"
+        "- **Oracle manipulation.** Missing staleness check, no "
+        "  `answer > 0` guard, hardcoded decimals, single-block TWAP "
+        "  flash-loan vulnerability.\n"
+        "- **ERC4626 inflation.** First-depositor donate-1-wei attack; "
+        "  rounding direction (deposit round-down, withdraw round-up).\n"
+        "- **Withdrawal delay bypass.** `readyAt[user] != 0` not "
+        "  checked → non-requesters can withdraw because their default "
+        "  `readyAt` of 0 satisfies the timestamp check.\n"
+        "- **Signature replay / malleability.** Missing nonce, missing "
+        "  chainid in EIP-712 domain, no high-s rejection.\n"
+        "- **Governance flash-loan.** Vote-weight computed off "
+        "  current state instead of historical snapshot.\n"
+        "- **Delegatecall storage collision.** Implementation evolution "
+        "  invalidates the layout.\n"
+        "- **Returndata bomb / unbounded loop.** Gas-griefing primitives.\n"
+        "- **NOTE on identifiers.** Variable names in the contracts under "
+        "  test may be obfuscated (e.g. `_v_2a84a346`). Don't rely on "
+        "  names — read the semantics from the bytecode-equivalent logic."
+    ),
+    "aptos": (
+        "## Aptos Move-specific failure modes to check\n\n"
+        "The codebase is Aptos Move. Beyond the universal failure modes "
+        "below, the proposer may have missed:\n\n"
+        "- **borrow_global without auth.** Permissionless mutation of a "
+        "  privileged resource because the borrow site doesn't gate on "
+        "  signer identity.\n"
+        "- **Signer not bound to resource owner.** "
+        "  `borrow_global_mut<UserBalance>(some_addr)` where some_addr "
+        "  isn't `signer::address_of(&signer)` admits cross-account "
+        "  mutation.\n"
+        "- **Capability leak.** Cap with `store` ability stored in a "
+        "  public-readable struct or in a per-user resource — anyone gets "
+        "  admin permanently.\n"
+        "- **u64 overflow / underflow as DoS.** Move ABORTS on overflow, "
+        "  not wraps. Reachable abort = reachable DoS = severity High.\n"
+        "- **Divide-by-zero abort.** Same reachable-DoS pattern.\n"
+        "- **Resource leak / double-move.** Conditional early-return that "
+        "  doesn't re-store an acquired resource.\n"
+        "- **Type-argument confusion.** `f<T>` where T is attacker-"
+        "  supplied; check if the function trusts T's semantics without "
+        "  whitelisting.\n"
+        "- **ACL bypass via direct entry.** `public entry fun` that "
+        "  performs admin-only work without going through "
+        "  `access_control::assert_admin`.\n"
+        "- **Module publisher confusion.** init_module that doesn't "
+        "  verify the publisher address.\n"
+        "- **Oracle staleness / zero-price.** Same patterns as EVM.\n"
+        "- **Share math rounding.** Inverting deposit-down / withdraw-up "
+        "  is a vault drain primitive."
+    ),
+}
+
+
+def _challenger_language_context(language: str) -> str:
+    """Pick the right language-specific challenger context block.
+
+    Unknown languages fall back to the Solana frame (the engine's
+    original calibration). The CLI rejects unknowns upstream so this
+    fallback only fires under operator typos.
+    """
+    return _CHALLENGER_LANGUAGE_FRAMES.get(
+        language.lower().strip(),
+        _CHALLENGER_LANGUAGE_FRAMES["solana"],
+    )
+
+
+SUPPORTED_LANGUAGES = sorted(_CHALLENGER_LANGUAGE_FRAMES.keys())
+
+
 @click.command(name="debate")
 @click.option(
     "--hypothesis-id",
@@ -122,6 +253,18 @@ console = Console()
         "proposer's reads."
     ),
 )
+@click.option(
+    "--language",
+    type=click.Choice(SUPPORTED_LANGUAGES, case_sensitive=False),
+    default="solana",
+    show_default=True,
+    help=(
+        "Target language under audit. Injects language-specific failure-"
+        "mode hints into the challenger prompt so the adversarial review "
+        "pressure-tests bug classes relevant to the language under test. "
+        "Defaults to 'solana' to preserve existing Percolator workflows."
+    ),
+)
 @click.pass_context
 def debate_cmd(
     ctx: click.Context,
@@ -136,6 +279,7 @@ def debate_cmd(
     source_sha: str | None,
     challenger_model: str | None,
     redact_proposer_evidence: bool,
+    language: str,
 ) -> None:
     """Render an adversarial CHALLENGER prompt for a hypothesis verdict.
 
@@ -196,6 +340,7 @@ def debate_cmd(
             auto=auto,
             challenger_model=challenger_model,
             redact_proposer_evidence=redact_proposer_evidence,
+            language=language,
         )
     finally:
         if snap_cm is not None:
@@ -215,8 +360,14 @@ def _debate_body(
     auto: bool,
     challenger_model: str | None = None,
     redact_proposer_evidence: bool = False,
+    language: str = "solana",
 ) -> None:
-    """Body of debate, factored out so the snapshot lifecycle wraps it cleanly."""
+    """Body of debate, factored out so the snapshot lifecycle wraps it cleanly.
+
+    ``language`` selects the per-language failure-mode context injected
+    into the challenger prompt at the ``{LANGUAGE_CONTEXT}`` placeholder.
+    Defaults to ``solana`` to preserve existing Percolator workflows.
+    """
     if output is None:
         output = workspace / "recon" / "debate"
     output.mkdir(parents=True, exist_ok=True)
@@ -274,6 +425,11 @@ def _debate_body(
         # the verdict block and leak evidence through this placeholder.
         PROPOSER_VERDICT=_extract_verdict_section(proposer_text, redacted=redact_proposer_evidence),
         PROPOSER_EVIDENCE=proposer_evidence_for_challenger,
+        # PHASE 1c: language-specific failure-mode block. Steers the
+        # challenger to bug classes relevant to the language under test
+        # (Solidity reentrancy / Move borrow_global / C UAF / etc) on
+        # top of the universal failure modes already in the template.
+        LANGUAGE_CONTEXT=_challenger_language_context(language),
     )
 
     out_path = output / f"{hypothesis_id}_challenger.md"

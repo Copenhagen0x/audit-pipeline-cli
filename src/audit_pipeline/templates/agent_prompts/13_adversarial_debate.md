@@ -54,6 +54,8 @@ Target file: {TARGET_FILE}
 
 {PROPOSER_EVIDENCE}
 
+{LANGUAGE_CONTEXT}
+
 ## Your task
 
 Read the proposer's verdict and evidence carefully. Then attack it. Try to
