@@ -1138,17 +1138,26 @@ def _in_progress_cycle_progress(
     # Pull contested count from recon_summary if it exists
     n_contested = 0
     n_true = 0
+    # ALSO compute the debate-planning denominator. The hunt orchestrator
+    # at default debate_scope=all_high debates EVERY HIGH-confidence
+    # verdict (both TRUE and FALSE), not just the L2 candidates. Without
+    # this, the dashboard's "L1.5 X/Y" reads e.g. "27/14" because the
+    # denominator was the L2-queue size (14) while debates run on 40.
+    n_debate_planned = 0
     if recon_summary.is_file():
         try:
             data = json.loads(recon_summary.read_text(encoding="utf-8"))
             verdicts = data.get("verdicts", [])
             for v in verdicts:
                 vd = v.get("verdict") or ""
+                conf = (v.get("confidence") or "").upper()
                 if vd == "TRUE":
                     n_true += 1
                     n_contested += 1
                 elif vd == "NEEDS_LAYER_2_TO_DECIDE":
                     n_contested += 1
+                if conf == "HIGH" and vd in ("TRUE", "FALSE"):
+                    n_debate_planned += 1
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -1225,7 +1234,12 @@ def _in_progress_cycle_progress(
     elif n_debate_done > 0 or n_contested > 0:
         phase = "debate"
         n_done = n_debate_done
-        n_total = max(n_contested, 1)
+        # Denominator = total debates the orchestrator plans to run.
+        # Default debate_scope=all_high → every HIGH-confidence verdict
+        # (TRUE + FALSE). Falls back to n_contested if recon_summary
+        # didn't surface enough info, and guards against n_done >
+        # n_total (which produced the confusing "27/14" display).
+        n_total = max(n_debate_planned, n_contested, n_debate_done, 1)
         label = "Layer 1.5 debate"
     else:
         phase = "recon"
