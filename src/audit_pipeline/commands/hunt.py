@@ -854,6 +854,47 @@ def _hunt_run(
                 f"does not exist. Available cycles: "
                 f"{sorted(p.name for p in hunts_dir.iterdir() if p.is_dir())[-5:]}"
             )
+        # REOPEN the cycle so the dashboard reflects "in progress" again.
+        # Without this, a previously-completed cycle (hunt_summary.json
+        # + DB finished_at set) being resumed left the dashboard showing
+        # "all layers done" even as new L2 PoCs were being authored +
+        # run. Operator caught this with: "why the fuck the waterfall
+        # shows that all layers are done already".
+        #
+        # We:
+        # 1. Clear DB finished_at so manifest reports in_progress
+        # 2. Move (NOT delete) hunt_summary.json aside so the
+        #    in_progress_cycle_progress phase detector goes back to
+        #    "poc" / "kani" / etc. instead of "publishing". Keeping a
+        #    backup means we don't lose the previous run's report if
+        #    the resume itself fails before producing a new one.
+        # 3. Move (NOT delete) the .publish-blocked sentinel for the
+        #    same reason.
+        try:
+            db.reopen_cycle(cycle_id)
+        except AttributeError:
+            # Back-compat: older DB has no reopen_cycle(); patch via raw SQL.
+            try:
+                with db._conn() as _c:
+                    _c.execute(
+                        "UPDATE cycles SET finished_at = NULL "
+                        "WHERE cycle_id = ?", (cycle_id,)
+                    )
+            except Exception:
+                pass
+        for stale in ("hunt_summary.json", ".publish-blocked", "retraction.json"):
+            stale_path = cycle_dir / stale
+            if stale_path.exists():
+                backup = cycle_dir / (stale + ".pre-resume")
+                try:
+                    stale_path.rename(backup)
+                except OSError:
+                    pass
+        log("resume_reopened_cycle", cycle_id=cycle_id)
+        console.print(
+            f"[cyan]Resume reopened cycle {cycle_id}: cleared "
+            f"finished_at + moved hunt_summary.json aside[/cyan]"
+        )
         # The DB already has this cycle inserted from the prior run; skip insert
         # (db.insert_cycle may not be idempotent — safer to omit).
     else:
