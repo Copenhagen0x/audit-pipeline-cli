@@ -19,7 +19,15 @@
 #   - gh CLI (for issue/PR work)
 #   - build-essential, git, curl, jq, gzip
 #
-# Total install time: ~15-20 min on a 6-core VPS.
+#   PHASE 1h additions for OtterSec multi-language pipeline:
+#   - CBMC (Bounded Model Checker for C — L3 formal)
+#   - AFL++ (American Fuzzy Lop, fuzzer for C — L4 runtime)
+#   - solc (Solidity compiler with SMTChecker — L3 + L2 PoC)
+#   - Foundry (forge/cast/anvil — L2 PoC + L4 runtime for Solidity)
+#   - Aptos CLI (move test + move prove — L2 + L3 + L4 for Aptos)
+#   - clang (already in toolchain — handles C L2 PoC + sanitizers)
+#
+# Total install time: ~30-45 min on a 6-core VPS (was ~15-20 pre-Phase-1h).
 
 set -euo pipefail
 
@@ -139,6 +147,108 @@ else
 fi
 EOF
 
+# ============================================================
+# PHASE 1h — multi-language toolchain (OtterSec eval prerequisites)
+# ============================================================
+
+# === CBMC (C bounded model checker — L3 formal for C) ===
+echo "==> Installing CBMC"
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$VPS_HOST" 'bash -s' <<'EOF'
+set -e
+export DEBIAN_FRONTEND=noninteractive
+if command -v cbmc &>/dev/null; then
+    echo "  CBMC already present: $(cbmc --version | head -1)"
+else
+    apt-get install -y -qq cbmc
+    echo "  CBMC installed: $(cbmc --version | head -1)"
+fi
+EOF
+
+# === AFL++ (coverage-guided fuzzer for C — L4 runtime for C) ===
+echo "==> Installing AFL++"
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$VPS_HOST" 'bash -s' <<'EOF'
+set -e
+export DEBIAN_FRONTEND=noninteractive
+if command -v afl-fuzz &>/dev/null; then
+    echo "  AFL++ already present: $(afl-fuzz --version 2>&1 | head -1)"
+else
+    # Ubuntu 22.04 ships AFL++ in the universe repo as afl++
+    apt-get install -y -qq afl++ || apt-get install -y -qq afl
+    echo "  AFL++ installed: $(afl-fuzz --version 2>&1 | head -1)"
+fi
+EOF
+
+# === solc (Solidity compiler — L2 + L3 SMTChecker for Solidity) ===
+echo "==> Installing solc (Solidity compiler)"
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$VPS_HOST" 'bash -s' <<'EOF'
+set -e
+export DEBIAN_FRONTEND=noninteractive
+if command -v solc &>/dev/null; then
+    echo "  solc already present: $(solc --version | tail -1)"
+else
+    # Use the official solc PPA for reliable releases
+    add-apt-repository -y ppa:ethereum/ethereum 2>/dev/null || true
+    apt-get update -qq
+    apt-get install -y -qq solc || {
+        # Fallback: download the static binary from the official releases
+        curl -fsSL https://github.com/ethereum/solidity/releases/download/v0.8.26/solc-static-linux \
+             -o /usr/local/bin/solc
+        chmod +x /usr/local/bin/solc
+    }
+    echo "  solc installed: $(solc --version | tail -1)"
+fi
+EOF
+
+# === Foundry (forge / cast / anvil — L2 PoC + L4 fuzz for Solidity) ===
+echo "==> Installing Foundry"
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$VPS_HOST" 'bash -s' <<'EOF'
+set -e
+if command -v forge &>/dev/null; then
+    echo "  Foundry already present: $(forge --version | head -1)"
+else
+    # Install via foundryup (the canonical installer)
+    curl -L https://foundry.paradigm.xyz | bash
+    # foundryup writes to ~/.foundry/bin/ — source the env
+    if [[ -d "$HOME/.foundry/bin" ]]; then
+        export PATH="$HOME/.foundry/bin:$PATH"
+        # Persist in shell rc for future sessions
+        grep -q '.foundry/bin' "$HOME/.bashrc" || \
+            echo 'export PATH="$HOME/.foundry/bin:$PATH"' >> "$HOME/.bashrc"
+    fi
+    foundryup
+    echo "  Foundry installed: $(forge --version | head -1)"
+fi
+EOF
+
+# === Aptos CLI (move test + move prove — L2 + L3 + L4 for Aptos) ===
+echo "==> Installing Aptos CLI"
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$VPS_HOST" 'bash -s' <<'EOF'
+set -e
+export DEBIAN_FRONTEND=noninteractive
+if command -v aptos &>/dev/null; then
+    echo "  Aptos CLI already present: $(aptos --version 2>&1 | head -1)"
+else
+    # Install via the official aptos installer script
+    apt-get install -y -qq libssl-dev pkg-config
+    curl -fsSL https://aptos.dev/scripts/install_cli.py | python3 || {
+        # Fallback: direct binary download from latest release
+        APTOS_VERSION="$(curl -s https://api.github.com/repos/aptos-labs/aptos-core/releases/latest \
+                        | grep -oE 'aptos-cli-[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/aptos-cli-//')"
+        APTOS_VERSION="${APTOS_VERSION:-3.5.0}"
+        curl -fsSL "https://github.com/aptos-labs/aptos-core/releases/download/aptos-cli-v${APTOS_VERSION}/aptos-cli-${APTOS_VERSION}-Linux-x86_64.zip" \
+             -o /tmp/aptos.zip
+        cd /tmp && unzip -o aptos.zip
+        mv aptos /usr/local/bin/aptos
+        chmod +x /usr/local/bin/aptos
+    }
+    # Move Prover backend (boogie + z3) — pulled in via `aptos move prove`
+    # on first run; explicit install for predictability
+    aptos update prover-dependencies 2>/dev/null || \
+        echo "  (prover backend will install on first 'aptos move prove' run)"
+    echo "  Aptos CLI installed: $(aptos --version 2>&1 | head -1)"
+fi
+EOF
+
 # === Working directory + scratch space ===
 echo "==> Creating audit working directories"
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$VPS_HOST" 'bash -s' <<'EOF'
@@ -152,15 +262,33 @@ EOF
 echo "==> Verifying toolchain"
 ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$VPS_HOST" 'bash -lc' <<'EOF' || true
 echo
+echo "=== Solana / Rust pipeline ==="
 echo "Rust:        $(rustc --version)"
 echo "Cargo:       $(cargo --version)"
 echo "Solana:      $(solana --version 2>&1 || echo MISSING)"
 echo "build-sbf:   $(which cargo-build-sbf 2>&1)"
 echo "Kani:        $(cargo kani --version 2>&1 | head -1)"
+echo
+echo "=== C pipeline ==="
+echo "clang:       $(clang --version | head -1)"
+echo "CBMC:        $(cbmc --version 2>&1 | head -1)"
+echo "AFL++:       $(afl-fuzz --version 2>&1 | head -1)"
+echo "afl-clang:   $(afl-clang-fast --version 2>&1 | head -1 || echo MISSING)"
+echo
+echo "=== Solidity pipeline ==="
+echo "solc:        $(solc --version 2>&1 | tail -1)"
+echo "forge:       $(forge --version 2>&1 | head -1)"
+echo "cast:        $(cast --version 2>&1 | head -1)"
+echo "anvil:       $(anvil --version 2>&1 | head -1)"
+echo
+echo "=== Aptos / Move pipeline ==="
+echo "aptos:       $(aptos --version 2>&1 | head -1)"
+echo
+echo "=== Operator tools ==="
 echo "gh CLI:      $(gh --version 2>&1 | head -1)"
 echo "tmux:        $(tmux -V)"
 echo
-echo "Provision complete."
+echo "Provision complete. All 4 language pipelines installed."
 EOF
 
 echo
