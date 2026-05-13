@@ -302,6 +302,28 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
             "n_confirmed": c.get("n_confirmed"),
             "receipt_fingerprint": _read_receipt_fingerprint(c.get("cycle_id")),
         }
+        # Triage counts from hunt_summary.json — persisted across refresh.
+        # Without these the L2.5 panel reset to all zeros on every reload
+        # because in-memory state.triage was the only source.
+        try:
+            cid = c.get("cycle_id") or ""
+            # Multi-workspace OSec layout: hunts live under
+            # workspace/workspaces/<cell>/hunts/<cycle_id>. Single-workspace
+            # layout (Percolator): workspace/hunts/<cycle_id>. Try both.
+            for hs_path in [
+                workspace / "hunts" / cid / "hunt_summary.json" if workspace and cid else None,
+                *(workspace / "workspaces" / cell / "hunts" / cid / "hunt_summary.json"
+                  for cell in ((workspace / "workspaces").iterdir() if workspace and (workspace / "workspaces").is_dir() else [])
+                  if cid),
+            ]:
+                if hs_path and hs_path.is_file():
+                    hs_doc = json.loads(hs_path.read_text(encoding="utf-8"))
+                    trg = hs_doc.get("triage") or {}
+                    if isinstance(trg, dict) and trg.get("counts"):
+                        entry["triage_counts"] = trg["counts"]
+                        break
+        except (OSError, json.JSONDecodeError, AttributeError):
+            pass
         # Mid-flight progress: while finished_at is null, n_dispatched is
         # still 0 in the DB (it's only set when Layer 1 completes). Override
         # with the live count of *_response.md files in the cycle's recon/
@@ -837,6 +859,28 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
             "n_confirmed": c.get("n_confirmed"),
             "receipt_fingerprint": _read_receipt_fingerprint(c.get("cycle_id")),
         }
+        # Triage counts from hunt_summary.json — persisted across refresh.
+        # Without these the L2.5 panel reset to all zeros on every reload
+        # because in-memory state.triage was the only source.
+        try:
+            cid = c.get("cycle_id") or ""
+            # Multi-workspace OSec layout: hunts live under
+            # workspace/workspaces/<cell>/hunts/<cycle_id>. Single-workspace
+            # layout (Percolator): workspace/hunts/<cycle_id>. Try both.
+            for hs_path in [
+                workspace / "hunts" / cid / "hunt_summary.json" if workspace and cid else None,
+                *(workspace / "workspaces" / cell / "hunts" / cid / "hunt_summary.json"
+                  for cell in ((workspace / "workspaces").iterdir() if workspace and (workspace / "workspaces").is_dir() else [])
+                  if cid),
+            ]:
+                if hs_path and hs_path.is_file():
+                    hs_doc = json.loads(hs_path.read_text(encoding="utf-8"))
+                    trg = hs_doc.get("triage") or {}
+                    if isinstance(trg, dict) and trg.get("counts"):
+                        entry["triage_counts"] = trg["counts"]
+                        break
+        except (OSError, json.JSONDecodeError, AttributeError):
+            pass
         # Phase-aware in-progress detection (filesystem authoritative — DB
         # finished_at can be stale from a prior failed run that has since
         # been resumed). If the cycle has reached "publishing" phase

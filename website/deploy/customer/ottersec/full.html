@@ -2361,6 +2361,19 @@ main.bridge {
         //     elapsed timer flips to "Idle for X", AND populate
         //     state.lastCycleAt from finished_at so the idle counter
         //     measures from a real timestamp.
+        // Persisted triage counts from hunt_summary.json — replay
+        // the panel on every manifest tick so a page refresh on a
+        // finished cycle still shows STRONG/SOFT/FALSE/LOST instead
+        // of resetting to zeros.
+        if (latest.triage_counts && typeof latest.triage_counts === 'object') {
+          state.triage = {
+            strong: latest.triage_counts.STRONG || 0,
+            soft:   latest.triage_counts.SOFT   || 0,
+            false_: latest.triage_counts.FALSE  || 0,
+            lost:   latest.triage_counts.LOST   || 0,
+          };
+          if (typeof renderTriage === 'function') renderTriage();
+        }
         if (latest.in_progress) {
           state.activeCycle = latest.cycle_id;
           $('active-cycle').textContent = safeStr(latest.cycle_id, 28);
