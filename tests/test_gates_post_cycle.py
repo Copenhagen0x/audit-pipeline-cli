@@ -143,6 +143,121 @@ class TestCheckPostCycle:
         assert report.n_findings == 0
 
 
+class TestNonRustLanguages:
+    """Regression tests for the 2026-05-13 Aptos cycle bug — the QA gate
+    used to hardcode ``cycle_dir/poc/test_<slug>.rs`` and the Rust-only
+    symbol_grep, so every Aptos / Solidity / C fire failed re-checks with
+    "PoC source file missing on disk".
+
+    Fix: use ``finding['poc_path']`` directly when present, and skip
+    symbol_grep for non-Rust (the pseudo-pass marker check IS
+    cross-language and catches the more important failure mode).
+    """
+
+    def test_aptos_poc_passes_when_poc_path_set(self, tmp_path):
+        """An Aptos `.move` PoC with poc_path set on the finding row
+        must clear QA, even though symbol_grep is Rust-only."""
+        cycle = tmp_path / "hunts" / "20260513-cycle1"
+        cycle.mkdir(parents=True)
+        ws_tests = tmp_path / "tests" / "aptos"
+        ws_tests.mkdir(parents=True)
+        engine_src = tmp_path / "engine" / "src"
+        engine_src.mkdir(parents=True)
+        # An Aptos PoC body — has Move identifiers but NOT pseudo-pass
+        # markers. Should pass.
+        poc_file = ws_tests / "test_h1.move"
+        poc_file.write_text(
+            "module mutatis::test_h1 {\n"
+            "    #[test]\n"
+            "    fun test_h1() {\n"
+            "        assert!(false, 9999);\n"
+            "    }\n"
+            "}\n"
+        )
+        findings = [{
+            "id": 1,
+            "hypothesis_id": "H1",
+            "poc_fired": True,
+            "poc_path": str(poc_file),
+        }]
+        report = check_post_cycle(
+            cycle_dir=cycle,
+            confirmed_findings=findings,
+            engine_src_dir=engine_src,
+        )
+        assert report.passed is True, report.rows
+        assert report.rows[0]["poc_path"] == str(poc_file)
+
+    def test_aptos_poc_blocked_on_cannot_test_marker(self, tmp_path):
+        """Pseudo-pass markers are cross-language — a Move PoC with
+        ``CANNOT_TEST`` must still be blocked."""
+        cycle = tmp_path / "hunts" / "c2"
+        cycle.mkdir(parents=True)
+        ws_tests = tmp_path / "tests" / "aptos"
+        ws_tests.mkdir(parents=True)
+        poc_file = ws_tests / "test_h2.move"
+        poc_file.write_text(
+            "module mutatis::test_h2 {\n"
+            "    // CANNOT_TEST: oracle staleness in unit test\n"
+            "    #[test]\n"
+            "    fun test_h2() {}\n"
+            "}\n"
+        )
+        findings = [{
+            "id": 2,
+            "hypothesis_id": "H2",
+            "poc_fired": True,
+            "poc_path": str(poc_file),
+        }]
+        report = check_post_cycle(
+            cycle_dir=cycle,
+            confirmed_findings=findings,
+        )
+        assert report.passed is False
+        assert "CANNOT_TEST" in report.rows[0]["reason"]
+
+    def test_solidity_poc_passes(self, tmp_path):
+        cycle = tmp_path / "hunts" / "c3"
+        cycle.mkdir(parents=True)
+        ws_tests = tmp_path / "tests" / "solidity"
+        ws_tests.mkdir(parents=True)
+        poc_file = ws_tests / "test_h3.t.sol"
+        poc_file.write_text(
+            "// SPDX-License-Identifier: MIT\n"
+            "pragma solidity ^0.8.0;\n"
+            "contract TestH3 {\n"
+            "    function test_h3() public { revert(); }\n"
+            "}\n"
+        )
+        findings = [{
+            "id": 3,
+            "hypothesis_id": "H3",
+            "poc_fired": True,
+            "poc_path": str(poc_file),
+        }]
+        report = check_post_cycle(
+            cycle_dir=cycle,
+            confirmed_findings=findings,
+        )
+        assert report.passed is True, report.rows
+
+    def test_legacy_finding_no_poc_path_falls_back_to_rs(self, cycle_with_engine):
+        """Rows that predate the poc_path-on-row fix (legacy Solana data)
+        must still resolve via the old ``cycle_dir/poc/test_<slug>.rs``
+        layout."""
+        cycle, engine_src = cycle_with_engine
+        (cycle / "poc" / "test_legacy.rs").write_text(
+            "#[test]\nfn test_legacy() { compute_trade_pnl(1,2); }\n"
+        )
+        findings = [{"id": 7, "hypothesis_id": "legacy", "poc_fired": True}]
+        report = check_post_cycle(
+            cycle_dir=cycle,
+            confirmed_findings=findings,
+            engine_src_dir=engine_src,
+        )
+        assert report.passed is True, report.rows
+
+
 class TestWriteBlockSentinel:
     def test_sentinel_path_and_content(self, tmp_path):
         cycle = tmp_path / "c1"

@@ -76,7 +76,19 @@ def _check_one_poc(
     test_name: str,
     search_dirs: list[Path],
 ) -> dict:
-    """Validate one PoC file. Returns a row dict suitable for the report."""
+    """Validate one PoC file. Returns a row dict suitable for the report.
+
+    Language is inferred from ``poc_path`` extension:
+      * ``.rs``    → full check (pseudo-pass markers + Rust symbol_grep)
+      * ``.move``  → pseudo-pass markers only (Move stdlib whitelist
+                      not built yet; symbol_grep would false-positive)
+      * ``.sol``   → pseudo-pass markers only (same reason)
+      * ``.c``     → pseudo-pass markers only (same reason)
+
+    The pseudo-pass check (``#[ignore]``, ``unimplemented!()``,
+    ``CANNOT_TEST``, …) IS language-agnostic and catches the most
+    important failure mode (LLM stubbed the test).
+    """
     if not poc_path.is_file():
         return {"poc_path": str(poc_path), "passed": False,
                 "reason": "PoC source file missing on disk"}
@@ -86,6 +98,7 @@ def _check_one_poc(
         return {"poc_path": str(poc_path), "passed": False, "reason": f"read error: {e}"}
 
     # 1. Pseudo-pass markers — these can't have legitimately fired.
+    #    LANGUAGE-AGNOSTIC — catches stubbed tests in any language.
     for marker in _PSEUDO_PASS_MARKERS:
         if marker in src:
             return {
@@ -100,20 +113,27 @@ def _check_one_poc(
                 ),
             }
 
-    # 2. Symbol grep — every project symbol must exist in engine/wrapper.
-    sym_result = check_symbols(
-        poc_source=src,
-        search_dirs=search_dirs,
-        allowed_test_names=frozenset({test_name}),
-    )
-    if sym_result.passed is False:
-        return {
-            "poc_path": str(poc_path),
-            "test_name": test_name,
-            "passed": False,
-            "reason": "symbol_grep gate failed: " + sym_result.reason,
-            "details": sym_result.details,
-        }
+    # 2. Symbol grep — Rust-only. The whitelist + extraction regexes
+    #    are tuned for Rust syntax; running them against Move / Solidity
+    #    / C would false-positive heavily (Move's `aptos_framework`,
+    #    `borrow_global`, etc. would be classified as project symbols
+    #    and the gate would block legitimate Aptos fires).
+    #    Skip silently for non-Rust; pseudo-pass marker check above is
+    #    the cross-language equivalent.
+    if poc_path.suffix == ".rs":
+        sym_result = check_symbols(
+            poc_source=src,
+            search_dirs=search_dirs,
+            allowed_test_names=frozenset({test_name}),
+        )
+        if sym_result.passed is False:
+            return {
+                "poc_path": str(poc_path),
+                "test_name": test_name,
+                "passed": False,
+                "reason": "symbol_grep gate failed: " + sym_result.reason,
+                "details": sym_result.details,
+            }
     return {
         "poc_path": str(poc_path),
         "test_name": test_name,
@@ -156,12 +176,26 @@ def check_post_cycle(
     # library), post_cycle looked up `test_<78chars>.rs` while hunt +
     # poc_llm wrote `test_<60chars>.rs` — file not found → publish
     # falsely blocked. Use the canonical helper everywhere.
+    #
+    # POST-AUDIT FIX #2 (Aptos cycle 20260513-191318): the reconstructed
+    # path was ALSO hardcoded to ``cycle_dir/poc/test_<slug>.rs``, but
+    # Aptos PoCs live at ``workspace/tests/aptos/test_<slug>.move``,
+    # Solidity at ``workspace/tests/solidity/test_<slug>.t.sol``, etc.
+    # If the DB finding row has ``poc_path`` populated (it should — the
+    # adapter writes it via record_finding), use that authoritative
+    # value. Fall back to the canonical Solana path for findings that
+    # predate this fix.
     from audit_pipeline.utils.slug import slug_for_hypothesis
     for f in confirmed_findings:
         hyp_id = f.get("hypothesis_id") or ""
         slug = slug_for_hypothesis(hyp_id)
         test_name = f"test_{slug}"
-        poc_path = cycle_dir / "poc" / f"{test_name}.rs"
+        db_poc_path = f.get("poc_path") or ""
+        if db_poc_path and Path(db_poc_path).is_absolute():
+            poc_path = Path(db_poc_path)
+        else:
+            # Fallback for legacy rows: assume Solana `.rs` layout.
+            poc_path = cycle_dir / "poc" / f"{test_name}.rs"
         row = _check_one_poc(poc_path, test_name, search_dirs)
         row["hypothesis_id"] = hyp_id
         row["finding_id"] = f.get("id")

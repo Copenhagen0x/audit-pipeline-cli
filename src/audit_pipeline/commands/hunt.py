@@ -890,7 +890,11 @@ def _hunt_run(
                     stale_path.rename(backup)
                 except OSError:
                     pass
-        log("resume_reopened_cycle", cycle_id=cycle_id)
+        # NB: `log()` is defined later in this function (closure over
+        # cycle_log), so we cannot record into hunt.log.jsonl from here
+        # — only operator-facing console.print is available. Acceptable
+        # because the reopen is a one-shot diagnostic event and the
+        # rest of the cycle's log will reflect the fresh phase entries.
         console.print(
             f"[cyan]Resume reopened cycle {cycle_id}: cleared "
             f"finished_at + moved hunt_summary.json aside[/cyan]"
