@@ -58,6 +58,64 @@ def test_aptos_pattern_matches_move_compile_error() -> None:
     assert result[0] == "FALSE"
 
 
+def test_aptos_pattern_does_not_match_E11xxx_test_failure():
+    """E11xxx is the Move test-failure code (THIS is the STRONG signal
+    we want to pass through to the LLM judge). The compile-error
+    fast-path must NOT swallow it.
+
+    Regression for cycle 20260513-191318: the old pattern
+    ``error\\[\\w+\\]:`` matched both genuine compile errors AND
+    ``error[E11001]: test failure``, so all 7 Aptos PoC fires
+    short-circuited to FALSE with reason "Move compile error in the
+    PoC test source" — wrong, the test actually fired and proved a
+    bug.
+    """
+    # Realistic snippet from a real Aptos move-test fire
+    signal = (
+        "[ FAIL    ] 0x42::test_borrow_global_no_auth::test_borrow_global_no_auth\n"
+        "error[E11001]: test failure\n"
+        "   ┌─ /root/audit_runs/.../jelleo_l2_apt1.move:32:9\n"
+        "   │\n"
+        "   │ Test was not expected to error, but it aborted with code 999"
+    )
+    result = classify_by_pattern(signal, language="aptos")
+    # MUST return None so the signal falls through to the LLM judge.
+    assert result is None, (
+        f"E11001 test failures must NOT match the fast-path FALSE "
+        f"patterns — got {result}"
+    )
+
+
+def test_aptos_pattern_still_matches_e03xxx_compile_error():
+    """E03xxx (naming errors) ARE real compile errors → still FALSE."""
+    signal = "error[E03002]: unbound module 'aptos_framework::missing'"
+    result = classify_by_pattern(signal, language="aptos")
+    assert result is not None
+    assert result[0] == "FALSE"
+
+
+def test_aptos_pattern_still_matches_e04xxx_type_error():
+    signal = "error[E04001]: invalid type"
+    result = classify_by_pattern(signal, language="aptos")
+    assert result is not None
+    assert result[0] == "FALSE"
+
+
+def test_aptos_pattern_still_matches_e08xxx_bytecode_error():
+    signal = "error[E08001]: bytecode verification failed"
+    result = classify_by_pattern(signal, language="aptos")
+    assert result is not None
+    assert result[0] == "FALSE"
+
+
+def test_aptos_pattern_still_matches_e10xxx_stdlib_runtime_error():
+    """E10xxx is stdlib runtime (still a setup-side error, not the bug)."""
+    signal = "error[E10001]: stdlib runtime error"
+    result = classify_by_pattern(signal, language="aptos")
+    assert result is not None
+    assert result[0] == "FALSE"
+
+
 def test_unknown_language_falls_back_to_solana_patterns() -> None:
     """klingon → Solana patterns (engine's original calibration)."""
     panic = "thread 'test_x' panicked at 'invalid RiskParams: Overflow', ..."

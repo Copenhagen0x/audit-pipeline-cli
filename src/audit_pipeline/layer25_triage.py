@@ -179,11 +179,39 @@ _SOLIDITY_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 
 
 # PHASE 1e — fast-path FALSE patterns for Aptos Move (aptos move test output).
+#
+# CRITICAL — Move error-code prefixes (curated from
+# aptos-core/move/move-compiler/src/diagnostics/codes.rs):
+#   E01xxx — driver / IO
+#   E02xxx — parser
+#   E03xxx — naming / declarations
+#   E04xxx — type system
+#   E05xxx — liveness
+#   E06xxx — ABI generation
+#   E07xxx — bytecode generation
+#   E08xxx — bytecode verification
+#   E09xxx — Move VM runtime
+#   E10xxx — Move stdlib runtime
+#   E11xxx — **TEST FAILURES** (the abort-from-test signal we WANT to
+#            pass through to the LLM judge as STRONG)
+#   E12xxx+ — newer additions, generally compile-side
+#
+# The compile-error fast-path must NOT match E11xxx. Cycle
+# 20260513-191318 saw all 7 fires misclassified FALSE because the old
+# pattern ``error\[\w+\]:`` matched both compile errors AND
+# ``error[E11001]: test failure`` (the actual STRONG signal). The
+# corrected pattern matches E00xxx-E10xxx and E12xxx+ but explicitly
+# excludes E11xxx.
 _APTOS_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
-        # Compile-time error from the move compiler — broken test source.
+        # Move compile errors (E00xxx-E10xxx and E12xxx+ — NOT E11xxx).
+        # Match `error[Exxxxx]:` with the five-digit code, excluding the
+        # `E11xxx` (test-failure) prefix that we want the LLM judge to
+        # see, not the fast-path. Move error codes in the toolchain are
+        # five digits (E03002, E04001, E11001, …).
         re.compile(
-            r"error\[\w+\]:|Move\s+compilation\s+failed|"
+            r"error\[E(?:0\d{4}|10\d{3}|1[2-9]\d{3}|[2-9]\d{4})\]:|"
+            r"Move\s+compilation\s+failed|"
             r"could\s+not\s+resolve\s+module",
             re.IGNORECASE,
         ),
