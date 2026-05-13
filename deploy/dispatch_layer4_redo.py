@@ -279,6 +279,17 @@ def _prepare_bpf_environment() -> None:
     """
     import datetime as _dt
     print("[preflight] cargo build-sbf ...", flush=True)
+    # POST-AUDIT FIX: previously silent-continued on build failure with
+    # "Continuing with whatever .so is on disk" — defeated the entire
+    # purpose of the preflight (stale .so was the cycle 20260511 L4 bug).
+    # Now exit non-zero so the dispatcher refuses to run tests against
+    # a broken / stale binary. Operator must investigate the build failure
+    # before re-running. Use SKIP_BUILD_SBF_PREFLIGHT=1 to override
+    # (e.g. running offline on a machine without solana-cli installed).
+    import os as _os
+    if _os.environ.get("SKIP_BUILD_SBF_PREFLIGHT", "").strip() == "1":
+        print("[preflight] SKIPPED — SKIP_BUILD_SBF_PREFLIGHT=1 in env", flush=True)
+        return
     try:
         rc = subprocess.run(
             ["cargo", "build-sbf"],
@@ -286,11 +297,25 @@ def _prepare_bpf_environment() -> None:
         )
         if rc.returncode != 0:
             print(f"[preflight] cargo build-sbf FAILED rc={rc.returncode}; "
-                  f"tail: {(rc.stderr or '')[-300:]}", flush=True)
+                  f"tail: {(rc.stderr or '')[-500:]}", flush=True)
+            print(
+                "[preflight] ABORT — refusing to dispatch L4 tests against "
+                "a stale/broken .so. Fix the build and re-run, or set "
+                "SKIP_BUILD_SBF_PREFLIGHT=1 to override.",
+                flush=True,
+            )
+            sys.exit(1)
         else:
-            print(f"[preflight] cargo build-sbf OK", flush=True)
+            print("[preflight] cargo build-sbf OK", flush=True)
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as e:
-        print(f"[preflight] cargo build-sbf unavailable: {e}", flush=True)
+        print(
+            f"[preflight] cargo build-sbf unavailable: {e}\n"
+            "[preflight] ABORT — without a fresh build the .so on disk "
+            "may be stale. Set SKIP_BUILD_SBF_PREFLIGHT=1 to override "
+            "if you know it's current.",
+            flush=True,
+        )
+        sys.exit(1)
 
     archive_dir = WRAPPER_ROOT / "tests.archive" / _dt.datetime.utcnow().strftime("redo-preflight-%Y%m%dT%H%M%SZ")
     archive_dir.mkdir(parents=True, exist_ok=True)

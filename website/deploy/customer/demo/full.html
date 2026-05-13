@@ -1930,10 +1930,17 @@ main.bridge {
   }
 
   // ───── SSE connect ─────
+  // POST-AUDIT FIX: explicit exponential backoff on errors. Previously
+  // the browser's native EventSource auto-reconnect did the work, but
+  // on hard failure (CORS, 404) it gave up while the dashboard's
+  // "reconnecting… (N)" counter kept incrementing cosmetically forever.
+  // Now we actively re-call connectSse() with capped exponential delay.
   let sse = null;
   let sseRetry = 0;
+  let sseReconnectTimer = null;
   function connectSse() {
     try {
+      if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
       if (sse) { try { sse.close(); } catch (_) {} }
       sse = new EventSource(SSE_URL);
       setTerminalStatus('connecting…');
@@ -1948,10 +1955,17 @@ main.bridge {
       sse.onerror = () => {
         state.sseConnected = false;
         setHeartStatus('offline');
-        setTerminalStatus('reconnecting… (' + (++sseRetry) + ')');
+        sseRetry++;
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s.
+        const delay = Math.min(30000, 1000 * Math.pow(2, Math.min(sseRetry - 1, 5)));
+        setTerminalStatus('reconnecting… (' + sseRetry + ') in ' + Math.round(delay/1000) + 's');
+        if (sse) { try { sse.close(); } catch (_) {} }
+        sseReconnectTimer = setTimeout(connectSse, delay);
       };
     } catch (e) {
       setHeartStatus('offline');
+      // Schedule a retry even if EventSource ctor itself failed.
+      sseReconnectTimer = setTimeout(connectSse, Math.min(30000, 1000 * Math.pow(2, sseRetry++)));
     }
   }
 

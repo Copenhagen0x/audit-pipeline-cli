@@ -651,14 +651,28 @@ Notes:        {hyp.get("notes", "(none)")}
             if hyp_id in results:
                 continue  # resumed from disk
             # Tool-using mode iterates: ~3-5× the single-shot input + a bit
-            # more output. Use a per-turn multiplier so the budget cap
-            # remains meaningful in tool-using runs too.
-            input_mult = max(1, tool_max_turns // 3) if use_tools else 1
-            output_per_turn = 30_000 if not use_tools else 8_192
+            # more output. Use empirical AVERAGES, not the worst-case max
+            # turn count — otherwise the cap mass-skips hyps even when
+            # there's real budget left.
+            #
+            # POST-AUDIT FIX: previously estimated using `tool_max_turns // 3`
+            # for input multiplier AND the full `tool_max_turns` for output
+            # — at default tool_max_turns=12 that meant 4× input + 12 ×
+            # 8192-token output = ~$1.50/hyp, overshooting real cost ~3×.
+            # Result: hyps got silently skipped on small budgets. Empirical
+            # averages from cycle 20260511 + smoke tests: ~3 turns avg,
+            # ~3500 output tokens per turn.
+            AVG_TOOL_TURNS = 3
+            AVG_OUTPUT_PER_TURN_TOOL = 3500
+            AVG_OUTPUT_SINGLE_SHOT = 20_000
+            input_mult = AVG_TOOL_TURNS if use_tools else 1
+            output_total = (
+                AVG_OUTPUT_PER_TURN_TOOL * AVG_TOOL_TURNS
+                if use_tools else AVG_OUTPUT_SINGLE_SHOT
+            )
             est_cost = (
                 input_mult * len(prompt_text) / 4 * COST_PER_INPUT_TOKEN
-                + output_per_turn * (tool_max_turns if use_tools else 1)
-                  * COST_PER_OUTPUT_TOKEN
+                + output_total * COST_PER_OUTPUT_TOKEN
             )
             if not _try_reserve(est_cost):
                 skipped_for_budget.append(hyp_id)

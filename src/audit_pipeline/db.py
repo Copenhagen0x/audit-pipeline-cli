@@ -695,17 +695,39 @@ class FindingsDB:
         # Idempotency claim: refuse a re-run if a prior 'ok' outcome exists.
         # A prior 'error' is allowed to retry (transient failures shouldn't
         # block re-trigger). The claim itself is atomic via UNIQUE constraint.
+        #
+        # POST-AUDIT FIX: also reclaim STALE 'started' rows — when a prior
+        # hook crashed mid-execute (SIGKILL, OOM, VPS reboot), it left a
+        # row with completed_at=NULL, outcome=NULL that blocked retries.
+        # Now if the started_at is older than the stale threshold (1h),
+        # treat it as crashed and DELETE it before re-claiming.
         started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        STALE_THRESHOLD_S = 3600  # 1 hour
         try:
             with self._conn() as c:
                 existing = c.execute(
-                    "SELECT outcome FROM hook_runs WHERE finding_id = ? AND hook_name = ?",
+                    "SELECT outcome, started_at FROM hook_runs WHERE finding_id = ? AND hook_name = ?",
                     (finding_id, hook_name),
                 ).fetchone()
                 if existing and existing["outcome"] == "ok":
                     return  # already succeeded — skip silently
                 if existing:
-                    # Prior error: clear the row so we can retry
+                    # Check for stale 'started' rows (outcome IS NULL +
+                    # old started_at). Those are crashed prior runs;
+                    # don't let them block retries.
+                    if existing["outcome"] is None and existing["started_at"]:
+                        try:
+                            ft = datetime.fromisoformat(
+                                str(existing["started_at"]).replace("Z", "+00:00")
+                            )
+                            age_s = (datetime.now(timezone.utc) - ft).total_seconds()
+                            if age_s < STALE_THRESHOLD_S:
+                                # Still potentially-running — refuse re-run.
+                                return
+                        except (ValueError, TypeError):
+                            pass
+                    # Prior error OR stale 'started' OR unparseable
+                    # started_at: clear the row so we can retry.
                     c.execute(
                         "DELETE FROM hook_runs WHERE finding_id = ? AND hook_name = ?",
                         (finding_id, hook_name),

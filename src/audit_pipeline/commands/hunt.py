@@ -406,6 +406,16 @@ def hunt_cmd(
         raise click.ClickException(
             "--hypotheses and --protocol-class are mutually exclusive."
         )
+    # POST-AUDIT FIX: every NamedTemporaryFile(delete=False) below leaked
+    # a /tmp YAML per cycle. Register atexit cleanup so each temp file
+    # gets removed when the process exits (success, exception, signal).
+    import atexit as _atexit_hunt
+    import os as _os_hunt
+    def _cleanup_temp_yaml(path: str) -> None:
+        try:
+            _os_hunt.unlink(path)
+        except (OSError, FileNotFoundError):
+            pass
     if protocol_class:
         import tempfile
 
@@ -424,6 +434,7 @@ def hunt_cmd(
         _yaml.safe_dump({"hypotheses": merged}, tmp, sort_keys=False, allow_unicode=True)
         tmp.close()
         hypotheses = tmp.name
+        _atexit_hunt.register(_cleanup_temp_yaml, tmp.name)
     elif hypotheses is None:
         candidate = workspace / "hypotheses.yaml"
         if not candidate.exists():
@@ -474,6 +485,7 @@ def hunt_cmd(
             )
             tmp2.close()
             hypotheses = tmp2.name
+            _atexit_hunt.register(_cleanup_temp_yaml, tmp2.name)
 
     # Gate L5.disclosure_history — filter out hypotheses that restate
     # previously-disclosed-and-rejected patterns (without explicit
@@ -514,6 +526,7 @@ def hunt_cmd(
             )
             tmp3.close()
             hypotheses = tmp3.name
+            _atexit_hunt.register(_cleanup_temp_yaml, tmp3.name)
 
     # Orchestration audit Defect 01 (HIGH): `--engine-only` previously
     # was a NO-OP — declared, captured, never read. Now it actually
@@ -550,6 +563,7 @@ def hunt_cmd(
             )
             tmp4.close()
             hypotheses = tmp4.name
+            _atexit_hunt.register(_cleanup_temp_yaml, tmp4.name)
 
     if not is_available():
         raise click.ClickException(
@@ -699,6 +713,17 @@ def _hunt_run(
         # Filesystem can't open lock file — proceed without lock with a warning.
         console.print(f"[yellow]workspace lock unavailable; proceeding without"
                       f" mutual exclusion[/yellow]")
+
+    # POST-AUDIT FIX: register a cleanup that releases the lock on ANY
+    # process exit (normal completion, exception, sys.exit, KeyboardInterrupt).
+    # Previously the FD relied on GC + process death to release the kernel
+    # lock; on msvcrt (Windows) the byte-range lock could survive abnormal
+    # exit and block the next invocation with a confusing "Another hunt
+    # holds .hunt.lock" message.
+    if _lock_handle is not None:
+        import atexit
+        _close_handle = _lock_handle
+        atexit.register(lambda h=_close_handle: (h.close() if not h.closed else None))
 
     daily_cap = DailyCap(workspace / ".daily_spend.json", daily_cap_usd)
     # Skip pre-flight check when daily cap is disabled (cap_usd <= 0).

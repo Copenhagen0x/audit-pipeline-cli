@@ -286,6 +286,32 @@ on the next cadence cycle.
 """
 
 
+# POST-AUDIT FIX: per-(finding_id, hour) email dedup so a runaway loop
+# can't mail-bomb the on-call channel. Keyed by (cycle, finding_id, hour
+# bucket); cleared on a per-process basis. NOT persistent across hunt
+# restarts — that's a feature: a fresh hunt invocation should re-alert
+# on its own findings (since the alert is also the "I noticed this"
+# signal, not just a courtesy ping).
+_critical_alert_cache: dict[tuple, float] = {}
+_critical_alert_window_s = 3600.0   # 1 hour per (cycle, finding) key
+
+
+def _critical_alert_already_sent(cycle_id: str, finding_id: object) -> bool:
+    """Return True if we've sent this alert within the dedup window."""
+    import time as _time
+    key = (str(cycle_id), str(finding_id))
+    now = _time.time()
+    last = _critical_alert_cache.get(key)
+    if last is None:
+        return False
+    return (now - last) < _critical_alert_window_s
+
+
+def _critical_alert_record_sent(cycle_id: str, finding_id: object) -> None:
+    import time as _time
+    _critical_alert_cache[(str(cycle_id), str(finding_id))] = _time.time()
+
+
 def send_critical_alert(
     settings: NotifierSettings,
     *,
@@ -298,7 +324,21 @@ def send_critical_alert(
     """Send the immediate alert for a confirmed Critical/High finding.
 
     Goes to the 'critical_oncall' channel; CCs the 'critical_team' channel.
+
+    POST-AUDIT FIX: dedups by (cycle_id, finding_id) within a 1-hour
+    window so a buggy auto-promote loop or propagation sweep that mints
+    N CRITICAL findings doesn't mail-bomb the on-call channel — and so
+    real alerts don't get silently dropped by SMTP-provider rate limits.
     """
+    fid = finding.get("id")
+    if fid is not None and _critical_alert_already_sent(cycle_id, fid):
+        return {
+            "skipped": "rate_limited",
+            "cycle_id": cycle_id,
+            "finding_id": fid,
+            "reason": "duplicate alert within 1h window",
+        }
+
     severity = finding.get("severity", "High")
     body = _CRITICAL_TEXT_TEMPLATE.format(
         severity=severity,
@@ -326,7 +366,10 @@ def send_critical_alert(
     if not to and settings.dry_run:
         to = ["oncall@example.com"]  # dry-run placeholder
 
-    return send_email(settings, to=to, cc=cc, subject=subject, body_text=body)
+    result = send_email(settings, to=to, cc=cc, subject=subject, body_text=body)
+    if fid is not None:
+        _critical_alert_record_sent(cycle_id, fid)
+    return result
 
 
 _CADENCE_TEXT_TEMPLATE = """\

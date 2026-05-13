@@ -487,21 +487,38 @@ def _prepare_bpf_environment() -> None:
        outcome.
     """
     import datetime as _dt
+    import os as _os
     print("[preflight] rebuilding BPF binary with cargo build-sbf ...", flush=True)
-    try:
-        rc = subprocess.run(
-            ["cargo", "build-sbf"],
-            cwd=str(WRAPPER_ROOT), capture_output=True, text=True, timeout=900,
-        )
-        if rc.returncode != 0:
-            print(f"[preflight] cargo build-sbf FAILED (rc={rc.returncode}). "
-                  "Continuing with whatever .so is on disk; expect infra "
-                  f"failures. stderr tail: {(rc.stderr or '')[-400:]}",
-                  flush=True)
-        else:
-            print(f"[preflight] cargo build-sbf OK", flush=True)
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as e:
-        print(f"[preflight] cargo build-sbf unavailable: {e}", flush=True)
+    # POST-AUDIT FIX: fail-loud on build failure. Was silent-continue
+    # which defeated the entire purpose of the preflight (stale .so was
+    # the cycle 20260511 L4 bug). Override via SKIP_BUILD_SBF_PREFLIGHT=1.
+    if _os.environ.get("SKIP_BUILD_SBF_PREFLIGHT", "").strip() == "1":
+        print("[preflight] SKIPPED — SKIP_BUILD_SBF_PREFLIGHT=1 in env", flush=True)
+    else:
+        try:
+            rc = subprocess.run(
+                ["cargo", "build-sbf"],
+                cwd=str(WRAPPER_ROOT), capture_output=True, text=True, timeout=900,
+            )
+            if rc.returncode != 0:
+                print(
+                    f"[preflight] cargo build-sbf FAILED (rc={rc.returncode}).\n"
+                    f"  stderr tail: {(rc.stderr or '')[-500:]}\n"
+                    "[preflight] ABORT — refusing to dispatch L4 tests "
+                    "against a stale/broken .so. Set SKIP_BUILD_SBF_PREFLIGHT=1 "
+                    "to override.",
+                    flush=True,
+                )
+                sys.exit(1)
+            else:
+                print("[preflight] cargo build-sbf OK", flush=True)
+        except (subprocess.TimeoutExpired, OSError, FileNotFoundError) as e:
+            print(
+                f"[preflight] cargo build-sbf unavailable: {e}\n"
+                "[preflight] ABORT — set SKIP_BUILD_SBF_PREFLIGHT=1 to override.",
+                flush=True,
+            )
+            sys.exit(1)
 
     # Sweep stale PoCs into an archive dir so they don't pollute cargo
     # discovery, but keep them retrievable if forensics needs them.

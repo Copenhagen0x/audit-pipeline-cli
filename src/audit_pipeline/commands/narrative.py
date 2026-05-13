@@ -124,10 +124,28 @@ def _generate_narrative(finding: dict, db: FindingsDB, max_tokens: int) -> str:
 
     poc_path = finding.get("poc_path") or "(none)"
     poc_excerpt = "(no PoC scaffold available)"
-    if finding.get("poc_path"):
+    # POST-AUDIT FIX: sandbox the poc_path read under the workspace root.
+    # Findings can flow in from propagation hooks where poc_path could
+    # theoretically be operator-controlled / malicious; without a sandbox
+    # `Path(x).read_text()` could read /etc/shadow and ship it to the
+    # LLM. Use db.path.parent (the workspace) as the trusted root.
+    raw_pp = finding.get("poc_path")
+    if raw_pp:
         try:
-            content = Path(finding["poc_path"]).read_text(encoding="utf-8")[:4000]
-            poc_excerpt = content
+            resolved = Path(raw_pp).resolve()
+            ws_root = Path(db.path).parent.resolve() if hasattr(db, "path") else None
+            allowed = False
+            if ws_root:
+                try:
+                    resolved.relative_to(ws_root)
+                    allowed = True
+                except ValueError:
+                    allowed = False
+            if allowed:
+                content = resolved.read_text(encoding="utf-8")[:4000]
+                poc_excerpt = content
+            else:
+                poc_excerpt = f"(poc_path outside workspace — refusing to read: {raw_pp})"
         except OSError:
             pass
 
