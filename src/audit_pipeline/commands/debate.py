@@ -411,10 +411,15 @@ def _extract_verdict_section(text: str, redacted: bool = False) -> str:
         # No `## Verdict` header. Look for a single-line verdict pattern
         # ("TRUE / HIGH", "FALSE / LOW", etc) anywhere in the text. If
         # found, return only that line — never a freeform prose slice.
+        #
+        # POST-AUDIT FIX (2026-05-12): re.IGNORECASE so lowercase
+        # `true / high` style verdicts also match — agents sometimes
+        # downcase by accident and we want to surface them.
         import re as _re
         m = _re.search(
             r"\b(TRUE|FALSE|INCONCLUSIVE|NEEDS_LAYER_2(?:_TO_DECIDE)?|AGREE|DISAGREE)\b\s*/\s*\b(HIGH|MEDIUM|LOW)\b",
             text,
+            _re.IGNORECASE,
         )
         if m:
             return m.group(0)
@@ -426,17 +431,40 @@ def _extract_verdict_section(text: str, redacted: bool = False) -> str:
     if not redacted:
         return section
 
-    # Redacted mode: keep ONLY the first verdict-shaped line found
-    # inside the verdict section. Strips any "TRUE / HIGH because the
-    # haircut residual at line 1684 grows by..." style smuggling.
+    # Redacted mode: keep ONLY a verdict-shaped line found inside the
+    # verdict section. Strips any "TRUE / HIGH because the haircut
+    # residual at line 1684 grows by..." style smuggling.
+    #
+    # POST-AUDIT FIX (2026-05-12 re-audit catch):
+    #   1. Skip fenced code blocks — a proposer could plant a fake
+    #      `FALSE / LOW` bait verdict inside ```fenced``` ahead of
+    #      the real one to spoof the challenger. Lines inside
+    #      ```...``` (or ~~~...~~~) are now ignored.
+    #   2. Prefer the LAST verdict-shaped line found, not the first.
+    #      LLM agents commonly write a quick "draft: TRUE / HIGH"
+    #      thought line ahead of the final "Verdict: FALSE / LOW"
+    #      line; the last occurrence is the one we should trust.
+    #   3. re.IGNORECASE for the verdict tokens, same rationale as
+    #      the no-header branch above.
     import re as _re
+    in_fence = False
+    candidate: str | None = None
     for ln in section.splitlines():
+        stripped = ln.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
         m = _re.search(
             r"\b(TRUE|FALSE|INCONCLUSIVE|NEEDS_LAYER_2(?:_TO_DECIDE)?|AGREE|DISAGREE)\b\s*/\s*\b(HIGH|MEDIUM|LOW)\b",
             ln,
+            _re.IGNORECASE,
         )
         if m:
-            return m.group(0)
+            candidate = m.group(0)
+    if candidate is not None:
+        return candidate
     # Header present but no parseable verdict line. Return the header
     # itself only (no body), so we don't leak the body.
     return "## Verdict\n(unparseable verdict — challenger should treat as INCONCLUSIVE)"

@@ -253,9 +253,21 @@ REAL_STATUSES = {"confirmed", "disclosed", "fixed", "verified"}
 # but the disclosure PR may not yet be filed; publishing it before
 # disclosure is a pre-disclosure leak. `rejected` is fine to include
 # (the engine itself decided the verdict was a false positive).
-# Customer-private cycle reports (--full) include everything so the
-# customer behind the token gate sees their in-progress state.
-PUBLIC_STATUSES = {"disclosed", "fixed", "verified", "rejected"}
+# `closed_not_planned` is also fine to include — distinct terminal state
+# meaning the maintainer reviewed and closed upstream as won't-fix /
+# by-design (engine was correct that the path exists; upstream chose
+# not to address). Customer-private cycle reports (--full) include
+# everything so the customer behind the token gate sees their
+# in-progress state.
+#
+# POST-AUDIT FIX (2026-05-12): added closed_not_planned to the public set.
+# Previously it was added to lifecycle.py but downstream consumers
+# (this set, dashboard PUBLIC_STATUSES, narrative filter) still only
+# knew about REJECTED — closed_not_planned findings were being filtered
+# out of public archives despite being legitimately disclosable.
+PUBLIC_STATUSES = {
+    "disclosed", "fixed", "verified", "rejected", "closed_not_planned",
+}
 
 
 def _real_severity_counts(findings: list[dict]) -> dict[str, int]:

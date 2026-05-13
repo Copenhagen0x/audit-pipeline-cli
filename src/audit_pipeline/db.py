@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from audit_pipeline.lifecycle import Status, assert_transition
+from audit_pipeline.lifecycle import InvalidTransition, Status, assert_transition
 from audit_pipeline.severity import Severity
 
 # Hook target wrappers — module-level so they can be passed by reference
@@ -495,10 +495,22 @@ class FindingsDB:
                             Status(current_status_str), status,
                         )
                         allow_status_change = True
-                    except ValueError:
+                    except InvalidTransition:
                         # Forbidden transition (e.g. CONFIRMED → NEW). Keep
                         # the current status. The row's other fields still
                         # update so re-runs aren't entirely no-ops.
+                        #
+                        # POST-AUDIT FIX (regression catch): previously caught
+                        # ValueError here, but assert_transition raises the
+                        # custom InvalidTransition class (lifecycle.py). The
+                        # graceful fallback was dead code — any re-run with a
+                        # downgraded verdict would propagate the exception out
+                        # of upsert_finding and crash the cycle.
+                        allow_status_change = False
+                    except ValueError:
+                        # Status(current_status_str) itself can raise
+                        # ValueError if the DB has a stale string from before
+                        # a status was added. Treat as "keep current" too.
                         allow_status_change = False
                 if allow_status_change:
                     c.execute(
@@ -972,11 +984,19 @@ class FindingsDB:
 
         Excludes a single target_id if provided (the protocol where the
         finding originally confirmed) so propagation only fans out to OTHER
-        protocols. Limited to non-rejected lifecycle states.
+        protocols. Limited to non-terminal-rejection lifecycle states.
+
+        POST-AUDIT FIX (2026-05-12): also exclude CLOSED_NOT_PLANNED.
+        Propagation seeds new hypotheses on OTHER protocols from a confirmed
+        bug pattern. A finding the upstream maintainer closed as
+        won't-fix / not-planned is a real path but specifically NOT something
+        we want to spawn 5–6 propagation children for — the pattern was
+        already adjudicated as out-of-scope by maintainer policy. Filtering
+        it out matches REJECTED's existing exclusion.
         """
-        terminal_excluded = (Status.REJECTED.value,)
+        terminal_excluded = (Status.REJECTED.value, Status.CLOSED_NOT_PLANNED.value)
         params: list[Any] = [bug_class, *terminal_excluded]
-        clause = "bug_class = ? AND status NOT IN (?)"
+        clause = "bug_class = ? AND status NOT IN (?, ?)"
         if exclude_target_id is not None:
             clause += " AND target_id != ?"
             params.append(exclude_target_id)

@@ -46,12 +46,18 @@ LISTEN_PORT = 8766
 CRLF = b"\r\n"
 
 DEFAULT_KEY_PATH = "/root/audit_runs/percolator-live/keys/jelleo.ed25519"
+DEFAULT_WORKSPACE = "/root/audit_runs/percolator-live"
 _seed_cache: bytes | None = None
 _seed_path_cache: Path | None = None
 
 
 def _load_seed() -> bytes | None:
-    """Load + cache the platform private key seed (32 bytes)."""
+    """Load + cache the platform private key seed (32 bytes).
+
+    Re-reads the seed if the file's mtime changes (operator can swap in
+    a new platform key without restarting the sidecar; the cache is
+    invalidated on mtime mismatch).
+    """
     global _seed_cache, _seed_path_cache
     path = Path(os.environ.get("JELLEO_PLATFORM_KEY_PATH", DEFAULT_KEY_PATH))
     if _seed_cache and _seed_path_cache == path:
@@ -69,13 +75,34 @@ def _load_seed() -> bytes | None:
         return None
 
 
+def _load_url_salt(cid: str) -> bytes:
+    """Look up the customer's URL-token salt from customers.json.
+
+    POST-AUDIT FIX (2026-05-12 re-audit catch): previously this sidecar
+    never looked up the per-customer URL salt, so the verify call ran
+    with salt=b"" for everyone. `customer rotate-key` could write a fresh
+    salt to customers.json but it was ignored here — outstanding tokens
+    stayed valid forever. Now the registry-backed salt is read on every
+    verify (no caching by cid alone; the registry file is small and
+    nginx already caches the upstream subrequest result).
+    """
+    ws = Path(os.environ.get("JELLEO_WORKSPACE", DEFAULT_WORKSPACE))
+    try:
+        from audit_pipeline.customers import get_customer_url_salt
+        return get_customer_url_salt(ws, cid)
+    except Exception as e:  # noqa: BLE001
+        print(f"[token-auth] url-salt lookup failed: {e}", file=sys.stderr, flush=True)
+        return b""
+
+
 def _verify_token(cid: str, token: str) -> bool:
     seed = _load_seed()
     if not seed or not cid or not token:
         return False
     try:
         from audit_pipeline.customers import verify_customer_url_token
-        return verify_customer_url_token(seed, cid, token)
+        salt = _load_url_salt(cid)
+        return verify_customer_url_token(seed, cid, token, salt=salt)
     except Exception as e:  # noqa: BLE001
         print(f"[token-auth] verify error: {e}", file=sys.stderr, flush=True)
         return False

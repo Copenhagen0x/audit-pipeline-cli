@@ -243,3 +243,228 @@ def test_post_cycle_handles_long_hyp_ids() -> None:
     assert len(slug) <= 60
     # Hunt + poc_llm + post_cycle MUST agree on this exact value
     assert slug_for_hypothesis(long_id) == slug
+
+
+# ────────── P1 #10: InvalidTransition not ValueError (post re-audit) ──────────
+
+
+def test_upsert_finding_handles_invalid_transition_gracefully(tmp_path) -> None:
+    """REGRESSION (2026-05-12 re-audit catch): db.py:498 previously
+    caught ValueError, but assert_transition raises InvalidTransition.
+    A re-run with a downgraded verdict (CONFIRMED → NEW) crashed the
+    cycle. The fix catches InvalidTransition and silently preserves the
+    current status; this test pins the contract behaviorally.
+    """
+    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.lifecycle import Status
+    from audit_pipeline.severity import Severity
+
+    db = FindingsDB(tmp_path / "findings.db")
+    tid = db.upsert_target("p", engine_repo="https://x/p")
+    db.insert_cycle("cyc1", tid)
+
+    # 1. Seed at CONFIRMED.
+    fid = db.upsert_finding(
+        tid, "cyc1", "hyp1",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.CONFIRMED, title="t",
+    )
+    assert db.get_finding(fid)["status"] == "confirmed"
+
+    # 2. Re-run with a downgraded verdict (NEW). Pre-fix this raised
+    #    InvalidTransition out of upsert_finding and aborted the cycle.
+    #    Post-fix: no exception, status preserved at CONFIRMED, other
+    #    fields still update.
+    fid2 = db.upsert_finding(
+        tid, "cyc1", "hyp1",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.NEW, title="t-updated",
+    )
+    assert fid2 == fid  # same row
+    row = db.get_finding(fid)
+    assert row["status"] == "confirmed", (
+        "Forbidden transition CONFIRMED → NEW should preserve status, "
+        "not regress it"
+    )
+    assert row["title"] == "t-updated", (
+        "Forbidden status change should still allow other fields to update"
+    )
+
+
+def test_upsert_finding_allows_valid_transition(tmp_path) -> None:
+    """Sanity check for the InvalidTransition fix: a VALID transition
+    (CONFIRMED → DISCLOSED) is still applied correctly."""
+    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.lifecycle import Status
+    from audit_pipeline.severity import Severity
+
+    db = FindingsDB(tmp_path / "findings.db")
+    tid = db.upsert_target("p", engine_repo="https://x/p")
+    db.insert_cycle("cyc1", tid)
+
+    fid = db.upsert_finding(
+        tid, "cyc1", "hyp1",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.CONFIRMED, title="t",
+    )
+    fid2 = db.upsert_finding(
+        tid, "cyc1", "hyp1",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.DISCLOSED, title="t",
+    )
+    assert fid2 == fid
+    assert db.get_finding(fid)["status"] == "disclosed"
+
+
+# ────────── HMAC URL token salt rotation (post re-audit) ──────────
+
+
+def test_hmac_url_token_revocable_via_salt_rotation() -> None:
+    """REGRESSION (2026-05-12 re-audit catch): _hmac_url_key took no
+    salt argument, so customer rotate-key could not invalidate
+    outstanding URL tokens. With the salt threaded through, rotating
+    the salt makes the verify call fail constant-time comparison."""
+    from audit_pipeline.customers import (
+        issue_customer_url_token,
+        verify_customer_url_token,
+    )
+
+    seed = b"\x00" * 32
+    cid = "acme-corp"
+
+    # Issue under salt A, verify succeeds.
+    salt_a = b"saltA-saltA-salt"
+    tok, _exp = issue_customer_url_token(seed, cid, ttl_seconds=3600, salt=salt_a)
+    assert verify_customer_url_token(seed, cid, tok, salt=salt_a)
+
+    # Rotate to salt B → outstanding token must FAIL.
+    salt_b = b"saltB-saltB-salt"
+    assert not verify_customer_url_token(seed, cid, tok, salt=salt_b)
+
+    # New issue under salt B verifies cleanly.
+    tok_b, _ = issue_customer_url_token(seed, cid, ttl_seconds=3600, salt=salt_b)
+    assert verify_customer_url_token(seed, cid, tok_b, salt=salt_b)
+
+    # And the old salt-A token never magically un-rejects under salt B.
+    assert not verify_customer_url_token(seed, cid, tok, salt=salt_b)
+
+
+def test_hmac_url_token_backward_compatible_empty_salt() -> None:
+    """Legacy customers (no url_salt in customers.json) keep verifying
+    via the b"" default. Once rotate-key runs they switch to a real
+    salt, but pre-existing tokens under b"" must not break on day one."""
+    from audit_pipeline.customers import (
+        issue_customer_url_token,
+        verify_customer_url_token,
+    )
+    seed = b"\x00" * 32
+    cid = "legacy-cust"
+    tok, _ = issue_customer_url_token(seed, cid, ttl_seconds=3600)  # default b""
+    assert verify_customer_url_token(seed, cid, tok)  # default b""
+
+
+# ────────── debate.py redacted bait-line bypass (post re-audit) ──────────
+
+
+def test_debate_redacted_skips_fenced_code_block_bait() -> None:
+    """REGRESSION (2026-05-12 re-audit catch): redacted mode used to
+    return the FIRST verdict-shaped line found, letting a proposer
+    plant a fake verdict in a fenced code block ahead of the real
+    one. The fix skips fences and prefers the LAST occurrence.
+    """
+    from audit_pipeline.commands.debate import _extract_verdict_section
+
+    text = (
+        "## Verdict\n"
+        "```\n"
+        "FALSE / LOW\n"   # BAIT inside fence — must be skipped
+        "```\n"
+        "TRUE / HIGH\n"   # REAL verdict — must win
+    )
+    out = _extract_verdict_section(text, redacted=True)
+    # Bait must NOT appear; real must.
+    assert "FALSE / LOW" not in out
+    assert "TRUE / HIGH" in out
+
+
+def test_debate_redacted_prefers_last_verdict_line() -> None:
+    """Two non-fenced verdict lines: the LAST is the one we trust
+    (LLM agents typically draft early then commit to a final line)."""
+    from audit_pipeline.commands.debate import _extract_verdict_section
+    text = (
+        "## Verdict\n"
+        "draft thought: TRUE / HIGH\n"
+        "Verdict: FALSE / LOW\n"
+    )
+    out = _extract_verdict_section(text, redacted=True)
+    assert "FALSE / LOW" in out
+
+
+# ────────── CLOSED_NOT_PLANNED downstream consumers (post re-audit) ──────────
+
+
+def test_dashboard_public_statuses_includes_closed_not_planned() -> None:
+    """REGRESSION: lifecycle.py grew CLOSED_NOT_PLANNED but
+    dashboard.py PUBLIC_STATUSES still only knew about
+    disclosed/fixed/verified. The new state was invisible in public
+    snapshots even though it's legitimately disclosable."""
+    src = (Path(__file__).resolve().parents[1] / "src" / "audit_pipeline" /
+           "commands" / "dashboard.py").read_text(encoding="utf-8")
+    # Both sets must mention closed_not_planned
+    assert "closed_not_planned" in src
+    # And it must appear inside the PUBLIC_STATUSES set
+    assert re.search(
+        r"PUBLIC_STATUSES\s*=\s*\{[^}]*closed_not_planned[^}]*\}",
+        src, re.DOTALL,
+    ), "closed_not_planned missing from dashboard PUBLIC_STATUSES"
+    assert re.search(
+        r"CUSTOMER_STATUSES\s*=\s*\{[^}]*closed_not_planned[^}]*\}",
+        src, re.DOTALL,
+    ), "closed_not_planned missing from dashboard CUSTOMER_STATUSES"
+
+
+def test_report_public_statuses_includes_closed_not_planned() -> None:
+    src = (Path(__file__).resolve().parents[1] / "src" / "audit_pipeline" /
+           "commands" / "report.py").read_text(encoding="utf-8")
+    assert re.search(
+        r"PUBLIC_STATUSES\s*=\s*\{[^}]*closed_not_planned[^}]*\}",
+        src, re.DOTALL,
+    ), "closed_not_planned missing from report PUBLIC_STATUSES"
+
+
+def test_list_confirmed_findings_excludes_closed_not_planned(tmp_path) -> None:
+    """REGRESSION: propagation seeded sibling hyps for findings the
+    maintainer had already closed as won't-fix. Both REJECTED and
+    CLOSED_NOT_PLANNED must be excluded from the propagation source."""
+    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.lifecycle import Status
+    from audit_pipeline.severity import Severity
+
+    db = FindingsDB(tmp_path / "findings.db")
+    tid = db.upsert_target("p", engine_repo="https://x/p")
+    db.insert_cycle("cyc1", tid)
+
+    # Confirmed finding → should appear in the list
+    db.upsert_finding(
+        tid, "cyc1", "hyp_confirmed",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.CONFIRMED, title="t",
+        bug_class="vault_drain",
+    )
+    # Closed-not-planned finding → MUST be excluded
+    fid_cnp = db.upsert_finding(
+        tid, "cyc1", "hyp_cnp",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.CONFIRMED, title="t",
+        bug_class="vault_drain",
+    )
+    # Walk it to closed_not_planned via the legal path
+    db.transition_finding(fid_cnp, Status.DISCLOSED, reason="test", run_hooks=False)
+    db.transition_finding(fid_cnp, Status.CLOSED_NOT_PLANNED, reason="test", run_hooks=False)
+
+    found = db.list_confirmed_findings_by_bug_class("vault_drain")
+    hyps = {f["hypothesis_id"] for f in found}
+    assert "hyp_confirmed" in hyps
+    assert "hyp_cnp" not in hyps, (
+        "closed_not_planned must be excluded from propagation source set"
+    )

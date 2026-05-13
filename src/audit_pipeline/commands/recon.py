@@ -31,6 +31,20 @@ from audit_pipeline.utils import (
     is_available,
     render_placeholders,
 )
+# POST-AUDIT FIX (2026-05-12 re-audit catch): hoist emit_event to module
+# scope. Previously imported INSIDE a try block at line 490 — on a cold
+# install where the event_log module is broken (eg syntax error during
+# pre-prod deploy, missing optional dep) the lazy import raised inside
+# the try; the bare `except Exception: pass` swallowed it, but the name
+# `_emit` was never bound, and any subsequent reference (eg in a later
+# refactor that pulled the try outside) would raise UnboundLocalError.
+# Belt-and-braces: make the import explicit and module-level, with a
+# safe no-op fallback the rest of the file can call unconditionally.
+try:
+    from audit_pipeline.utils.event_log import emit_event as _emit
+except Exception:  # noqa: BLE001 — never crash recon over telemetry
+    def _emit(*_a, **_kw) -> None:  # type: ignore[misc]
+        return None
 from audit_pipeline.utils.github_snapshot import GitHubSnapshot, SnapshotDownloadError
 
 console = Console()
@@ -486,11 +500,10 @@ Notes:        {hyp.get("notes", "(none)")}
         """
         try:
             # Bridge dashboard event: hyp dispatch starts
-            try:
-                from audit_pipeline.utils.event_log import emit_event as _emit
-                _emit("recon_hyp_start", hyp_id=hyp_id, use_tools=bool(use_tools))
-            except Exception:  # noqa: BLE001
-                pass
+            # POST-AUDIT FIX (2026-05-12): use module-level _emit
+            # alias so cold-install / partial-import failures can't bind
+            # the name to nothing at runtime.
+            _emit("recon_hyp_start", hyp_id=hyp_id, use_tools=bool(use_tools))
             if use_tools:
                 # L1 recon Defect 01 fix: source-grounded tool loop.
                 # POST-AUDIT FIX: previously stashed the active hyp_id in

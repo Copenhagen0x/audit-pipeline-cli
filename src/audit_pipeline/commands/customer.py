@@ -282,9 +282,24 @@ def rotate_key_cmd(
     except customers_mod.CustomerError as e:
         raise click.ClickException(str(e))
 
+    # POST-AUDIT FIX (2026-05-12): also rotate the URL-token salt stored
+    # in customers.json. Previously rotate-key only rotated the Ed25519
+    # keypair salt — outstanding URL tokens remained valid because the
+    # HMAC key derivation didn't consume any per-customer revocation
+    # state. Now we write a fresh url_salt here so all in-flight tokens
+    # fail constant-time verify after this command runs.
+    url_salt = secrets.token_bytes(16)
+    try:
+        customers_mod.set_customer_url_salt(workspace, customer_id, url_salt)
+    except customers_mod.CustomerError as e:
+        raise click.ClickException(str(e))
+
     console.print(f"[yellow]Rotated[/yellow] customer key for [bold]{customer_id}[/bold]")
     console.print(f"  private: {priv_path}")
     console.print(f"  public:  {pub_path}")
+    console.print(
+        "  [dim]url_salt rotated → all outstanding URL tokens invalidated[/dim]"
+    )
     console.print()
     console.print("[dim]New public key:[/dim]")
     console.print(pub_path.read_text(encoding="utf-8"))
@@ -346,8 +361,16 @@ def issue_url_token_cmd(
         seed = customers_mod.load_platform_priv_seed(platform_priv_path)
     except customers_mod.CustomerError as e:
         raise click.ClickException(str(e))
+    # POST-AUDIT FIX (2026-05-12): thread the customer's url_salt through
+    # the issuer. Pre-fix, the salt was effectively b"" for every customer,
+    # making `rotate-key` cosmetic. Now the registry-backed salt becomes
+    # part of the HMAC key derivation; rotating the salt invalidates all
+    # outstanding tokens.
+    url_salt = customers_mod.get_customer_url_salt(workspace, customer_id)
     token, exp = customers_mod.issue_customer_url_token(
-        seed, customer_id, ttl_seconds=ttl_days * 24 * 3600,
+        seed, customer_id,
+        ttl_seconds=ttl_days * 24 * 3600,
+        salt=url_salt,
     )
     console.print(f"[green]issued[/green] token for [cyan]{customer_id}[/cyan]")
     console.print(f"  token:      {token}")

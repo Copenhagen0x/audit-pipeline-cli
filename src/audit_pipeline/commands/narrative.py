@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -87,7 +88,14 @@ def bulk_cmd(
             continue
         if list(Severity).index(sev) > floor_rank:
             continue
-        if f.get("status") == "rejected":
+        # POST-AUDIT FIX (2026-05-12): also skip closed_not_planned.
+        # Both REJECTED and CLOSED_NOT_PLANNED are terminal states where
+        # the finding will not progress further; writing customer-facing
+        # narrative prose for them is wasted spend (and for
+        # closed_not_planned, often actively misleading — the maintainer
+        # chose not to address, the narrative should mirror that decision
+        # in disclosure tooling, not in cycle-report bullet points).
+        if f.get("status") in ("rejected", "closed_not_planned"):
             continue
         eligible.append(f)
 
@@ -131,9 +139,37 @@ def _generate_narrative(finding: dict, db: FindingsDB, max_tokens: int) -> str:
     # LLM. Use db.path.parent (the workspace) as the trusted root.
     raw_pp = finding.get("poc_path")
     if raw_pp:
+        # POST-AUDIT FIX (2026-05-12 re-audit catch): the Postgres backend
+        # sets `self.path = None` because the DB lives behind a DSN, not
+        # a filesystem path. `Path(None)` raises TypeError which the
+        # original `except OSError` block didn't catch — narrative
+        # generation crashed on Postgres-mode pipelines. Now we resolve
+        # the workspace through JELLEO_WORKSPACE / db.workspace_path /
+        # db.path in priority order and degrade gracefully if none yield
+        # a real directory.
+        ws_root: Path | None = None
+        candidates: list[Any] = []
+        if hasattr(db, "workspace_path") and db.workspace_path:
+            candidates.append(db.workspace_path)
+        if hasattr(db, "path") and db.path:
+            # SQLite case: db.path is the findings.db file; workspace is
+            # its parent directory.
+            candidates.append(Path(db.path).parent)
+        import os as _os
+        env_ws = _os.environ.get("JELLEO_WORKSPACE")
+        if env_ws:
+            candidates.append(env_ws)
+        for cand in candidates:
+            try:
+                ws_root = Path(cand).resolve()
+                if ws_root.is_dir():
+                    break
+            except (OSError, TypeError, ValueError):
+                ws_root = None
+                continue
+
         try:
             resolved = Path(raw_pp).resolve()
-            ws_root = Path(db.path).parent.resolve() if hasattr(db, "path") else None
             allowed = False
             if ws_root:
                 try:
@@ -146,7 +182,10 @@ def _generate_narrative(finding: dict, db: FindingsDB, max_tokens: int) -> str:
                 poc_excerpt = content
             else:
                 poc_excerpt = f"(poc_path outside workspace — refusing to read: {raw_pp})"
-        except OSError:
+        except (OSError, TypeError, ValueError):
+            # TypeError handles the previously-uncaught Path(None) crash
+            # on legacy code paths; ValueError catches odd reserved-
+            # device-name resolves on Windows.
             pass
 
     prompt = f"""You are a senior security researcher producing an audit finding writeup.

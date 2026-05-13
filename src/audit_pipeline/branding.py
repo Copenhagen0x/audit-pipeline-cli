@@ -708,14 +708,19 @@ def _status_breakdown_line_html(breakdown: dict[str, int]) -> str:
     """
     if not breakdown:
         return ""
+    # POST-AUDIT FIX (2026-05-12): added closed_not_planned cell.
+    # Without this, findings in the new CLOSED_NOT_PLANNED state were
+    # invisible in cover-page breakdowns — customers couldn't see the
+    # full count of disclosures the maintainer chose not to fix.
     order = [
-        ("confirmed", "Confirmed"),
-        ("disclosed", "Disclosed"),
-        ("new",       "Awaiting triage"),
-        ("triaged",   "Triaged"),
-        ("rejected",  "Rejected (false positive)"),
-        ("fixed",     "Fixed"),
-        ("verified",  "Verified"),
+        ("confirmed",           "Confirmed"),
+        ("disclosed",           "Disclosed"),
+        ("new",                 "Awaiting triage"),
+        ("triaged",             "Triaged"),
+        ("rejected",            "Rejected (false positive)"),
+        ("fixed",               "Fixed"),
+        ("verified",            "Verified"),
+        ("closed_not_planned",  "Closed (upstream won't fix)"),
     ]
     cells = []
     for key, label in order:

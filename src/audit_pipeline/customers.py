@@ -113,12 +113,22 @@ def add_customer(
     if any(c.get("id") == customer_id for c in customers):
         raise CustomerError(f"customer id '{customer_id}' already registered")
 
+    # POST-AUDIT FIX (2026-05-12): generate a fresh per-customer URL-token
+    # salt at registration time. This becomes the revocation primitive —
+    # `rotate-key` overwrites this value, invalidating all outstanding
+    # URL tokens for the customer. Empty string for legacy customers; new
+    # registrations always get 16 random bytes.
+    import base64
+    import secrets
+    url_salt_b64 = base64.urlsafe_b64encode(secrets.token_bytes(16)).rstrip(b"=").decode("ascii")
+
     entry: dict[str, Any] = {
         "id":            customer_id,
         "name":          name,
         "protocol_name": protocol_name,
         "tier":          tier,
         "target_match":  target_match or customer_id,
+        "url_salt":      url_salt_b64,
     }
     if contact_email:
         entry["contact_email"] = contact_email
@@ -208,13 +218,32 @@ HMAC_URL_INFO_PREFIX = b"jelleo-customer-url-hmac-v1"
 # rotating the customer's salt.
 
 
-def _hmac_url_key(platform_priv_bytes: bytes, customer_id: str) -> bytes:
+def _hmac_url_key(
+    platform_priv_bytes: bytes,
+    customer_id: str,
+    salt: bytes = b"",
+) -> bytes:
     """Derive the HMAC key for a given customer's URL tokens.
 
     Separate domain (HMAC_URL_INFO_PREFIX) from the signing-key derivation
     so the same platform key produces different bytes for different
     purposes — defeats cross-protocol attacks where a leaked URL token
     could be presented as a customer's Ed25519 signature.
+
+    POST-AUDIT FIX (2026-05-12 re-audit catch): added the ``salt``
+    parameter. Previously this helper took only the platform key and
+    customer id, so `rotate-key` was unable to invalidate outstanding
+    URL tokens (it rotated the customer's keypair salt but the URL HMAC
+    derivation was independent). The CLI docstring claimed
+    revocation worked; it did not. With the salt threaded through, the
+    per-customer ``url_salt`` stored in customers.json becomes the real
+    revocation primitive: rotate-key writes a fresh salt, all outstanding
+    tokens HMAC under the old salt and fail constant-time comparison.
+
+    Backward compatibility: salt defaults to b"" so customers registered
+    before this fix continue to verify (their stored url_salt is also
+    treated as b"" by the registry getter). The first rotate-key writes
+    a fresh non-empty salt for them.
     """
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -223,7 +252,9 @@ def _hmac_url_key(platform_priv_bytes: bytes, customer_id: str) -> bytes:
             f"platform private key seed must be 32 bytes, got {len(platform_priv_bytes)}"
         )
     info = HMAC_URL_INFO_PREFIX + b":" + customer_id.encode("utf-8")
-    hkdf = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=info)
+    if salt:
+        info = info + b":" + salt
+    hkdf = HKDF(algorithm=hashes.SHA256(), length=32, salt=salt or None, info=info)
     return hkdf.derive(platform_priv_bytes)
 
 
@@ -233,6 +264,7 @@ def issue_customer_url_token(
     *,
     expires_at: int | None = None,
     ttl_seconds: int = 7 * 24 * 3600,
+    salt: bytes = b"",
 ) -> tuple[str, int]:
     """Issue an HMAC-signed access token for ``customer_id``.
 
@@ -243,6 +275,13 @@ def issue_customer_url_token(
     The token binds the customer_id + the expiry, so leaking one
     customer's token doesn't grant access to another customer's data,
     and the token expires automatically.
+
+    The ``salt`` argument (added 2026-05-12 to fix the broken-revocation
+    audit finding) is the customer's per-customer URL revocation salt,
+    stored in ``customers.json`` as ``url_salt``. Callers should look it
+    up via ``get_customer_url_salt(workspace, customer_id)`` rather than
+    passing b"" directly; the empty default exists only for backward
+    compatibility with rows that pre-date the salt field.
     """
     import base64
     import hmac
@@ -250,7 +289,7 @@ def issue_customer_url_token(
     from hashlib import sha256
     if expires_at is None:
         expires_at = int(time.time()) + int(ttl_seconds)
-    key = _hmac_url_key(platform_priv_bytes, customer_id)
+    key = _hmac_url_key(platform_priv_bytes, customer_id, salt=salt)
     msg = f"{customer_id}|{expires_at}".encode("utf-8")
     digest = hmac.new(key, msg, sha256).digest()
     tok = f"{expires_at}.{base64.urlsafe_b64encode(digest).rstrip(b'=').decode()}"
@@ -261,8 +300,16 @@ def verify_customer_url_token(
     platform_priv_bytes: bytes,
     customer_id: str,
     token: str,
+    salt: bytes = b"",
 ) -> bool:
-    """Constant-time verify a customer URL token. Returns True iff valid AND unexpired."""
+    """Constant-time verify a customer URL token. Returns True iff valid AND unexpired.
+
+    The ``salt`` parameter must match the salt used when the token was
+    issued; mismatched salt → HMAC differs → token fails constant-time
+    comparison. This is the revocation primitive: ``rotate-key`` writes a
+    fresh ``url_salt`` in customers.json, all tokens issued under the
+    previous salt now fail verification.
+    """
     import base64
     import hmac
     import time
@@ -274,7 +321,7 @@ def verify_customer_url_token(
         return False
     if exp < int(time.time()):
         return False
-    key = _hmac_url_key(platform_priv_bytes, customer_id)
+    key = _hmac_url_key(platform_priv_bytes, customer_id, salt=salt)
     msg = f"{customer_id}|{exp}".encode("utf-8")
     expected = hmac.new(key, msg, sha256).digest()
     # Pad sig_b64 to multiple of 4 for urlsafe_b64decode
@@ -284,6 +331,50 @@ def verify_customer_url_token(
     except Exception:
         return False
     return hmac.compare_digest(provided, expected)
+
+
+def get_customer_url_salt(workspace: Path, customer_id: str) -> bytes:
+    """Look up the customer's URL-token salt from customers.json.
+
+    Returns the raw bytes if the customer's entry has a base64-encoded
+    ``url_salt``; returns b"" if the field is absent (legacy entry pre-
+    dating the salt rollout). The empty fallback keeps old tokens
+    verifying until a ``rotate-key`` writes a fresh salt.
+    """
+    import base64
+    entry = get_customer(workspace, customer_id)
+    if not entry:
+        return b""
+    raw = entry.get("url_salt")
+    if not raw or not isinstance(raw, str):
+        return b""
+    try:
+        return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+    except Exception:
+        return b""
+
+
+def set_customer_url_salt(
+    workspace: Path,
+    customer_id: str,
+    salt: bytes,
+) -> None:
+    """Persist a fresh ``url_salt`` for ``customer_id`` to customers.json.
+
+    Used by ``customer add`` (initial salt on registration) and by
+    ``customer rotate-key`` (replace salt to invalidate outstanding URL
+    tokens). The salt is stored as urlsafe-base64 (unpadded) so the
+    registry file stays JSON-text-friendly.
+    """
+    import base64
+    customers = load_registry(workspace)
+    encoded = base64.urlsafe_b64encode(salt).rstrip(b"=").decode("ascii")
+    for c in customers:
+        if c.get("id") == customer_id:
+            c["url_salt"] = encoded
+            save_registry(workspace, customers)
+            return
+    raise CustomerError(f"customer id '{customer_id}' not found")
 
 
 def derive_customer_seed(platform_priv_bytes: bytes, customer_id: str, salt: bytes = b"") -> bytes:

@@ -13,6 +13,18 @@ use percolator::*;
 
 /// Construct engine params adversarial-but-valid for the panic class under test.
 /// Adjust each field to the bound the engine accepts at the surface level.
+///
+/// POST-RETRACTION FIX (cycle 20260511 root cause, also re-audit catch
+/// 2026-05-12): this factory was the SOURCE of 41/45 FALSE PoC fires last
+/// cycle. Two values had been set to bounds that fail `RiskParams::validate()`
+/// inside the engine constructor: `min_funding_lifetime_slots: 10_000_000`
+/// (overflows the internal slot×rate product check) and
+/// `max_active_positions_per_side: MAX_ACCOUNTS as u64` referencing an
+/// out-of-scope `MAX_ACCOUNTS` constant. Both replaced with conservative
+/// integer literals that pass validation. The conservation template was
+/// patched in commit 2c0e555; this panic-class template was missed in the
+/// same pass and is now brought into parity. If a hypothesis specifically
+/// needs unusual bounds, override these in the test body, not here.
 fn extreme_params_for_<FINDING_NAME>() -> RiskParams {
     RiskParams {
         maintenance_margin_bps: 500,
@@ -29,8 +41,12 @@ fn extreme_params_for_<FINDING_NAME>() -> RiskParams {
         resolve_price_deviation_bps: 1000,
         max_accrual_dt_slots: 100,
         max_abs_funding_e9_per_slot: 10_000,
-        min_funding_lifetime_slots: 10_000_000,
-        max_active_positions_per_side: MAX_ACCOUNTS as u64,
+        // FIX: was 10_000_000 — triggered engine validation overflow on
+        // construction, NOT a real engine bug.
+        min_funding_lifetime_slots: 100,
+        // FIX: was `MAX_ACCOUNTS as u64` — out-of-scope identifier panic
+        // in the helper. Use the same numeric value as max_accounts above.
+        max_active_positions_per_side: 64,
         max_price_move_bps_per_slot: 3,
     }
 }

@@ -1621,6 +1621,29 @@ main.bridge {
     }
 
     if (k === 'cycle_active') {
+      // POST-AUDIT FIX (2026-05-12 re-audit catch): reset per-cycle state
+      // before populating. Without this, state.hyps + state.hypsOrder
+      // accumulated entries across every cycle the browser tab observed
+      // — a long-running tab watching N cycles ended up with N * H tiles
+      // in the grid (and N * H DOM nodes), most marked done from a prior
+      // cycle. Now we wipe the grid + the maps on cycle_active so each
+      // cycle paints from a clean slate.
+      try {
+        const grid = $('hyp-grid');
+        if (grid) {
+          state.hyps.forEach(tile => {
+            if (tile && tile.parentNode === grid) grid.removeChild(tile);
+          });
+        }
+      } catch (e) { /* defensive: never let DOM cleanup crash the SSE handler */ }
+      state.hyps.clear();
+      state.hypsOrder.length = 0;
+      state.findings.clear();
+      state.activeHypId = null;
+      state.activeHypProgress = null;
+      const gridTotal = $('grid-total');
+      if (gridTotal) gridTotal.textContent = '0';
+
       state.activeCycle = ev.cycle;
       state.cycleStartedAt = Date.now();
       $('active-cycle').textContent = safeStr(ev.cycle, 28);

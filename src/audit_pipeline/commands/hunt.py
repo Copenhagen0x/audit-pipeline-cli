@@ -533,7 +533,11 @@ def hunt_cmd(
     # filters out wrapper-only hyps (target_file under wrapper/ OR
     # applies_to == ["wrapper"]).
     if engine_only:
+        # POST-AUDIT FIX (2026-05-12 re-audit catch): split stdlib + 3p
+        # imports onto separate lines (ruff I001) — tempfile is stdlib,
+        # yaml is third-party so they must not share an import block.
         import tempfile as _tempfile4
+
         import yaml as _yaml4
         try:
             _doc = _yaml4.safe_load(Path(hypotheses).read_text(encoding="utf-8")) or {}
@@ -711,8 +715,10 @@ def _hunt_run(
                 ) from e
     except OSError:
         # Filesystem can't open lock file — proceed without lock with a warning.
-        console.print(f"[yellow]workspace lock unavailable; proceeding without"
-                      f" mutual exclusion[/yellow]")
+        # POST-AUDIT FIX (2026-05-12): drop f-prefix on f-strings without
+        # placeholders (ruff F541) — these are static rich-markup strings.
+        console.print("[yellow]workspace lock unavailable; proceeding without"
+                      " mutual exclusion[/yellow]")
 
     # POST-AUDIT FIX: register a cleanup that releases the lock on ANY
     # process exit (normal completion, exception, sys.exit, KeyboardInterrupt).

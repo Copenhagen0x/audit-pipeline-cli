@@ -34,7 +34,11 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from audit_pipeline.lifecycle import Status, assert_transition
+from audit_pipeline.lifecycle import (
+    InvalidTransition,
+    Status,
+    assert_transition,
+)
 from audit_pipeline.severity import Severity
 
 SCHEMA_PG = [
@@ -386,8 +390,46 @@ class PostgresFindingsDB:
     ) -> int:
         now = _now()
         details_json = json.dumps(details) if details else None
+        # POST-AUDIT FIX (2026-05-12 re-audit catch): Postgres backend had
+        # ZERO state-machine validation in this method while the SQLite
+        # mirror grew the `assert_transition` gate in commit c320c78. A
+        # cycle re-run that downgrades a CONFIRMED finding back to NEW
+        # would have silently regressed the lifecycle on Postgres but
+        # blocked on SQLite — different behaviour across backends. Mirror
+        # the SQLite logic here: look up the existing row's status first,
+        # only apply the new status if the transition is valid, otherwise
+        # update everything except status.
         with self._conn() as c:
             cur = c.cursor()
+            # 1. Look up existing row (if any) to decide whether the status
+            #    change is permitted by the state machine.
+            cur.execute(
+                """
+                SELECT id, status FROM findings
+                 WHERE target_id = %s AND cycle_id = %s AND hypothesis_id = %s
+                """,
+                (target_id, cycle_id, hypothesis_id),
+            )
+            existing = cur.fetchone()
+
+            effective_status = status
+            if existing is not None:
+                current_status_str = existing["status"]
+                if current_status_str != status.value:
+                    try:
+                        assert_transition(
+                            Status(current_status_str), status,
+                        )
+                    except InvalidTransition:
+                        # Forbidden transition. Keep the current status; the
+                        # row's other fields still update so re-runs aren't
+                        # entirely no-ops.
+                        effective_status = Status(current_status_str)
+                    except ValueError:
+                        # Stale enum string in DB (shouldn't happen but be
+                        # defensive against legacy rows). Keep current.
+                        effective_status = Status(current_status_str)
+
             cur.execute(
                 """
                 INSERT INTO findings (target_id, cycle_id, hypothesis_id, title, verdict,
@@ -412,11 +454,26 @@ class PostgresFindingsDB:
                 RETURNING id
                 """,
                 (target_id, cycle_id, hypothesis_id, title, verdict, confidence,
-                 severity.value, status.value, poc_path, int(poc_fired),
+                 severity.value, effective_status.value, poc_path, int(poc_fired),
                  int(debate_promoted), engine_sha, wrapper_sha, now, now,
                  details_json, bug_class),
             )
-            return int(cur.fetchone()["id"])
+            finding_id = int(cur.fetchone()["id"])
+
+            # Record the transition for audit trail (mirrors SQLite path).
+            if existing is not None and effective_status.value != existing["status"]:
+                cur.execute(
+                    """
+                    INSERT INTO transitions (finding_id, from_status, to_status, reason, actor, ts)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        finding_id, existing["status"], effective_status.value,
+                        "advance via upsert_finding (state-machine validated)",
+                        "system", now,
+                    ),
+                )
+            return finding_id
 
     def transition_finding(
         self,
@@ -675,12 +732,34 @@ def _run_one_hook_pg(workspace, finding_id: int, hook_name: str, target) -> None
                     "DELETE FROM hook_runs WHERE finding_id = %s AND hook_name = %s",
                     (finding_id, hook_name),
                 )
+            # POST-AUDIT FIX (2026-05-12 re-audit catch): previously this
+            # INSERT used ON CONFLICT DO NOTHING but the rowcount was never
+            # checked. Two threads racing the same (finding_id, hook_name)
+            # would both pass the earlier SELECT (saw no row), both then
+            # INSERT — one wins via the unique constraint, the other gets
+            # rowcount=0 silently and proceeds to run the hook target a
+            # second time. Now: if rowcount is 0, another worker beat us
+            # to the claim — bail without running the hook target.
             cur.execute(
                 "INSERT INTO hook_runs (finding_id, hook_name, started_at) "
                 "VALUES (%s, %s, %s) ON CONFLICT (finding_id, hook_name) DO NOTHING",
                 (finding_id, hook_name, started),
             )
+            claimed = cur.rowcount > 0
             cur.close()
+            if not claimed:
+                # Lost the race. Trust the winner to run the hook target
+                # and emit `completed/failed` markers; we exit silently.
+                _write({
+                    "phase": "skipped_lost_race",
+                    "ts": started,
+                    "finding_id": finding_id,
+                    "hook": hook_name,
+                    "backend": "postgres",
+                })
+                try: pg_conn.close()
+                except Exception: pass
+                return
         except Exception:  # noqa: BLE001 — never crash hook over idempotency
             if pg_conn:
                 try: pg_conn.close()

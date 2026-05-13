@@ -214,7 +214,13 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
     # positives produced by the engine — listing them publicly is noise that
     # makes the platform look worse than it is. Keep them in the DB for
     # bookkeeping; do not expose them.
-    PUBLIC_STATUSES = {"disclosed", "fixed", "verified"}
+    #
+    # POST-AUDIT FIX (2026-05-12 re-audit): include CLOSED_NOT_PLANNED.
+    # Maintainer-closed-as-not-planned findings are still REAL paths the
+    # engine surfaced — different signal from REJECTED (which is OUR
+    # false-positive). Customers asked for these to appear in the public
+    # archive as "engine found it, upstream chose not to fix".
+    PUBLIC_STATUSES = {"disclosed", "fixed", "verified", "closed_not_planned"}
 
     stats = db.stats()
     targets = db.list_targets()
@@ -718,8 +724,17 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
     # For the customer's own data, surface everything except brand-new /
     # rejected findings. "rejected" = engine false-positive (don't worry the
     # customer); "new" = pre-triage, no signal yet. Everything else (triaged,
-    # confirmed, disclosed, fixed, verified) is actionable to the customer.
-    CUSTOMER_STATUSES = {"triaged", "confirmed", "disclosed", "fixed", "verified"}
+    # confirmed, disclosed, fixed, verified, closed_not_planned) is
+    # actionable to the customer.
+    #
+    # POST-AUDIT FIX (2026-05-12): closed_not_planned was introduced as a
+    # distinct terminal state from rejected (upstream chose not to fix vs.
+    # engine false-positive). The customer absolutely wants to see these in
+    # their portal — that's their disclosure history with the maintainer.
+    CUSTOMER_STATUSES = {
+        "triaged", "confirmed", "disclosed", "fixed", "verified",
+        "closed_not_planned",
+    }
 
     # Cross-cutting audit Defect 01 (HIGH): substring-based scoping let the
     # `demo` customer's empty `target_match=""` match every target — any
