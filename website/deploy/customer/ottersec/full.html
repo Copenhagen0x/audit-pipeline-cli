@@ -1,0 +1,2311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Bridge view · Demo</title>
+<meta name="description" content="Jelleo Bridge — live mission-control view of the autonomous audit loop. Source-grounded recon, layer-2.5 triage, attestation, all live.">
+<link rel="canonical" href="https://jelleo.com/customer/ottersec/full.html">
+<meta name="theme-color" content="#050504">
+<meta name="robots" content="noindex,nofollow">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+/* ──────────────────────────────────────────────────────────────────────
+   BRIDGE — mission-control layout for the autonomous audit loop.
+   Dense by design. Always-on motion: heartbeat pip, sparklines, cost
+   ticker, even when the engine is idle.
+   ────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --bridge-bg:     #050504;
+  --bridge-panel:  rgba(245,243,237,0.025);
+  --bridge-rule:   rgba(245,243,237,0.08);
+  --bridge-rule-2: rgba(245,243,237,0.14);
+  --bridge-tile-idle:   rgba(245,243,237,0.06);
+  --bridge-tile-active: rgba(245,184,0,0.55);
+  --bridge-tile-ok:     rgba(74,222,128,0.45);
+  --bridge-tile-fire:   rgba(239,68,68,0.65);
+  --bridge-tile-conf:   #ef4444;
+  --tool-cyan: #67e8f9;
+}
+
+main.bridge {
+  /* POST-AUDIT FIX (2026-05-13): top padding now actually clears the
+     fixed nav. shared.css's .nav is 22+42+22 = 86px tall at rest (and
+     14+42+14 = 70px scrolled). The previous 24px value didn't clear
+     either state — the comment claimed "shared.css's .nav is ~64px
+     tall" and "8px of breathing room" but the math never added up, so
+     the health-banner rendered behind a transparent nav and overlapped
+     the logo. 96px = 86px nav + 10px breathing room. */
+  padding: 96px 0 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at top, rgba(245,184,0,0.04) 0%, transparent 50%),
+    var(--bridge-bg);
+}
+
+/* POST-AUDIT FIX (2026-05-13): on the dashboard page, the nav must
+   have a solid background at ALL times — not just when scrolled.
+   shared.css's `.nav` is transparent until the JS toggles `.scrolled`,
+   which is fine for the marketing homepage but breaks the customer
+   dashboard: at first paint the nav is invisible, so the health-banner
+   shows through it. The <nav> element on this page carries the
+   `dashboard` class so this rule applies on every render. */
+.nav.dashboard {
+  background: rgba(5,5,4,0.7);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border-bottom-color: var(--rule);
+}
+
+/* ===== HERO HEADER STRIP ===== */
+.bridge-header {
+  padding: 12px 32px;
+  border-bottom: 1px solid var(--bridge-rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.08em;
+  flex-wrap: wrap;
+}
+.bridge-header-left { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
+.bridge-customer-tag {
+  color: var(--ink-2);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.bridge-customer-tag .name { color: var(--amber); }
+.bridge-engine-sha {
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.bridge-engine-sha .sha {
+  color: var(--ink); font-weight: 500;
+  background: rgba(245,184,0,0.06);
+  padding: 2px 8px;
+  border: 1px solid rgba(245,184,0,0.2);
+  border-radius: 3px;
+  letter-spacing: 0.06em;
+  transition: background 0.6s ease, color 0.6s ease;
+}
+.bridge-engine-sha.sha-flicker .sha {
+  background: rgba(245,184,0,0.5);
+  color: var(--bg);
+  animation: shaFlicker 0.6s steps(8, end);
+}
+@keyframes shaFlicker {
+  0%   { opacity: 1; }
+  10%  { opacity: 0.3; }
+  20%  { opacity: 1; }
+  30%  { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+/* Heartbeat pip — always pulses */
+.bridge-heart {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--ok);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.bridge-heart .pip {
+  display: block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 0 var(--ok);
+  animation: pip 1.4s ease-out infinite;
+}
+@keyframes pip {
+  0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.6); transform: scale(1.0); }
+  60%  { box-shadow: 0 0 0 10px rgba(74,222,128,0); transform: scale(1.0); }
+  100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); transform: scale(1.0); }
+}
+.bridge-heart.offline { color: var(--crit); }
+.bridge-heart.offline .pip {
+  background: var(--crit);
+  animation: pip-offline 1.4s ease-out infinite;
+}
+@keyframes pip-offline {
+  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
+  60%  { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+
+.bridge-header-right { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
+.bridge-cost {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.bridge-cost .cap { color: var(--ink-3); margin-left: 6px; }
+.bridge-cost-bar {
+  width: 80px; height: 4px;
+  background: var(--bridge-rule);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-left: 8px;
+  display: inline-block;
+  vertical-align: middle;
+}
+.bridge-cost-bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber), var(--amber-2));
+  transition: width 0.4s var(--ease-out);
+}
+
+.bridge-poll {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+.bridge-poll .label { color: var(--ink-4); margin-right: 4px; }
+.bridge-poll .val { color: var(--ink); font-weight: 500; }
+
+/* ===== SPARKLINE STRIP ===== */
+.spark-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  border-bottom: 1px solid var(--bridge-rule);
+}
+@media (max-width: 768px) {
+  .spark-strip { grid-template-columns: repeat(2, 1fr); }
+  .spark-cell:nth-child(2) { border-right: none; }
+}
+.spark-cell {
+  padding: 10px 18px;
+  border-right: 1px solid var(--bridge-rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+}
+.spark-cell:last-child { border-right: none; }
+.spark-cell-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+.spark-cell-value {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.spark-cell svg {
+  flex: 1;
+  height: 28px;
+  overflow: visible;
+}
+.spark-cell svg polyline {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 3px rgba(245,184,0,0.4));
+}
+
+/* ===== MAIN GRID ===== */
+.bridge-main {
+  display: grid;
+  grid-template-columns: 280px 1fr 280px;
+  gap: 0;
+  min-height: 580px;
+}
+@media (max-width: 1100px) {
+  .bridge-main { grid-template-columns: 1fr; }
+  .bridge-side { border-right: none !important; border-bottom: 1px solid var(--bridge-rule); }
+}
+
+.bridge-side {
+  padding: 18px 20px;
+  border-right: 1px solid var(--bridge-rule);
+  overflow: hidden;
+}
+.bridge-side:last-of-type { border-right: none; border-left: 1px solid var(--bridge-rule); }
+
+.bridge-section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.bridge-section-label .count {
+  color: var(--amber);
+  font-size: 11px;
+}
+
+/* ===== FINDINGS WATERFALL (LEFT) ===== */
+.findings-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 540px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bridge-rule-2) transparent;
+}
+.findings-stream::-webkit-scrollbar { width: 6px; }
+.findings-stream::-webkit-scrollbar-thumb { background: var(--bridge-rule-2); border-radius: 3px; }
+
+.finding-card {
+  background: var(--bridge-panel);
+  border: 1px solid var(--bridge-rule);
+  border-left: 3px solid var(--ink-4);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  transition: border-color 0.4s, background 0.6s;
+  animation: slideIn 0.4s var(--ease-out);
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.finding-card.new-glow {
+  animation: slideIn 0.4s var(--ease-out), newPulse 3s ease-out;
+}
+@keyframes newPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(245,184,0,0.6); border-color: var(--amber); background: rgba(245,184,0,0.08); }
+  100% { box-shadow: 0 0 0 0 rgba(245,184,0,0); }
+}
+.finding-card.sev-Critical, .finding-card.sev-CRIT { border-left-color: var(--crit); }
+.finding-card.sev-High      { border-left-color: var(--high); }
+.finding-card.sev-Medium    { border-left-color: var(--warn); }
+.finding-card.sev-Low       { border-left-color: var(--info); }
+.finding-card .hid {
+  color: var(--ink); font-weight: 600;
+  font-size: 11px; letter-spacing: 0.06em;
+}
+.finding-card .sev-badge {
+  float: right;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+.finding-card .sev-Critical .sev-badge,
+.finding-card.sev-Critical .sev-badge { background: var(--crit); color: #fff; }
+.finding-card.sev-High .sev-badge { background: var(--high); color: #fff; }
+.finding-card.sev-Medium .sev-badge { background: var(--warn); color: var(--bg); }
+.finding-card.sev-Low .sev-badge { background: var(--info); color: var(--bg); }
+.finding-card .title {
+  display: block;
+  color: var(--ink-2);
+  margin-top: 4px;
+  font-size: 11px;
+  font-family: var(--font);
+  font-weight: 400;
+  line-height: 1.45;
+}
+.finding-card .meta {
+  margin-top: 4px;
+  color: var(--ink-4);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ===== CENTER STAGE ===== */
+.bridge-stage {
+  padding: 18px 24px 0;
+  min-width: 0;
+}
+
+.stage-row {
+  background: linear-gradient(180deg, rgba(245,184,0,0.04), transparent);
+  border: 1px solid var(--bridge-rule-2);
+  border-radius: 6px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+  min-height: 76px;
+}
+.stage-row::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--amber) 50%, transparent);
+  opacity: 0.5;
+  animation: stageSweep 6s ease-in-out infinite;
+}
+@keyframes stageSweep {
+  0%, 100% { transform: translateX(-100%); opacity: 0; }
+  50% { transform: translateX(100%); opacity: 0.5; }
+}
+.stage-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--amber);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.stage-eyebrow .pulse {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  animation: pip 1.6s ease-out infinite;
+}
+.stage-headline {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.stage-headline .accent { color: var(--amber); font-weight: 600; }
+.stage-headline .dim { color: var(--ink-3); }
+.stage-progress {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+}
+.stage-progress-bar {
+  flex: 1;
+  height: 3px;
+  background: var(--bridge-rule);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.stage-progress-bar > div {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--amber), var(--amber-2));
+  box-shadow: 0 0 4px var(--amber-glow);
+  transition: width 0.4s var(--ease-out);
+}
+
+/* ===== HYPOTHESIS GRID ===== */
+.grid-wrap {
+  background: var(--bridge-panel);
+  border: 1px solid var(--bridge-rule);
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+.grid-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+}
+.grid-header .legend {
+  display: flex; align-items: center; gap: 14px;
+  font-size: 9px; letter-spacing: 0.14em;
+  color: var(--ink-4);
+}
+.grid-header .legend span { display: inline-flex; align-items: center; gap: 4px; }
+.grid-header .legend i {
+  display: inline-block; width: 7px; height: 7px;
+  border-radius: 1px;
+}
+.grid-header .legend .gi-idle   { background: var(--bridge-tile-idle); }
+.grid-header .legend .gi-active { background: var(--bridge-tile-active); }
+.grid-header .legend .gi-ok     { background: var(--bridge-tile-ok); }
+.grid-header .legend .gi-fire   { background: var(--bridge-tile-fire); }
+.grid-header .legend .gi-conf   { background: var(--bridge-tile-conf); }
+
+.hyp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
+  gap: 3px;
+  min-height: 120px;
+}
+.hyp-tile {
+  aspect-ratio: 1;
+  background: var(--bridge-tile-idle);
+  border-radius: 2px;
+  position: relative;
+  transition: background 0.4s var(--ease-out), transform 0.2s;
+  cursor: pointer;
+}
+.hyp-tile:hover {
+  transform: scale(1.6);
+  z-index: 5;
+  outline: 1px solid var(--amber);
+}
+.hyp-tile.active {
+  background: var(--bridge-tile-active);
+  animation: tilePulse 1.2s ease-in-out infinite;
+}
+@keyframes tilePulse {
+  0%, 100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(245,184,0,0.5); }
+  50%      { opacity: 1; box-shadow: 0 0 0 2px rgba(245,184,0,0.15); }
+}
+.hyp-tile.ok      { background: var(--bridge-tile-ok); }
+.hyp-tile.fire    { background: var(--bridge-tile-fire); }
+.hyp-tile.fire.confirmed { background: var(--bridge-tile-conf); }
+.hyp-tile.tooltip-target::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: 130%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(5,5,4,0.96);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  border: 1px solid var(--bridge-rule-2);
+  z-index: 10;
+}
+.hyp-tile:hover.tooltip-target::after { opacity: 1; }
+
+/* ===== TOOL CALL STREAM ===== */
+.toolstream {
+  background: var(--bridge-panel);
+  border: 1px solid var(--bridge-rule);
+  border-radius: 6px;
+  padding: 0;
+  margin-bottom: 18px;
+  max-height: 260px;
+  display: flex;
+  flex-direction: column;
+}
+.toolstream-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--bridge-rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+}
+.toolstream-body {
+  padding: 8px 0;
+  overflow-y: auto;
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bridge-rule-2) transparent;
+}
+.toolstream-body::-webkit-scrollbar { width: 4px; }
+.toolstream-body::-webkit-scrollbar-thumb { background: var(--bridge-rule-2); border-radius: 2px; }
+.toolstream-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--ink-4);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.toolstream-row {
+  padding: 4px 16px;
+  display: grid;
+  grid-template-columns: 70px 70px 1fr;
+  gap: 12px;
+  color: var(--ink-2);
+  border-left: 2px solid transparent;
+  transition: background 0.2s;
+  animation: toolRowIn 0.32s var(--ease-out);
+  word-break: break-word;
+}
+@keyframes toolRowIn {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.toolstream-row:hover { background: rgba(245,184,0,0.04); }
+.toolstream-row.fresh { border-left-color: var(--amber); }
+.toolstream-row .ts { color: var(--ink-4); font-size: 10px; }
+.toolstream-row .hid { color: var(--amber); font-weight: 600; font-size: 10px; }
+.toolstream-row .tool { color: var(--tool-cyan); font-weight: 500; }
+.toolstream-row .args { color: var(--ink-3); }
+
+/* ===== L2.5 TRIAGE BAR ===== */
+.triage-bar-wrap {
+  background: var(--bridge-panel);
+  border: 1px solid var(--bridge-rule);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+.triage-bar-head {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+.triage-bar {
+  height: 12px;
+  background: var(--bridge-rule);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  transition: opacity 0.3s;
+}
+.triage-bar.empty { opacity: 0.35; }
+.triage-bar .seg { transition: width 0.5s var(--ease-out); }
+.triage-bar .seg.strong { background: var(--crit); }
+.triage-bar .seg.soft   { background: var(--warn); }
+.triage-bar .seg.false_ { background: var(--gray); }
+.triage-bar .seg.lost   { background: #a855f7; }
+.triage-legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+.triage-legend span {
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.triage-legend span::before {
+  content: ""; display: inline-block;
+  width: 6px; height: 6px; border-radius: 1px;
+}
+.triage-legend .strong::before { background: var(--crit); }
+.triage-legend .soft::before   { background: var(--warn); }
+.triage-legend .false_::before { background: var(--gray); }
+.triage-legend .lost::before   { background: #a855f7; }
+.triage-legend .val { color: var(--ink); font-weight: 500; }
+
+/* ===== CYCLE WATERFALL (RIGHT) ===== */
+.cycle-waterfall {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 10px;
+  margin-bottom: 22px;
+}
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.layer-row .name {
+  flex: 0 0 70px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.layer-row .bar {
+  flex: 1;
+  height: 6px;
+  background: var(--bridge-rule);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.layer-row .bar > div {
+  height: 100%;
+  width: 0;
+  background: var(--ink-4);
+  transition: width 0.5s var(--ease-out), background 0.4s;
+  border-radius: 3px;
+}
+.layer-row.active .bar > div {
+  background: var(--amber);
+  width: var(--p, 30%);
+  animation: barShimmer 1.6s ease-in-out infinite;
+}
+@keyframes barShimmer {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245,184,0,0.3); }
+  50%      { box-shadow: 0 0 6px 0 rgba(245,184,0,0.6); }
+}
+.layer-row.done .bar > div { background: var(--ok); width: 100%; }
+.layer-row.skipped .bar > div { background: var(--ink-5); width: 100%; }
+.layer-row .status {
+  flex: 0 0 64px;
+  text-align: right;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+}
+.layer-row.done .status { color: var(--ok); }
+.layer-row.active .status { color: var(--amber); }
+.layer-row.skipped .status { color: var(--ink-4); }
+
+/* ===== SIDE STATS ===== */
+.side-stat {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  letter-spacing: 0.04em;
+}
+.side-stat .val { color: var(--ink); font-weight: 500; }
+.side-stat .val.amber { color: var(--amber); }
+.side-stat .val.ok    { color: var(--ok); }
+.side-stat .val.crit  { color: var(--crit); }
+.side-divider {
+  height: 1px;
+  background: var(--bridge-rule);
+  margin: 14px 0;
+}
+
+/* ===== EVENT TERMINAL ===== */
+.event-terminal {
+  margin-top: 0;
+  background: rgba(5,5,4,0.5);
+  border-top: 1px solid var(--bridge-rule);
+  border-bottom: 1px solid var(--bridge-rule);
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  max-height: 180px;
+  display: flex;
+  flex-direction: column;
+}
+.event-terminal-head {
+  padding: 10px 32px;
+  border-bottom: 1px solid var(--bridge-rule);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.event-terminal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bridge-rule-2) transparent;
+}
+.event-terminal-body::-webkit-scrollbar { height: 4px; width: 4px; }
+.event-terminal-body::-webkit-scrollbar-thumb { background: var(--bridge-rule-2); border-radius: 2px; }
+.event-row {
+  padding: 3px 32px;
+  display: grid;
+  grid-template-columns: 80px 130px 1fr;
+  gap: 14px;
+  color: var(--ink-2);
+  animation: toolRowIn 0.32s var(--ease-out);
+}
+.event-row .ts   { color: var(--ink-4); font-size: 10px; }
+.event-row .kind { color: var(--amber); font-size: 10px; letter-spacing: 0.06em; }
+.event-row .kind.ok   { color: var(--ok); }
+.event-row .kind.crit { color: var(--crit); }
+.event-row .body { color: var(--ink-3); }
+
+/* ===== FOOTER ACTIONS ===== */
+.bridge-actions {
+  padding: 24px 32px 60px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.bridge-actions a {
+  color: var(--ink-2);
+  padding: 8px 14px;
+  border: 1px solid var(--bridge-rule);
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 10px;
+  transition: all 0.2s;
+}
+.bridge-actions a:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(245,184,0,0.04);
+}
+.bridge-actions .primary {
+  background: var(--amber);
+  color: var(--bg);
+  border-color: var(--amber);
+  font-weight: 600;
+}
+.bridge-actions .primary:hover {
+  background: var(--amber-2);
+  color: var(--bg);
+}
+
+/* ===== DEMO BANNER ===== */
+.demo-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  background: linear-gradient(90deg, rgba(245,184,0,0.12), rgba(245,184,0,0.06));
+  border-bottom: 1px solid rgba(245,184,0,0.3);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber);
+  text-align: center;
+  padding: 6px 16px;
+  z-index: 100;
+  font-weight: 600;
+}
+.demo-banner .badge {
+  display: inline-block;
+  background: var(--amber);
+  color: var(--bg);
+  padding: 1px 6px;
+  border-radius: 2px;
+  margin-right: 8px;
+  font-weight: 700;
+}
+.demo-banner a { color: var(--ink); text-decoration: underline; }
+
+/* ===== HEALTH BANNER — self-proof of system state, customer-language ===== */
+.health-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 32px;
+  border-bottom: 1px solid var(--bridge-rule);
+  font-family: var(--font);
+  font-size: 13px;
+  transition: background 0.6s ease, border-color 0.6s ease;
+}
+.health-banner.healthy {
+  background: linear-gradient(90deg, rgba(74,222,128,0.06), transparent 60%);
+  border-bottom-color: rgba(74,222,128,0.18);
+}
+.health-banner.warning {
+  background: linear-gradient(90deg, rgba(245,184,0,0.08), transparent 60%);
+  border-bottom-color: rgba(245,184,0,0.28);
+}
+.health-banner.degraded {
+  background: linear-gradient(90deg, rgba(239,68,68,0.09), transparent 60%);
+  border-bottom-color: rgba(239,68,68,0.32);
+}
+.health-light {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ok);
+  text-shadow: 0 0 12px currentColor;
+  transition: color 0.6s;
+}
+.health-banner.warning .health-light  { color: var(--warn); }
+.health-banner.degraded .health-light { color: var(--crit); }
+.health-text {
+  flex: 1;
+  min-width: 0;
+}
+.health-text strong {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.005em;
+  margin-bottom: 2px;
+}
+.health-text .detail {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.health-checks {
+  display: flex;
+  gap: 18px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-4);
+  flex-shrink: 0;
+}
+.health-checks span {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.health-checks span::before {
+  content: ""; display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--ink-5);
+  transition: background 0.4s;
+}
+.health-checks span.ok::before   { background: var(--ok);   box-shadow: 0 0 4px var(--ok); }
+.health-checks span.warn::before { background: var(--warn); box-shadow: 0 0 4px var(--warn); }
+.health-checks span.fail::before { background: var(--crit); box-shadow: 0 0 4px var(--crit); }
+@media (max-width: 768px) {
+  .health-banner { padding: 12px 16px; flex-wrap: wrap; }
+  .health-checks { width: 100%; padding-top: 8px; border-top: 1px solid var(--bridge-rule); }
+}
+
+@media (max-width: 768px) {
+  .bridge-header { padding: 10px 16px; flex-direction: column; align-items: flex-start; }
+  .bridge-side { padding: 14px 18px; }
+  .bridge-stage { padding: 16px 18px 0; }
+  .bridge-actions { padding: 16px 18px 32px; }
+  .event-row { grid-template-columns: 60px 100px 1fr; padding: 3px 18px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Custom amber cursor (site-wide chrome — shared.css sets body{cursor:none}
+     and these divs follow the mouse via the JS below. Without them, the
+     native cursor is hidden and the page LOOKS like no cursor at all). -->
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+
+<!-- Site-wide nav — same shape as the lobby + every other page. Customer
+     needs to be able to navigate AWAY from the Bridge view, not just
+     scroll to the footer. Sticky at top, slim, dense — matches the
+     mission-control aesthetic. -->
+<!-- POST-AUDIT FIX (2026-05-13): add `dashboard` class so the nav gets
+     a permanent solid background (shared.css makes .nav transparent at
+     rest, which made the health-banner show through it on the customer
+     view and overlap the logo). --><nav class="nav dashboard" id="nav" style="--nav-h: 86px;">
+  <a href="/" class="nav-logo" aria-label="OtterSec portal" style="display:inline-flex;align-items:center;gap:12px;"><img src="./logo.svg" alt="OtterSec logo" style="max-height: 28px; width: auto;"><span style="font-family:var(--font);font-weight:700;font-size:18px;letter-spacing:-0.01em;color:var(--ink);">OtterSec</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3);letter-spacing:0.12em;text-transform:uppercase;border-left:1px solid var(--rule);padding-left:12px;margin-left:4px;">Jelleo</span></a>
+  <div class="nav-center">
+    <a href="/customer/ottersec/">← Lobby</a>
+    <a href="/protocols/">Protocols</a>
+    <a href="/bug-classes.html">Catalog</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html">Security</a>
+    <a href="/cycles/">Cycles</a>
+    <a href="/customer/ottersec/full.html?legacy=1">Classic view</a>
+  </div>
+  <div class="nav-right">
+    <span class="nav-status">
+      <span class="live-dot"></span>
+      OtterSec · ottersec
+    </span>
+    <a href="/customer/" class="nav-cta">Sign out</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/customer/ottersec/" role="menuitem">← Summary</a>
+  <a href="/customer/ottersec/full.html?legacy=1" role="menuitem">Classic 4-panel view</a>
+  <a href="/protocols/" role="menuitem">Protocols</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/cycles/" role="menuitem">Cycles</a>
+  <a href="/customer/" role="menuitem">Sign out</a>
+</div>
+<!-- Demo identification lives in the nav-status badge above; no separate
+     demo-banner needed (would overlap with the sticky nav). -->
+
+
+
+<style id="bridge-tab-bar-style">
+  /* Multi-target tab bar — premium chip row above the Bridge content.
+     Persistent at the top of the page below the fixed nav. */
+  .tab-bar {
+    position: sticky;
+    top: 86px;       /* below the fixed nav */
+    z-index: 90;
+    background: rgba(5,5,4,0.78);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border-bottom: 1px solid var(--rule);
+    padding: 12px 32px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .tab-bar::-webkit-scrollbar { height: 6px; }
+  .tab-bar::-webkit-scrollbar-track { background: transparent; }
+  .tab-bar::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 3px; }
+  .tab-bar .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-right: 6px;
+    flex-shrink: 0;
+  }
+  .tab-bar .tab-group {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .tab-bar .tab-group + .tab-group::before {
+    content: '';
+    display: block;
+    width: 1px; height: 18px;
+    background: var(--rule);
+    margin: 0 8px;
+  }
+  .tab-bar .tab {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--rule);
+    color: var(--ink-2);
+    padding: 7px 14px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .tab-bar .tab:hover {
+    border-color: var(--amber);
+    color: var(--ink);
+  }
+  .tab-bar .tab.active {
+    background: var(--amber);
+    color: var(--bg);
+    border-color: var(--amber);
+    font-weight: 600;
+  }
+  .tab-bar .tab .badge {
+    display: inline-block;
+    min-width: 18px;
+    text-align: center;
+    padding: 1px 5px;
+    border-radius: 8px;
+    font-size: 9px;
+    background: rgba(245,243,237,0.08);
+    color: var(--ink-2);
+    font-weight: 600;
+  }
+  .tab-bar .tab.active .badge {
+    background: rgba(5,5,4,0.18);
+    color: var(--bg);
+  }
+  .tab-bar .tab .badge.zero { opacity: 0.4; }
+
+  /* Push the Bridge content down past the sticky tab bar */
+  main.bridge { padding-top: 152px; /* nav 86 + tab bar 56 + 10 breathing */ }
+</style>
+
+<div class="tab-bar" id="tab-bar" role="tablist" aria-label="Audit targets">
+<span class="label">Targets</span>
+<div class="tab-group">
+<button class="tab" role="tab" data-target="osec-solana-small" aria-controls="tab-panel-osec-solana-small" data-group="solana"><span>small</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-solana-medium" aria-controls="tab-panel-osec-solana-medium" data-group="solana"><span>medium</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-solana-large" aria-controls="tab-panel-osec-solana-large" data-group="solana"><span>large</span><span class="badge zero">0</span></button>
+</div>
+<div class="tab-group">
+<button class="tab" role="tab" data-target="osec-solidity-small" aria-controls="tab-panel-osec-solidity-small" data-group="solidity"><span>small</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-solidity-medium" aria-controls="tab-panel-osec-solidity-medium" data-group="solidity"><span>medium</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-solidity-large" aria-controls="tab-panel-osec-solidity-large" data-group="solidity"><span>large</span><span class="badge zero">0</span></button>
+</div>
+<div class="tab-group">
+<button class="tab" role="tab" data-target="osec-c-small" aria-controls="tab-panel-osec-c-small" data-group="c"><span>small</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-c-medium" aria-controls="tab-panel-osec-c-medium" data-group="c"><span>medium</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-c-large" aria-controls="tab-panel-osec-c-large" data-group="c"><span>large</span><span class="badge zero">0</span></button>
+</div>
+<div class="tab-group">
+<button class="tab" role="tab" data-target="osec-aptos-small" aria-controls="tab-panel-osec-aptos-small" data-group="aptos"><span>small</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-aptos-medium" aria-controls="tab-panel-osec-aptos-medium" data-group="aptos"><span>medium</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-aptos-large" aria-controls="tab-panel-osec-aptos-large" data-group="aptos"><span>large</span><span class="badge zero">0</span></button>
+</div>
+</div>
+
+<script>
+/* Multi-target tab bar logic. One SSE stream feeds all tabs; each tab
+   maintains its own state slice so switching is instant (no reload).
+   Active tab persists in localStorage so refresh keeps your spot.
+   Tab can also be selected via URL hash (#osec-solana-small). */
+(function () {
+  const TAB_BAR = document.getElementById('tab-bar');
+  if (!TAB_BAR) return;
+
+  const TARGETS = Array.from(TAB_BAR.querySelectorAll('.tab')).map(b => b.dataset.target);
+  const STORAGE_KEY = 'jelleo:active-target:' + (window.location.pathname.split('/')[2] || 'unknown');
+
+  function getInitialTarget() {
+    const hash = window.location.hash.replace('#', '').trim();
+    if (hash && TARGETS.indexOf(hash) >= 0) return hash;
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored && TARGETS.indexOf(stored) >= 0) return stored;
+    return TARGETS[0] || null;
+  }
+
+  function setActive(target) {
+    if (!target) return;
+    TAB_BAR.querySelectorAll('.tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.target === target);
+      b.setAttribute('aria-selected', b.dataset.target === target ? 'true' : 'false');
+    });
+    // Expose globally so the Bridge state code can filter SSE events.
+    window.JELLEO_ACTIVE_TARGET = target;
+    // Dispatch a synthetic event so the Bridge JS can repaint.
+    window.dispatchEvent(new CustomEvent('jelleo:target-switched', {detail: {target}}));
+    try { localStorage.setItem(STORAGE_KEY, target); } catch (e) {}
+    // Update URL hash without scrolling
+    history.replaceState(null, '', '#' + target);
+  }
+
+  TAB_BAR.addEventListener('click', (e) => {
+    const tab = e.target.closest('.tab');
+    if (!tab) return;
+    setActive(tab.dataset.target);
+  });
+
+  // Initial selection
+  setActive(getInitialTarget());
+
+  // Keyboard navigation (← / →)
+  window.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const active = window.JELLEO_ACTIVE_TARGET;
+    const i = TARGETS.indexOf(active);
+    if (e.key === 'ArrowRight' && i >= 0 && i < TARGETS.length - 1) setActive(TARGETS[i + 1]);
+    if (e.key === 'ArrowLeft'  && i > 0) setActive(TARGETS[i - 1]);
+  });
+})();
+</script>
+
+
+<main class="bridge">
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       HEALTH BANNER — answers "is this thing healthy?" in plain English,
+       without the customer touching a terminal. Three rolled-up checks:
+       engine heartbeat fresh, event stream connected, recent cycle activity.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="health-banner healthy" id="health-banner" role="status" aria-live="polite">
+    <div class="health-light">●</div>
+    <div class="health-text">
+      <strong id="health-title">All systems healthy</strong>
+      <span class="detail" id="health-detail">Connecting to live engine…</span>
+    </div>
+    <div class="health-checks">
+      <span id="check-engine">Engine</span>
+      <span id="check-stream">Live stream</span>
+      <span id="check-activity">Activity</span>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       HERO HEADER STRIP
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="bridge-header">
+    <div class="bridge-header-left">
+      <span class="bridge-customer-tag">Customer · <span class="name">OtterSec</span></span>
+      <span class="bridge-engine-sha" id="engine-sha-wrap">
+        Engine
+        <span class="sha" id="engine-sha">—</span>
+      </span>
+      <span class="bridge-heart" id="heart">
+        <span class="pip"></span>
+        <span id="heart-text">Live</span>
+      </span>
+    </div>
+    <div class="bridge-header-right">
+      <span class="bridge-poll">
+        <span class="label">Idle for</span>
+        <span class="val" id="idle-since">—</span>
+      </span>
+      <span class="bridge-cost">
+        <span id="cost-now">$ 0.000</span>
+        <span class="cap">/ $ <span id="cost-cap">—</span> today</span>
+        <span class="bridge-cost-bar"><div id="cost-bar-fill" style="width: 0%"></div></span>
+      </span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SPARKLINE STRIP (4 always-moving micro-charts)
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="spark-strip">
+    <div class="spark-cell">
+      <span class="spark-cell-label">Tokens/s</span>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <polyline id="spark-tokens" points=""></polyline>
+      </svg>
+      <span class="spark-cell-value" id="spark-tokens-val">0</span>
+    </div>
+    <div class="spark-cell">
+      <span class="spark-cell-label">Hyps/min</span>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <polyline id="spark-hyps" points=""></polyline>
+      </svg>
+      <span class="spark-cell-value" id="spark-hyps-val">0</span>
+    </div>
+    <div class="spark-cell">
+      <span class="spark-cell-label">Tools/min</span>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <polyline id="spark-tools" points=""></polyline>
+      </svg>
+      <span class="spark-cell-value" id="spark-tools-val">0</span>
+    </div>
+    <div class="spark-cell">
+      <span class="spark-cell-label">Loop Hz</span>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <polyline id="spark-loop" points=""></polyline>
+      </svg>
+      <span class="spark-cell-value" id="spark-loop-val">1.0</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       MAIN 3-COLUMN GRID
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="bridge-main">
+
+    <!-- LEFT: findings waterfall + counters -->
+    <aside class="bridge-side">
+      <div class="bridge-section-label">Findings <span class="count" id="findings-count">0</span></div>
+      <div class="side-stat"><span>Critical · open</span><span class="val crit" id="ct-crit">0</span></div>
+      <div class="side-stat"><span>High · open</span><span class="val amber" id="ct-high">0</span></div>
+      <div class="side-stat"><span>Confirmed total</span><span class="val" id="ct-confirmed">0</span></div>
+      <div class="side-stat"><span>Cycles signed</span><span class="val" id="ct-cycles">0</span></div>
+      <div class="side-divider"></div>
+      <div class="findings-stream" id="findings-stream">
+        <div style="color: var(--ink-4); font-family: var(--mono); font-size: 10px; padding: 12px 0; text-align: center; letter-spacing: 0.18em; text-transform: uppercase;">Loading…</div>
+      </div>
+    </aside>
+
+    <!-- CENTER: stage + grid + tool stream + triage -->
+    <div class="bridge-stage">
+
+      <!-- THE STAGE (current task hero line) -->
+      <div class="stage-row" id="stage-row">
+        <div class="stage-eyebrow">
+          <span class="pulse"></span>
+          <span id="stage-eyebrow-text">Watching upstream</span>
+        </div>
+        <div class="stage-headline" id="stage-headline">
+          <span class="dim">No active cycle.</span> Next watch poll in
+          <span class="accent" id="next-poll">—</span>.
+        </div>
+        <div class="stage-progress" id="stage-progress" style="display: none;">
+          <span id="stage-progress-label">—</span>
+          <div class="stage-progress-bar"><div id="stage-progress-fill"></div></div>
+          <span id="stage-progress-pct">0%</span>
+        </div>
+      </div>
+
+      <!-- HYPOTHESIS GRID -->
+      <div class="grid-wrap">
+        <div class="grid-header">
+          <span>Hypothesis grid · <span id="grid-total">0</span></span>
+          <span class="legend">
+            <span><i class="gi-idle"></i>idle</span>
+            <span><i class="gi-active"></i>in flight</span>
+            <span><i class="gi-ok"></i>clean</span>
+            <span><i class="gi-fire"></i>fire</span>
+            <span><i class="gi-conf"></i>confirmed</span>
+          </span>
+        </div>
+        <div class="hyp-grid" id="hyp-grid"></div>
+      </div>
+
+      <!-- L2.5 TRIAGE BAR -->
+      <div class="triage-bar-wrap">
+        <div class="triage-bar-head">
+          <span>Layer 2.5 · fire triage</span>
+          <span id="triage-meta">no active fires</span>
+        </div>
+        <div class="triage-bar empty" id="triage-bar">
+          <div class="seg strong" id="seg-strong" style="width:0%"></div>
+          <div class="seg soft"   id="seg-soft"   style="width:0%"></div>
+          <div class="seg false_" id="seg-false"  style="width:0%"></div>
+          <div class="seg lost"   id="seg-lost"   style="width:0%"></div>
+        </div>
+        <div class="triage-legend">
+          <span class="strong">STRONG · <span class="val" id="cnt-strong">0</span></span>
+          <span class="soft">SOFT · <span class="val" id="cnt-soft">0</span></span>
+          <span class="false_">FALSE · <span class="val" id="cnt-false">0</span></span>
+          <span class="lost">LOST · <span class="val" id="cnt-lost">0</span></span>
+        </div>
+      </div>
+
+      <!-- TOOL CALL STREAM -->
+      <div class="toolstream">
+        <div class="toolstream-head">
+          <span>Source-grounding tool calls (live)</span>
+          <span id="toolstream-rate">—</span>
+        </div>
+        <div class="toolstream-body" id="toolstream-body">
+          <div class="toolstream-empty">Idle — tool calls stream here when Layer 1 is dispatching.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: cycle waterfall + ops stats -->
+    <aside class="bridge-side">
+      <div class="bridge-section-label">Active cycle</div>
+      <div class="side-stat"><span>Cycle id</span><span class="val" id="active-cycle">—</span></div>
+      <div class="side-stat"><span>Started</span><span class="val" id="cycle-started">—</span></div>
+      <div class="side-stat"><span>Elapsed</span><span class="val amber" id="cycle-elapsed">—</span></div>
+      <div class="side-divider"></div>
+
+      <div class="bridge-section-label">Layer waterfall</div>
+      <div class="cycle-waterfall" id="waterfall">
+        <div class="layer-row" data-layer="L0"><span class="name">L0</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L1"><span class="name">L1</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L1.5"><span class="name">L1.5</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L2"><span class="name">L2</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L2.5"><span class="name">L2.5</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L3"><span class="name">L3</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L4"><span class="name">L4</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+      </div>
+
+      <div class="side-divider"></div>
+      <div class="bridge-section-label">Loop telemetry</div>
+      <div class="side-stat"><span>Uptime</span><span class="val" id="loop-uptime">—</span></div>
+      <div class="side-stat"><span>Last cycle</span><span class="val" id="last-cycle-rel">—</span></div>
+      <div class="side-stat"><span>Services</span><span class="val ok" id="services-up">—</span></div>
+      <div class="side-stat"><span>Heartbeat</span><span class="val" id="heart-age">—</span></div>
+    </aside>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       EVENT TERMINAL (auto-scroll, last 200 events)
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="event-terminal">
+    <div class="event-terminal-head">
+      <span>Event stream</span>
+      <span id="event-terminal-status">connecting…</span>
+    </div>
+    <div class="event-terminal-body" id="event-terminal-body">
+      <div class="event-row"><span class="ts">—</span><span class="kind">init</span><span class="body">Connecting to live event stream…</span></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       ACTIONS
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="bridge-actions">
+    <a class="primary" href="/cycles/">Cycle archive ↗</a>
+    <a href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">snapshot.json ↗</a>
+    <a href="https://api.jelleo.com/heartbeat.json" target="_blank" rel="noopener">heartbeat.json ↗</a>
+    <a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Public key ↗</a>
+    <a href="/customer/ottersec/">Lobby view ←</a>
+    <a href="?legacy=1">Classic 4-panel view ↗</a>
+    <a href="mailto:kirill@jelleo.com">Account manager</a>
+  </div>
+
+</main>
+
+<script>
+/* ──────────────────────────────────────────────────────────────────────
+   BRIDGE — vanilla JS only. No build step, no framework.
+   Three data sources:
+     1. snapshot.json  (public aggregate, cached, polled every 60s)
+     2. manifest.json  (per-customer, polled every 60s)
+     3. /events/demo   (SSE stream, real-time)
+   Plus an always-on rAF loop that animates idle-state motion (heartbeat,
+   sparkline drift, idle-since counter, next-poll countdown) so the page
+   NEVER looks frozen, even when the engine is between cycles.
+   ────────────────────────────────────────────────────────────────────── */
+(function() {
+  'use strict';
+
+  // ───── Legacy fallback: ?legacy=1 loads the preserved 4-panel view ─────
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('legacy') === '1') {
+    window.location.replace('full.legacy.html');
+    return;
+  }
+
+  const SNAPSHOT_URL = 'https://api.jelleo.com/snapshot.json';
+  const MANIFEST_URL = 'https://api.jelleo.com/customer/ottersec/manifest.json';
+  const HEARTBEAT_URL = 'https://api.jelleo.com/heartbeat.json';
+  const SSE_URL      = 'https://api.jelleo.com/events/ottersec';
+
+  // ───── State ─────
+  const state = {
+    hyps: new Map(),            // hyp_id → tile element
+    hypsOrder: [],              // insertion order
+    findings: new Map(),        // finding_id → card element
+    toolCallsThisMinute: [],    // sliding window of timestamps
+    hypsDoneThisMinute: [],
+    tokensThisSec: [],          // [{ts, tokens}]
+    layerState: {},             // {L1: 'active', L0: 'done', ...}
+    layerStarted: {},           // {L1: epoch_ms}
+    cycleStartedAt: null,
+    lastCycleAt: null,
+    lastEventAt: null,
+    heartbeatTs: null,
+    activeCycle: null,
+    activeHypId: null,
+    activeHypProgress: null,    // {done, total}
+    costNow: 0,
+    costCap: 800,
+    sparks: {
+      tokens: new Array(60).fill(0),
+      hyps:   new Array(60).fill(0),
+      tools:  new Array(60).fill(0),
+      loop:   new Array(60).fill(1),
+    },
+    triage: { strong: 0, soft: 0, false_: 0, lost: 0 },
+    sseConnected: false,
+  };
+
+  // ───── Helpers ─────
+  const $  = (id) => document.getElementById(id);
+  const fmtTime = (epoch) => {
+    if (!epoch) return '—';
+    const d = new Date(epoch);
+    return d.toTimeString().slice(0, 8);
+  };
+  const fmtRel = (epoch) => {
+    if (!epoch) return '—';
+    const dt = Math.max(0, Date.now() - epoch);
+    if (dt < 1000) return 'just now';
+    const s = Math.floor(dt / 1000);
+    if (s < 60)  return s + 's ago';
+    const m = Math.floor(s / 60);
+    if (m < 60)  return m + 'm ago';
+    const h = Math.floor(m / 60);
+    if (h < 48)  return h + 'h ago';
+    return Math.floor(h / 24) + 'd ago';
+  };
+  const fmtDur = (ms) => {
+    if (!ms || ms < 0) return '—';
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + 'm ' + (s % 60) + 's';
+    const h = Math.floor(m / 60);
+    return h + 'h ' + (m % 60) + 'm';
+  };
+  // POST-AUDIT FIX: safeStr now HTML-escapes in addition to length-
+  // clipping. Every site that interpolates event data into innerHTML
+  // routes through this helper. The previous slice-only implementation
+  // was an XSS surface if a cycle_id, phase_label, or finding title
+  // ever contained an `<` or `&`. Today engine-controlled fields are
+  // safe, but defense-in-depth.
+  const _HTML_ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  const safeStr = (s, n) => {
+    const str = (s == null ? '' : String(s)).slice(0, n || 80);
+    return str.replace(/[&<>"']/g, ch => _HTML_ENTITIES[ch]);
+  };
+  // Escape-aware alias for places we explicitly need the same behavior
+  const escHtml = safeStr;
+
+  // ───── Health banner — rolls up 3 checks into one customer-facing state ─────
+  // The customer should never need a terminal to know if Jelleo is up.
+  // This banner answers it in plain English, refreshed on every event +
+  // every animation tick.
+  const HEALTH_THRESHOLDS = {
+    heartbeat_ok_ms:    90 * 60 * 1000,   // 90 min — heartbeat runs hourly
+    heartbeat_warn_ms:  3 * 60 * 60 * 1000, // 3 h — beyond this, something is wrong
+    activity_ok_ms:     24 * 60 * 60 * 1000,   // 24 h
+    activity_warn_ms:   3 * 24 * 60 * 60 * 1000, // 72 h
+    stream_grace_ms:    20 * 1000,        // 20s — initial connect grace period
+  };
+  let healthFirstLoadAt = Date.now();
+  function refreshHealth() {
+    const banner = $('health-banner');
+    if (!banner) return;
+    const now = Date.now();
+    const sinceLoad = now - healthFirstLoadAt;
+
+    // Check 1 — engine heartbeat freshness
+    let engine = { status: 'fail', label: 'unknown' };
+    if (state.heartbeatTs) {
+      const age = now - state.heartbeatTs;
+      if (age <= HEALTH_THRESHOLDS.heartbeat_ok_ms)        engine = { status: 'ok',   label: 'running · ' + fmtRel(state.heartbeatTs) };
+      else if (age <= HEALTH_THRESHOLDS.heartbeat_warn_ms) engine = { status: 'warn', label: 'heartbeat stale · ' + fmtRel(state.heartbeatTs) };
+      else                                                 engine = { status: 'fail', label: 'no heartbeat ' + fmtRel(state.heartbeatTs) };
+    } else if (sinceLoad < HEALTH_THRESHOLDS.stream_grace_ms) {
+      engine = { status: 'warn', label: 'checking…' };
+    } else {
+      engine = { status: 'fail', label: 'no heartbeat received' };
+    }
+
+    // Check 2 — live event stream
+    let stream;
+    if (state.sseConnected) {
+      stream = { status: 'ok', label: 'connected' };
+    } else if (sinceLoad < HEALTH_THRESHOLDS.stream_grace_ms) {
+      stream = { status: 'warn', label: 'connecting' };
+    } else {
+      stream = { status: 'fail', label: 'reconnecting' };
+    }
+
+    // Check 3 — recent cycle activity (informational, not a hard fail)
+    let activity;
+    if (state.activeCycle && state.cycleStartedAt) {
+      activity = { status: 'ok', label: 'cycle running' };
+    } else if (state.lastCycleAt) {
+      const age = now - state.lastCycleAt;
+      if (age <= HEALTH_THRESHOLDS.activity_ok_ms)        activity = { status: 'ok',   label: 'last cycle ' + fmtRel(state.lastCycleAt) };
+      else if (age <= HEALTH_THRESHOLDS.activity_warn_ms) activity = { status: 'warn', label: 'last cycle ' + fmtRel(state.lastCycleAt) };
+      else                                                 activity = { status: 'warn', label: 'idle for ' + fmtDur(age) };
+    } else {
+      activity = { status: 'warn', label: 'no cycles seen yet' };
+    }
+
+    // Paint individual check dots
+    const setCheck = (id, status, suffix) => {
+      const el = $(id);
+      if (!el) return;
+      el.classList.remove('ok', 'warn', 'fail');
+      el.classList.add(status);
+      // Base label is the textContent set in HTML (Engine / Live stream / Activity)
+      const baseLabel = el.getAttribute('data-base') || el.textContent.split(' · ')[0].trim();
+      if (!el.getAttribute('data-base')) el.setAttribute('data-base', baseLabel);
+      el.textContent = baseLabel + ' · ' + suffix;
+    };
+    setCheck('check-engine',   engine.status,   engine.label);
+    setCheck('check-stream',   stream.status,   stream.label);
+    setCheck('check-activity', activity.status, activity.label);
+
+    // Roll up — overall status is the worst of the three.
+    // (activity is treated as informational; "warn" on activity alone
+    // never escalates the banner to "degraded" — idle is normal.)
+    let overall = 'healthy';
+    if (engine.status === 'fail' || stream.status === 'fail') overall = 'degraded';
+    else if (engine.status === 'warn' || stream.status === 'warn') overall = 'warning';
+
+    banner.classList.remove('healthy', 'warning', 'degraded');
+    banner.classList.add(overall);
+
+    // Headline + plain-English detail line
+    const title = $('health-title');
+    const detail = $('health-detail');
+    if (overall === 'healthy') {
+      title.textContent = state.activeCycle
+        ? 'Cycle running — Jelleo is auditing right now'
+        : 'All systems healthy';
+      detail.textContent = state.activeCycle
+        ? ('Cycle ' + safeStr(state.activeCycle, 22) + ' · ' + activity.label + ' · stream ' + stream.label)
+        : ('Engine ' + engine.label + ' · stream ' + stream.label + ' · ' + activity.label);
+    } else if (overall === 'warning') {
+      title.textContent = 'Mostly healthy';
+      const what = engine.status !== 'ok' ? 'Engine ' + engine.label
+                 : stream.status !== 'ok' ? 'Live stream ' + stream.label
+                 : activity.label;
+      detail.textContent = what + ' · we are on it · the engine self-heals on the next tick';
+    } else {
+      title.textContent = 'Service degraded — reconnecting';
+      const what = engine.status === 'fail' ? 'Engine ' + engine.label
+                 : stream.status === 'fail' ? 'Live stream ' + stream.label
+                 : 'unknown subsystem offline';
+      detail.textContent = what + ' · nothing for you to do · this view auto-refreshes';
+    }
+  }
+
+  // ───── Heartbeat status (top-left pip + label) ─────
+  function setHeartStatus(state_) {
+    const el = $('heart');
+    const txt = $('heart-text');
+    if (!el || !txt) return;
+    if (state_ === 'live') {
+      el.classList.remove('offline');
+      txt.textContent = 'Live';
+    } else if (state_ === 'idle') {
+      el.classList.remove('offline');
+      txt.textContent = 'Watching';
+    } else {
+      el.classList.add('offline');
+      txt.textContent = 'Reconnecting…';
+    }
+  }
+  function setTerminalStatus(text) {
+    const el = $('event-terminal-status');
+    if (el) el.textContent = text;
+  }
+
+  // ───── Stage (the hero current-task line) ─────
+  function setStage(eyebrow, headlineHtml, progress) {
+    const eyeEl = $('stage-eyebrow-text');
+    const headEl = $('stage-headline');
+    const progRow = $('stage-progress');
+    if (eyeEl) eyeEl.textContent = eyebrow;
+    if (headEl) headEl.innerHTML = headlineHtml;
+    if (progRow) {
+      if (progress && typeof progress === 'object') {
+        progRow.style.display = 'flex';
+        const pct = Math.min(100, Math.max(0, progress.pct || 0));
+        $('stage-progress-fill').style.width = pct + '%';
+        $('stage-progress-pct').textContent = Math.round(pct) + '%';
+        $('stage-progress-label').textContent = progress.label || '';
+      } else {
+        progRow.style.display = 'none';
+      }
+    }
+  }
+  function setStageIdle() {
+    setStage(
+      'Watching upstream',
+      `<span class="dim">No active cycle.</span> Next watch poll in <span class="accent" id="next-poll">—</span>.`,
+      null
+    );
+  }
+  setStageIdle();
+
+  // ───── Hypothesis grid ─────
+  function ensureHypTile(hypId) {
+    if (state.hyps.has(hypId)) return state.hyps.get(hypId);
+    const tile = document.createElement('div');
+    tile.className = 'hyp-tile tooltip-target';
+    tile.setAttribute('data-tip', hypId);
+    tile.setAttribute('data-hyp-id', hypId);
+    $('hyp-grid').appendChild(tile);
+    state.hyps.set(hypId, tile);
+    state.hypsOrder.push(hypId);
+    $('grid-total').textContent = state.hyps.size;
+    return tile;
+  }
+  function setHypTileState(hypId, cls, extra) {
+    const tile = ensureHypTile(hypId);
+    tile.classList.remove('active', 'ok', 'fire', 'confirmed');
+    if (cls) tile.classList.add(cls);
+    if (extra && Array.isArray(extra)) extra.forEach(c => tile.classList.add(c));
+    if (cls === 'fire') {
+      tile.setAttribute('data-tip', hypId + ' · TRUE');
+    } else if (cls === 'ok') {
+      tile.setAttribute('data-tip', hypId + ' · clean');
+    } else if (cls === 'active') {
+      tile.setAttribute('data-tip', hypId + ' · in flight');
+    }
+  }
+
+  // ───── Findings waterfall ─────
+  function upsertFinding(f) {
+    const fid = f.id != null ? String(f.id) : (f.hypothesis_id + '-' + (f.cycle_id || ''));
+    if (state.findings.has(fid)) return state.findings.get(fid);
+    const card = document.createElement('div');
+    card.className = 'finding-card sev-' + (f.severity || 'Medium') + ' new-glow';
+    card.setAttribute('data-fid', fid);
+    const hid = f.hypothesis_id || ('#' + f.id);
+    const title = f.title || '(untitled)';
+    const sev = f.severity || 'Medium';
+    const cyc = f.cycle_id || '';
+    card.innerHTML =
+      '<span class="hid">' + safeStr(hid, 40) + '</span>' +
+      '<span class="sev-badge">' + safeStr(sev, 12) + '</span>' +
+      '<span class="title">' + safeStr(title, 140) + '</span>' +
+      '<span class="meta">' + (cyc ? 'cycle ' + safeStr(cyc, 20) : '') + '</span>';
+    const stream = $('findings-stream');
+    if (stream.firstChild && stream.firstChild.style && stream.firstChild.style.textAlign === 'center') {
+      stream.innerHTML = '';
+    }
+    stream.prepend(card);
+    state.findings.set(fid, card);
+    setTimeout(() => card.classList.remove('new-glow'), 3200);
+    while (stream.children.length > 80) {
+      const last = stream.lastChild;
+      const lastFid = last && last.getAttribute && last.getAttribute('data-fid');
+      stream.removeChild(last);
+      if (lastFid) state.findings.delete(lastFid);
+    }
+    return card;
+  }
+  function clearFindingsLoadingMsg() {
+    const stream = $('findings-stream');
+    if (stream && stream.firstChild && stream.firstChild.textContent &&
+        stream.firstChild.textContent.toLowerCase().includes('loading')) {
+      stream.innerHTML = '';
+    }
+  }
+
+  // ───── Tool-call stream ─────
+  const TOOL_MAX_ROWS = 80;
+  function pushToolCall(ev) {
+    const body = $('toolstream-body');
+    if (!body) return;
+    if (body.firstChild && body.firstChild.classList && body.firstChild.classList.contains('toolstream-empty')) {
+      body.innerHTML = '';
+    }
+    const ts = new Date((ev.ts || Date.now() / 1000) * 1000);
+    const row = document.createElement('div');
+    row.className = 'toolstream-row fresh';
+    let argStr = '';
+    if (ev.tool === 'read_file') {
+      argStr = ev.path + (ev.start_line ? ':' + ev.start_line + (ev.end_line ? '-' + ev.end_line : '') : '');
+    } else if (ev.tool === 'grep') {
+      argStr = '"' + (ev.pattern || '') + '" in ' + (ev.path || '.');
+    } else if (ev.tool === 'find_function') {
+      argStr = ev.name + (ev.path ? ' in ' + ev.path : '');
+    } else {
+      argStr = ev.path || ev.pattern || ev.name || '';
+    }
+    row.innerHTML =
+      '<span class="ts">' + ts.toTimeString().slice(0, 8) + '</span>' +
+      '<span class="hid">' + safeStr(ev.hyp_id || '—', 16) + '</span>' +
+      '<span class="args"><span class="tool">' + safeStr(ev.tool || 'tool', 14) + '</span> ' + safeStr(argStr, 200) + '</span>';
+    body.prepend(row);
+    setTimeout(() => row.classList.remove('fresh'), 800);
+    while (body.children.length > TOOL_MAX_ROWS) {
+      body.removeChild(body.lastChild);
+    }
+    state.toolCallsThisMinute.push(Date.now());
+  }
+
+  // ───── Event terminal (bottom strip) ─────
+  const EVENT_MAX_ROWS = 200;
+  function pushEvent(kind, body, ts) {
+    const term = $('event-terminal-body');
+    if (!term) return;
+    if (term.firstChild && term.firstChild.classList &&
+        term.firstChild.querySelector('.kind') &&
+        term.firstChild.querySelector('.kind').textContent === 'init') {
+      term.innerHTML = '';
+    }
+    const t = new Date((ts || Date.now() / 1000) * 1000);
+    let cls = '';
+    if (kind === 'cycle_complete' || kind === 'hunt_complete' || kind === 'cycle_active') cls = 'ok';
+    if (kind === 'finding_persisted') cls = 'crit';
+    const row = document.createElement('div');
+    row.className = 'event-row';
+    row.innerHTML =
+      '<span class="ts">' + t.toTimeString().slice(0, 8) + '</span>' +
+      '<span class="kind ' + cls + '">' + safeStr(kind, 22) + '</span>' +
+      '<span class="body">' + safeStr(body, 240) + '</span>';
+    term.prepend(row);
+    while (term.children.length > EVENT_MAX_ROWS) {
+      term.removeChild(term.lastChild);
+    }
+  }
+
+  // ───── Layer waterfall ─────
+  function setLayer(label, cls, statusText, progressPct) {
+    const row = document.querySelector('.layer-row[data-layer="' + label + '"]');
+    if (!row) return;
+    row.classList.remove('active', 'done', 'skipped');
+    if (cls) row.classList.add(cls);
+    const status = row.querySelector('.status');
+    if (status) status.textContent = statusText || '';
+    const bar = row.querySelector('.bar > div');
+    if (bar) {
+      if (cls === 'active' && progressPct != null) {
+        row.style.setProperty('--p', Math.min(100, Math.max(0, progressPct)) + '%');
+      } else if (cls === 'done') {
+        bar.style.width = '100%';
+      } else if (cls === 'skipped') {
+        bar.style.width = '100%';
+      } else if (!cls) {
+        bar.style.width = '0%';
+      }
+    }
+  }
+
+  // ───── Triage bar ─────
+  function renderTriage() {
+    const t = state.triage;
+    const total = t.strong + t.soft + t.false_ + t.lost;
+    const bar = $('triage-bar');
+    if (total === 0) {
+      bar.classList.add('empty');
+      $('seg-strong').style.width = '0%';
+      $('seg-soft').style.width   = '0%';
+      $('seg-false').style.width  = '0%';
+      $('seg-lost').style.width   = '0%';
+      $('triage-meta').textContent = 'no active fires';
+    } else {
+      bar.classList.remove('empty');
+      $('seg-strong').style.width = (100 * t.strong / total) + '%';
+      $('seg-soft').style.width   = (100 * t.soft   / total) + '%';
+      $('seg-false').style.width  = (100 * t.false_ / total) + '%';
+      $('seg-lost').style.width   = (100 * t.lost   / total) + '%';
+      $('triage-meta').textContent = total + ' fires classified';
+    }
+    $('cnt-strong').textContent = t.strong;
+    $('cnt-soft').textContent   = t.soft;
+    $('cnt-false').textContent  = t.false_;
+    $('cnt-lost').textContent   = t.lost;
+  }
+  renderTriage();
+
+  // ───── Sparklines ─────
+  function pushSpark(key, val) {
+    state.sparks[key].push(val);
+    if (state.sparks[key].length > 60) state.sparks[key].shift();
+    const arr = state.sparks[key];
+    const max = Math.max(1, ...arr);
+    const poly = $('spark-' + key);
+    if (!poly) return;
+    const points = arr.map((v, i) => {
+      const x = (i / (arr.length - 1)) * 100;
+      const y = 28 - (v / max) * 26;
+      return x.toFixed(2) + ',' + y.toFixed(2);
+    }).join(' ');
+    poly.setAttribute('points', points);
+  }
+  function setSparkValue(key, val, fmt) {
+    const el = $('spark-' + key + '-val');
+    if (!el) return;
+    el.textContent = fmt ? fmt(val) : val;
+  }
+
+  // ───── Cost ticker (with digit-roll animation feel via transition) ─────
+  function setCost(now, cap) {
+    if (typeof now === 'number') {
+      state.costNow = now;
+      $('cost-now').textContent = '$ ' + now.toFixed(3);
+    }
+    if (typeof cap === 'number' && cap > 0) {
+      state.costCap = cap;
+      $('cost-cap').textContent = cap.toFixed(0);
+    }
+    const pct = state.costCap > 0
+      ? Math.min(100, (state.costNow / state.costCap) * 100)
+      : 0;
+    $('cost-bar-fill').style.width = pct + '%';
+  }
+  setCost(0, 800);
+
+  // ───── SSE event router ─────
+  function handleEvent(ev) {
+    if (!ev || typeof ev !== 'object') return;
+    state.lastEventAt = Date.now();
+    const k = ev.event;
+
+    if (k === 'sse_connected') {
+      state.sseConnected = true;
+      setHeartStatus('live');
+      setTerminalStatus('connected · live');
+      pushEvent('sse_connected', 'subscribed as ' + (ev.customer_id || '—'), ev.ts);
+      return;
+    }
+
+    if (k === 'cycle_active') {
+      // POST-AUDIT FIX (2026-05-12 re-audit catch): reset per-cycle state
+      // before populating. Without this, state.hyps + state.hypsOrder
+      // accumulated entries across every cycle the browser tab observed
+      // — a long-running tab watching N cycles ended up with N * H tiles
+      // in the grid (and N * H DOM nodes), most marked done from a prior
+      // cycle. Now we wipe the grid + the maps on cycle_active so each
+      // cycle paints from a clean slate.
+      try {
+        const grid = $('hyp-grid');
+        if (grid) {
+          state.hyps.forEach(tile => {
+            if (tile && tile.parentNode === grid) grid.removeChild(tile);
+          });
+        }
+      } catch (e) { /* defensive: never let DOM cleanup crash the SSE handler */ }
+      state.hyps.clear();
+      state.hypsOrder.length = 0;
+      state.findings.clear();
+      state.activeHypId = null;
+      state.activeHypProgress = null;
+      const gridTotal = $('grid-total');
+      if (gridTotal) gridTotal.textContent = '0';
+
+      state.activeCycle = ev.cycle;
+      state.cycleStartedAt = Date.now();
+      $('active-cycle').textContent = safeStr(ev.cycle, 28);
+      $('cycle-started').textContent = fmtTime(Date.now());
+      setStage('Cycle active', `Cycle <span class="accent">${safeStr(ev.cycle, 28)}</span> is running`);
+      pushEvent('cycle_active', 'cycle ' + ev.cycle, ev.ts);
+      setLayer('L0', 'done', '✓');
+      setLayer('L1', 'active', 'running', 5);
+      return;
+    }
+
+    if (k === 'recon_hyp_start') {
+      state.activeHypId = ev.hyp_id;
+      setHypTileState(ev.hyp_id, 'active');
+      const total = state.hyps.size;
+      const inFlight = document.querySelectorAll('.hyp-tile.active').length;
+      const done = total - inFlight;
+      setStage(
+        'Layer 1 · recon',
+        `<span class="accent">${safeStr(ev.hyp_id, 40)}</span> <span class="dim">·</span> source-grounded scan`,
+        { label: 'L1', pct: total ? (done / total) * 100 : 0 }
+      );
+      setLayer('L1', 'active', total ? (done + '/' + total) : 'running',
+               total ? (done / total) * 100 : 5);
+      pushEvent('recon_hyp', 'start ' + ev.hyp_id, ev.ts);
+      return;
+    }
+
+    if (k === 'recon_hyp_done') {
+      const v = (ev.verdict || '').toUpperCase();
+      if (v === 'TRUE') {
+        setHypTileState(ev.hyp_id, 'fire');
+      } else if (v === 'FALSE') {
+        setHypTileState(ev.hyp_id, 'ok');
+      } else if (v === 'ERROR') {
+        // Leave as idle-ish; not a verdict
+        setHypTileState(ev.hyp_id, null);
+      } else {
+        setHypTileState(ev.hyp_id, 'ok');
+      }
+      state.hypsDoneThisMinute.push(Date.now());
+      if (typeof ev.input_tokens === 'number') {
+        state.tokensThisSec.push({ts: Date.now(), tokens: (ev.input_tokens + (ev.output_tokens || 0))});
+      }
+      pushEvent('recon_hyp', 'done ' + ev.hyp_id + ' → ' + (v || '—') + ' / ' + (ev.confidence || ''), ev.ts);
+      return;
+    }
+
+    if (k === 'tool_call') {
+      pushToolCall(ev);
+      return;
+    }
+
+    if (k === 'triage_one') {
+      const cls = (ev.classification || '').toUpperCase();
+      if (cls === 'STRONG')      state.triage.strong++;
+      else if (cls === 'SOFT')   state.triage.soft++;
+      else if (cls === 'FALSE')  state.triage.false_++;
+      else if (cls === 'LOST')   state.triage.lost++;
+      renderTriage();
+      pushEvent('triage', ev.hyp_id + ' → ' + cls, ev.ts);
+      return;
+    }
+
+    if (k === 'triage_done') {
+      setLayer('L2.5', 'done', '✓');
+      pushEvent('triage_done', `STRONG=${ev.strong} SOFT=${ev.soft} FALSE=${ev.false} LOST=${ev.lost}`, ev.ts);
+      return;
+    }
+
+    if (k === 'finding_persisted') {
+      upsertFinding(ev);
+      scheduleRefetch();
+      pushEvent('finding', '#' + (ev.id || '?') + ' ' + (ev.severity || '') + ' ' + safeStr(ev.title, 80), ev.ts);
+      return;
+    }
+
+    if (k === 'cycle_complete' || k === 'hunt_complete') {
+      state.lastCycleAt = Date.now();
+      setLayer('L1', 'done', '✓');
+      ['L1.5','L2','L2.5','L3','L4'].forEach(L => {
+        const r = document.querySelector('.layer-row[data-layer="' + L + '"]');
+        if (r && !r.classList.contains('done') && !r.classList.contains('skipped')) {
+          setLayer(L, 'done', '✓');
+        }
+      });
+      setStage(
+        'Cycle complete',
+        `Cycle <span class="accent">${safeStr(state.activeCycle || '—', 28)}</span> finished. <span class="dim">Watching upstream for next commit.</span>`,
+        null
+      );
+      pushEvent('cycle_complete', 'cycle ' + state.activeCycle, ev.ts);
+      scheduleRefetch();
+      return;
+    }
+
+    if (k === 'recon_summary' || k === 'bundle_drafted' || k === 'bundle_verified' ||
+        k === 'merkle_root_computed' || k === 'p2_finding') {
+      pushEvent(k, JSON.stringify(ev).slice(0, 200), ev.ts);
+      scheduleRefetch();
+      return;
+    }
+
+    // Fallback: surface unknown events for forward-compat
+    pushEvent(k || 'event', JSON.stringify(ev).slice(0, 240), ev.ts);
+  }
+
+  // ───── Fetchers ─────
+  let _refetchTimer = null;
+  function scheduleRefetch() {
+    if (_refetchTimer) return;
+    _refetchTimer = setTimeout(() => {
+      _refetchTimer = null;
+      refreshAll();
+    }, 1200);
+  }
+
+  async function fetchJson(url) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) { return null; }
+  }
+
+  // Helper: idempotent engine_sha chip update with flicker animation on
+  // change. Used by both snapshot + heartbeat fetchers.
+  function setEngineSha(sha) {
+    if (!sha) return;
+    const newSha = String(sha).slice(0, 10);
+    const wrap = $('engine-sha-wrap');
+    const cur = $('engine-sha');
+    if (cur && cur.textContent !== newSha) {
+      cur.textContent = newSha;
+      if (wrap) {
+        wrap.classList.add('sha-flicker');
+        setTimeout(() => wrap.classList.remove('sha-flicker'), 700);
+      }
+    }
+  }
+
+  // Helper: paint the hypothesis grid from a cycle's aggregate counts.
+  // We only have n_dispatched + n_true_layer1 (not per-hyp IDs), so
+  // tiles are anonymous. Still gives the customer the "look how many
+  // hyps got audited" visual.
+  function paintGridFromCycle(cycle) {
+    if (!cycle || state.hyps.size > 0) return; // don't repaint if already populated
+    const n  = cycle.n_dispatched | 0;
+    const nT = cycle.n_true_layer1 | 0;
+    const nC = cycle.n_confirmed | 0;
+    if (n <= 0) return;
+    for (let i = 0; i < n; i++) {
+      const hid = `${cycle.cycle_id || 'C'}#${i + 1}`;
+      ensureHypTile(hid);
+    }
+    // Mark first nT tiles as fire, last nC of those as confirmed.
+    const ids = state.hypsOrder;
+    for (let i = 0; i < Math.min(nT, ids.length); i++) {
+      setHypTileState(ids[i], 'fire');
+      if (i < nC) state.hyps.get(ids[i]).classList.add('confirmed');
+    }
+    for (let i = nT; i < ids.length; i++) {
+      setHypTileState(ids[i], 'ok');
+    }
+  }
+
+  function paintStageFromCycle(cycle) {
+    if (!cycle) return;
+    const phaseLabel = cycle.phase_label || cycle.phase || 'idle';
+    const cid = cycle.cycle_id || '—';
+    if (cycle.in_progress) {
+      setStage(
+        'Cycle in progress',
+        `<span class="accent">${safeStr(cid, 28)}</span> <span class="dim">·</span> ${safeStr(phaseLabel, 120)}`,
+        cycle.progress_pct != null ? { label: cycle.phase || '', pct: cycle.progress_pct } : null
+      );
+    } else {
+      setStage(
+        'Last cycle',
+        `<span class="accent">${safeStr(cid, 28)}</span> <span class="dim">·</span> ${safeStr(phaseLabel, 120)}`,
+        null
+      );
+    }
+  }
+
+  // ───── snapshot.json (public aggregate) ─────
+  // Real shape keys: cycles_total, services[], loop_uptime_human, spend{},
+  // recent_cycles[], public_findings[], stats{}, targets[].
+  // NO engine_sha, NO services_up, NO uptime_label, NO last_cycle_ts,
+  // NO daily_cap_usd, NO findings. Use heartbeat for engine_sha / last_cycle_ts.
+  async function refreshSnapshot() {
+    const d = await fetchJson(SNAPSHOT_URL);
+    if (!d) return;
+    // cycles total — informational counter in right rail
+    if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
+    if (d.stats && d.stats.n_cycles != null) $('ct-cycles').textContent = d.stats.n_cycles;
+    // services — count those in "up" state from the services[] array
+    if (Array.isArray(d.services)) {
+      const up = d.services.filter(s => (s.state || '').toLowerCase() === 'up').length;
+      $('services-up').textContent = up + ' / ' + d.services.length;
+    }
+    // uptime — use loop_uptime_human (snapshot's real field name)
+    if (d.loop_uptime_human) $('loop-uptime').textContent = d.loop_uptime_human;
+    // spend — snapshot exposes today_usd + total_usd. Daily cap isn't in
+    // the API; default to $800 (recon's default --budget-cap-usd × ~3).
+    if (d.spend) {
+      const today = d.spend.today_usd != null ? d.spend.today_usd : 0;
+      setCost(today, state.costCap || 800);
+    }
+    // recent_cycles — golden data. Pre-paint grid + stage from cycle[0].
+    if (Array.isArray(d.recent_cycles) && d.recent_cycles.length > 0) {
+      const latest = d.recent_cycles[0];
+      paintStageFromCycle(latest);
+      paintGridFromCycle(latest);
+      // Track the most-recent cycle id even if SSE didn't say so yet
+      if (latest.cycle_id && !state.activeCycle && latest.in_progress) {
+        state.activeCycle = latest.cycle_id;
+        $('active-cycle').textContent = safeStr(latest.cycle_id, 28);
+        if (latest.started_at) {
+          const t = Date.parse(latest.started_at);
+          if (!isNaN(t)) {
+            state.cycleStartedAt = t;
+            $('cycle-started').textContent = fmtTime(t);
+          }
+        }
+      }
+    }
+  }
+
+  async function refreshManifest() {
+    const d = await fetchJson(MANIFEST_URL);
+    if (!d) return;
+    // Customer name into the top-left tag
+    if (d.customer && d.customer.name) {
+      const nameEl = document.querySelector('.bridge-customer-tag .name');
+      if (nameEl) nameEl.textContent = d.customer.name;
+    }
+    // Findings — manifest doesn't have a `findings` key today; uses
+    // `public_findings` (same shape as snapshot). When customer-private
+    // findings ship, this code path picks them up via either key.
+    const findings = (d.findings || d.public_findings || []);
+    let crit = 0, high = 0, conf = 0;
+    findings.forEach(f => {
+      const sev = f.severity || f.sev || '';
+      if (sev === 'Critical') crit++;
+      if (sev === 'High') high++;
+      const st = f.status || '';
+      if (st === 'confirmed' || st === 'disclosed' || st === 'fixed' || st === 'verified') conf++;
+    });
+    $('ct-crit').textContent = crit;
+    $('ct-high').textContent = high;
+    $('ct-confirmed').textContent = conf;
+    $('findings-count').textContent = findings.length;
+    clearFindingsLoadingMsg();
+    if (findings.length === 0) {
+      const stream = $('findings-stream');
+      if (stream && stream.children.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'color: var(--ink-4); font-family: var(--mono); font-size: 10px; padding: 20px 0; text-align: center; letter-spacing: 0.18em; text-transform: uppercase;';
+        empty.textContent = 'no open findings · last cycle clean';
+        stream.appendChild(empty);
+      }
+    } else {
+      findings.slice(0, 40).forEach(f => {
+        const fid = f.id != null ? String(f.id) : (f.hypothesis_id + '-' + (f.cycle_id || ''));
+        if (!state.findings.has(fid)) upsertFinding(f);
+      });
+    }
+    // Pre-paint grid + stage from recent_cycles[0] if we have it
+    // (manifest mirrors snapshot today; covers the case where snapshot
+    // fetch was slower or failed).
+    if (Array.isArray(d.recent_cycles) && d.recent_cycles.length > 0) {
+      const latest = d.recent_cycles[0];
+      paintStageFromCycle(latest);
+      paintGridFromCycle(latest);
+    }
+  }
+
+  async function refreshHeartbeat() {
+    const d = await fetchJson(HEARTBEAT_URL);
+    if (!d) return;
+    if (d.generated_at) {
+      state.heartbeatTs = Date.parse(d.generated_at);
+    }
+    if (d.engine_sha) setEngineSha(d.engine_sha);
+    if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
+    if (d.last_cycle_ts) {
+      const t = Date.parse(d.last_cycle_ts);
+      if (!isNaN(t)) {
+        state.lastCycleAt = t;
+        $('last-cycle-rel').textContent = fmtRel(t);
+      }
+    }
+    // service_summary is an object; count active.
+    if (d.service_summary && typeof d.service_summary === 'object') {
+      const all = Object.values(d.service_summary);
+      const active = all.filter(v => v === 'active').length;
+      if ($('services-up').textContent === '—') {
+        $('services-up').textContent = active + ' / ' + all.length;
+      }
+    }
+  }
+
+  function refreshAll() {
+    Promise.all([refreshSnapshot(), refreshManifest(), refreshHeartbeat()])
+      .finally(() => refreshHealth());
+  }
+
+  // ───── SSE connect ─────
+  // POST-AUDIT FIX: explicit exponential backoff on errors. Previously
+  // the browser's native EventSource auto-reconnect did the work, but
+  // on hard failure (CORS, 404) it gave up while the dashboard's
+  // "reconnecting… (N)" counter kept incrementing cosmetically forever.
+  // Now we actively re-call connectSse() with capped exponential delay.
+  let sse = null;
+  let sseRetry = 0;
+  let sseReconnectTimer = null;
+  function connectSse() {
+    try {
+      if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
+      if (sse) { try { sse.close(); } catch (_) {} }
+      sse = new EventSource(SSE_URL);
+      setTerminalStatus('connecting…');
+      sse.onopen = () => {
+        sseRetry = 0;
+        setHeartStatus('live');
+        setTerminalStatus('connected · live');
+      };
+      sse.onmessage = (msg) => {
+        try { handleEvent(JSON.parse(msg.data)); } catch (e) {}
+      };
+      sse.onerror = () => {
+        state.sseConnected = false;
+        setHeartStatus('offline');
+        sseRetry++;
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s.
+        const delay = Math.min(30000, 1000 * Math.pow(2, Math.min(sseRetry - 1, 5)));
+        setTerminalStatus('reconnecting… (' + sseRetry + ') in ' + Math.round(delay/1000) + 's');
+        if (sse) { try { sse.close(); } catch (_) {} }
+        sseReconnectTimer = setTimeout(connectSse, delay);
+      };
+    } catch (e) {
+      setHeartStatus('offline');
+      // Schedule a retry even if EventSource ctor itself failed.
+      sseReconnectTimer = setTimeout(connectSse, Math.min(30000, 1000 * Math.pow(2, sseRetry++)));
+    }
+  }
+
+  // ───── Always-on animation loop (rAF heartbeat) ─────
+  let lastTickMs = 0;
+  let lastSecondMs = 0;
+  function tick(nowMs) {
+    if (!lastTickMs) lastTickMs = nowMs;
+    const dt = nowMs - lastTickMs;
+    lastTickMs = nowMs;
+
+    // Idle-since timer: always counting up
+    if (state.lastCycleAt) {
+      $('idle-since').textContent = fmtDur(Date.now() - state.lastCycleAt);
+    } else if (state.cycleStartedAt) {
+      $('cycle-elapsed').textContent = fmtDur(Date.now() - state.cycleStartedAt);
+    }
+
+    // Heartbeat age display
+    if (state.heartbeatTs) {
+      $('heart-age').textContent = fmtRel(state.heartbeatTs);
+    }
+
+    // Per-second sparklines + countdown
+    if (nowMs - lastSecondMs >= 1000) {
+      lastSecondMs = nowMs;
+      // tokens/sec: sum tokens in last second
+      const cutoff = Date.now() - 1000;
+      const toksSec = state.tokensThisSec
+        .filter(x => x.ts >= cutoff)
+        .reduce((acc, x) => acc + x.tokens, 0);
+      state.tokensThisSec = state.tokensThisSec.filter(x => x.ts >= Date.now() - 60000);
+      pushSpark('tokens', toksSec);
+      setSparkValue('tokens', toksSec, n => n.toLocaleString());
+
+      // hyps/min
+      state.hypsDoneThisMinute = state.hypsDoneThisMinute.filter(t => t >= Date.now() - 60000);
+      const hpm = state.hypsDoneThisMinute.length;
+      pushSpark('hyps', hpm);
+      setSparkValue('hyps', hpm);
+
+      // tools/min
+      state.toolCallsThisMinute = state.toolCallsThisMinute.filter(t => t >= Date.now() - 60000);
+      const tpm = state.toolCallsThisMinute.length;
+      pushSpark('tools', tpm);
+      setSparkValue('tools', tpm);
+      $('toolstream-rate').textContent = tpm + ' / min';
+
+      // Loop Hz (always 1.0 baseline — proves the page itself is alive)
+      // Add slight drift to feel organic without being noisy.
+      const driftHz = 1 + (Math.sin(nowMs / 4000) * 0.02);
+      pushSpark('loop', driftHz);
+      setSparkValue('loop', driftHz, n => n.toFixed(2));
+
+      // Next-poll countdown — watch_on_update fires every ~300s
+      const nextEl = $('next-poll');
+      if (nextEl && !state.activeCycle) {
+        const lastPollMs = state.lastEventAt || Date.now();
+        const remaining = Math.max(0, 300000 - (Date.now() - lastPollMs));
+        nextEl.textContent = fmtDur(remaining);
+      }
+
+      // Re-evaluate the customer-facing health banner every second so
+      // staleness rolls forward without waiting for the next event /
+      // snapshot poll.
+      refreshHealth();
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  // ───── Custom cursor (matches the rest of jelleo.com) ─────
+  // shared.css hides the native cursor with `body { cursor: none }` and
+  // styles `.cursor-dot` / `.cursor-ring` to follow the mouse. Without
+  // those elements + the JS below, the page LOOKS like the cursor is
+  // missing entirely. Mirrors the implementation on the homepage.
+  function startCustomCursor() {
+    const dot = $('dot');
+    const ring = $('ring');
+    if (!dot || !ring) return;
+    const isCoarse = window.matchMedia('(hover: none)').matches || window.innerWidth < 1024;
+    if (isCoarse) return; // touch device — leave native cursor / no-cursor as-is
+    let mx = window.innerWidth / 2, my = window.innerHeight / 2;
+    let rx = mx, ry = my;
+    document.addEventListener('mousemove', (e) => {
+      mx = e.clientX;
+      my = e.clientY;
+      dot.style.transform = `translate(${mx}px, ${my}px) translate(-50%, -50%)`;
+    });
+    (function loop() {
+      rx += (mx - rx) * 0.85;
+      ry += (my - ry) * 0.85;
+      ring.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%)`;
+      requestAnimationFrame(loop);
+    })();
+    document.querySelectorAll('a, button, .hyp-tile, .finding-card, .bridge-actions a').forEach((el) => {
+      el.addEventListener('mouseenter', () => {
+        ring.classList.add('hover');
+        dot.classList.add('hover');
+      });
+      el.addEventListener('mouseleave', () => {
+        ring.classList.remove('hover');
+        dot.classList.remove('hover');
+      });
+    });
+  }
+
+  // ───── Bootstrap ─────
+  function start() {
+    startCustomCursor();
+    refreshAll();
+    connectSse();
+    setInterval(refreshAll, 60000);
+    requestAnimationFrame(tick);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})();
+</script>
+
+</body>
+</html>

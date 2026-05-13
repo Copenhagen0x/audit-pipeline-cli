@@ -97,6 +97,38 @@ def get_customer(workspace: Path, customer_id: str) -> dict[str, Any] | None:
     return None
 
 
+def validate_branding(branding: dict[str, Any]) -> dict[str, Any]:
+    """Validate + normalize a per-customer branding dict.
+
+    Jelleo's visual identity (dark + amber, Inter + JetBrains Mono) is
+    FIXED — customer dashboards inherit it. What varies per customer is
+    IDENTITY + COPY: their logo, hero title, footer line, PDF watermark.
+    Each customer gets their nameplate on the door; nobody redecorates
+    the building.
+
+    Allowed keys:
+      logo_path     — workspace-relative path to logo SVG/PNG (str)
+      hero_title    — display title for the dashboard hero
+                       ("OtterSec × Jelleo · Vendor Evaluation")
+      footer_text   — optional bottom-strip text
+      pdf_watermark — optional "Confidential — XYZ" text for PDF pages
+
+    Returns a normalized dict (stripped strings). Raises CustomerError
+    on bad input.
+    """
+    if not isinstance(branding, dict):
+        raise CustomerError("branding must be a dict")
+    out: dict[str, Any] = {}
+    for key in ("logo_path", "hero_title", "footer_text", "pdf_watermark"):
+        v = branding.get(key)
+        if v is None:
+            continue
+        v = str(v).strip()
+        if v:
+            out[key] = v
+    return out
+
+
 def add_customer(
     workspace: Path,
     customer_id: str,
@@ -106,8 +138,18 @@ def add_customer(
     target_match: str | None = None,
     contact_email: str | None = None,
     since: str | None = None,
+    branding: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Add a customer to the registry. Raises if the id is already taken."""
+    """Add a customer to the registry. Raises if the id is already taken.
+
+    The optional ``branding`` dict is validated via ``validate_branding``
+    and stored under the customer's ``branding`` key. It powers the
+    white-label dashboard generator (per-customer logo, accent palette,
+    hero title) so every customer feels like a dedicated, premium
+    product surface — not a templated tenant view. Pass None to register
+    a customer without branding (the dashboard generator falls back to
+    the Jelleo default palette).
+    """
     validate_customer_id(customer_id)
     customers = load_registry(workspace)
     if any(c.get("id") == customer_id for c in customers):
@@ -134,11 +176,46 @@ def add_customer(
         entry["contact_email"] = contact_email
     if since:
         entry["since"] = since
+    if branding:
+        entry["branding"] = validate_branding(branding)
 
     customers.append(entry)
     save_registry(workspace, customers)
     customer_dir(workspace, customer_id).mkdir(parents=True, exist_ok=True)
     return entry
+
+
+def update_customer_branding(
+    workspace: Path,
+    customer_id: str,
+    branding: dict[str, Any],
+) -> dict[str, Any]:
+    """Update branding for an existing customer.
+
+    Merges the new fields into the existing branding (so callers can
+    update one field without losing the rest). Returns the updated
+    customer entry. Raises if the customer doesn't exist.
+    """
+    customers = load_registry(workspace)
+    for c in customers:
+        if c.get("id") == customer_id:
+            existing = c.get("branding") or {}
+            existing.update(validate_branding(branding))
+            c["branding"] = existing
+            save_registry(workspace, customers)
+            return c
+    raise CustomerError(f"customer id '{customer_id}' not found")
+
+
+def customer_branding_dir(workspace: Path, customer_id: str) -> Path:
+    """Per-customer branding asset dir: ``customers/<id>/branding/``.
+
+    Houses the logo file (SVG / PNG) and any future per-customer brand
+    assets (favicon, cover image, etc). The dashboard generator copies
+    these out to ``website/deploy/customer/<id>/`` at render time so
+    they're served at the customer's tokenized URL.
+    """
+    return customer_dir(workspace, customer_id) / "branding"
 
 
 def remove_customer(workspace: Path, customer_id: str) -> dict[str, Any]:

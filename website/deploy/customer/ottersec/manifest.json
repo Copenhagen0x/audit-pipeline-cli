@@ -1,0 +1,221 @@
+{
+  "customer": {
+    "id": "ottersec",
+    "name": "OtterSec",
+    "protocol_name": "Vendor evaluation pilot",
+    "tier": "Production",
+    "since": "2026-05-13"
+  },
+  "branding": {
+    "hero_title": "OtterSec \u00d7 Jelleo \u00b7 Vendor Evaluation",
+    "footer_text": "Confidential \u2014 OtterSec multi-vendor benchmark, do not redistribute",
+    "pdf_watermark": "Confidential \u2014 OtterSec evaluation",
+    "logo_path": "customers\\ottersec\\branding\\logo.svg"
+  },
+  "targets": [
+    {
+      "id": 12,
+      "name": "osec-aptos-large",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 11,
+      "name": "osec-aptos-medium",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 10,
+      "name": "osec-aptos-small",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 6,
+      "name": "osec-c-large",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 5,
+      "name": "osec-c-medium",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 4,
+      "name": "osec-c-small",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 3,
+      "name": "osec-solana-large",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 2,
+      "name": "osec-solana-medium",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 1,
+      "name": "osec-solana-small",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 9,
+      "name": "osec-solidity-large",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 8,
+      "name": "osec-solidity-medium",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    },
+    {
+      "id": 7,
+      "name": "osec-solidity-small",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
+    }
+  ],
+  "totals": {
+    "n_targets": 12,
+    "n_findings": 0,
+    "by_severity": {
+      "Critical": 0,
+      "High": 0,
+      "Medium": 0,
+      "Low": 0,
+      "Info": 0
+    }
+  },
+  "generated_at": "2026-05-13T15:51:55.601973+00:00"
+}

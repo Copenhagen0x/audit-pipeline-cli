@@ -1,0 +1,1199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Demo customer portal</title>
+<meta name="description" content="Jelleo customer portal — demo view. What a real customer sees: per-protocol findings, signed cycle receipts, propagation hits.">
+<link rel="canonical" href="https://jelleo.com/customer/ottersec/">
+<meta name="theme-color" content="#050504">
+<meta name="robots" content="noindex,nofollow">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+/* ====== Customer dashboard ====== */
+section.dash { padding: 100px 0 60px; }
+@media (max-width: 768px) { section.dash { padding: 60px 0 32px; } }
+
+/* POST-AUDIT FIX (2026-05-13): force the scrolled-look glassmorphism
+   on the nav from first paint. shared.css's `.nav` is transparent
+   until JS toggles `.scrolled`, which is fine on the marketing site
+   but feels janky on the customer dashboard (the nav flashes opaque
+   on first scroll). The <nav> on this page carries the `dashboard`
+   class so this rule applies on every render. */
+.nav.dashboard {
+  background: rgba(5,5,4,0.7);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border-bottom-color: var(--rule);
+}
+
+.dash-header {
+  display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 48px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--rule);
+}
+.dash-customer {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.22em;
+  color: var(--ink-3);
+  margin-bottom: 12px;
+}
+.dash-customer .name {
+  color: var(--amber);
+  font-weight: 500;
+}
+.dash-title {
+  font-size: clamp(28px, 4vw, 48px);
+  font-weight: 700; letter-spacing: -0.02em;
+  color: var(--ink); line-height: 1.1;
+  max-width: 22ch;
+  margin-bottom: 12px;
+}
+.dash-sub {
+  font-size: 14px; color: var(--ink-2);
+  font-family: var(--mono);
+}
+.dash-sub strong { color: var(--ink); }
+
+.dash-meta {
+  display: flex; flex-direction: column; gap: 6px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3); text-align: right;
+  letter-spacing: 0.06em;
+}
+.dash-meta .live-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ok); padding: 5px 12px;
+  background: rgba(74,222,128,0.06);
+  border: 1px solid rgba(74,222,128,0.3);
+  border-radius: 999px; align-self: flex-end;
+}
+.dash-meta .live-pill .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px rgba(74,222,128,0.6);
+}
+
+/* Counter row */
+.dash-counters {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  margin-bottom: 56px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+@media (max-width: 768px) {
+  .dash-counters { grid-template-columns: repeat(2, 1fr); }
+}
+.dash-counter {
+  padding: 24px 28px;
+  border-right: 1px solid var(--rule);
+}
+.dash-counter:last-child { border-right: none; }
+@media (max-width: 768px) {
+  .dash-counter:nth-child(2) { border-right: none; }
+  .dash-counter:nth-child(1), .dash-counter:nth-child(2) { border-bottom: 1px solid var(--rule); }
+}
+.counter-num {
+  font-size: 36px; font-weight: 700; color: var(--ink);
+  letter-spacing: -0.02em; line-height: 1;
+}
+.counter-num.amber { color: var(--amber); }
+.counter-num.ok    { color: var(--ok); }
+.counter-num.crit  { color: var(--critical); }
+.counter-label {
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-3); margin-top: 8px;
+}
+
+/* Section heading inside dash */
+.dash-section-label {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.22em;
+  color: var(--amber);
+  margin-bottom: 18px;
+  display: flex; align-items: center; gap: 12px;
+}
+.dash-section-label::before {
+  content: ''; width: 24px; height: 1px;
+  background: var(--amber); box-shadow: 0 0 8px var(--amber-glow);
+}
+.dash-section-title {
+  font-size: 22px; font-weight: 600;
+  color: var(--ink); letter-spacing: -0.012em;
+  margin-bottom: 8px;
+}
+.dash-section-sub {
+  font-size: 13px; color: var(--ink-3);
+  margin-bottom: 28px; font-family: var(--mono);
+  letter-spacing: 0.04em;
+}
+
+/* Findings table */
+.findings-table {
+  width: 100%;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+  margin-bottom: 56px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.findings-table th, .findings-table td {
+  padding: 14px 18px;
+  text-align: left;
+  font-size: 13px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+.findings-table th {
+  font-family: var(--mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--ink-3); font-weight: 500;
+  background: var(--bg-2);
+}
+.findings-table tr:last-child td { border-bottom: none; }
+.findings-table .hyp-id {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--amber);
+}
+.findings-table .finding-title {
+  color: var(--ink); font-weight: 500;
+  max-width: 42ch;
+}
+.findings-table .finding-sub {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3); margin-top: 4px;
+  letter-spacing: 0.04em;
+}
+.sev-pill {
+  display: inline-block;
+  padding: 2px 10px; border-radius: 4px;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  white-space: nowrap;
+}
+.sev-pill.critical { background: rgba(239,68,68,0.12);  color: var(--critical); border: 1px solid rgba(239,68,68,0.3); }
+.sev-pill.high     { background: rgba(249,115,22,0.12); color: var(--high);     border: 1px solid rgba(249,115,22,0.3); }
+.sev-pill.medium   { background: rgba(234,179,8,0.12);  color: var(--medium);   border: 1px solid rgba(234,179,8,0.3); }
+.sev-pill.low      { background: rgba(96,165,250,0.12); color: var(--low);      border: 1px solid rgba(96,165,250,0.3); }
+.state-pill {
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--ink-2);
+  padding: 3px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.state-pill.confirmed { color: var(--amber); border-color: rgba(245,184,0,0.3); }
+.state-pill.disclosed { color: var(--ok);    border-color: rgba(74,222,128,0.3); }
+.state-pill.fixed     { color: var(--ok);    border-color: rgba(74,222,128,0.3); }
+.state-pill.verified  { color: var(--ok);    border-color: rgba(74,222,128,0.3); }
+.state-pill.new       { color: var(--ink-3); }
+.state-pill.triaged   { color: var(--info);  border-color: rgba(96,165,250,0.3); }
+
+/* Cycle receipts */
+.receipt-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-bottom: 56px;
+}
+@media (min-width: 720px) {
+  .receipt-grid { grid-template-columns: 1fr 1fr; }
+}
+.receipt-card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  border-radius: 0 8px 8px 0;
+  padding: 22px 26px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+.receipt-card .cycle-id {
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--ink); font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 10px;
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.receipt-card .cycle-id .ts {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3); font-weight: 400;
+  letter-spacing: 0.06em;
+}
+.receipt-card .field {
+  display: grid; grid-template-columns: 90px 1fr; gap: 12px;
+  padding: 4px 0;
+  border-top: 1px dashed var(--rule);
+}
+.receipt-card .field:first-of-type { border-top: none; padding-top: 8px; }
+.receipt-card .field .k {
+  color: var(--ink-4); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  padding-top: 2px;
+}
+.receipt-card .field .v { color: var(--ink-2); word-break: break-all; }
+.receipt-card .field .v.amber { color: var(--amber); }
+.receipt-card .field .v a {
+  color: var(--amber);
+  border-bottom: 1px dashed rgba(245,184,0,0.3);
+}
+
+/* Propagation card */
+.prop-card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 28px 32px;
+  margin-bottom: 56px;
+}
+.prop-card .prop-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 24px;
+  padding: 16px 0;
+  border-top: 1px solid var(--rule);
+}
+.prop-card .prop-row:first-of-type { border-top: none; }
+@media (max-width: 720px) { .prop-card .prop-row { grid-template-columns: 1fr; gap: 8px; } }
+.prop-card .prop-row .col {
+  font-family: var(--mono); font-size: 12px;
+}
+.prop-card .prop-row .col .lbl {
+  color: var(--ink-4); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.18em;
+  margin-bottom: 4px;
+}
+.prop-card .prop-row .col .val { color: var(--ink-2); }
+.prop-card .prop-row .col .val strong { color: var(--ink); }
+
+/* Action bar */
+.action-bar {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  margin: 32px 0 56px;
+}
+.action-bar a, .action-bar button {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 13px; font-weight: 500;
+  padding: 10px 18px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  color: var(--ink-2);
+  font-family: var(--font);
+  cursor: pointer;
+  transition: border-color .2s ease, color .2s ease, background .2s ease;
+}
+.action-bar a:hover, .action-bar button:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(245,184,0,0.04);
+}
+.action-bar .arrow { transition: transform .2s ease; }
+.action-bar a:hover .arrow { transform: translateX(3px); }
+
+/* Loading + empty states */
+.loading-row, .empty-row {
+  padding: 32px;
+  text-align: center;
+  color: var(--ink-3);
+  font-family: var(--mono); font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.error-banner {
+  margin-bottom: 32px;
+  padding: 18px 24px;
+  background: rgba(239,68,68,0.06);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 8px;
+  color: var(--alert);
+  font-family: var(--mono); font-size: 12px;
+  display: none;
+}
+.error-banner.shown { display: block; }
+/* Skeleton shimmer for loading state */
+.skel {
+  display: inline-block;
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%);
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.2s linear infinite;
+  border-radius: 4px;
+  color: transparent;
+}
+@keyframes skel-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+</style>
+</head>
+<body>
+<a href="#main" class="skip-link">Skip to main content</a>
+
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+
+<!-- POST-AUDIT FIX (2026-05-13): `dashboard` class makes the nav opaque
+     from first paint (shared.css's .nav is transparent until scrolled),
+     matching the bridge/full view. Pure visual consistency on this page
+     — the lobby's section.dash already has 100px top padding so there's
+     no overlap to fix, just glassy-nav-at-rest polish. --><nav class="nav dashboard" id="nav">
+  <a href="/" class="nav-logo" aria-label="OtterSec portal" style="display:inline-flex;align-items:center;gap:12px;"><img src="./logo.svg" alt="OtterSec logo" style="max-height: 28px; width: auto;"><span style="font-family:var(--font);font-weight:700;font-size:18px;letter-spacing:-0.01em;color:var(--ink);">OtterSec</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3);letter-spacing:0.12em;text-transform:uppercase;border-left:1px solid var(--rule);padding-left:12px;margin-left:4px;">Jelleo</span></a>
+  <div class="nav-center">
+      <a href="/protocols/">Protocols</a>
+      <a href="/bug-classes.html">Catalog</a>
+      <a href="/case-studies/f7-percolator/">Case study</a>
+      <a href="/methodology.html">Methodology</a>
+      <a href="/security.html">Security</a>
+      <a href="/status/">Status</a>
+      <a href="/cycles/">Cycles</a>
+    </div>
+  <div class="nav-right">
+    <span class="nav-status">
+      <span class="live-dot"></span>
+      OtterSec · token ottersec
+    </span>
+    <a href="/customer/" class="nav-cta">Sign out</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/protocols/" role="menuitem">Protocols</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/customer/" role="menuitem">Sign out</a>
+</div>
+
+<main id="main">
+<section class="dash">
+  <div class="container">
+
+    <div class="dash-header">
+      <div>
+        <div class="dash-customer">Customer · <span class="name">OtterSec</span></div>
+        <h1 class="dash-title">OtterSec × Jelleo · Vendor Evaluation</h1>
+        <div class="dash-sub">Pilot since <strong id="dash-since">—</strong> · <span id="dash-cycles-count">—</span> cycles · <span id="dash-findings-count">—</span> open findings</div>
+      </div>
+      <div class="dash-meta">
+        <div class="live-pill" id="loop-pill"><span class="dot"></span><span id="loop-pill-text">Connecting…</span></div>
+        <div>Last cycle · <span id="last-cycle-rel">—</span></div>
+        <div>Loop uptime · <span id="loop-uptime">—</span></div>
+        <div>Plan · Tier 1 · v0.1</div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         DASHBOARDS — the primary action after login. Hoisted above the
+         fold because dashboard access is what customers come here for;
+         everything below (findings table, receipts, propagation) is
+         secondary context. Two-card switcher: Bridge (primary) + Classic.
+         ════════════════════════════════════════════════════════════════ -->
+    <style>
+      .dash-launcher {
+        display: grid;
+        grid-template-columns: 1.6fr 1fr;
+        gap: 16px;
+        margin: 0 0 48px;
+      }
+      @media (max-width: 768px) {
+        .dash-launcher { grid-template-columns: 1fr; gap: 12px; }
+      }
+      .dash-launcher-card {
+        position: relative;
+        display: block;
+        padding: 28px 28px 24px;
+        border: 1px solid var(--rule);
+        border-radius: 10px;
+        background: var(--surface);
+        text-decoration: none;
+        color: inherit;
+        overflow: hidden;
+        transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1),
+                    border-color 0.32s, background 0.32s;
+      }
+      .dash-launcher-card:hover {
+        transform: translateY(-2px);
+        border-color: var(--amber);
+      }
+      .dash-launcher-card.primary {
+        border-color: rgba(245,184,0,0.4);
+        background: linear-gradient(135deg, rgba(245,184,0,0.10) 0%, rgba(245,184,0,0.02) 60%, transparent 100%);
+      }
+      .dash-launcher-card.primary:hover {
+        background: linear-gradient(135deg, rgba(245,184,0,0.18) 0%, rgba(245,184,0,0.04) 60%, transparent 100%);
+        border-color: var(--amber);
+      }
+      .dash-launcher-card .eyebrow {
+        font-family: var(--mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.22em;
+        color: var(--amber);
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dash-launcher-card .eyebrow .pulse {
+        display: inline-block;
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: var(--amber);
+        animation: launcherPulse 1.6s ease-out infinite;
+      }
+      @keyframes launcherPulse {
+        0%   { box-shadow: 0 0 0 0 rgba(245,184,0,0.5); }
+        70%  { box-shadow: 0 0 0 8px rgba(245,184,0,0); }
+        100% { box-shadow: 0 0 0 0 rgba(245,184,0,0); }
+      }
+      .dash-launcher-card .secondary-eyebrow {
+        color: var(--ink-3);
+      }
+      .dash-launcher-card .secondary-eyebrow .pulse {
+        background: var(--ink-3);
+        animation: none;
+      }
+      .dash-launcher-card h2 {
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--ink);
+        line-height: 1.05;
+        margin: 0 0 10px;
+      }
+      .dash-launcher-card.primary h2 { font-size: 32px; }
+      .dash-launcher-card p {
+        font-size: 14px;
+        color: var(--ink-2);
+        line-height: 1.5;
+        margin: 0 0 18px;
+        max-width: 50ch;
+      }
+      .dash-launcher-card .cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px;
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        font-weight: 600;
+        border-radius: 4px;
+        background: var(--amber);
+        color: var(--bg);
+        transition: background 0.2s, transform 0.2s;
+      }
+      .dash-launcher-card .cta.outline {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--rule-2);
+      }
+      .dash-launcher-card:hover .cta { transform: translateX(3px); }
+      .dash-launcher-card .cta.outline:hover { border-color: var(--amber); color: var(--amber); }
+    </style>
+    <div class="dash-launcher">
+      <a class="dash-launcher-card primary" href="/customer/ottersec/full.html" aria-label="Open Bridge view — live mission control dashboard">
+        <div class="eyebrow"><span class="pulse"></span>Live · mission-control · new</div>
+        <h2>Bridge view</h2>
+        <p>Watch the autonomous loop work in real time — source-grounded tool calls, the hypothesis grid lighting up, layer-2.5 triage bucketing, every cycle phase streaming as it happens.</p>
+        <span class="cta">Open Bridge view →</span>
+      </a>
+      <a class="dash-launcher-card" href="/customer/ottersec/full.html?legacy=1" aria-label="Open classic 4-panel view">
+        <div class="eyebrow secondary-eyebrow"><span class="pulse"></span>Classic · 4-panel</div>
+        <h2>Findings · Ops · Receipts</h2>
+        <p>The original layout. Quieter — refreshes per cycle, not per second. Use when you want the day's outcome without the motion.</p>
+        <span class="cta outline">Open classic view ↗</span>
+      </a>
+    </div>
+
+    <div class="error-banner" id="feed-error">Live feed unreachable — showing the most recent cached state if available. Retrying every 60s.</div>
+
+    <!-- Counters -->
+    <div class="dash-counters">
+      <div class="dash-counter">
+        <div class="counter-num crit" id="ct-critical">—</div>
+        <div class="counter-label" id="ct-critical-label">Critical · open</div>
+      </div>
+      <div class="dash-counter">
+        <div class="counter-num amber" id="ct-high">—</div>
+        <div class="counter-label" id="ct-high-label">High · open</div>
+      </div>
+      <div class="dash-counter">
+        <div class="counter-num" id="ct-cycles">—</div>
+        <div class="counter-label">Cycles · signed</div>
+      </div>
+      <div class="dash-counter">
+        <div class="counter-num ok" id="ct-receipt">--</div>
+        <div class="counter-label">Receipt verifiability</div>
+      </div>
+    </div>
+
+    
+<!-- ════════════════════════════════════════════════════════════════
+     MULTI-TARGET GRID — injected for multi-target customers (vendor
+     evals, multi-protocol engagements). Replaces the single-protocol
+     findings table on the lobby. Each card links into the Bridge view
+     with that target pre-selected via URL hash.
+     ════════════════════════════════════════════════════════════════ -->
+<style>
+  .target-grid {
+    margin: 0 0 48px;
+  }
+  .target-group {
+    margin-bottom: 32px;
+  }
+  .target-group-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    color: var(--ink-3);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .target-group-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+  .target-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+  }
+  .target-card-tile {
+    display: block;
+    padding: 22px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--surface);
+    color: inherit;
+    text-decoration: none;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+    position: relative;
+  }
+  .target-card-tile:hover {
+    transform: translateY(-2px);
+    border-color: var(--amber);
+  }
+  .target-card-tile .name {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .target-card-tile .status-chip {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 2px;
+    display: inline-block;
+    margin-bottom: 14px;
+  }
+  .target-card-tile .status-chip.idle     { background: rgba(245,243,237,0.06); color: var(--ink-3); }
+  .target-card-tile .status-chip.scanning { background: rgba(245,184,0,0.12); color: var(--amber); }
+  .target-card-tile .status-chip.scanned  { background: rgba(74,222,128,0.12); color: #4ade80; }
+  .target-card-tile .sev-mini {
+    display: flex;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .target-card-tile .sev-mini .group {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .target-card-tile .sev-mini .n {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .target-card-tile .sev-mini .group.crit .n { color: #dc2626; }
+  .target-card-tile .sev-mini .group.high .n { color: #ea580c; }
+  .target-card-tile .sev-mini .group.med  .n { color: #ca8a04; }
+  .target-card-tile .sev-mini .group.low  .n { color: #2563eb; }
+  .target-card-tile .sev-mini .label {
+    font-size: 9px;
+    color: var(--ink-3);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+  }
+  .target-card-tile .meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-3);
+    letter-spacing: 0.06em;
+  }
+  .target-card-tile .arrow {
+    position: absolute;
+    top: 22px; right: 22px;
+    font-family: var(--mono);
+    color: var(--ink-3);
+    transition: color 0.2s, transform 0.2s;
+  }
+  .target-card-tile:hover .arrow {
+    color: var(--amber);
+    transform: translateX(3px);
+  }
+</style>
+<div class="dash-section-label">01 · Targets</div>
+<h2 class="dash-section-title">Engagement scope</h2>
+<div class="dash-section-sub">12 targets under continuous audit. Click any tile to open the Bridge view with that target pre-selected.</div>
+
+<div class="target-grid">
+<div class="target-group">
+  <div class="target-group-label">Solana</div>
+  <div class="target-row">
+    <a class="target-card-tile" href="/customer/ottersec/full.html#osec-solana-small" aria-label="Open Bridge view for osec-solana-small">
+  <span class="arrow">→</span>
+  <div class="name">Solana · small</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-solana-medium" aria-label="Open Bridge view for osec-solana-medium">
+  <span class="arrow">→</span>
+  <div class="name">Solana · medium</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-solana-large" aria-label="Open Bridge view for osec-solana-large">
+  <span class="arrow">→</span>
+  <div class="name">Solana · large</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a>
+  </div>
+</div>
+<div class="target-group">
+  <div class="target-group-label">Solidity</div>
+  <div class="target-row">
+    <a class="target-card-tile" href="/customer/ottersec/full.html#osec-solidity-small" aria-label="Open Bridge view for osec-solidity-small">
+  <span class="arrow">→</span>
+  <div class="name">Solidity · small</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-solidity-medium" aria-label="Open Bridge view for osec-solidity-medium">
+  <span class="arrow">→</span>
+  <div class="name">Solidity · medium</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-solidity-large" aria-label="Open Bridge view for osec-solidity-large">
+  <span class="arrow">→</span>
+  <div class="name">Solidity · large</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a>
+  </div>
+</div>
+<div class="target-group">
+  <div class="target-group-label">C</div>
+  <div class="target-row">
+    <a class="target-card-tile" href="/customer/ottersec/full.html#osec-c-small" aria-label="Open Bridge view for osec-c-small">
+  <span class="arrow">→</span>
+  <div class="name">C · small</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-c-medium" aria-label="Open Bridge view for osec-c-medium">
+  <span class="arrow">→</span>
+  <div class="name">C · medium</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-c-large" aria-label="Open Bridge view for osec-c-large">
+  <span class="arrow">→</span>
+  <div class="name">C · large</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a>
+  </div>
+</div>
+<div class="target-group">
+  <div class="target-group-label">Aptos</div>
+  <div class="target-row">
+    <a class="target-card-tile" href="/customer/ottersec/full.html#osec-aptos-small" aria-label="Open Bridge view for osec-aptos-small">
+  <span class="arrow">→</span>
+  <div class="name">Aptos · small</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-aptos-medium" aria-label="Open Bridge view for osec-aptos-medium">
+  <span class="arrow">→</span>
+  <div class="name">Aptos · medium</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-aptos-large" aria-label="Open Bridge view for osec-aptos-large">
+  <span class="arrow">→</span>
+  <div class="name">Aptos · large</div>
+  <span class="status-chip idle">idle</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+</a>
+  </div>
+</div>
+</div>
+
+
+    <!-- Cycle receipts -->
+    <div class="dash-section-label">02 · Recent signed cycle receipts</div>
+    <h2 class="dash-section-title">Cryptographic provenance</h2>
+    <div class="dash-section-sub">Every cycle is signed with the platform Ed25519 key. Public key at /keys/jelleo.ed25519.pub.</div>
+
+    <div class="receipt-grid" id="receipts-grid">
+      <div class="receipt-card"><div class="loading-row">Loading recent cycles…</div></div>
+    </div>
+
+    <!-- Propagation -->
+    <div class="dash-section-label">03 · Cross-protocol propagation</div>
+    <h2 class="dash-section-title">Bug-class siblings across the catalog</h2>
+    <div class="dash-section-sub">When a finding is confirmed, its bug class auto-fires sibling hypotheses across all applicable protocols.</div>
+
+    <div class="prop-card" id="prop-card">
+      <div class="loading-row">Loading propagation hits…</div>
+    </div>
+
+    <!-- Actions — dashboard CTAs hoisted to top; this block is now just
+         supplementary links (archive / key / contact). -->
+    <div class="dash-section-label">04 · More</div>
+    <h2 class="dash-section-title">Reports and references</h2>
+    <div class="action-bar">
+      <a id="action-last-cycle" href="https://api.jelleo.com/cycles/" target="_blank" rel="noopener">Last cycle report <span class="arrow">↗</span></a>
+      <a href="/cycles/">Cycle archive</a>
+      <a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Platform public key ↗</a>
+      <a href="/methodology.html">Methodology</a>
+      <a href="/security.html">Security model</a>
+      <a href="mailto:kirill@jelleo.com">Email account manager →</a>
+    </div>
+
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="/" class="nav-logo" aria-label="OtterSec portal" style="display:inline-flex;align-items:center;gap:12px;"><img src="./logo.svg" alt="OtterSec logo" style="max-height: 28px; width: auto;"><span style="font-family:var(--font);font-weight:700;font-size:18px;letter-spacing:-0.01em;color:var(--ink);">OtterSec</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3);letter-spacing:0.12em;text-transform:uppercase;border-left:1px solid var(--rule);padding-left:12px;margin-left:4px;">Jelleo</span></a>
+        <p>Autonomous immune system for Solana DeFi. Continuous, AI-driven, code-grounded. Built by Kirill Sakharuk.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Customer</h5>
+        <ul>
+          <li><a href="/customer/">Sign out</a></li>
+          <li><a href="mailto:kirill@jelleo.com">Account manager</a></li>
+          <li><a href="mailto:security@jelleo.com">Security disclosures</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Reference</h5>
+        <ul>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/cycles/">Cycle archive</a></li>
+          <li><a href="/security.html">Security model</a></li>
+          <li><a href="/protocols/">Protocols</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Provenance</h5>
+        <ul>
+          <li><a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Platform pubkey ↗</a></li>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">Source on GitHub ↗</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0</span>
+      <span>v0.1 · Customer portal · Demo view</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* Customer-portal data wiring.
+ *
+ * The customer manifest is built server-side from the customer's owned
+ * targets (Percolator, in this case) and includes confirmed in-progress
+ * findings — those are private to the customer, served behind the token
+ * gate. Generated by `audit-pipeline ... dashboard --customer-manifest-dir`
+ * and refreshed by the jelleo-snapshot.timer.
+ *
+ * If the manifest is unreachable (e.g. fresh deploy, snapshot timer hasn't
+ * run yet), we fall back to the public snapshot at api.jelleo.com so the
+ * page is never blank.
+ */
+(function() {
+  const MANIFEST_URL = 'https://api.jelleo.com/customer/ottersec/manifest.json';
+  const FALLBACK_URL = 'https://api.jelleo.com/snapshot.json';
+  const REFRESH_MS    = 60_000;
+
+  // Hardcoded F7 disclosure URL — used as fallback if the snapshot's
+  // disclosure_url field isn't populated for the F7 finding yet. The DB
+  // path (details_json.disclosure_url) is the long-term home.
+  const F7_DISCLOSURE = 'https://github.com/aeyakovenko/percolator-prog/pull/39';
+
+  const $ = (id) => document.getElementById(id);
+  const escapeHtml = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+  function relTime(iso) {
+    if (!iso) return '—';
+    const t = Date.parse(iso);
+    if (isNaN(t)) return '—';
+    const sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (sec < 60)    return sec + 's ago';
+    if (sec < 3600)  return Math.floor(sec/60) + ' min ago';
+    if (sec < 86400) return Math.floor(sec/3600) + ' hr ago';
+    if (sec < 86400*30) return Math.floor(sec/86400) + ' d ago';
+    return new Date(t).toISOString().slice(0,10);
+  }
+
+  function isoDate(iso) {
+    if (!iso) return '—';
+    const t = Date.parse(iso);
+    if (isNaN(t)) return '—';
+    return new Date(t).toISOString().slice(0,10);
+  }
+
+  // ---- HEADER + COUNTERS -----------------------------------------------
+  function renderHeader(snap) {
+    const target = (snap.targets || [])[0] || {};
+    const cycles = snap.recent_cycles || [];
+    const lastCycle = cycles[0];
+    const oldestCycle = cycles[cycles.length - 1];
+
+    // Customer envelope (only present in customer manifests). When fetching
+    // the public snapshot fallback, we keep the hardcoded "Percolator team"
+    // labels already in the DOM.
+    const cust = snap.customer;
+    if (cust) {
+      const nameEl = document.querySelector('.dash-customer .name');
+      if (nameEl && cust.name) nameEl.textContent = cust.name;
+      const titleEl = document.querySelector('.dash-title');
+      if (titleEl && cust.protocol_name) titleEl.textContent = 'Continuous audit · ' + cust.protocol_name;
+    }
+    $('dash-since').textContent = (cust && cust.since) || isoDate((oldestCycle || {}).started_at) || '—';
+    $('dash-cycles-count').textContent = (snap.cycles_total != null ? snap.cycles_total : (snap.stats || {}).n_cycles) || 0;
+    // Open findings count = everything in the findings list. For the customer
+    // manifest this is the count of confirmed/triaged/disclosed findings on
+    // the customer's protocol. For the public-snapshot fallback it's the
+    // disclosed-only count (n_findings_total).
+    const findingsEl = $('dash-findings-count');
+    if (findingsEl) findingsEl.textContent = ((snap.public_findings || []).length) || ((snap.stats || {}).n_findings_total) || 0;
+    $('last-cycle-rel').textContent = relTime((lastCycle || {}).started_at);
+    $('loop-uptime').textContent = snap.loop_uptime_human || '—';
+
+    // Loop pill — green if shadow service is up, amber if degraded, red if down.
+    const shadow = (snap.services || []).find(s => s.key === 'shadow');
+    const pill = $('loop-pill');
+    const txt  = $('loop-pill-text');
+    if (!shadow) {
+      txt.textContent = 'Loop status unknown';
+      pill.style.color = 'var(--ink-3)';
+      pill.style.background = 'var(--surface)';
+      pill.style.borderColor = 'var(--rule)';
+    } else if (shadow.state === 'up') {
+      txt.textContent = 'Loop active';
+    } else if (shadow.state === 'degraded') {
+      txt.textContent = 'Loop degraded';
+      pill.style.color = 'var(--warn)';
+      pill.style.background = 'rgba(251,191,36,0.06)';
+      pill.style.borderColor = 'rgba(251,191,36,0.3)';
+    } else {
+      txt.textContent = 'Loop down';
+      pill.style.color = 'var(--alert)';
+      pill.style.background = 'rgba(239,68,68,0.06)';
+      pill.style.borderColor = 'rgba(239,68,68,0.3)';
+    }
+  }
+
+  function renderCounters(snap) {
+    const stats = snap.stats || {};
+    // Customer manifests have both buckets; public snapshot only has disclosed.
+    const disc = stats.by_severity_disclosed   || {};
+    const open = stats.by_severity_in_progress || {};
+    const isCustomer = !!snap.customer;
+    // Customer view: show OPEN counts (disclosed + in-progress) — that's what
+    // the customer cares about. Public-snapshot fallback: show disclosed only.
+    const crit = isCustomer ? ((disc.Critical || 0) + (open.Critical || 0)) : (disc.Critical || 0);
+    const high = isCustomer ? ((disc.High     || 0) + (open.High     || 0)) : (disc.High     || 0);
+    $('ct-critical').textContent = crit;
+    $('ct-high').textContent     = high;
+    $('ct-critical-label').textContent = isCustomer ? 'Critical · open' : 'Critical · disclosed';
+    $('ct-high-label').textContent     = isCustomer ? 'High · open'     : 'High · disclosed';
+    $('ct-cycles').textContent   = (snap.receipts_signed != null && snap.receipts_signed > 0)
+                                     ? snap.receipts_signed
+                                     : (snap.cycles_total || (stats.n_cycles || 0));
+  }
+
+  // ---- FINDINGS TABLE --------------------------------------------------
+  function renderFindings(snap) {
+    const tbody = $('findings-body');
+    const findings = (snap.public_findings || []).slice().sort((a, b) => {
+      const order = { Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4 };
+      return (order[a.severity] || 9) - (order[b.severity] || 9);
+    });
+    if (!findings.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-row">No public findings yet — protocol is under continuous shadow audit.</td></tr>';
+      return;
+    }
+    const rows = findings.map(f => {
+      const sev   = (f.severity || 'Info').toLowerCase();
+      const state = (f.status   || 'new').toLowerCase();
+      const hyp   = f.hypothesis_id || ('#' + f.id);
+      let title = f.title || (f.bug_class ? f.bug_class.replace(/-/g,' ') : 'Disclosed finding');
+      // For F7 specifically, link the title to the public PR if no
+      // disclosure_url is on the snapshot record yet.
+      let linkUrl = f.disclosure_url || (hyp === 'F7' ? F7_DISCLOSURE : null);
+      const titleHtml = linkUrl
+        ? '<a href="' + escapeHtml(linkUrl) + '" target="_blank" rel="noopener" style="color: var(--ink); border-bottom: 1px dashed rgba(245,243,237,0.3);">' + escapeHtml(title) + '</a>'
+        : escapeHtml(title);
+      const subBits = [];
+      if (f.bug_class)  subBits.push(escapeHtml(f.bug_class));
+      if (f.n_siblings) subBits.push(escapeHtml(f.n_siblings) + ' sibling hyps');
+      if (linkUrl)      subBits.push('public disclosure ↗');
+      return [
+        '<tr>',
+        '  <td><span class="hyp-id">' + escapeHtml(hyp) + '</span></td>',
+        '  <td>',
+        '    <div class="finding-title">' + titleHtml + '</div>',
+        subBits.length ? '    <div class="finding-sub">' + subBits.join(' · ') + '</div>' : '',
+        '  </td>',
+        '  <td><span class="sev-pill ' + sev + '">' + escapeHtml(f.severity || '—') + '</span></td>',
+        '  <td><span class="state-pill ' + state + '">' + escapeHtml(f.status || '—') + '</span></td>',
+        '  <td>' + escapeHtml(f.cycle_id || '—') + '</td>',
+        '</tr>',
+      ].join('\n');
+    }).join('\n');
+    tbody.innerHTML = rows;
+  }
+
+  // ---- CYCLE RECEIPTS --------------------------------------------------
+  function renderCycles(snap) {
+    const grid = $('receipts-grid');
+    const cycles = (snap.recent_cycles || []).slice(0, 4);
+    if (!cycles.length) {
+      grid.innerHTML = '<div class="receipt-card"><div class="empty-row">No signed cycles yet.</div></div>';
+      return;
+    }
+    // Update the "Last cycle report" action bar URL.
+    const last = cycles[0];
+    if (last && last.cycle_id) {
+      const a = $('action-last-cycle');
+      if (a) a.href = 'https://api.jelleo.com/cycles/' + encodeURIComponent(last.cycle_id) + '/';
+    }
+    grid.innerHTML = cycles.map(c => {
+      const cid = c.cycle_id || '—';
+      const fp  = c.receipt_fingerprint;
+      const fpHtml = fp
+        ? '<span class="v amber">' + escapeHtml(fp) + '</span>'
+        : '<span class="v" style="color: var(--ink-3);">pending publish</span>';
+      const verifyHtml = cid !== '—'
+        ? '<span class="v"><a href="https://api.jelleo.com/cycles/' + encodeURIComponent(cid) + '/" target="_blank" rel="noopener" style="color: var(--amber); border-bottom: 1px dashed rgba(245,184,0,0.3);">api.jelleo.com/cycles/…/ ↗</a></span>'
+        : '<span class="v">—</span>';
+      return [
+        '<div class="receipt-card">',
+        '  <div class="cycle-id">' + escapeHtml(cid) + ' <span class="ts">' + relTime(c.started_at) + '</span></div>',
+        '  <div class="field"><span class="k">Hyps run</span><span class="v">' + escapeHtml(c.n_dispatched != null ? c.n_dispatched : '—') + '</span></div>',
+        '  <div class="field"><span class="k">Confirmed</span><span class="v">' + escapeHtml(c.n_confirmed != null ? c.n_confirmed : '—') + '</span></div>',
+        '  <div class="field"><span class="k">Engine SHA</span><span class="v">' + escapeHtml(c.engine_sha || '—') + '</span></div>',
+        '  <div class="field"><span class="k">Receipt</span>' + fpHtml + '</div>',
+        '  <div class="field"><span class="k">Verify</span>' + verifyHtml + '</div>',
+        '</div>',
+      ].join('\n');
+    }).join('\n');
+  }
+
+  // ---- PROPAGATION -----------------------------------------------------
+  function renderPropagation(snap) {
+    const card = $('prop-card');
+    // Build propagation rows from disclosed findings that have siblings.
+    const rows = (snap.public_findings || [])
+      .filter(f => (f.n_siblings || 0) > 0 && f.bug_class)
+      .map(f => {
+        const hyp = f.hypothesis_id || ('#' + f.id);
+        return [
+          '<div class="prop-row">',
+          '  <div class="col">',
+          '    <div class="lbl">Source finding</div>',
+          '    <div class="val"><strong>' + escapeHtml(hyp) + '</strong> · ' + escapeHtml(f.title || f.bug_class) + '</div>',
+          '  </div>',
+          '  <div class="col">',
+          '    <div class="lbl">Bug class</div>',
+          '    <div class="val">' + escapeHtml(f.bug_class) + '</div>',
+          '  </div>',
+          '  <div class="col">',
+          '    <div class="lbl">Sibling hyps fired</div>',
+          '    <div class="val">' + escapeHtml(f.n_siblings) + ' across applicable targets</div>',
+          '  </div>',
+          '</div>',
+        ].join('\n');
+      });
+    if (!rows.length) {
+      card.innerHTML = '<div class="empty-row" style="text-align: left; padding: 8px 0;">No cross-protocol propagation hits yet — siblings auto-fire as additional protocols come online (Y1 cluster ramp).</div>';
+      return;
+    }
+    card.innerHTML = rows.join('\n');
+  }
+
+  // ---- ORCHESTRATION ---------------------------------------------------
+  async function fetchSnapshot() {
+    // Prefer the per-customer manifest (richer, includes confirmed
+    // findings). Fall back to the public snapshot if the manifest 404s
+    // (manifest publisher hasn't run on the VPS yet, or feature flag off).
+    try {
+      const r = await fetch(MANIFEST_URL, { cache: 'no-store' });
+      if (r.ok) return await r.json();
+    } catch (_) { /* network error — try fallback */ }
+    const r2 = await fetch(FALLBACK_URL, { cache: 'no-store' });
+    if (!r2.ok) throw new Error('HTTP ' + r2.status);
+    return await r2.json();
+  }
+
+  async function refresh() {
+    const err = $('feed-error');
+    try {
+      const snap = await fetchSnapshot();
+      err.classList.remove('shown');
+      renderHeader(snap);
+      renderCounters(snap);
+      renderFindings(snap);
+      renderCycles(snap);
+      renderPropagation(snap);
+    } catch (e) {
+      err.textContent = 'Live feed unreachable (' + (e.message || e) + ') — retrying every 60s.';
+      err.classList.add('shown');
+      // Keep whatever was last rendered; if first load, fill with empty states.
+      if ($('findings-body').querySelector('.loading-row')) {
+        $('findings-body').innerHTML = '<tr><td colspan="5" class="empty-row">Cannot reach api.jelleo.com — try again shortly.</td></tr>';
+      }
+      if ($('receipts-grid').querySelector('.loading-row')) {
+        $('receipts-grid').innerHTML = '<div class="receipt-card"><div class="empty-row">Cannot reach api.jelleo.com.</div></div>';
+      }
+      if ($('prop-card').querySelector('.loading-row')) {
+        $('prop-card').innerHTML = '<div class="empty-row" style="text-align: left; padding: 8px 0;">Cannot reach api.jelleo.com.</div>';
+      }
+    }
+  }
+
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+})();
+</script>
+
+<script src="/shared.js"></script>
+</body>
+</html>

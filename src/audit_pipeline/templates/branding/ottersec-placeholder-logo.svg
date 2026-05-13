@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Placeholder OtterSec logo - tight monogram on transparent background.
+     Replace with real logo from OSec when supplied. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 32" width="120" height="32">
+  <defs>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <!-- Monogram block -->
+  <rect x="0" y="0" width="32" height="32" rx="6" fill="url(#accent)"/>
+  <text x="16" y="22" font-family="JetBrains Mono, monospace" font-size="14" font-weight="700"
+        text-anchor="middle" fill="#ffffff" letter-spacing="0.5">OS</text>
+  <!-- Wordmark -->
+  <text x="42" y="22" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700"
+        fill="#0a0e27" letter-spacing="-0.02em">OtterSec</text>
+</svg>

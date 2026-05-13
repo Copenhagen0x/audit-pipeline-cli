@@ -27,6 +27,7 @@ from rich.console import Console
 from rich.table import Table
 
 from audit_pipeline import customers as customers_mod
+from audit_pipeline.commands.customer_dashboard import build_dashboard_cmd
 from audit_pipeline.commands.sign import default_key_path
 
 console = Console()
@@ -35,6 +36,10 @@ console = Console()
 @click.group(name="customer")
 def customer_cmd() -> None:
     """Multi-tenant customer registry (Tier 5 #26 + #27 + #28)."""
+
+
+# Register subcommands defined in sibling modules
+customer_cmd.add_command(build_dashboard_cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +72,21 @@ def customer_cmd() -> None:
                   "the token-gated /customer/<id>/manifest.json endpoint. "
                   "Pass an unguessable id like `cus_$(openssl rand -hex 16)`."
               ))
+@click.option("--logo-path", type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              default=None,
+              help="Path to a customer logo file (SVG preferred, PNG OK). "
+                   "Copied into customers/<id>/branding/ and shown in the "
+                   "dashboard nav so the customer knows it's theirs.")
+@click.option("--hero-title", default=None,
+              help="Display title shown in the customer dashboard hero "
+                   "(e.g. 'OtterSec × Jelleo · Vendor Evaluation'). Defaults "
+                   "to '<customer name> · audit dashboard'.")
+@click.option("--footer-text", default=None,
+              help="Footer line on the customer dashboard "
+                   "(default: 'Powered by Jelleo · continuous audit').")
+@click.option("--pdf-watermark", default=None,
+              help="Watermark text for the PDF cover + page corners "
+                   "(e.g. 'Confidential — OtterSec evaluation').")
 @click.pass_context
 def add_cmd(
     ctx: click.Context,
@@ -79,6 +99,10 @@ def add_cmd(
     no_key: bool,
     platform_key: Path | None,
     allow_guessable_id: bool,
+    logo_path: Path | None,
+    hero_title: str | None,
+    footer_text: str | None,
+    pdf_watermark: str | None,
 ) -> None:
     """Register a new customer and derive its signing keypair."""
     workspace = Path(ctx.obj["workspace"])
@@ -101,6 +125,29 @@ def add_cmd(
                 f"the public demo)."
             )
 
+    # Assemble + validate branding dict from CLI args (if any provided).
+    # Note: only IDENTITY/COPY fields here, not color palette. Jelleo's
+    # visual identity (dark + amber) is shared across all customer
+    # dashboards; the per-customer surface is logo, hero title, footer,
+    # PDF watermark. Their nameplate on the door — not redecorated walls.
+    branding: dict | None = None
+    if any((logo_path, hero_title, footer_text, pdf_watermark)):
+        branding = {}
+        if hero_title:    branding["hero_title"] = hero_title
+        if footer_text:   branding["footer_text"] = footer_text
+        if pdf_watermark: branding["pdf_watermark"] = pdf_watermark
+        # Logo handling: copy into the customer's branding dir + record
+        # the workspace-relative path. We don't store an absolute path
+        # in customers.json since the registry may move workspaces.
+        if logo_path:
+            brand_dir = customers_mod.customer_branding_dir(workspace, customer_id)
+            brand_dir.mkdir(parents=True, exist_ok=True)
+            ext = logo_path.suffix.lower() or ".svg"
+            dst = brand_dir / f"logo{ext}"
+            shutil.copyfile(logo_path, dst)
+            # Store workspace-relative
+            branding["logo_path"] = str(dst.relative_to(workspace))
+
     try:
         entry = customers_mod.add_customer(
             workspace,
@@ -111,6 +158,7 @@ def add_cmd(
             target_match=target_match,
             contact_email=contact_email,
             since=today,
+            branding=branding,
         )
     except customers_mod.CustomerError as e:
         raise click.ClickException(str(e))
@@ -121,6 +169,11 @@ def add_cmd(
     console.print(f"  target_match:  {entry['target_match']}")
     if contact_email:
         console.print(f"  contact_email: {contact_email}")
+    if branding:
+        console.print(
+            f"  branding:      "
+            + ", ".join(f"{k}={v!r}" for k, v in entry["branding"].items())
+        )
 
     if no_key:
         console.print("[yellow]--no-key set; skipped keypair derivation.[/yellow]")

@@ -21,6 +21,7 @@ from audit_pipeline.commands import (
     derive_siblings,
     disclose,
     expand_coverage,
+    export_scabench,
     freshness,
     health,
     heartbeat,
@@ -157,6 +158,7 @@ main.add_command(sign.sign_cmd)                    # Ed25519-signed disclosures
 
 # Subcommands — customer-facing notifications + cadence dispatch (Sprint 3.3)
 main.add_command(notify.notify_cmd)                # email: test/critical/cadence
+main.add_command(export_scabench.export_scabench_cmd)  # OSec/ScaBench JSON submission format
 main.add_command(scheduler.scheduler_cmd)          # cadence daemon: tick/run/status
 
 # Subcommands — multi-tenant + proof-of-running (Tier 5)
