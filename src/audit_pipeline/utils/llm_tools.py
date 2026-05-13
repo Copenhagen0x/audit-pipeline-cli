@@ -79,28 +79,61 @@ def _normalize_path(workspace: Path, path: str) -> Path | None:
          workspace.json — required for non-Solana OSec workspaces
          whose engine clone lives under a sibling path like
          ``/root/audit_runs/<eval>/repos/<lang>-<size>/``
+
+    Resolution order:
+      a. absolute path → use as-is
+      b. workspace / path → if that exists, use it
+      c. engine_root / path → if any engine_root has it, use that
+         (so agents can say "sources/X.move" without the engine prefix)
     """
-    try:
-        p = (workspace / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
-    except OSError:
-        return None
+    from audit_pipeline.utils.vps_paths import is_under_trusted_root
+
     try:
         ws = workspace.resolve()
     except OSError:
         return None
-    from audit_pipeline.utils.vps_paths import is_under_trusted_root
-    p_str = str(p)
-    if p_str.startswith(str(ws)) or is_under_trusted_root(p):
-        return p
-    # Workspace-declared engine roots (third trusted set). Without this,
-    # the recon agent on aptos-small returned UNKNOWN/HIGH for every
-    # hyp because every read_file / grep against the engine source
-    # got "outside workspace" rejected — see audit log
-    # 2026-05-13 aptos-small dry-run, $17 wasted.
-    for engine_root in _workspace_engine_roots(workspace):
-        if p_str.startswith(str(engine_root)):
+
+    candidates: list[Path] = []
+    if Path(path).is_absolute():
+        try:
+            candidates.append(Path(path).resolve())
+        except OSError:
+            return None
+    else:
+        # Try workspace-relative first
+        try:
+            candidates.append((workspace / path).resolve())
+        except OSError:
+            pass
+        # Then try each engine_root as a fallback so the agent can
+        # use bare paths like "sources/access_control.move" without
+        # needing to prefix "./engine/". This was the silent failure
+        # mode in the aptos-small dry-run (5/40 responses returned
+        # "file not found" for bare-relative source paths).
+        for engine_root in _workspace_engine_roots(workspace):
+            try:
+                candidates.append((engine_root / path).resolve())
+            except OSError:
+                pass
+
+    # Pick the first candidate that EXISTS and is under a trusted root.
+    # Falling back to first candidate (existence-unchecked) if nothing
+    # exists — caller's .is_file() check will emit the right error.
+    fallback: Path | None = None
+    for p in candidates:
+        p_str = str(p)
+        trusted = (
+            p_str.startswith(str(ws))
+            or is_under_trusted_root(p)
+            or any(p_str.startswith(str(r)) for r in _workspace_engine_roots(workspace))
+        )
+        if not trusted:
+            continue
+        if fallback is None:
+            fallback = p
+        if p.exists():
             return p
-    return None
+    return fallback
 
 
 def tool_read_file(workspace: Path, path: str, start_line: int = 1, end_line: int | None = None) -> str:
