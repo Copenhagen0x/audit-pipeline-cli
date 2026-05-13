@@ -1755,7 +1755,22 @@ main.bridge {
         term.firstChild.querySelector('.kind').textContent === 'init') {
       term.innerHTML = '';
     }
-    const t = new Date((ts || Date.now() / 1000) * 1000);
+    // ts can be:
+    //   - a number (Unix seconds, e.g. from SSE recon events)
+    //   - an ISO 8601 string (e.g. from hunt.log.jsonl-tailed events
+    //     like "2026-05-13T20:34:43+00:00")
+    //   - undefined → fall back to "now"
+    // The old code did `ts * 1000` which gives NaN for strings →
+    // "Invalid Date" in the timestamp column. Handle both shapes.
+    let t;
+    if (typeof ts === 'number') {
+      t = new Date(ts * 1000);
+    } else if (typeof ts === 'string') {
+      t = new Date(ts);
+    } else {
+      t = new Date();
+    }
+    if (isNaN(t.getTime())) t = new Date();
     let cls = '';
     if (kind === 'cycle_complete' || kind === 'hunt_complete' || kind === 'cycle_active') cls = 'ok';
     if (kind === 'finding_persisted') cls = 'crit';
