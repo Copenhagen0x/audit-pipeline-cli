@@ -264,6 +264,41 @@ console = Console()
         "cycle. Pass this to re-run every hypothesis regardless of history."
     ),
 )
+# L1 + L1.5 SOURCE-GROUNDING / INDEPENDENCE — these flags propagate into
+# the recon + debate subprocess invocations. Default is ON for tool-using
+# recon because the alternative (speculation-based single-shot) produced
+# the cycle-20260511 retraction. Operators can disable for cheap CI runs.
+@click.option(
+    "--use-tools/--no-use-tools", default=True, show_default=True,
+    help=(
+        "Layer 1 recon: route each hypothesis through the tool-using "
+        "agent loop (read_file/grep/find_function against live workspace) "
+        "instead of single-shot completion. Defeats the speculation-recon "
+        "hallucination that retracted cycle 20260511."
+    ),
+)
+@click.option(
+    "--tool-max-turns", type=int, default=12, show_default=True,
+    help="Max tool-using turns per hypothesis (only used with --use-tools).",
+)
+@click.option(
+    "--challenger-model", default=None,
+    help=(
+        "L1.5 debate independence: route the challenger through a "
+        "different model than the proposer (e.g. ``claude-opus-4-5``). "
+        "Defeats same-mistake bias when proposer + challenger share a "
+        "backbone."
+    ),
+)
+@click.option(
+    "--redact-proposer-evidence/--full-proposer-evidence",
+    default=True, show_default=True,
+    help=(
+        "L1.5 debate independence: pass only the proposer's verdict "
+        "line (not the line citations + code) to the challenger. Forces "
+        "independent re-derivation rather than rubber-stamp."
+    ),
+)
 @click.pass_context
 def hunt_cmd(
     ctx: click.Context,
@@ -295,6 +330,10 @@ def hunt_cmd(
     ignore_freshness: bool,
     max_stale_hours: float,
     ignore_disclosure_history: bool,
+    use_tools: bool,
+    tool_max_turns: int,
+    challenger_model: str | None,
+    redact_proposer_evidence: bool,
 ) -> None:
     """Autonomous full hunt cycle: recon -> debate -> PoC -> Kani -> report.
 
@@ -567,6 +606,10 @@ def hunt_cmd(
             engine_dir_for_cargo=engine_dir_for_cargo,
             resume_cycle=resume_cycle,
             auto_publish=auto_publish,
+            use_tools=use_tools,
+            tool_max_turns=tool_max_turns,
+            challenger_model=challenger_model,
+            redact_proposer_evidence=redact_proposer_evidence,
         )
     finally:
         if snap_cm is not None:
@@ -602,6 +645,10 @@ def _hunt_run(
     engine_dir_for_cargo: Path,
     resume_cycle: str | None = None,
     auto_publish: bool = True,
+    use_tools: bool = True,
+    tool_max_turns: int = 12,
+    challenger_model: str | None = None,
+    redact_proposer_evidence: bool = True,
 ) -> None:
     """Hunt cycle body, factored out so the snapshot lifecycle wraps it cleanly."""
 
@@ -792,6 +839,14 @@ def _hunt_run(
             "--refinement-rounds", str(refinement_rounds),
             "--ground-code" if ground_code else "--no-ground-code",
         ]
+        # L1 recon Defect 01 (the cycle-20260511 retraction root cause):
+        # thread --use-tools and --tool-max-turns through the autonomous
+        # hunt loop's recon subprocess so source-grounded tool use is the
+        # DEFAULT behavior, not a manual override the operator has to
+        # remember on each invocation.
+        recon_argv += ["--use-tools" if use_tools else "--no-use-tools"]
+        if use_tools:
+            recon_argv += ["--tool-max-turns", str(tool_max_turns)]
         if source_repo:
             recon_argv += ["--source-repo", source_repo, "--source-sha", resolved_sha]
         # Layer 1 budget: 4 hours. The default _run() timeout is 30 min
@@ -908,6 +963,15 @@ def _hunt_run(
                     "--output", str(debate_out),
                     "--auto",
                 ]
+                # L1.5 debate independence — thread through into the hunt
+                # loop's debate subprocess so cycles get the independence
+                # guarantees by default, not just when run manually.
+                debate_argv += [
+                    "--redact-proposer-evidence" if redact_proposer_evidence
+                    else "--full-proposer-evidence"
+                ]
+                if challenger_model:
+                    debate_argv += ["--challenger-model", challenger_model]
                 if source_repo:
                     debate_argv += ["--source-repo", source_repo, "--source-sha", resolved_sha]
                 rc = _run(debate_argv)
