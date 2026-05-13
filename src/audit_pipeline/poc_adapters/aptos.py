@@ -331,9 +331,31 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
         deployed_test = repo_tests_dir / f"jelleo_l2_{test_name}.move"
         deployed_test.write_text(body, encoding="utf-8")
 
-        # Derive the test function name from the test_name slug —
-        # typically `test_<slug>` per the prompt's instructions.
-        filter_name = f"test_{test_name}"
+        # Filter name: extract the ACTUAL `fun test_X()` name from
+        # the deployed test body, falling back to the slug-derived
+        # name if extraction fails.
+        #
+        # The aptos-small dry-run caught the failure mode this fixes:
+        # the LLM named the test `fun test_borrow_global_no_auth()`
+        # (module-name based) while the adapter filtered for
+        # `test_apt1_borrow_global_no_auth` (slug-prefixed). The
+        # filter excluded our test → "Total tests: 0" → we never
+        # learned whether the test would have fired. APT1's REAL
+        # admin-hijack PoC was discarded as "0 PASS — bug not
+        # reachable" when the test simply never ran.
+        #
+        # Now we parse `fun <name>(` patterns from the body,
+        # preferring names that start with "test_" (per Move's
+        # convention) and use that as the filter so we're matching
+        # what the LLM actually wrote.
+        fn_matches = re.findall(r"fun\s+(test_\w+)\s*\(", body)
+        if fn_matches:
+            filter_name = fn_matches[0]
+        else:
+            # Fallback: any fun, prefer ones containing 'test'
+            all_funs = re.findall(r"fun\s+(\w+)\s*\(", body)
+            test_funs = [f for f in all_funs if "test" in f.lower()]
+            filter_name = (test_funs or all_funs or [f"test_{test_name}"])[0]
 
         t0 = time.time()
         try:
