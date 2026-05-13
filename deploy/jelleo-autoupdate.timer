@@ -1,0 +1,18 @@
+[Unit]
+Description=Jelleo - poll origin/main every 5 min and self-deploy on new commits
+
+[Timer]
+# First fire: 2 min after boot, so the OS + services have time to come up.
+OnBootSec=2min
+# Then every 5 min — fast enough that pushes feel near-real-time, slow
+# enough that the GitHub API + git fetch don't get hammered.
+OnUnitActiveSec=5min
+# A timer that's been stopped (e.g. for manual ops work) catches up
+# on next boot rather than firing every missed instance.
+Persistent=true
+# Each fire is bounded by the service's TimeoutStartSec=600 — no
+# accumulating queue of pending runs if a single fire hangs.
+Unit=jelleo-autoupdate.service
+
+[Install]
+WantedBy=timers.target

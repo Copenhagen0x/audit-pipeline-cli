@@ -1,0 +1,19 @@
+[Unit]
+Description=Jelleo - auto-update from origin/main
+Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
+After=network-online.target
+Wants=network-online.target
+# Don't run during the very first boot — give the OS time to settle.
+ConditionPathExists=/root/audit-pipeline-cli/.git
+# Cross-cutting audit Defect 24 (LOW operational): alert on hard failure.
+OnFailure=jelleo-alert-failure@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/root/.audit-env
+WorkingDirectory=/root/audit-pipeline-cli
+ExecStart=/usr/bin/env bash /root/audit-pipeline-cli/deploy/jelleo-autoupdate.sh
+TimeoutStartSec=600
+# Hardening — auto-update only needs the repo + write to its own log.
+ProtectSystem=false
+NoNewPrivileges=true

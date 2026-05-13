@@ -783,6 +783,84 @@ main.bridge {
 }
 .demo-banner a { color: var(--ink); text-decoration: underline; }
 
+/* ===== HEALTH BANNER — self-proof of system state, customer-language ===== */
+.health-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 32px;
+  border-bottom: 1px solid var(--bridge-rule);
+  font-family: var(--font);
+  font-size: 13px;
+  transition: background 0.6s ease, border-color 0.6s ease;
+}
+.health-banner.healthy {
+  background: linear-gradient(90deg, rgba(74,222,128,0.06), transparent 60%);
+  border-bottom-color: rgba(74,222,128,0.18);
+}
+.health-banner.warning {
+  background: linear-gradient(90deg, rgba(245,184,0,0.08), transparent 60%);
+  border-bottom-color: rgba(245,184,0,0.28);
+}
+.health-banner.degraded {
+  background: linear-gradient(90deg, rgba(239,68,68,0.09), transparent 60%);
+  border-bottom-color: rgba(239,68,68,0.32);
+}
+.health-light {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ok);
+  text-shadow: 0 0 12px currentColor;
+  transition: color 0.6s;
+}
+.health-banner.warning .health-light  { color: var(--warn); }
+.health-banner.degraded .health-light { color: var(--crit); }
+.health-text {
+  flex: 1;
+  min-width: 0;
+}
+.health-text strong {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.005em;
+  margin-bottom: 2px;
+}
+.health-text .detail {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.health-checks {
+  display: flex;
+  gap: 18px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ink-4);
+  flex-shrink: 0;
+}
+.health-checks span {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.health-checks span::before {
+  content: ""; display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--ink-5);
+  transition: background 0.4s;
+}
+.health-checks span.ok::before   { background: var(--ok);   box-shadow: 0 0 4px var(--ok); }
+.health-checks span.warn::before { background: var(--warn); box-shadow: 0 0 4px var(--warn); }
+.health-checks span.fail::before { background: var(--crit); box-shadow: 0 0 4px var(--crit); }
+@media (max-width: 768px) {
+  .health-banner { padding: 12px 16px; flex-wrap: wrap; }
+  .health-checks { width: 100%; padding-top: 8px; border-top: 1px solid var(--bridge-rule); }
+}
+
 @media (max-width: 768px) {
   .bridge-header { padding: 10px 16px; flex-direction: column; align-items: flex-start; }
   .bridge-side { padding: 14px 18px; }
@@ -800,6 +878,25 @@ main.bridge {
 </div>
 
 <main class="bridge">
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       HEALTH BANNER — answers "is this thing healthy?" in plain English,
+       without the customer touching a terminal. Three rolled-up checks:
+       engine heartbeat fresh, event stream connected, recent cycle activity.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="health-banner healthy" id="health-banner" role="status" aria-live="polite">
+    <div class="health-light">●</div>
+    <div class="health-text">
+      <strong id="health-title">All systems healthy</strong>
+      <span class="detail" id="health-detail">Connecting to live engine…</span>
+    </div>
+    <div class="health-checks">
+      <span id="check-engine">Engine</span>
+      <span id="check-stream">Live stream</span>
+      <span id="check-activity">Activity</span>
+    </div>
+  </div>
+
 
   <!-- ═══════════════════════════════════════════════════════════════════
        HERO HEADER STRIP
@@ -1089,6 +1186,110 @@ main.bridge {
     return h + 'h ' + (m % 60) + 'm';
   };
   const safeStr = (s, n) => (s == null ? '' : String(s)).slice(0, n || 80);
+
+  // ───── Health banner — rolls up 3 checks into one customer-facing state ─────
+  // The customer should never need a terminal to know if Jelleo is up.
+  // This banner answers it in plain English, refreshed on every event +
+  // every animation tick.
+  const HEALTH_THRESHOLDS = {
+    heartbeat_ok_ms:    90 * 60 * 1000,   // 90 min — heartbeat runs hourly
+    heartbeat_warn_ms:  3 * 60 * 60 * 1000, // 3 h — beyond this, something is wrong
+    activity_ok_ms:     24 * 60 * 60 * 1000,   // 24 h
+    activity_warn_ms:   3 * 24 * 60 * 60 * 1000, // 72 h
+    stream_grace_ms:    20 * 1000,        // 20s — initial connect grace period
+  };
+  let healthFirstLoadAt = Date.now();
+  function refreshHealth() {
+    const banner = $('health-banner');
+    if (!banner) return;
+    const now = Date.now();
+    const sinceLoad = now - healthFirstLoadAt;
+
+    // Check 1 — engine heartbeat freshness
+    let engine = { status: 'fail', label: 'unknown' };
+    if (state.heartbeatTs) {
+      const age = now - state.heartbeatTs;
+      if (age <= HEALTH_THRESHOLDS.heartbeat_ok_ms)        engine = { status: 'ok',   label: 'running · ' + fmtRel(state.heartbeatTs) };
+      else if (age <= HEALTH_THRESHOLDS.heartbeat_warn_ms) engine = { status: 'warn', label: 'heartbeat stale · ' + fmtRel(state.heartbeatTs) };
+      else                                                 engine = { status: 'fail', label: 'no heartbeat ' + fmtRel(state.heartbeatTs) };
+    } else if (sinceLoad < HEALTH_THRESHOLDS.stream_grace_ms) {
+      engine = { status: 'warn', label: 'checking…' };
+    } else {
+      engine = { status: 'fail', label: 'no heartbeat received' };
+    }
+
+    // Check 2 — live event stream
+    let stream;
+    if (state.sseConnected) {
+      stream = { status: 'ok', label: 'connected' };
+    } else if (sinceLoad < HEALTH_THRESHOLDS.stream_grace_ms) {
+      stream = { status: 'warn', label: 'connecting' };
+    } else {
+      stream = { status: 'fail', label: 'reconnecting' };
+    }
+
+    // Check 3 — recent cycle activity (informational, not a hard fail)
+    let activity;
+    if (state.activeCycle && state.cycleStartedAt) {
+      activity = { status: 'ok', label: 'cycle running' };
+    } else if (state.lastCycleAt) {
+      const age = now - state.lastCycleAt;
+      if (age <= HEALTH_THRESHOLDS.activity_ok_ms)        activity = { status: 'ok',   label: 'last cycle ' + fmtRel(state.lastCycleAt) };
+      else if (age <= HEALTH_THRESHOLDS.activity_warn_ms) activity = { status: 'warn', label: 'last cycle ' + fmtRel(state.lastCycleAt) };
+      else                                                 activity = { status: 'warn', label: 'idle for ' + fmtDur(age) };
+    } else {
+      activity = { status: 'warn', label: 'no cycles seen yet' };
+    }
+
+    // Paint individual check dots
+    const setCheck = (id, status, suffix) => {
+      const el = $(id);
+      if (!el) return;
+      el.classList.remove('ok', 'warn', 'fail');
+      el.classList.add(status);
+      // Base label is the textContent set in HTML (Engine / Live stream / Activity)
+      const baseLabel = el.getAttribute('data-base') || el.textContent.split(' · ')[0].trim();
+      if (!el.getAttribute('data-base')) el.setAttribute('data-base', baseLabel);
+      el.textContent = baseLabel + ' · ' + suffix;
+    };
+    setCheck('check-engine',   engine.status,   engine.label);
+    setCheck('check-stream',   stream.status,   stream.label);
+    setCheck('check-activity', activity.status, activity.label);
+
+    // Roll up — overall status is the worst of the three.
+    // (activity is treated as informational; "warn" on activity alone
+    // never escalates the banner to "degraded" — idle is normal.)
+    let overall = 'healthy';
+    if (engine.status === 'fail' || stream.status === 'fail') overall = 'degraded';
+    else if (engine.status === 'warn' || stream.status === 'warn') overall = 'warning';
+
+    banner.classList.remove('healthy', 'warning', 'degraded');
+    banner.classList.add(overall);
+
+    // Headline + plain-English detail line
+    const title = $('health-title');
+    const detail = $('health-detail');
+    if (overall === 'healthy') {
+      title.textContent = state.activeCycle
+        ? 'Cycle running — Jelleo is auditing right now'
+        : 'All systems healthy';
+      detail.textContent = state.activeCycle
+        ? ('Cycle ' + safeStr(state.activeCycle, 22) + ' · ' + activity.label + ' · stream ' + stream.label)
+        : ('Engine ' + engine.label + ' · stream ' + stream.label + ' · ' + activity.label);
+    } else if (overall === 'warning') {
+      title.textContent = 'Mostly healthy';
+      const what = engine.status !== 'ok' ? 'Engine ' + engine.label
+                 : stream.status !== 'ok' ? 'Live stream ' + stream.label
+                 : activity.label;
+      detail.textContent = what + ' · we are on it · the engine self-heals on the next tick';
+    } else {
+      title.textContent = 'Service degraded — reconnecting';
+      const what = engine.status === 'fail' ? 'Engine ' + engine.label
+                 : stream.status === 'fail' ? 'Live stream ' + stream.label
+                 : 'unknown subsystem offline';
+      detail.textContent = what + ' · nothing for you to do · this view auto-refreshes';
+    }
+  }
 
   // ───── Heartbeat status (top-left pip + label) ─────
   function setHeartStatus(state_) {
@@ -1560,7 +1761,10 @@ main.bridge {
     if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
   }
 
-  function refreshAll() { refreshSnapshot(); refreshManifest(); refreshHeartbeat(); }
+  function refreshAll() {
+    Promise.all([refreshSnapshot(), refreshManifest(), refreshHeartbeat()])
+      .finally(() => refreshHealth());
+  }
 
   // ───── SSE connect ─────
   let sse = null;
@@ -1646,6 +1850,11 @@ main.bridge {
         const remaining = Math.max(0, 300000 - (Date.now() - lastPollMs));
         nextEl.textContent = fmtDur(remaining);
       }
+
+      // Re-evaluate the customer-facing health banner every second so
+      // staleness rolls forward without waiting for the next event /
+      // snapshot poll.
+      refreshHealth();
     }
 
     requestAnimationFrame(tick);
