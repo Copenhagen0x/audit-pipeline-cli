@@ -1241,16 +1241,9 @@ def _hunt_run(
                 meta = hyp_meta.get(hyp_id, {})
                 # Build the LLM authoring prompt + call the model
                 from audit_pipeline.utils import complete as _complete_l2
-                source_context = ""
-                if ground_code and meta.get("target_file"):
-                    try:
-                        tf = engine_dir / meta["target_file"]
-                        if tf.is_file():
-                            source_context = tf.read_text(
-                                encoding="utf-8", errors="replace"
-                            )[:60_000]
-                    except OSError:
-                        pass
+                source_context = _grounded_source_for_hyp(
+                    engine_dir, meta, ground_code=ground_code,
+                )
                 prompt = _l2_adapter.build_author_prompt(
                     hyp=meta, source_context=source_context,
                     target_repo_root=engine_dir,
@@ -1645,16 +1638,9 @@ def _hunt_run(
                 meta = hyp_meta.get(hyp_id, {})
                 harness_name = _slugify(hyp_id)
                 from audit_pipeline.utils import complete as _complete_l4
-                source_context = ""
-                if meta.get("target_file"):
-                    try:
-                        tf = engine_dir_for_cargo / meta["target_file"]
-                        if tf.is_file():
-                            source_context = tf.read_text(
-                                encoding="utf-8", errors="replace"
-                            )[:60_000]
-                    except OSError:
-                        pass
+                source_context = _grounded_source_for_hyp(
+                    engine_dir_for_cargo, meta, ground_code=True,
+                )
                 prompt = _l4_adapter.build_harness_prompt(
                     hyp=meta, source_context=source_context,
                     target_repo_root=engine_dir_for_cargo,
@@ -1781,16 +1767,9 @@ def _hunt_run(
                 harness_name = f"{_slugify(hyp_id)}_invariant"
                 # Build LLM prompt + author harness
                 from audit_pipeline.utils import complete as _complete_l3
-                source_context = ""
-                if meta.get("target_file"):
-                    try:
-                        tf = engine_dir_for_cargo / meta["target_file"]
-                        if tf.is_file():
-                            source_context = tf.read_text(
-                                encoding="utf-8", errors="replace"
-                            )[:60_000]
-                    except OSError:
-                        pass
+                source_context = _grounded_source_for_hyp(
+                    engine_dir_for_cargo, meta, ground_code=True,
+                )
                 prompt = _l3_adapter.build_harness_prompt(
                     hyp=meta, source_context=source_context,
                     target_repo_root=engine_dir_for_cargo,
@@ -2347,6 +2326,69 @@ def _resolve_publish_script() -> Path | None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _grounded_source_for_hyp(
+    engine_dir: Path,
+    meta: dict[str, Any],
+    *,
+    ground_code: bool = True,
+    max_bytes: int = 60_000,
+) -> str:
+    """Resolve a hyp's target_file (single path or glob) to inline source.
+
+    Why this exists: aptos-small dry-run failed L2 PoC on EVERY hyp
+    because `target_file: sources/*.move` is a glob, not a file. The
+    earlier `tf.is_file()` check returned False → source_context stayed
+    empty → LLM wrote tests calling `mutatis::engine::withdraw` (a
+    hallucinated module) instead of the actual `mutatis::token_vault::
+    withdraw`. Every test then failed to compile.
+
+    Now we:
+      1. Use glob() if the path contains * or ?
+      2. Concatenate matching files (with header lines so the LLM
+         knows which module is which) up to max_bytes
+      3. Fall back to reading single file path if no glob match
+    """
+    if not ground_code:
+        return ""
+    target_file = meta.get("target_file")
+    if not target_file:
+        return ""
+
+    paths: list[Path] = []
+    if "*" in target_file or "?" in target_file:
+        try:
+            paths = sorted(engine_dir.glob(target_file))
+        except OSError:
+            paths = []
+    else:
+        candidate = engine_dir / target_file
+        if candidate.is_file():
+            paths = [candidate]
+
+    if not paths:
+        return ""
+
+    chunks: list[str] = []
+    used = 0
+    for p in paths:
+        try:
+            body = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = p.name
+        try:
+            rel = str(p.relative_to(engine_dir))
+        except (ValueError, AttributeError):
+            pass
+        header = f"// ===== {rel} =====\n"
+        budget = max_bytes - used - len(header)
+        if budget <= 0:
+            break
+        chunks.append(header + body[:budget])
+        used += len(chunks[-1])
+    return "\n".join(chunks)
 
 
 def _now() -> str:
