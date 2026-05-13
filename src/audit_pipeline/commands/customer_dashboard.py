@@ -466,17 +466,21 @@ def _render_lobby_target_grid(cid: str, rollups: list[dict[str, Any]]) -> str:
 
 _BRIDGE_TAB_BAR_STYLE = """
 <style id="bridge-tab-bar-style">
-  /* Multi-target tab bar — premium chip row above the Bridge content.
-     Persistent at the top of the page below the fixed nav. */
+  /* Multi-target tab bar — premium chip row that lives BETWEEN the health
+     banner ("Cycle running — Jelleo is auditing right now") and the
+     dashboard hero strip. Sticks to the top of the viewport once the
+     operator scrolls past the health banner, so the active target chip
+     is always visible while reviewing the Bridge content below. */
   .tab-bar {
     position: sticky;
-    top: 86px;       /* below the fixed nav */
+    top: 86px;       /* below the fixed nav, immediately above bridge-header */
     z-index: 90;
-    background: rgba(5,5,4,0.78);
+    background: rgba(5,5,4,0.82);
     backdrop-filter: blur(20px) saturate(140%);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border-top: 1px solid var(--rule);
     border-bottom: 1px solid var(--rule);
-    padding: 12px 32px;
+    padding: 14px 32px;
     display: flex;
     align-items: center;
     gap: 14px;
@@ -505,9 +509,9 @@ _BRIDGE_TAB_BAR_STYLE = """
   .tab-bar .tab-group + .tab-group::before {
     content: '';
     display: block;
-    width: 1px; height: 18px;
+    width: 1px; height: 22px;
     background: var(--rule);
-    margin: 0 8px;
+    margin: 0 10px;
   }
   .tab-bar .tab {
     flex-shrink: 0;
@@ -518,23 +522,41 @@ _BRIDGE_TAB_BAR_STYLE = """
     border-radius: 4px;
     font-family: var(--mono);
     font-size: 11px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     cursor: pointer;
     transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     white-space: nowrap;
+  }
+  .tab-bar .tab .group-name {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    color: var(--ink);
+  }
+  .tab-bar .tab .group-sep {
+    color: var(--ink-4);
+    font-weight: 400;
+  }
+  .tab-bar .tab .size-name {
+    color: var(--ink-2);
   }
   .tab-bar .tab:hover {
     border-color: var(--amber);
     color: var(--ink);
   }
+  .tab-bar .tab:hover .size-name { color: var(--ink); }
   .tab-bar .tab.active {
     background: var(--amber);
-    color: var(--bg);
     border-color: var(--amber);
     font-weight: 600;
+  }
+  .tab-bar .tab.active .group-name,
+  .tab-bar .tab.active .group-sep,
+  .tab-bar .tab.active .size-name {
+    color: var(--bg);
   }
   .tab-bar .tab .badge {
     display: inline-block;
@@ -548,19 +570,28 @@ _BRIDGE_TAB_BAR_STYLE = """
     font-weight: 600;
   }
   .tab-bar .tab.active .badge {
-    background: rgba(5,5,4,0.18);
+    background: rgba(5,5,4,0.22);
     color: var(--bg);
   }
   .tab-bar .tab .badge.zero { opacity: 0.4; }
 
-  /* Push the Bridge content down past the sticky tab bar */
-  main.bridge { padding-top: 152px; /* nav 86 + tab bar 56 + 10 breathing */ }
+  /* The tab bar lives INSIDE main.bridge (after the health banner), so
+     main.bridge keeps its standard 96px top padding (just clears the
+     fixed nav). No extra space needed because the sticky tab bar takes
+     vertical room only when scrolled past. */
 </style>
 """
 
 
 def _render_bridge_tab_bar(rollups: list[dict[str, Any]]) -> str:
-    """Render the sticky multi-target tab bar that lives above the Bridge content."""
+    """Render the sticky multi-target tab bar that lives ABOVE the Bridge
+    content but BELOW the health banner.
+
+    Each tab is fully self-describing — "Solana · small", "Aptos · large",
+    etc — so the operator can identify the active target without counting
+    separators. Within each language group, sizes go small → medium → large.
+    Subtle vertical dividers between language groups for visual rhythm.
+    """
     # Group rollups
     grouped: dict[str, list[dict[str, Any]]] = {}
     for r in rollups:
@@ -573,14 +604,18 @@ def _render_bridge_tab_bar(rollups: list[dict[str, Any]]) -> str:
     parts.append('<span class="label">Targets</span>')
     for g in ordered_groups:
         parts.append('<div class="tab-group">')
+        group_display = g.capitalize()
         for r in sorted(grouped[g], key=lambda x: _target_sort_key(x["name"])):
             n = r["n_findings"]
             badge_class = "badge" if n > 0 else "badge zero"
             size = _size_for(r["name"]) or g
             parts.append(
                 f'<button class="tab" role="tab" data-target="{r["name"]}" '
-                f'aria-controls="tab-panel-{r["name"]}" data-group="{g}">'
-                f'<span>{size}</span>'
+                f'aria-controls="tab-panel-{r["name"]}" data-group="{g}" '
+                f'title="{group_display} · {size}">'
+                f'<span class="group-name">{group_display}</span>'
+                f'<span class="group-sep">·</span>'
+                f'<span class="size-name">{size}</span>'
                 f'<span class="{badge_class}">{n}</span>'
                 f'</button>'
             )
@@ -755,13 +790,28 @@ def _patch_bridge(
     html = _apply_substitutions(template, _identity_substitutions(entry, brand))
     html = _inject_customer_logo(html, name, logo_src)
 
-    # For multi-target: inject the tab bar above <main class="bridge">.
+    # For multi-target: inject the tab bar INSIDE <main class="bridge">,
+    # immediately AFTER the health banner and BEFORE the bridge-header
+    # strip. This keeps the visual hierarchy:
+    #   1. Fixed nav (logo + nav-center + sign-out)
+    #   2. Health banner ("Cycle running — Jelleo is auditing right now")
+    #   3. Tab bar (active target indicator + switcher)
+    #   4. Bridge dashboard content (hero strip, hyp grid, finding cards, etc.)
+    # Landmark: `<div class="bridge-header">` is the FIRST element after
+    # the health banner. Inject the tab bar IMMEDIATELY BEFORE it.
     if len(rollups) > 1:
         tab_bar = _render_bridge_tab_bar(rollups) + "\n" + _BRIDGE_TAB_JS
-        # Find <main class="bridge"> and insert tab bar IMMEDIATELY before it.
-        m = re.search(r'<main\s+class="bridge"', html)
+        m = re.search(r'<div\s+class="bridge-header"', html)
         if m:
-            html = html[:m.start()] + tab_bar + "\n\n" + html[m.start():]
+            # Walk backwards from `<div class="bridge-header">` to find
+            # the start of its preceding comment or the previous tag's
+            # close, so the injection lands on a clean line boundary.
+            insert_at = m.start()
+            # Trim back any leading whitespace on the bridge-header line
+            # so our injection inherits the same indentation context.
+            while insert_at > 0 and html[insert_at - 1] in (" ", "\t"):
+                insert_at -= 1
+            html = html[:insert_at] + tab_bar + "\n\n  " + html[insert_at:]
 
     return html
 

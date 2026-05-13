@@ -941,19 +941,47 @@ main.bridge {
      demo-banner needed (would overlap with the sticky nav). -->
 
 
+<main class="bridge">
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       HEALTH BANNER — answers "is this thing healthy?" in plain English,
+       without the customer touching a terminal. Three rolled-up checks:
+       engine heartbeat fresh, event stream connected, recent cycle activity.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="health-banner healthy" id="health-banner" role="status" aria-live="polite">
+    <div class="health-light">●</div>
+    <div class="health-text">
+      <strong id="health-title">All systems healthy</strong>
+      <span class="detail" id="health-detail">Connecting to live engine…</span>
+    </div>
+    <div class="health-checks">
+      <span id="check-engine">Engine</span>
+      <span id="check-stream">Live stream</span>
+      <span id="check-activity">Activity</span>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       HERO HEADER STRIP
+       ═══════════════════════════════════════════════════════════════════ -->
 
 <style id="bridge-tab-bar-style">
-  /* Multi-target tab bar — premium chip row above the Bridge content.
-     Persistent at the top of the page below the fixed nav. */
+  /* Multi-target tab bar — premium chip row that lives BETWEEN the health
+     banner ("Cycle running — Jelleo is auditing right now") and the
+     dashboard hero strip. Sticks to the top of the viewport once the
+     operator scrolls past the health banner, so the active target chip
+     is always visible while reviewing the Bridge content below. */
   .tab-bar {
     position: sticky;
-    top: 86px;       /* below the fixed nav */
+    top: 86px;       /* below the fixed nav, immediately above bridge-header */
     z-index: 90;
-    background: rgba(5,5,4,0.78);
+    background: rgba(5,5,4,0.82);
     backdrop-filter: blur(20px) saturate(140%);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border-top: 1px solid var(--rule);
     border-bottom: 1px solid var(--rule);
-    padding: 12px 32px;
+    padding: 14px 32px;
     display: flex;
     align-items: center;
     gap: 14px;
@@ -982,9 +1010,9 @@ main.bridge {
   .tab-bar .tab-group + .tab-group::before {
     content: '';
     display: block;
-    width: 1px; height: 18px;
+    width: 1px; height: 22px;
     background: var(--rule);
-    margin: 0 8px;
+    margin: 0 10px;
   }
   .tab-bar .tab {
     flex-shrink: 0;
@@ -995,23 +1023,41 @@ main.bridge {
     border-radius: 4px;
     font-family: var(--mono);
     font-size: 11px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     cursor: pointer;
     transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     white-space: nowrap;
+  }
+  .tab-bar .tab .group-name {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    color: var(--ink);
+  }
+  .tab-bar .tab .group-sep {
+    color: var(--ink-4);
+    font-weight: 400;
+  }
+  .tab-bar .tab .size-name {
+    color: var(--ink-2);
   }
   .tab-bar .tab:hover {
     border-color: var(--amber);
     color: var(--ink);
   }
+  .tab-bar .tab:hover .size-name { color: var(--ink); }
   .tab-bar .tab.active {
     background: var(--amber);
-    color: var(--bg);
     border-color: var(--amber);
     font-weight: 600;
+  }
+  .tab-bar .tab.active .group-name,
+  .tab-bar .tab.active .group-sep,
+  .tab-bar .tab.active .size-name {
+    color: var(--bg);
   }
   .tab-bar .tab .badge {
     display: inline-block;
@@ -1025,36 +1071,38 @@ main.bridge {
     font-weight: 600;
   }
   .tab-bar .tab.active .badge {
-    background: rgba(5,5,4,0.18);
+    background: rgba(5,5,4,0.22);
     color: var(--bg);
   }
   .tab-bar .tab .badge.zero { opacity: 0.4; }
 
-  /* Push the Bridge content down past the sticky tab bar */
-  main.bridge { padding-top: 152px; /* nav 86 + tab bar 56 + 10 breathing */ }
+  /* The tab bar lives INSIDE main.bridge (after the health banner), so
+     main.bridge keeps its standard 96px top padding (just clears the
+     fixed nav). No extra space needed because the sticky tab bar takes
+     vertical room only when scrolled past. */
 </style>
 
 <div class="tab-bar" id="tab-bar" role="tablist" aria-label="Audit targets">
 <span class="label">Targets</span>
 <div class="tab-group">
-<button class="tab" role="tab" data-target="osec-solana-small" aria-controls="tab-panel-osec-solana-small" data-group="solana"><span>small</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-solana-medium" aria-controls="tab-panel-osec-solana-medium" data-group="solana"><span>medium</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-solana-large" aria-controls="tab-panel-osec-solana-large" data-group="solana"><span>large</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-solana-small" aria-controls="tab-panel-osec-solana-small" data-group="solana" title="Solana · small"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-solana-medium" aria-controls="tab-panel-osec-solana-medium" data-group="solana" title="Solana · medium"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-solana-large" aria-controls="tab-panel-osec-solana-large" data-group="solana" title="Solana · large"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
 </div>
 <div class="tab-group">
-<button class="tab" role="tab" data-target="osec-solidity-small" aria-controls="tab-panel-osec-solidity-small" data-group="solidity"><span>small</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-solidity-medium" aria-controls="tab-panel-osec-solidity-medium" data-group="solidity"><span>medium</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-solidity-large" aria-controls="tab-panel-osec-solidity-large" data-group="solidity"><span>large</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-solidity-small" aria-controls="tab-panel-osec-solidity-small" data-group="solidity" title="Solidity · small"><span class="group-name">Solidity</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-solidity-medium" aria-controls="tab-panel-osec-solidity-medium" data-group="solidity" title="Solidity · medium"><span class="group-name">Solidity</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-solidity-large" aria-controls="tab-panel-osec-solidity-large" data-group="solidity" title="Solidity · large"><span class="group-name">Solidity</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
 </div>
 <div class="tab-group">
-<button class="tab" role="tab" data-target="osec-c-small" aria-controls="tab-panel-osec-c-small" data-group="c"><span>small</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-c-medium" aria-controls="tab-panel-osec-c-medium" data-group="c"><span>medium</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-c-large" aria-controls="tab-panel-osec-c-large" data-group="c"><span>large</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-c-small" aria-controls="tab-panel-osec-c-small" data-group="c" title="C · small"><span class="group-name">C</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-c-medium" aria-controls="tab-panel-osec-c-medium" data-group="c" title="C · medium"><span class="group-name">C</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-c-large" aria-controls="tab-panel-osec-c-large" data-group="c" title="C · large"><span class="group-name">C</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
 </div>
 <div class="tab-group">
-<button class="tab" role="tab" data-target="osec-aptos-small" aria-controls="tab-panel-osec-aptos-small" data-group="aptos"><span>small</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-aptos-medium" aria-controls="tab-panel-osec-aptos-medium" data-group="aptos"><span>medium</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-aptos-large" aria-controls="tab-panel-osec-aptos-large" data-group="aptos"><span>large</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-aptos-small" aria-controls="tab-panel-osec-aptos-small" data-group="aptos" title="Aptos · small"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-aptos-medium" aria-controls="tab-panel-osec-aptos-medium" data-group="aptos" title="Aptos · medium"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
+<button class="tab" role="tab" data-target="osec-aptos-large" aria-controls="tab-panel-osec-aptos-large" data-group="aptos" title="Aptos · large"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
 </div>
 </div>
 
@@ -1114,31 +1162,7 @@ main.bridge {
 </script>
 
 
-<main class="bridge">
-
-  <!-- ═══════════════════════════════════════════════════════════════════
-       HEALTH BANNER — answers "is this thing healthy?" in plain English,
-       without the customer touching a terminal. Three rolled-up checks:
-       engine heartbeat fresh, event stream connected, recent cycle activity.
-       ═══════════════════════════════════════════════════════════════════ -->
-  <div class="health-banner healthy" id="health-banner" role="status" aria-live="polite">
-    <div class="health-light">●</div>
-    <div class="health-text">
-      <strong id="health-title">All systems healthy</strong>
-      <span class="detail" id="health-detail">Connecting to live engine…</span>
-    </div>
-    <div class="health-checks">
-      <span id="check-engine">Engine</span>
-      <span id="check-stream">Live stream</span>
-      <span id="check-activity">Activity</span>
-    </div>
-  </div>
-
-
-  <!-- ═══════════════════════════════════════════════════════════════════
-       HERO HEADER STRIP
-       ═══════════════════════════════════════════════════════════════════ -->
-  <div class="bridge-header">
+    <div class="bridge-header">
     <div class="bridge-header-left">
       <span class="bridge-customer-tag">Customer · <span class="name">OtterSec</span></span>
       <span class="bridge-engine-sha" id="engine-sha-wrap">
