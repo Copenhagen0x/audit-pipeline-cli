@@ -1153,7 +1153,19 @@ def _hunt_run(
                 # tested. Net effect on the 2026-05-11 Step 3 cycle: 108
                 # TRUE/HIGH-at-L1 hyps including the BR-F7-helper-conservation
                 # regression hyp got dropped without ever reaching Layer 2 PoC.
-                challenger_disagrees = "DISAGREE" in txt
+                # Word-boundary matching — "DISAGREE" as a substring of
+                # "DISAGREEMENT" used to silently DEMOTE every TRUE/HIGH
+                # whose challenger mentioned "resolve the disagreement"
+                # in its narrative. aptos-small dry-run hit this: all 14
+                # L1-confirmed TRUE/HIGH bugs (APT1-10, etc.) got dropped
+                # from L2 candidates, so the orchestrator only PoC'd the
+                # 26 challenger-promoted FALSE/HIGH ones. $27 wasted on
+                # the wrong set. Use \b boundaries so DISAGREEMENT no
+                # longer matches DISAGREE.
+                import re as _re_debate
+                challenger_disagrees = bool(
+                    _re_debate.search(r"\bDISAGREE\b", txt)
+                )
                 challenger_needs_l2 = "NEEDS_LAYER_2" in txt
                 if proposer_verdict == "FALSE" and (challenger_disagrees or challenger_needs_l2):
                     # Challenger says FALSE may be wrong — promote to L2.
