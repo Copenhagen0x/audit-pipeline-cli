@@ -309,7 +309,24 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
         # dashboard can render "Layer 1.5 debate · 87 / 284 · 30.6%"
         # instead of just "0 dispatched · 18 hours ago".
         prog = _in_progress_cycle_progress(workspace, c.get("cycle_id"))
-        if prog and prog.get("phase") and prog["phase"] != "publishing":
+        # If the DB has finished_at set AND it's been finished for
+        # more than 30 min, trust the DB. The filesystem heuristic is
+        # meant to surface STALE-DB cases (cycle is mid-flight, hasn't
+        # written finished_at yet). It's not meant to overrule an
+        # operator who explicitly closed the row via
+        # `audit-pipeline cycle finish` half a day ago.
+        db_finished_at = c.get("finished_at")
+        db_finished_recently = False
+        if db_finished_at:
+            try:
+                from datetime import datetime, timezone
+                ft = datetime.fromisoformat(str(db_finished_at).replace("Z", "+00:00"))
+                age_s = (datetime.now(timezone.utc) - ft).total_seconds()
+                db_finished_recently = age_s < 1800  # < 30 min
+            except (ValueError, TypeError):
+                pass
+        if prog and prog.get("phase") and prog["phase"] != "publishing" \
+                and not (db_finished_at and not db_finished_recently):
             entry["in_progress"] = True
             entry["phase"] = prog["phase"]
             entry["phase_label"] = prog["phase_label"]
