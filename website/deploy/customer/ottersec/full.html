@@ -1413,9 +1413,13 @@ main.bridge {
     return;
   }
 
-  const SNAPSHOT_URL = './manifest.json';
-  const MANIFEST_URL = './manifest.json';
-  const HEARTBEAT_URL = './heartbeat.json';
+  // Live data feeds — served from api.jelleo.com (VPS regenerates these
+  // every 60s from the OtterSec workspace's findings.db). Netlify-static
+  // sibling files are NOT used because they would freeze at deploy time
+  // and never reflect cycle progress.
+  const SNAPSHOT_URL = 'https://api.jelleo.com/customer/ottersec/manifest.json';
+  const MANIFEST_URL = 'https://api.jelleo.com/customer/ottersec/manifest.json';
+  const HEARTBEAT_URL = 'https://api.jelleo.com/customer/ottersec/heartbeat.json';
   const SSE_URL      = 'https://api.jelleo.com/events/ottersec';
 
   // ───── State ─────

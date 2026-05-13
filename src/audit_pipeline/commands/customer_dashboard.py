@@ -238,18 +238,28 @@ def _identity_substitutions(
         ("/customer/demo/", f"/customer/{cid}/"),
         ("api.jelleo.com/customer/demo/", f"api.jelleo.com/customer/{cid}/"),
         ("api.jelleo.com/events/demo",    f"api.jelleo.com/events/{cid}"),
-        # CRITICAL audit fix (2026-05-13): the demo template hard-coded
-        # `https://api.jelleo.com/heartbeat.json` as HEARTBEAT_URL +
-        # as a `heartbeat.json ↗` link in bridge-actions. That endpoint
-        # is the GLOBAL engine heartbeat (Percolator's live state). For
-        # every customer portal it leaked engine_sha, cycles_total, and
-        # last_cycle_ts from the WRONG protocol. Rewrite to a sibling
-        # ./heartbeat.json on the customer's own deploy — the generator
-        # writes a per-customer heartbeat alongside manifest.json so
-        # the JS sees scoped data only.
-        ("'https://api.jelleo.com/heartbeat.json'", "'./heartbeat.json'"),
-        ('"https://api.jelleo.com/heartbeat.json"', '"./heartbeat.json"'),
-        ("https://api.jelleo.com/heartbeat.json", "./heartbeat.json"),
+        # CRITICAL audit fix (2026-05-13): demo template hard-coded
+        # global heartbeat. Rewrite to api.jelleo.com per-customer
+        # endpoint — VPS snapshot service writes one of these per
+        # customer every 60s so the dashboard sees customer-scoped
+        # live state (engine_sha, cycles_total, last_cycle_ts).
+        (
+            "'https://api.jelleo.com/heartbeat.json'",
+            f"'https://api.jelleo.com/customer/{cid}/heartbeat.json'",
+        ),
+        (
+            '"https://api.jelleo.com/heartbeat.json"',
+            f'"https://api.jelleo.com/customer/{cid}/heartbeat.json"',
+        ),
+        (
+            "https://api.jelleo.com/heartbeat.json",
+            f"https://api.jelleo.com/customer/{cid}/heartbeat.json",
+        ),
+        # Same for the snapshot/manifest data feeds — the dashboard
+        # polls these every 60s. Point them at the VPS-updated
+        # customer-scoped endpoints, not at static Netlify siblings.
+        ("'./manifest.json'", f"'https://api.jelleo.com/customer/{cid}/manifest.json'"),
+        ('"./manifest.json"', f'"https://api.jelleo.com/customer/{cid}/manifest.json"'),
     ]
 
 
