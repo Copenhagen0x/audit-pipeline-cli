@@ -1069,7 +1069,21 @@ def _in_progress_cycle_progress(
     """
     if not workspace or not cycle_id:
         return None
+    # Per-workspace: try the direct location first (single-workspace
+    # setup like percolator-live). If not found there, walk into
+    # workspaces/<cell>/hunts/<cycle_id> — multi-workspace setups
+    # like ottersec-eval keep cycles under per-cell subdirs and the
+    # top-level workspace's hunts/ is always empty for them.
     cycle_dir = workspace / "hunts" / cycle_id
+    if not (cycle_dir / "recon").is_dir():
+        # Walk into workspaces/* looking for the cycle
+        cells_root = workspace / "workspaces"
+        if cells_root.is_dir():
+            for cell in cells_root.iterdir():
+                candidate = cell / "hunts" / cycle_id
+                if (candidate / "recon").is_dir():
+                    cycle_dir = candidate
+                    break
     recon = cycle_dir / "recon"
     if not recon.is_dir():
         return None

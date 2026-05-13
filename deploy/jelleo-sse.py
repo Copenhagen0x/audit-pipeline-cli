@@ -32,10 +32,28 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-WORKSPACE = Path("/root/audit_runs/percolator-live")
-HUNTS_DIR = WORKSPACE / "hunts"
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8765
+
+# Multi-workspace map: customer_id -> list of workspace dirs to watch.
+# Each workspace dir must contain a `hunts/` subdir; the tailer picks
+# the most recent cycle in that subdir and tails its hunt.log.jsonl.
+#
+# For OtterSec: every cell workspace (4 langs × 3 sizes) is watched
+# so whichever cell is currently running streams events to ottersec
+# subscribers in real time. The engine fires one cell at a time, so
+# only the active cell's tailer produces events.
+_OSEC_BASE = Path("/root/audit_runs/ottersec-eval/workspaces")
+_OSEC_CELLS = [
+    "solana-small", "solana-medium", "solana-large",
+    "c-small",      "c-medium",      "c-large",
+    "solidity-small", "solidity-medium", "solidity-large",
+    "aptos-small",  "aptos-medium",  "aptos-large",
+]
+WATCHED_WORKSPACES: dict[str, list[Path]] = {
+    "demo":     [Path("/root/audit_runs/percolator-live")],
+    "ottersec": [_OSEC_BASE / cell for cell in _OSEC_CELLS],
+}
 
 _subscribers: dict[str, set[asyncio.Queue]] = defaultdict(set)
 CRLF = b"\r\n"
@@ -44,29 +62,41 @@ CRLF = b"\r\n"
 # create duplicates in production and conflict with nginx's policy.
 
 
-def _latest_cycle() -> Path | None:
-    if not HUNTS_DIR.exists():
+def _latest_cycle_in(workspace: Path) -> Path | None:
+    hunts = workspace / "hunts"
+    if not hunts.exists():
         return None
-    cycles = [p for p in HUNTS_DIR.iterdir() if p.is_dir()]
+    cycles = [p for p in hunts.iterdir() if p.is_dir()]
     if not cycles:
         return None
     cycles.sort(key=lambda p: p.stat().st_mtime)
     return cycles[-1]
 
 
-async def _tail_active_log() -> None:
-    """Background task: stream hunt.log.jsonl lines into broadcaster."""
+def _latest_cycle() -> Path | None:
+    """Back-compat shim — returns latest cycle from demo workspace."""
+    demo_ws = WATCHED_WORKSPACES.get("demo", [None])[0]
+    return _latest_cycle_in(demo_ws) if demo_ws else None
+
+
+async def _tail_one_workspace(customer_id: str, workspace: Path) -> None:
+    """Tail the latest cycle's hunt.log.jsonl in a single workspace.
+
+    Spawned once per workspace at startup. Picks up new cycles when
+    they appear under workspace/hunts/. Events are stamped with the
+    given customer_id so _broadcast routes them to the right
+    subscribers (NOT every customer's subscribers).
+    """
     current_path: Path | None = None
     fh = None
-
     while True:
-        cycle = _latest_cycle()
+        cycle = _latest_cycle_in(workspace)
         if cycle is None:
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
             continue
         log_path = cycle / "hunt.log.jsonl"
         if not log_path.exists():
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
             continue
 
         if log_path != current_path:
@@ -80,23 +110,19 @@ async def _tail_active_log() -> None:
                     "event": "cycle_active",
                     "cycle": cycle.name,
                     "ts": time.time(),
-                    # Explicit customer_id so _broadcast routes ONLY
-                    # to the percolator (demo) customer's subscribers.
-                    # Without this the event defaulted to "demo" in
-                    # _broadcast, which was correct — but being
-                    # explicit prevents future refactors from
-                    # silently broadening the audience.
-                    "customer_id": "demo",
+                    "customer_id": customer_id,
+                    "workspace": str(workspace),
                 })
             except OSError:
                 fh = None
                 current_path = None
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 continue
 
         line = fh.readline()
         if not line:
-            await asyncio.sleep(0.5)
+            # Live tail — short sleep so events propagate sub-second
+            await asyncio.sleep(0.1)
             continue
 
         line = line.strip()
@@ -107,13 +133,22 @@ async def _tail_active_log() -> None:
         except json.JSONDecodeError:
             continue
         event["_cycle"] = cycle.name
-        # Stamp customer_id="demo" so _broadcast routes hunt.log.jsonl
-        # events ONLY to demo subscribers. The engine today only runs
-        # the Percolator workspace; when per-customer hunts ship, this
-        # stamp will be replaced by reading customer_id from the cycle
-        # workspace.json.
-        event.setdefault("customer_id", "demo")
+        event["customer_id"] = customer_id  # FORCE override per-workspace
         await _broadcast(event)
+
+
+async def _tail_active_log() -> None:
+    """Spawn one tailer per workspace listed in WATCHED_WORKSPACES.
+
+    Replaces the old single-workspace tailer. Each tailer runs
+    independently; the broadcast routing layer keeps them isolated.
+    """
+    tasks = []
+    for customer_id, workspaces in WATCHED_WORKSPACES.items():
+        for ws in workspaces:
+            tasks.append(asyncio.create_task(_tail_one_workspace(customer_id, ws)))
+    # Never returns — gather forever
+    await asyncio.gather(*tasks)
 
 
 async def _broadcast(event: dict) -> None:
@@ -180,26 +215,28 @@ async def _handle_sse(writer, customer_id) -> None:
         "ts": time.time(),
     })
 
-    # CRITICAL audit fix (2026-05-13): `_latest_cycle()` returns whatever
-    # cycle the engine is currently running — which today is always the
-    # Percolator workspace's cycle. Sending that to every customer that
-    # connects leaked the Percolator cycle id into every customer
-    # dashboard (e.g. OtterSec's "Cycle 20260511-183154 is running").
-    #
-    # Customers other than the engine's home (`demo` = Percolator)
-    # don't have their own cycle stream wired through this service
-    # yet — their on-connect message should be sse_connected ONLY,
-    # not a stale Percolator cycle. When per-customer cycle wiring
-    # ships, the `if customer_id == "demo"` gate becomes a more
-    # general scoped-cycle lookup.
-    if customer_id == "demo":
-        cycle = _latest_cycle()
-        if cycle:
-            await _write_sse(writer, {
-                "event": "cycle_active",
-                "cycle": cycle.name,
-                "ts": time.time(),
-            })
+    # On-connect cycle-active hint: scan THIS customer's watched
+    # workspaces and emit a cycle_active for the most recent active
+    # cycle so the dashboard immediately knows what's live without
+    # waiting for a fresh broadcast event. Scoped per-customer so
+    # we never bleed cross-customer state on connect.
+    customer_workspaces = WATCHED_WORKSPACES.get(customer_id, [])
+    latest_cycle_path: Path | None = None
+    latest_mtime: float = 0.0
+    for ws in customer_workspaces:
+        c = _latest_cycle_in(ws)
+        if c:
+            mt = c.stat().st_mtime
+            if mt > latest_mtime:
+                latest_mtime = mt
+                latest_cycle_path = c
+    if latest_cycle_path:
+        await _write_sse(writer, {
+            "event": "cycle_active",
+            "cycle": latest_cycle_path.name,
+            "ts": time.time(),
+            "customer_id": customer_id,
+        })
 
     queue: asyncio.Queue = asyncio.Queue(maxsize=200)
     _subscribers[customer_id].add(queue)
