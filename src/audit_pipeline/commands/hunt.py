@@ -1090,7 +1090,10 @@ def _hunt_run(
                 poc_results[hyp_id] = {
                     "scaffold_path": str(scaffold_path),
                     "scaffold_rc": 0,
-                    "compile_test_rc": 0 if not looks_compile_failed else 101,
+                    # FIX: was referencing undefined `looks_compile_failed` (legacy
+                    # refactor leftover). Derive from structured outcome instead —
+                    # compile_failed status maps to rc=101, every other status to 0.
+                    "compile_test_rc": 101 if _outcome.status == "compile_failed" else 0,
                     "fired": fired,
                     "outcome": outcome,
                     "cargo_log_path": str(cargo_log_path),
@@ -1898,7 +1901,16 @@ def _post_webhook(
 ) -> None:
     allowed, reason = _webhook_url_safe(url)
     if not allowed:
-        log("webhook_blocked", reason=reason, url=url[:80])
+        # FIX: `log()` is a closure local to _hunt_run, not visible here.
+        # Use a plain console.print + stderr fallback so the SSRF block
+        # surfaces without crashing the hunt with NameError.
+        try:
+            console.print(
+                f"[yellow]webhook_blocked: {reason} (url={url[:80]})[/yellow]"
+            )
+        except Exception:
+            import sys
+            print(f"webhook_blocked: {reason}", file=sys.stderr)
         return
     confirmed = summary.get("confirmed", [])
     cycle_id = summary.get("cycle_id")
