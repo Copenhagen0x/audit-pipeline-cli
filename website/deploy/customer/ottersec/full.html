@@ -2163,9 +2163,18 @@ main.bridge {
   async function refreshSnapshot() {
     const d = await fetchJson(SNAPSHOT_URL);
     if (!d) return;
-    // cycles total — informational counter in right rail
-    if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
-    if (d.stats && d.stats.n_cycles != null) $('ct-cycles').textContent = d.stats.n_cycles;
+    // cycles-signed counter — PER-TAB count (was: global d.cycles_total
+    // which showed customer-wide total on every tab, misleading). When
+    // an active tab is selected, count cycles whose target_id matches.
+    const activeIdForCt = activeTargetId();
+    if (Array.isArray(d.recent_cycles)) {
+      const ctMatches = activeIdForCt == null
+        ? d.recent_cycles.length
+        : d.recent_cycles.filter(c => c.target_id === activeIdForCt).length;
+      $('ct-cycles').textContent = ctMatches;
+    } else if (d.cycles_total != null) {
+      $('ct-cycles').textContent = d.cycles_total;
+    }
     // services — count those in "up" state from the services[] array
     if (Array.isArray(d.services)) {
       const up = d.services.filter(s => (s.state || '').toLowerCase() === 'up').length;
@@ -2290,11 +2299,13 @@ main.bridge {
         if (!state.findings.has(fid)) upsertFinding(f);
       });
     }
-    // Pre-paint grid + stage from active-tab cycle
+    // Pre-paint grid + stage from active-tab cycle + ct-cycles count
     if (Array.isArray(d.recent_cycles)) {
       const matching = activeId == null
         ? d.recent_cycles
         : d.recent_cycles.filter(c => c.target_id === activeId);
+      // PER-TAB cycle count (not customer-wide)
+      $('ct-cycles').textContent = matching.length;
       if (matching.length > 0) {
         const latest = matching[0];
         paintStageFromCycle(latest);
@@ -2310,7 +2321,9 @@ main.bridge {
       state.heartbeatTs = Date.parse(d.generated_at);
     }
     if (d.engine_sha) setEngineSha(d.engine_sha);
-    if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
+    // ct-cycles is set by refreshSnapshot/refreshManifest with the
+    // PER-TAB count. Don't overwrite here with the customer-wide
+    // d.cycles_total (was leaking the global count onto every tab).
     if (d.last_cycle_ts) {
       const t = Date.parse(d.last_cycle_ts);
       if (!isNaN(t)) {
@@ -2501,13 +2514,13 @@ main.bridge {
   //      filtered by the new active target
   window.addEventListener('jelleo:target-switched', (e) => {
     const newTarget = e.detail && e.detail.target;
-    // Wipe per-cycle DOM + state
+
+    // -- Findings cache + stream
     state.findings.clear();
-    state.activeCycle = null;
-    state.cycleStartedAt = null;
-    state.activeHypId = null;
-    const stream = $('findings-stream');
-    if (stream) stream.innerHTML = '';
+    const fstream = $('findings-stream');
+    if (fstream) fstream.innerHTML = '';
+
+    // -- Hypothesis grid
     const grid = $('hyp-grid');
     if (grid) {
       state.hyps.forEach(tile => {
@@ -2518,12 +2531,73 @@ main.bridge {
     state.hypsOrder.length = 0;
     const gridTotal = $('grid-total');
     if (gridTotal) gridTotal.textContent = '0';
-    // Reset stage to neutral
-    setStage('Switching tab',
-      `<span class="dim">Loading state for ${safeStr(newTarget, 40)}...</span>`, null);
+
+    // -- Cycle pointers
+    state.activeCycle = null;
+    state.cycleStartedAt = null;
+    state.activeHypId = null;
+    state.activeHypProgress = null;
+    state.lastCycleAt = null;
     $('active-cycle').textContent = '—';
     $('cycle-started').textContent = '—';
-    // Pull fresh data for the new tab
+    $('cycle-elapsed').textContent = '—';
+
+    // -- Cost ticker (per-cycle, resets on tab switch since each tab
+    //    tracks its own cycle's spend)
+    state.cycleSpendUsd = 0;
+    setCost(0);
+
+    // -- Sparkline rolling-window buffers (tokens/s, hyps/min,
+    //    tools/min). Without clearing, the new tab inherits the
+    //    previous tab's recent token bursts and reports nonsense.
+    state.tokensThisSec.length = 0;
+    state.hypsDoneThisMinute.length = 0;
+    state.toolCallsThisMinute.length = 0;
+    $('spark-tokens-val').textContent = '0';
+    $('spark-hyps-val').textContent = '0';
+    $('spark-tools-val').textContent = '0';
+    const sparkTokens = $('spark-tokens');
+    const sparkHyps = $('spark-hyps');
+    const sparkTools = $('spark-tools');
+    if (sparkTokens) sparkTokens.setAttribute('points', '');
+    if (sparkHyps) sparkHyps.setAttribute('points', '');
+    if (sparkTools) sparkTools.setAttribute('points', '');
+
+    // -- Layer waterfall (L0..L4) reset to queued; new tab's events
+    //    will repaint as they arrive
+    ['L0','L1','L1.5','L2','L2.5','L3','L4'].forEach(L => {
+      const row = document.querySelector('.layer-row[data-layer="' + L + '"]');
+      if (row) {
+        row.classList.remove('active', 'done', 'skipped');
+        const status = row.querySelector('.status');
+        if (status) status.textContent = 'queued';
+        const bar = row.querySelector('.bar > div');
+        if (bar) bar.style.width = '0%';
+      }
+    });
+
+    // -- Source-grounding tool calls (live event terminal): clear so
+    //    the new tab starts fresh, not with prior-tab's tool calls
+    const eterm = $('event-terminal-body');
+    if (eterm) eterm.innerHTML = '';
+
+    // -- Per-tab counter chips (Critical/High/Confirmed/Cycles).
+    //    refreshManifest will recompute these from filtered findings,
+    //    but clear the displayed values first so the user sees the
+    //    transition rather than stale numbers.
+    $('ct-crit').textContent = '0';
+    $('ct-high').textContent = '0';
+    $('ct-confirmed').textContent = '0';
+    $('ct-cycles').textContent = '0';
+    $('findings-count').textContent = '0';
+
+    // -- Stage banner
+    setStage('Switching tab',
+      `<span class="dim">Loading state for ${safeStr(newTarget, 40)}...</span>`, null);
+
+    // Pull fresh data for the new tab — refreshSnapshot/refreshManifest
+    // populate from manifest filtered by activeTargetId(), and the
+    // SSE stream will deliver new per-tab events going forward.
     refreshAll();
   });
 
