@@ -51,6 +51,131 @@ from audit_pipeline.utils.github_snapshot import GitHubSnapshot, SnapshotDownloa
 console = Console()
 
 
+# Per-language system prompts for the tool-using recon agent.
+#
+# Each prompt frames the agent as an expert auditor in the SPECIFIC
+# language under test — vocabulary, tooling references, and the
+# canonical bug catalogue. The tool-using loop (read_file / grep /
+# find_function) is itself language-agnostic — these prompts just
+# steer the agent's analysis to the right bug classes.
+#
+# CRITICAL: every prompt ends with the same `## Verdict` discipline so
+# downstream parsing (`_parse_verdict`) and the L1.5 debate stage work
+# uniformly across languages.
+_BASE_VERDICT_DISCIPLINE = (
+    "Use read_file / grep / find_function to verify every claim before "
+    "rendering a verdict — do NOT speculate. Cite concrete file paths "
+    "and line numbers. End your final answer with a `## Verdict` "
+    "section containing one of TRUE / FALSE / INCONCLUSIVE and a "
+    "confidence (HIGH / MEDIUM / LOW)."
+)
+
+LANGUAGE_SYSTEM_PROMPTS: dict[str, str] = {
+    "solana": (
+        "You are an expert Solana / Anchor / Rust security auditor "
+        "running Layer 1 recon. The codebase under test is a Solana "
+        "program (Rust + Anchor framework, sometimes with a wrapper "
+        "BPF entrypoint). Familiar bug classes: insufficient account "
+        "validation, missing signer / owner / authority checks, "
+        "arithmetic overflow on u64/u128 balances, account confusion "
+        "between mints + token accounts, account-data deserialization "
+        "mismatch, cross-program invocation trust, PDA seed collisions, "
+        "missing CPI program-id verification, lamports drain via "
+        "rent-exempt edge cases, invariant violations in vault / "
+        "settlement / liquidation accounting. "
+        + _BASE_VERDICT_DISCIPLINE
+    ),
+    "c": (
+        "You are an expert C / systems-software security auditor "
+        "running Layer 1 recon. The codebase under test is a plain C "
+        "program — no smart-contract VM, just classic systems code. "
+        "Familiar bug classes: buffer overflow (off-by-one, memcpy "
+        "with attacker-controlled length, sprintf/strcpy), use-after-"
+        "free, double-free, integer overflow in size calculations "
+        "(malloc(a*b)), signed/unsigned comparison bugs, sign "
+        "conversion on input lengths, format-string injection "
+        "(printf(user_input)), null-pointer dereference after malloc, "
+        "uninitialized-stack-variable read, TOCTOU races on files / "
+        "sessions / state, path traversal in file opens, symlink "
+        "races, unchecked realloc return, unbounded loops/recursion "
+        "on untrusted input, IV/nonce reuse, MAC-after-decrypt, "
+        "padding oracles. Be precise: distinguish a real exploit "
+        "primitive from a hardening suggestion. "
+        + _BASE_VERDICT_DISCIPLINE
+    ),
+    "solidity": (
+        "You are an expert Solidity / EVM smart-contract security "
+        "auditor running Layer 1 recon. The codebase under test is "
+        "Solidity 0.8+ contracts (Foundry framework). Familiar bug "
+        "classes: reentrancy (classic CEI violation, read-only "
+        "reentrancy, cross-function, ERC777 fallback), access control "
+        "bypass (missing onlyOwner, tx.origin auth, front-runnable "
+        "initialize, uninitialized implementation), oracle manipulation "
+        "(stale price, zero/negative answer, decimals mismatch, TWAP "
+        "flash-loan), share/vault math (ERC4626 first-depositor "
+        "inflation, donation attack, precision loss divide-first, "
+        "rounding direction), missing slippage / deadline, unchecked "
+        "block arithmetic (`unchecked` + overflow), cast truncation, "
+        "approval race, permit front-run, non-standard ERC20 return, "
+        "flash-loan composition, signature replay (no nonce, no "
+        "chainid in EIP-712 domain), signature malleability "
+        "(high-s), governance flash-loan vote / proposal replay, "
+        "delegatecall storage collision, delegatecall-to-untrusted, "
+        "selfdestruct misuse, withdrawal-delay bypass via readyAt=0, "
+        "returndata bomb, unbounded loop DoS, missing/asymmetric pause, "
+        "fee-on-transfer + rebase token handling, total-supply / "
+        "share-balance conservation, packed-encode collision, "
+        "msg.value-in-loop free mint, block.timestamp/number misuse, "
+        "module trust-boundary, library storage discipline. The OSec "
+        "synthetic repos use obfuscated parameter names "
+        "(`_v_2a84a346` etc) — read SEMANTICS, not identifiers. "
+        + _BASE_VERDICT_DISCIPLINE
+    ),
+    "aptos": (
+        "You are an expert Aptos Move security auditor running Layer 1 "
+        "recon. The codebase under test is Aptos Move (sources/*.move "
+        "files, Move.toml manifest). Move-specific properties: "
+        "resources are linear (no copy/drop, must move); "
+        "borrow_global / borrow_global_mut is an explicit auth point; "
+        "capabilities (key/store abilities) gate privileged ops; "
+        "&signer carries identity (assert signer::address_of(&s) == "
+        "expected_owner). Familiar bug classes: borrow_global without "
+        "auth check, missing signer-address binding to resource, "
+        "capability leak via public storage, ACL bypass via direct "
+        "entry function, friend module trust, resource leak / "
+        "double-move, u64 overflow + underflow as reachable DoS "
+        "(Move aborts, not wraps), precision drop in fixed-point math, "
+        "divide-by-zero abort, rounding direction in share math, "
+        "oracle staleness / zero-price / decimals, missing/asymmetric "
+        "pause, ERC4626-style share inflation, total-supply divergence, "
+        "missing slippage, withdraw-delay bypass, stake double-claim, "
+        "auction post-end bid / no-winner settle, module publisher "
+        "confusion, type-argument confusion via phantom types, "
+        "liquidation min-amount / bonus overflow, lending interest "
+        "accrual overflow, treasury drain, governance flash-loan vote, "
+        "proposal replay. "
+        + _BASE_VERDICT_DISCIPLINE
+    ),
+}
+
+
+def _system_prompt_for(language: str) -> str:
+    """Pick the right Layer-1 recon system prompt for a language.
+
+    Unknown languages fall back to the Solana prompt (the engine's
+    original calibration) with a notice. The CLI should reject
+    unknown languages upstream so this fallback only fires under
+    operator typos.
+    """
+    return LANGUAGE_SYSTEM_PROMPTS.get(
+        language.lower().strip(),
+        LANGUAGE_SYSTEM_PROMPTS["solana"],
+    )
+
+
+SUPPORTED_LANGUAGES = sorted(LANGUAGE_SYSTEM_PROMPTS.keys())
+
+
 HYPOTHESIS_CLASS_TO_TEMPLATE = {
     "implicit_invariant": "02_implicit_invariant_hunt.md",
     "arithmetic_overflow": "03_arithmetic_overflow_class_audit.md",
@@ -174,6 +299,21 @@ COST_PER_OUTPUT_TOKEN = 15.0e-6  # $15 per 1M output tokens
     show_default=True,
     help="Max tool-using turns per hypothesis (only used with --use-tools).",
 )
+@click.option(
+    "--language",
+    type=click.Choice(SUPPORTED_LANGUAGES, case_sensitive=False),
+    default="solana",
+    show_default=True,
+    help=(
+        "Target language under audit. Selects the language-specific "
+        "system prompt for the tool-using recon agent — bug vocabulary, "
+        "tooling references, and known bug classes match the language. "
+        "Use 'c' for C system-software repos, 'solidity' for EVM "
+        "smart contracts, 'aptos' for Aptos Move modules. Default is "
+        "'solana' (Rust + Anchor) to preserve existing Percolator "
+        "workflows."
+    ),
+)
 @click.pass_context
 def recon_cmd(
     ctx: click.Context,
@@ -189,6 +329,7 @@ def recon_cmd(
     source_sha: str | None,
     use_tools: bool,
     tool_max_turns: int,
+    language: str,
 ) -> None:
     """Layer-1 multi-agent recon. Render prompts (default) or dispatch agents (--auto).
 
@@ -289,6 +430,7 @@ def recon_cmd(
             snap_sha=snap.resolved_sha if snap_cm is not None else None,
             use_tools=use_tools,
             tool_max_turns=tool_max_turns,
+            language=language,
         )
 
 
@@ -319,8 +461,15 @@ def _recon_body(
     snap_sha: str | None,
     use_tools: bool = False,
     tool_max_turns: int = 12,
+    language: str = "solana",
 ) -> None:
-    """Body of recon, factored out so snapshot vs local-clone modes share it."""
+    """Body of recon, factored out so snapshot vs local-clone modes share it.
+
+    ``language`` selects the per-language system prompt for the
+    tool-using recon agent. Defaults to ``solana`` to preserve
+    existing Percolator workflows. See ``LANGUAGE_SYSTEM_PROMPTS``
+    for supported languages and prompt content.
+    """
 
     # Locate orientation prompt + class-specific prompts
     from audit_pipeline import __file__ as pkg_init
@@ -512,17 +661,14 @@ Notes:        {hyp.get("notes", "(none)")}
                 # llm_tools.emit_event to read. That raced across
                 # concurrent ThreadPoolExecutor workers — tool_call events
                 # got cross-attributed. Now passed in as a per-call kwarg.
+                #
+                # PHASE 1b: system prompt is now LANGUAGE-AWARE. The
+                # tool-using agent loop itself (read_file / grep /
+                # find_function) is language-agnostic — only the
+                # framing changes per language. Falls back to the
+                # Solana prompt for unknown languages.
                 from audit_pipeline.utils.llm_tools import run_tool_using_agent
-                system_prompt = (
-                    "You are an expert Solana security auditor running Layer 1 "
-                    "recon. You have read_file, grep, and find_function tools "
-                    "against the live workspace source. Use them to verify "
-                    "every claim before rendering a verdict — do NOT speculate. "
-                    "Cite concrete file paths and line numbers. End your final "
-                    "answer with a `## Verdict` section containing one of "
-                    "TRUE / FALSE / INCONCLUSIVE and a confidence "
-                    "(HIGH / MEDIUM / LOW)."
-                )
+                system_prompt = _system_prompt_for(language)
                 tu_result = run_tool_using_agent(
                     workspace,
                     system_prompt,
