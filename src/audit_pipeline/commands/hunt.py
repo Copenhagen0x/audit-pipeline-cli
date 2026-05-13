@@ -2458,7 +2458,17 @@ def _hunt_run(
         if script_path is not None:
             console.print()
             console.print(f"[bold]Auto-publish:[/bold] [cyan]{script_path}[/cyan]")
-            rc_publish = _run(["bash", str(script_path)], timeout=600)
+            # Pass WORKSPACE so publish_cycle.sh picks up the OSec /
+            # cell workspace, not its default /root/audit_runs/
+            # percolator-live. Without this, multi-tenant cycles
+            # auto-publish the wrong cycle ID ("20260511-141242 already
+            # published — skipping") because the script falls back to
+            # the Percolator main workspace.
+            rc_publish = _run(
+                ["bash", str(script_path)],
+                timeout=600,
+                env_extra={"WORKSPACE": str(workspace)},
+            )
             log("auto_publish", rc=rc_publish, script=str(script_path))
         else:
             log("auto_publish_skipped", reason="publish_cycle.sh not found")
@@ -2568,16 +2578,35 @@ RC_TIMEOUT = 124  # POSIX timeout convention
 RC_NOT_FOUND = 127  # POSIX command-not-found convention
 
 
-def _run(cmd: list[str], cwd: Path | None = None, timeout: int = 1800) -> int:
+def _run(
+    cmd: list[str],
+    cwd: Path | None = None,
+    timeout: int = 1800,
+    env_extra: dict[str, str] | None = None,
+) -> int:
     """Run a subprocess, stream output, return exit code.
 
     FIX #1: Distinguishes timeout (rc=124) and not-found (rc=127) from
     a real non-zero exit via the standard POSIX sentinel codes. Callers
     can check `rc == RC_TIMEOUT` / `rc == RC_NOT_FOUND` instead of
     conflating them with real failures.
+
+    PHASE 2 — env_extra: merge into os.environ for the subprocess (do
+    not replace). Used by the auto-publish step to pass WORKSPACE to
+    publish_cycle.sh so OSec cycles publish from the OSec workspace
+    rather than the percolator-live default.
     """
     try:
-        proc = subprocess.run(cmd, cwd=str(cwd) if cwd else None, timeout=timeout)
+        env = None
+        if env_extra:
+            env = os.environ.copy()
+            env.update(env_extra)
+        proc = subprocess.run(
+            cmd,
+            cwd=str(cwd) if cwd else None,
+            timeout=timeout,
+            env=env,
+        )
         return proc.returncode
     except subprocess.TimeoutExpired:
         return 124
