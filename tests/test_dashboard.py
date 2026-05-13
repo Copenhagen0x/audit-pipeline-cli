@@ -388,3 +388,90 @@ class TestL2PhaseCounterInflation:
         assert prog["phase"] == "publishing", prog
         # n_poc_logs surfaced raw for headline metric (intentional)
         assert prog["n_poc_logs"] == 39
+
+
+class TestL3L4CountersAreLanguageAgnostic:
+    """Regression tests for the 2026-05-13 waterfall L3/L4 paint bug.
+
+    The L3 filesystem detector only counted ``kani/*.rs`` (Solana
+    Kani harnesses). For Aptos, the formal adapter writes
+    ``formal/*.move`` (Move Prover specs); for C/Solidity it writes
+    ``formal/*.{c,sol}``. Same shape mismatch for L4: ``litesvm/*.rs``
+    vs ``fuzz/*.{move,sol,c}``. Without surfacing these, the dashboard
+    paints L3/L4 as 'skipped' on every non-Solana cycle even after
+    Move Prover / property fuzz actually ran.
+    """
+
+    def _setup_cycle_with_recon(self, tmp_path):
+        """Minimal cycle scaffold so _in_progress_cycle_progress doesn't
+        early-return None."""
+        import json as _json
+        ws = tmp_path / "ws"
+        cid = "20260513-cycle"
+        cycle = ws / "hunts" / cid
+        recon = cycle / "recon"
+        recon.mkdir(parents=True)
+        for i in range(3):
+            (recon / f"H{i}_prompt.md").write_text("p")
+            (recon / f"H{i}_response.md").write_text("r")
+        return ws, cid, cycle
+
+    def test_aptos_formal_dir_counted_as_kani_harnesses(self, tmp_path):
+        ws, cid, cycle = self._setup_cycle_with_recon(tmp_path)
+        formal = cycle / "formal"
+        formal.mkdir()
+        (formal / "apt1_invariant.move").write_text("spec ...")
+        (formal / "apt5_invariant.move").write_text("spec ...")
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        assert prog["n_kani_harnesses"] == 2, prog
+
+    def test_aptos_fuzz_dir_counted_as_litesvm(self, tmp_path):
+        ws, cid, cycle = self._setup_cycle_with_recon(tmp_path)
+        fuzz = cycle / "fuzz"
+        fuzz.mkdir()
+        (fuzz / "apt1_prop.move").write_text("#[test]")
+        (fuzz / "apt5_prop.move").write_text("#[test]")
+        (fuzz / "apt38_prop.move").write_text("#[test]")
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        assert prog["n_litesvm"] == 3, prog
+
+    def test_solidity_formal_dir_counted(self, tmp_path):
+        ws, cid, cycle = self._setup_cycle_with_recon(tmp_path)
+        formal = cycle / "formal"
+        formal.mkdir()
+        (formal / "smt1.sol").write_text("// smtchecker")
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        assert prog["n_kani_harnesses"] == 1, prog
+
+    def test_c_fuzz_dir_counted(self, tmp_path):
+        ws, cid, cycle = self._setup_cycle_with_recon(tmp_path)
+        fuzz = cycle / "fuzz"
+        fuzz.mkdir()
+        (fuzz / "afl_harness.c").write_text("int main()")
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        assert prog["n_litesvm"] == 1, prog
+
+    def test_solana_kani_dir_still_counted(self, tmp_path):
+        """Back-compat: Solana's kani/*.rs path must still register."""
+        ws, cid, cycle = self._setup_cycle_with_recon(tmp_path)
+        kani = cycle / "kani"
+        kani.mkdir()
+        (kani / "h1_invariant.rs").write_text("#[kani::proof]")
+        (kani / "h2_invariant.rs").write_text("#[kani::proof]")
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        assert prog["n_kani_harnesses"] == 2, prog
+
+    def test_hunt_summary_n_kani_runs_overrides_filesystem(self, tmp_path):
+        """When hunt_summary records n_kani_runs, the authoritative
+        count is surfaced even if filesystem counters miss artifacts."""
+        import json as _json
+        ws, cid, cycle = self._setup_cycle_with_recon(tmp_path)
+        # No formal/ or kani/ dirs — filesystem would return 0
+        (cycle / "hunt_summary.json").write_text(_json.dumps({
+            "n_candidates": 4,
+            "n_kani_runs": 4,
+            "n_litesvm_runs": 4,
+        }))
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        assert prog["n_kani_harnesses"] == 4, prog
+        assert prog["n_litesvm"] == 4, prog

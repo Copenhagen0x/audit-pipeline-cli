@@ -1180,14 +1180,34 @@ def _in_progress_cycle_progress(
                 for _ in poc_dir.glob(pattern))
             if poc_dir.is_dir() else 0
         )
+        # L3 formal-verification artifacts.
+        # Solana: kani/*.rs (Kani harnesses).
+        # Aptos:  formal/*.move (Move Prover spec modules).
+        # C:      formal/*.c   (CBMC harnesses).
+        # Solidity: formal/*.sol (SMTChecker harnesses).
+        # Without counting the non-Solana paths the dashboard's L3
+        # counter stays at 0 forever for Aptos / C / Solidity cycles
+        # even when L3 ran, and the waterfall paints "skipped" for a
+        # layer that actually executed. Operator caught this on the
+        # aptos-small cycle 20260513-191318 dry-fire plan.
+        formal_dir = cycle_dir / "formal"
         n_kani_harnesses = (
             sum(1 for _ in kani_dir.glob("*.rs"))
             if kani_dir.is_dir() else 0
         )
+        if formal_dir.is_dir():
+            for pattern in ("*.move", "*.sol", "*.c"):
+                n_kani_harnesses += sum(1 for _ in formal_dir.glob(pattern))
+        # L4 runtime/fuzz artifacts. Solana: litesvm/*.rs; Aptos/C/Sol:
+        # fuzz/<lang-ext>.
+        fuzz_dir = cycle_dir / "fuzz"
         n_litesvm = (
             sum(1 for _ in litesvm_dir.glob("*.rs"))
             if litesvm_dir.is_dir() else 0
         )
+        if fuzz_dir.is_dir():
+            for pattern in ("*.move", "*.sol", "*.c"):
+                n_litesvm += sum(1 for _ in fuzz_dir.glob(pattern))
     except OSError:
         return None
     if n_prompts == 0:
@@ -1347,6 +1367,20 @@ def _in_progress_cycle_progress(
         label = "Layer 1 recon"
 
     pct = (n_done / n_total * 100.0) if n_total else 0.0
+    # If hunt_summary.json is present, prefer its authoritative L3/L4
+    # run counts over the filesystem heuristic (which may miss
+    # non-Solana artifact layouts even with the formal/fuzz dir fix
+    # above). hunt_summary records `n_kani_runs` and `n_litesvm_runs`
+    # at cycle end — the orchestrator's own count of executions.
+    if hunt_summary.is_file():
+        try:
+            _hs = json.loads(hunt_summary.read_text(encoding="utf-8"))
+            if isinstance(_hs.get("n_kani_runs"), int):
+                n_kani_harnesses = max(n_kani_harnesses, _hs["n_kani_runs"])
+            if isinstance(_hs.get("n_litesvm_runs"), int):
+                n_litesvm = max(n_litesvm, _hs["n_litesvm_runs"])
+        except (OSError, json.JSONDecodeError):
+            pass
     return {
         # Legacy fields kept for back-compat with previous dashboard.py callers
         "n_prompts": n_prompts,
