@@ -895,6 +895,12 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         },
         "targets": [
             {
+                # `id` is REQUIRED — the dashboard JS builds a
+                # targetIdByName map from this so per-tab event
+                # filtering can match incoming `recent_cycles[].target_id`
+                # (which IS a numeric DB id) against the active tab.
+                # Without it, switching tabs leaks data across all tabs.
+                "id": t["id"],
                 "name": t["name"],
                 "engine_repo": (t.get("engine_repo") or "").replace("https://github.com/", ""),
             }
