@@ -405,7 +405,6 @@ class TestL3L4CountersAreLanguageAgnostic:
     def _setup_cycle_with_recon(self, tmp_path):
         """Minimal cycle scaffold so _in_progress_cycle_progress doesn't
         early-return None."""
-        import json as _json
         ws = tmp_path / "ws"
         cid = "20260513-cycle"
         cycle = ws / "hunts" / cid
