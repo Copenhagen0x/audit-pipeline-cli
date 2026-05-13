@@ -872,6 +872,12 @@ main.bridge {
 </head>
 <body>
 
+<!-- Custom amber cursor (site-wide chrome — shared.css sets body{cursor:none}
+     and these divs follow the mouse via the JS below. Without them, the
+     native cursor is hidden and the page LOOKS like no cursor at all). -->
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+
 <!-- Demo banner — only on the public demo customer -->
 <div class="demo-banner">
   <span class="badge">DEMO</span> Live Bridge view · real data from the Percolator audit loop · <a href="/customer/demo/full.html?legacy=1">classic view ↗</a>
@@ -1692,63 +1698,156 @@ main.bridge {
     } catch (e) { return null; }
   }
 
-  async function refreshSnapshot() {
-    const d = await fetchJson(SNAPSHOT_URL);
-    if (!d) return;
-    if (d.engine_sha) {
-      const newSha = String(d.engine_sha).slice(0, 10);
-      const wrap = $('engine-sha-wrap');
-      const cur = $('engine-sha');
-      if (cur && cur.textContent !== newSha) {
-        cur.textContent = newSha;
+  // Helper: idempotent engine_sha chip update with flicker animation on
+  // change. Used by both snapshot + heartbeat fetchers.
+  function setEngineSha(sha) {
+    if (!sha) return;
+    const newSha = String(sha).slice(0, 10);
+    const wrap = $('engine-sha-wrap');
+    const cur = $('engine-sha');
+    if (cur && cur.textContent !== newSha) {
+      cur.textContent = newSha;
+      if (wrap) {
         wrap.classList.add('sha-flicker');
         setTimeout(() => wrap.classList.remove('sha-flicker'), 700);
       }
     }
+  }
+
+  // Helper: paint the hypothesis grid from a cycle's aggregate counts.
+  // We only have n_dispatched + n_true_layer1 (not per-hyp IDs), so
+  // tiles are anonymous. Still gives the customer the "look how many
+  // hyps got audited" visual.
+  function paintGridFromCycle(cycle) {
+    if (!cycle || state.hyps.size > 0) return; // don't repaint if already populated
+    const n  = cycle.n_dispatched | 0;
+    const nT = cycle.n_true_layer1 | 0;
+    const nC = cycle.n_confirmed | 0;
+    if (n <= 0) return;
+    for (let i = 0; i < n; i++) {
+      const hid = `${cycle.cycle_id || 'C'}#${i + 1}`;
+      ensureHypTile(hid);
+    }
+    // Mark first nT tiles as fire, last nC of those as confirmed.
+    const ids = state.hypsOrder;
+    for (let i = 0; i < Math.min(nT, ids.length); i++) {
+      setHypTileState(ids[i], 'fire');
+      if (i < nC) state.hyps.get(ids[i]).classList.add('confirmed');
+    }
+    for (let i = nT; i < ids.length; i++) {
+      setHypTileState(ids[i], 'ok');
+    }
+  }
+
+  function paintStageFromCycle(cycle) {
+    if (!cycle) return;
+    const phaseLabel = cycle.phase_label || cycle.phase || 'idle';
+    const cid = cycle.cycle_id || '—';
+    if (cycle.in_progress) {
+      setStage(
+        'Cycle in progress',
+        `<span class="accent">${safeStr(cid, 28)}</span> <span class="dim">·</span> ${safeStr(phaseLabel, 120)}`,
+        cycle.progress_pct != null ? { label: cycle.phase || '', pct: cycle.progress_pct } : null
+      );
+    } else {
+      setStage(
+        'Last cycle',
+        `<span class="accent">${safeStr(cid, 28)}</span> <span class="dim">·</span> ${safeStr(phaseLabel, 120)}`,
+        null
+      );
+    }
+  }
+
+  // ───── snapshot.json (public aggregate) ─────
+  // Real shape keys: cycles_total, services[], loop_uptime_human, spend{},
+  // recent_cycles[], public_findings[], stats{}, targets[].
+  // NO engine_sha, NO services_up, NO uptime_label, NO last_cycle_ts,
+  // NO daily_cap_usd, NO findings. Use heartbeat for engine_sha / last_cycle_ts.
+  async function refreshSnapshot() {
+    const d = await fetchJson(SNAPSHOT_URL);
+    if (!d) return;
+    // cycles total — informational counter in right rail
     if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
-    if (d.services_up) $('services-up').textContent = d.services_up;
-    if (d.uptime_label) $('loop-uptime').textContent = d.uptime_label;
-    if (d.last_cycle_ts) {
-      const t = Date.parse(d.last_cycle_ts);
-      if (!isNaN(t)) {
-        state.lastCycleAt = t;
-        $('last-cycle-rel').textContent = fmtRel(t);
+    if (d.stats && d.stats.n_cycles != null) $('ct-cycles').textContent = d.stats.n_cycles;
+    // services — count those in "up" state from the services[] array
+    if (Array.isArray(d.services)) {
+      const up = d.services.filter(s => (s.state || '').toLowerCase() === 'up').length;
+      $('services-up').textContent = up + ' / ' + d.services.length;
+    }
+    // uptime — use loop_uptime_human (snapshot's real field name)
+    if (d.loop_uptime_human) $('loop-uptime').textContent = d.loop_uptime_human;
+    // spend — snapshot exposes today_usd + total_usd. Daily cap isn't in
+    // the API; default to $800 (recon's default --budget-cap-usd × ~3).
+    if (d.spend) {
+      const today = d.spend.today_usd != null ? d.spend.today_usd : 0;
+      setCost(today, state.costCap || 800);
+    }
+    // recent_cycles — golden data. Pre-paint grid + stage from cycle[0].
+    if (Array.isArray(d.recent_cycles) && d.recent_cycles.length > 0) {
+      const latest = d.recent_cycles[0];
+      paintStageFromCycle(latest);
+      paintGridFromCycle(latest);
+      // Track the most-recent cycle id even if SSE didn't say so yet
+      if (latest.cycle_id && !state.activeCycle && latest.in_progress) {
+        state.activeCycle = latest.cycle_id;
+        $('active-cycle').textContent = safeStr(latest.cycle_id, 28);
+        if (latest.started_at) {
+          const t = Date.parse(latest.started_at);
+          if (!isNaN(t)) {
+            state.cycleStartedAt = t;
+            $('cycle-started').textContent = fmtTime(t);
+          }
+        }
       }
     }
-    if (d.daily_cap_usd) setCost(d.daily_spent_usd || 0, d.daily_cap_usd);
   }
 
   async function refreshManifest() {
     const d = await fetchJson(MANIFEST_URL);
     if (!d) return;
-    const findings = d.findings || [];
+    // Customer name into the top-left tag
+    if (d.customer && d.customer.name) {
+      const nameEl = document.querySelector('.bridge-customer-tag .name');
+      if (nameEl) nameEl.textContent = d.customer.name;
+    }
+    // Findings — manifest doesn't have a `findings` key today; uses
+    // `public_findings` (same shape as snapshot). When customer-private
+    // findings ship, this code path picks them up via either key.
+    const findings = (d.findings || d.public_findings || []);
     let crit = 0, high = 0, conf = 0;
     findings.forEach(f => {
-      if (f.severity === 'Critical') crit++;
-      if (f.severity === 'High') high++;
-      if (f.status === 'confirmed' || f.status === 'disclosed' || f.status === 'fixed' || f.status === 'verified') conf++;
+      const sev = f.severity || f.sev || '';
+      if (sev === 'Critical') crit++;
+      if (sev === 'High') high++;
+      const st = f.status || '';
+      if (st === 'confirmed' || st === 'disclosed' || st === 'fixed' || st === 'verified') conf++;
     });
     $('ct-crit').textContent = crit;
     $('ct-high').textContent = high;
     $('ct-confirmed').textContent = conf;
     $('findings-count').textContent = findings.length;
     clearFindingsLoadingMsg();
-    // Pre-populate the waterfall with the last cycle's findings, newest first
-    const stream = $('findings-stream');
-    findings.slice(0, 40).forEach(f => {
-      const fid = f.id != null ? String(f.id) : (f.hypothesis_id + '-' + (f.cycle_id || ''));
-      if (!state.findings.has(fid)) upsertFinding(f);
-    });
-    // Use the manifest's last_cycle hypothesis verdicts to pre-paint the grid
-    const lastCycle = d.last_cycle || {};
-    const verdicts = lastCycle.verdicts || [];
-    if (verdicts.length > 0 && state.hyps.size === 0) {
-      verdicts.forEach(v => {
-        const hid = v.hypothesis_id || v.id;
-        if (!hid) return;
-        if (v.verdict === 'TRUE') setHypTileState(hid, 'fire');
-        else setHypTileState(hid, 'ok');
+    if (findings.length === 0) {
+      const stream = $('findings-stream');
+      if (stream && stream.children.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'color: var(--ink-4); font-family: var(--mono); font-size: 10px; padding: 20px 0; text-align: center; letter-spacing: 0.18em; text-transform: uppercase;';
+        empty.textContent = 'no open findings · last cycle clean';
+        stream.appendChild(empty);
+      }
+    } else {
+      findings.slice(0, 40).forEach(f => {
+        const fid = f.id != null ? String(f.id) : (f.hypothesis_id + '-' + (f.cycle_id || ''));
+        if (!state.findings.has(fid)) upsertFinding(f);
       });
+    }
+    // Pre-paint grid + stage from recent_cycles[0] if we have it
+    // (manifest mirrors snapshot today; covers the case where snapshot
+    // fetch was slower or failed).
+    if (Array.isArray(d.recent_cycles) && d.recent_cycles.length > 0) {
+      const latest = d.recent_cycles[0];
+      paintStageFromCycle(latest);
+      paintGridFromCycle(latest);
     }
   }
 
@@ -1758,7 +1857,23 @@ main.bridge {
     if (d.generated_at) {
       state.heartbeatTs = Date.parse(d.generated_at);
     }
+    if (d.engine_sha) setEngineSha(d.engine_sha);
     if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
+    if (d.last_cycle_ts) {
+      const t = Date.parse(d.last_cycle_ts);
+      if (!isNaN(t)) {
+        state.lastCycleAt = t;
+        $('last-cycle-rel').textContent = fmtRel(t);
+      }
+    }
+    // service_summary is an object; count active.
+    if (d.service_summary && typeof d.service_summary === 'object') {
+      const all = Object.values(d.service_summary);
+      const active = all.filter(v => v === 'active').length;
+      if ($('services-up').textContent === '—') {
+        $('services-up').textContent = active + ' / ' + all.length;
+      }
+    }
   }
 
   function refreshAll() {
@@ -1860,8 +1975,45 @@ main.bridge {
     requestAnimationFrame(tick);
   }
 
+  // ───── Custom cursor (matches the rest of jelleo.com) ─────
+  // shared.css hides the native cursor with `body { cursor: none }` and
+  // styles `.cursor-dot` / `.cursor-ring` to follow the mouse. Without
+  // those elements + the JS below, the page LOOKS like the cursor is
+  // missing entirely. Mirrors the implementation on the homepage.
+  function startCustomCursor() {
+    const dot = $('dot');
+    const ring = $('ring');
+    if (!dot || !ring) return;
+    const isCoarse = window.matchMedia('(hover: none)').matches || window.innerWidth < 1024;
+    if (isCoarse) return; // touch device — leave native cursor / no-cursor as-is
+    let mx = window.innerWidth / 2, my = window.innerHeight / 2;
+    let rx = mx, ry = my;
+    document.addEventListener('mousemove', (e) => {
+      mx = e.clientX;
+      my = e.clientY;
+      dot.style.transform = `translate(${mx}px, ${my}px) translate(-50%, -50%)`;
+    });
+    (function loop() {
+      rx += (mx - rx) * 0.85;
+      ry += (my - ry) * 0.85;
+      ring.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%)`;
+      requestAnimationFrame(loop);
+    })();
+    document.querySelectorAll('a, button, .hyp-tile, .finding-card, .bridge-actions a').forEach((el) => {
+      el.addEventListener('mouseenter', () => {
+        ring.classList.add('hover');
+        dot.classList.add('hover');
+      });
+      el.addEventListener('mouseleave', () => {
+        ring.classList.remove('hover');
+        dot.classList.remove('hover');
+      });
+    });
+  }
+
   // ───── Bootstrap ─────
   function start() {
+    startCustomCursor();
     refreshAll();
     connectSse();
     setInterval(refreshAll, 60000);
