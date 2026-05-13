@@ -1238,22 +1238,31 @@ def _in_progress_cycle_progress(
         label = "Layer 3 Kani"
     elif n_poc_logs > 0 or n_poc_tests > 0:
         phase = "poc"
-        # PoC progress was previously reported against just the L2 queue
-        # (TRUE + NEEDS_LAYER_2 verdicts) and counted only `poc_test_run`
-        # events. Two bugs caused "L2 · 0/14" for an Aptos hunt that was
-        # actually 14/26:
+        # PoC progress: prefer hunt_summary.json's authoritative
+        # n_candidates (the orchestrator's count of hyps that survived
+        # debate and were actually dispatched to L2) when available.
+        # Otherwise fall back to the L2 queue size from recon_summary.
         #
-        # 1. Debate (L1.5) PROMOTES some FALSE/HIGH verdicts to L2 when
-        #    the challenger says NEEDS_LAYER_2 or DISAGREE. So the real
-        #    L2 queue is (TRUE + NEEDS_LAYER_2) + (promoted FALSEs).
+        # History — bugs this code has had:
         #
-        # 2. Adapter-based languages (Aptos / C / Solidity) emit
-        #    `poc_adapter_done` events, NOT `poc_test_run`. Counting
-        #    only the legacy event missed 100% of Aptos L2 progress.
+        # 1. Old denominator was just the L2 queue from recon (TRUE +
+        #    NEEDS_LAYER_2). Missed debate promotions, displayed
+        #    "L2 · 0/14" while 24 PoCs were actually running.
         #
-        # Now: count all PoC outcome events (both shapes) and use
-        # max(L2 queue, observed tested) as denominator so the ratio
-        # tracks reality even when debate promotion expands the queue.
+        # 2. Old event filter only matched `poc_test_run` (Solana).
+        #    Adapter-based languages (Aptos / C / Solidity) emit
+        #    `poc_adapter_done`, so non-Solana progress read 0.
+        #
+        # 3. Denominator was ``max(l2_queue, tested_ids, n_poc_logs)``.
+        #    All three inflate across resumes — n_poc_logs is the
+        #    physical file count in ``poc/`` which accumulates, and
+        #    tested_ids unions all unique hyps that EVER got a PoC in
+        #    this cycle dir, including hyps promoted by earlier debate
+        #    attempts that aren't in the final L2 queue. Operator saw
+        #    "L2 38/38" on an aptos-small cycle whose hunt_summary
+        #    said n_candidates=24. Use the authoritative summary value
+        #    when present, and cap n_done at n_total so the gauge can
+        #    never read >100%.
         l2_queue_ids: set[str] = set()
         if recon_summary.is_file():
             try:
@@ -1286,25 +1295,34 @@ def _in_progress_cycle_progress(
                                 tested_ids.add(hid)
             except OSError:
                 pass
-        if l2_queue_ids:
-            # numerator = unique tested hyps observed in the log.
-            #   union (not intersection) — debate-promoted FALSE
-            #   hyps appear in tested_ids but NOT in l2_queue_ids,
-            #   and we still want them counted as L2 progress.
-            n_done = len(tested_ids)
-            # denominator = real L2 queue size. The orchestrator
-            # dispatches L2 on the (l2_queue_ids ∪ debate-promoted)
-            # set. We don't know the promoted set without parsing
-            # the debate output, but we DO know:
-            #   real_total >= l2_queue_ids size
-            #   real_total >= number of unique tested ids observed
-            # So max(l2_queue, tested) is a safe lower bound that
-            # tracks reality as new PoCs land.
-            n_total = max(len(l2_queue_ids), len(tested_ids), n_poc_logs, 1)
+
+        # Authoritative L2 denominator: hunt_summary.json's n_candidates
+        # is the orchestrator's own count of hyps it dispatched to L2.
+        # Beats both file-count and event-count heuristics. Available
+        # only AFTER the cycle finishes — during in-progress we fall
+        # back to the L2 queue size from recon.
+        summary_candidates: int | None = None
+        if hunt_summary.is_file():
+            try:
+                _summary = json.loads(hunt_summary.read_text(encoding="utf-8"))
+                if isinstance(_summary.get("n_candidates"), int):
+                    summary_candidates = _summary["n_candidates"]
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        if summary_candidates is not None:
+            n_total = max(summary_candidates, 1)
+        elif l2_queue_ids:
+            # Mid-flight: use L2 queue size. Don't union with tested_ids
+            # because tested_ids accumulates across resume attempts that
+            # may have run different debate-promoted sets.
+            n_total = max(len(l2_queue_ids), 1)
         else:
-            # Fallback if recon_summary unreadable
-            n_done = len(tested_ids) if tested_ids else n_poc_logs
-            n_total = max(n_contested, n_done, 1)
+            # Fallback if neither hunt_summary nor recon_summary readable
+            n_total = max(n_contested, 1)
+        # Numerator: hyps that completed L2 in THIS cycle. Cap at n_total
+        # so the gauge never reads >100%.
+        n_done = min(len(tested_ids), n_total)
         # When Layer 2 has fully covered the queue but Layer 3 hasn't started,
         # advance the label so the dashboard doesn't look stuck. The phase
         # itself stays "poc" (filesystem-driven) so downstream filters keep

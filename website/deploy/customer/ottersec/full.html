@@ -2093,9 +2093,16 @@ main.bridge {
         state.cycleFinishedAt[ev.cycle] = new Date().toISOString();
       }
       const completedCycle = state.activeCycle;
+      // Only paint layers that we KNOW ran on every cycle (L0..L2.5).
+      // L3 (Kani/formal) and L4 (LiteSVM/fuzz) are language-dependent:
+      // Aptos doesn't run either. The SSE cycle_complete event doesn't
+      // carry n_kani_harnesses / n_litesvm, so leave L3/L4 untouched
+      // here — the next manifest snapshot tick (~5s) will repaint them
+      // accurately via paintLayerWaterfallFromCycle, which DOES have
+      // the per-language counts.
       setLayer('L0', 'done', '✓');
       setLayer('L1', 'done', '✓');
-      ['L1.5','L2','L2.5','L3','L4'].forEach(L => {
+      ['L1.5','L2','L2.5'].forEach(L => {
         const r = document.querySelector('.layer-row[data-layer="' + L + '"]');
         if (r && !r.classList.contains('done') && !r.classList.contains('skipped')) {
           setLayer(L, 'done', '✓');
@@ -2243,16 +2250,27 @@ main.bridge {
     //   2. phase is null/empty AND in_progress is false/null (filesystem
     //      heuristic exhausted)
     //   3. phase == 'publishing' (hunt_summary.json present)
-    // In all three, paint every layer as done so the dashboard reflects
-    // reality. Without this, the cycle_active SSE event left layers
-    // stuck at "L1 running" forever after the cycle ended.
+    // In all three, paint each layer accurately — L0/L1/L1.5/L2/L2.5
+    // ran on every cycle so they get ✓. L3 (Kani/formal) and L4
+    // (LiteSVM/fuzz) are language-dependent: Aptos uses neither (no
+    // Kani backend for Move, and the move runner already covers
+    // LiteSVM's role), so n_kani_harnesses=0 and n_litesvm=0 on every
+    // Aptos cycle. Paint those as "skipped" so the operator can see
+    // they didn't run rather than misreading them as completed.
+    // Operator caught this: "after L2 was completed, all other layers
+    // checked out as completed" — for Aptos that's wrong, L3/L4 were
+    // never executed.
     const isFinished = (
       cycle.finished_at != null
       || (phase === '' && !cycle.in_progress)
       || phase === 'publishing'
     );
     if (isFinished) {
-      ALL_LAYERS.forEach(L => setLayer(L, 'done', '✓'));
+      ['L0', 'L1', 'L1.5', 'L2', 'L2.5'].forEach(L => setLayer(L, 'done', '✓'));
+      const l3Ran = (cycle.n_kani_harnesses || 0) > 0;
+      const l4Ran = (cycle.n_litesvm || 0) > 0;
+      setLayer('L3', l3Ran ? 'done' : 'skipped', l3Ran ? '✓' : 'n/a');
+      setLayer('L4', l4Ran ? 'done' : 'skipped', l4Ran ? '✓' : 'n/a');
       return;
     }
 

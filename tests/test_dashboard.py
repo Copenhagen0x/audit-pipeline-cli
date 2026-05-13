@@ -269,3 +269,122 @@ def test_customer_manifest_scopes_to_matched_targets(tmp_path):
     assert "percolator-bug" not in finding_titles, (
         "Percolator's finding MUST NOT appear in OtterSec's manifest"
     )
+
+
+class TestL2PhaseCounterInflation:
+    """Regression tests for the L2 progress denominator bug (2026-05-13).
+
+    Operator saw "L2 38/38" on the aptos-small cycle whose
+    hunt_summary said n_candidates=24. Root cause: ``n_total`` was
+    computed as ``max(l2_queue_ids, tested_ids, n_poc_logs, 1)`` —
+    all three inflate across resume attempts (file count on disk +
+    poc_adapter_done events accumulated in hunt.log.jsonl across
+    earlier debate-promoted sets).
+
+    Fix: use hunt_summary.n_candidates (authoritative) when present,
+    fall back to L2 queue size; cap n_done at n_total.
+    """
+
+    def _setup_cycle(
+        self,
+        tmp_path: Path,
+        *,
+        l2_queue_size: int,
+        tested_unique: int,
+        n_log_files: int,
+        n_candidates_in_summary: int | None,
+    ) -> tuple[Path, str]:
+        """Build a fake cycle dir simulating the inflation scenario."""
+        import json as _json
+        ws = tmp_path / "ws"
+        cycle_id = "20260513-191318"
+        cycle_dir = ws / "hunts" / cycle_id
+        recon = cycle_dir / "recon"
+        poc = cycle_dir / "poc"
+        recon.mkdir(parents=True)
+        poc.mkdir()
+        # Recon prompts + responses so phase detector activates
+        for i in range(40):
+            (recon / f"H{i}_prompt.md").write_text("p")
+            (recon / f"H{i}_response.md").write_text("r")
+        # recon_summary with l2_queue_size TRUE verdicts
+        verdicts = [
+            {"hypothesis_id": f"H{i}", "verdict": "TRUE", "confidence": "HIGH"}
+            for i in range(l2_queue_size)
+        ]
+        (recon / "recon_summary.json").write_text(
+            _json.dumps({"verdicts": verdicts})
+        )
+        # hunt.log.jsonl with tested_unique unique poc_adapter_done IDs
+        # (use IDs OUTSIDE the L2 queue to simulate debate-promoted hyps
+        # — this is exactly the resume-attempt-overlay scenario)
+        log_lines = []
+        for i in range(tested_unique):
+            log_lines.append(_json.dumps({
+                "ts": "2026-05-13T22:09:50+00:00",
+                "event": "poc_adapter_done",
+                "hypothesis_id": f"PROMOTED{i}",
+                "fired": False,
+            }))
+        (cycle_dir / "hunt.log.jsonl").write_text("\n".join(log_lines) + "\n")
+        # poc/*.log files accumulated on disk (file-count inflation)
+        for i in range(n_log_files):
+            (poc / f"runlog_h{i}.log").write_text("log")
+        # Optional hunt_summary.json (post-cycle)
+        if n_candidates_in_summary is not None:
+            (cycle_dir / "hunt_summary.json").write_text(_json.dumps({
+                "n_candidates": n_candidates_in_summary,
+                "n_poc_scaffolded": n_candidates_in_summary,
+            }))
+        return ws, cycle_id
+
+    def test_in_progress_uses_l2_queue_not_poc_log_count(self, tmp_path):
+        """During in-progress L2, n_poc_logs must NOT drive denom —
+        file count accumulates across resumes."""
+        ws, cid = self._setup_cycle(
+            tmp_path,
+            l2_queue_size=14,
+            tested_unique=39,
+            n_log_files=39,
+            n_candidates_in_summary=None,  # mid-flight, no summary
+        )
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        assert prog is not None
+        assert prog["phase"] == "poc", prog
+        # Denominator = L2 queue size, NOT n_poc_logs (39) or
+        # tested_ids (39).
+        assert prog["phase_total"] == 14, prog
+        # Numerator capped at denominator → never exceeds 100%
+        assert prog["phase_done"] == 14, prog
+        assert prog["pct_complete"] == 100.0
+
+    def test_done_never_exceeds_total(self, tmp_path):
+        """n_done must be capped at n_total — gauge can never be >100%."""
+        ws, cid = self._setup_cycle(
+            tmp_path,
+            l2_queue_size=14,
+            tested_unique=39,  # MORE tested than queue
+            n_log_files=39,
+            n_candidates_in_summary=None,
+        )
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        assert prog["phase_done"] <= prog["phase_total"], prog
+        assert prog["pct_complete"] <= 100.0
+
+    def test_hunt_summary_n_candidates_surfaced(self, tmp_path):
+        """When hunt_summary.json exists, the n_candidates value is
+        the authoritative L2 denominator. Phase flips to 'publishing'
+        but the L2 row still has access to the count via n_poc_logs
+        for the headline metric (not the L2 gauge denominator)."""
+        ws, cid = self._setup_cycle(
+            tmp_path,
+            l2_queue_size=14,
+            tested_unique=39,
+            n_log_files=39,
+            n_candidates_in_summary=24,
+        )
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        # publishing phase takes priority once hunt_summary.json lands
+        assert prog["phase"] == "publishing", prog
+        # n_poc_logs surfaced raw for headline metric (intentional)
+        assert prog["n_poc_logs"] == 39
