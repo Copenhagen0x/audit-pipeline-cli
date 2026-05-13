@@ -2153,6 +2153,56 @@ main.bridge {
         null
       );
     }
+    // Also paint the layer waterfall from manifest data so the
+    // waterfall reflects state on page load WITHOUT waiting for the
+    // next SSE event (was: layers stuck at "queued" if user loaded
+    // mid-cycle, since waterfall was SSE-driven only).
+    paintLayerWaterfallFromCycle(cycle);
+  }
+
+  // Translate manifest phase + phase_done/phase_total → layer-row state.
+  // Phases used by the engine: recon, debate, poc, l25_triage, kani,
+  // litesvm, publishing. Map each to its L# row and mark earlier
+  // layers as done, current as active, later as queued.
+  function paintLayerWaterfallFromCycle(cycle) {
+    if (!cycle) return;
+    const phase = (cycle.phase || '').toLowerCase();
+    const done = cycle.phase_done;
+    const total = cycle.phase_total;
+    const pct = cycle.progress_pct;
+    // Phase → corresponding L# label
+    const PHASE_TO_LAYER = {
+      'recon':       'L1',
+      'debate':      'L1.5',
+      'poc':         'L2',
+      'l25_triage':  'L2.5',
+      'triage':      'L2.5',
+      'kani':        'L3',
+      'formal':      'L3',
+      'litesvm':     'L4',
+      'fuzz':        'L4',
+      'publishing':  null,  // every layer done
+    };
+    const ALL_LAYERS = ['L0','L1','L1.5','L2','L2.5','L3','L4'];
+    const activeLayer = PHASE_TO_LAYER[phase];
+    if (activeLayer == null && phase !== 'publishing') {
+      // Unknown phase — leave layers as-is (SSE will repaint)
+      return;
+    }
+    // L0 is always done once a cycle exists (freshness gate passed)
+    setLayer('L0', 'done', '✓');
+    // Mark every layer BEFORE activeLayer as done
+    const activeIdx = activeLayer ? ALL_LAYERS.indexOf(activeLayer) : ALL_LAYERS.length;
+    for (let i = 1; i < activeIdx; i++) {
+      setLayer(ALL_LAYERS[i], 'done', '✓');
+    }
+    // The active layer itself
+    if (activeLayer) {
+      const label = (done != null && total)
+        ? (done + '/' + total)
+        : 'running';
+      setLayer(activeLayer, 'active', label, pct != null ? pct : 5);
+    }
   }
 
   // ───── snapshot.json (public aggregate) ─────
