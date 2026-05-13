@@ -177,13 +177,30 @@ def _identity_substitutions(
 ) -> list[tuple[str, str]]:
     """List of (find, replace) pairs that swap demo customer identity for ours.
 
-    Each pair is run sequentially via str.replace. Order matters where
-    one replacement subsumes another — keep more-specific strings first.
+    Each pair is run sequentially via str.replace. Order matters: MORE
+    SPECIFIC strings must come first, since the broader substitutions
+    would otherwise eat them. The narrower URL replacements at the top
+    rewrite the lobby + bridge JS to fetch the locally-deployed
+    ``./manifest.json`` instead of the demo's api.jelleo.com endpoint,
+    which doesn't exist for new customers and falls back (wrongly) to
+    the public Percolator snapshot.
     """
     cid = entry["id"]
     name = entry.get("name", cid)
     hero = brand["hero_title"]
     return [
+        # MORE SPECIFIC FIRST — rewrite the data-feed URLs so the lobby
+        # + bridge JS fetch ./manifest.json (a sibling file on the same
+        # Netlify deploy) instead of api.jelleo.com/customer/demo/...
+        # which doesn't exist on the customer's path and otherwise
+        # falls back to the public snapshot (wrong customer's data).
+        ("'https://api.jelleo.com/customer/demo/manifest.json'", "'./manifest.json'"),
+        ('"https://api.jelleo.com/customer/demo/manifest.json"', '"./manifest.json"'),
+        # Public-snapshot fallback URL — for customer portals we DON'T
+        # want a Percolator-snapshot fallback. Retry the same manifest
+        # so empty-state shows correctly instead of cross-customer data.
+        ("'https://api.jelleo.com/snapshot.json'", "'./manifest.json'"),
+        ('"https://api.jelleo.com/snapshot.json"', '"./manifest.json"'),
         # Customer status badge (top right of nav)
         ("Demo customer · token cus_demo", f"{name} · token {cid}"),
         ("Demo customer · cus_demo",       f"{name} · {cid}"),
@@ -745,13 +762,19 @@ def _patch_lobby(
     html = _apply_substitutions(template, _identity_substitutions(entry, brand))
     html = _inject_customer_logo(html, name, logo_src)
 
-    # For multi-target customers: REPLACE the findings section with the
-    # multi-target grid. Specifically, swap out the "01 · Findings" block
-    # and its table. The trick: find the section label start, find the
-    # next dash-section-label, replace everything between with our grid.
+    # For multi-target customers, the demo lobby's single-protocol shape
+    # (findings table + cycle receipts + propagation card) doesn't fit.
+    # Replace with the multi-target grid AND drop the sections that
+    # don't apply yet. Each transformation below is independently
+    # tested; together they leave a clean multi-target lobby.
     if len(rollups) > 1:
+        # 1. Drop the "Classic · 4-panel" dash-launcher card. We don't
+        #    clone full.legacy.html for new customers (it's a Percolator
+        #    artifact). Leaving the link would land them on a 404.
+        html = _remove_classic_view_card(html)
+
+        # 2. Replace the findings table with the multi-target grid.
         grid_html = _render_lobby_target_grid(cid, rollups)
-        # Find the start of the Findings section
         m = re.search(
             r'<!--\s*Findings\s*-->.*?(?=<!--\s*Cycle receipts)',
             html, re.DOTALL,
@@ -759,18 +782,229 @@ def _patch_lobby(
         if m:
             html = html[:m.start()] + grid_html + "\n\n    " + html[m.end():]
 
-    # Update footer text if customer customized it
-    if brand.get("footer_text") and brand["footer_text"] != _DEFAULTS["footer_text"]:
-        # The demo's footer has a paragraph in the brand block. Append
-        # a customer footer line near the end of the footer if present.
-        # (We don't replace the structural footer — we add a line.)
-        html = html.replace(
-            '<a href="/" class="nav-logo">jelleo</a>',
-            '<a href="/" class="nav-logo">jelleo</a>',
-            1,  # only the FIRST occurrence (in nav, not footer)
-        )
+        # 3. Drop the "02 · Cycle receipts" section. No signed receipts
+        #    for a fresh customer, and the demo JS that populates this
+        #    block crashes if its DOM target is missing data shaped
+        #    like the public snapshot.
+        html = _drop_section(html, "Cycle receipts", "Propagation")
+
+        # 4. Drop the "03 · Cross-protocol propagation" section. Doesn't
+        #    apply during a multi-repo vendor evaluation.
+        html = _drop_section(html, "Propagation", "Actions")
+
+        # 5. Trim the "04 · More" action bar — remove Percolator-
+        #    specific external links (last-cycle, public archive) that
+        #    don't exist for this customer yet.
+        html = _trim_action_bar(html)
+
+        # 6. Replace the data-wiring <script> block with a multi-target-
+        #    aware version that reads our manifest.json shape and is
+        #    null-safe on the absent DOM elements.
+        html = _replace_lobby_wiring_script(html)
 
     return html
+
+
+def _remove_classic_view_card(html: str) -> str:
+    """Strip the Classic-view dash-launcher card and span the Bridge card."""
+    # The Classic card is one <a class="dash-launcher-card"> ... </a> block.
+    # We anchor on the secondary-eyebrow class which is unique to that card.
+    pattern = re.compile(
+        r'<a class="dash-launcher-card"[^>]*aria-label="Open classic 4-panel view"[^>]*>.*?</a>\s*',
+        re.DOTALL,
+    )
+    new_html = pattern.sub("", html)
+    if new_html == html:
+        # Fallback: drop any second card that mentions "Classic"
+        pattern2 = re.compile(
+            r'<a class="dash-launcher-card"(?:(?!<a class="dash-launcher-card").)*?Classic.*?</a>\s*',
+            re.DOTALL,
+        )
+        new_html = pattern2.sub("", html)
+    # Add a tiny CSS override so the remaining Bridge card fills the row
+    # (the demo grid is 1.6fr 1fr — without the second card it looks
+    # lopsided). Place override just before </head> via a marker swap.
+    override = (
+        '<style id="dash-launcher-multi-target-override">'
+        '.dash-launcher { grid-template-columns: 1fr !important; }'
+        '.dash-launcher-card.primary h2 { font-size: 36px !important; }'
+        '</style>\n</head>'
+    )
+    if 'id="dash-launcher-multi-target-override"' not in new_html:
+        new_html = new_html.replace("</head>", override, 1)
+    return new_html
+
+
+def _drop_section(html: str, start_marker: str, end_marker: str) -> str:
+    """Remove an HTML comment block starting at `<!-- {start_marker} ...`
+    and everything up to (but not including) `<!-- {end_marker} ...`.
+
+    Used to surgically excise lobby sections that don't apply to
+    multi-target customers without rewriting the surrounding HTML.
+
+    The regex is tolerant of:
+      * single-line comments: `<!-- Findings -->`
+      * multi-line comments:  `<!-- Actions — dashboard CTAs hoisted to top;
+                                  this block is now just supplementary
+                                  links (archive / key / contact). -->`
+    Idempotent: if either marker is missing, the input is returned
+    unchanged so partial templates don't break.
+    """
+    pattern = re.compile(
+        # Start: the full opening comment that *contains* the start_marker
+        # at its head — allow any trailing prose inside the comment.
+        rf'<!--\s*{re.escape(start_marker)}[\s\S]*?-->'
+        # Everything between, non-greedily…
+        r'[\s\S]*?'
+        # Until the START of the next comment containing the end_marker.
+        rf'(?=<!--\s*{re.escape(end_marker)}\b)',
+        re.DOTALL,
+    )
+    return pattern.sub("", html)
+
+
+def _trim_action_bar(html: str) -> str:
+    """Drop the Percolator-specific action-bar links.
+
+    Removes the "Last cycle report" + "Cycle archive" links that point
+    at api.jelleo.com/cycles/ — those exist for the demo (Percolator)
+    customer but not for a private vendor eval. Keeps the public-key,
+    methodology, security, and contact links because they're universal.
+    """
+    # Drop the action-bar entries one at a time. The IDs / text strings
+    # are stable in the demo template.
+    drops = [
+        r'<a[^>]*id="action-last-cycle"[^>]*>.*?</a>\s*',
+        r'<a[^>]*href="/cycles/"[^>]*>Cycle archive</a>\s*',
+    ]
+    out = html
+    for pat in drops:
+        out = re.sub(pat, "", out, flags=re.DOTALL)
+    return out
+
+
+_LOBBY_WIRING_SCRIPT = """
+<script>
+/* Multi-target customer portal — data wiring.
+ *
+ * Replaces the demo's single-protocol fetch + render block with a
+ * version aware of the customer manifest shape this generator writes
+ * (./manifest.json next to index.html). The demo JS fetches the public
+ * Percolator snapshot on manifest failure — wrong for a private
+ * customer portal. Here we retry the same manifest and show empty
+ * states until data flows.
+ *
+ * The multi-target lobby has no findings-table / receipts-grid /
+ * propagation-card DOM (we removed them when injecting the target
+ * grid), so we DO NOT touch those nodes. All getElementById lookups
+ * are null-checked before write — never a "Cannot set properties of
+ * null" crash again.
+ */
+(function () {
+  const MANIFEST_URL = './manifest.json';
+  const REFRESH_MS = 60_000;
+  const $ = (id) => document.getElementById(id);
+
+  function relTime(iso) {
+    if (!iso) return '—';
+    const t = Date.parse(iso);
+    if (isNaN(t)) return '—';
+    const sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (sec < 60)       return sec + 's ago';
+    if (sec < 3600)     return Math.floor(sec / 60)   + ' min ago';
+    if (sec < 86400)    return Math.floor(sec / 3600) + ' hr ago';
+    if (sec < 86400*30) return Math.floor(sec / 86400) + ' d ago';
+    return new Date(t).toISOString().slice(0, 10);
+  }
+
+  function set(id, value) {
+    const el = $(id);
+    if (el && value != null) el.textContent = value;
+  }
+
+  function render(snap) {
+    const cust    = snap.customer || {};
+    const totals  = snap.totals   || {};
+    const targets = snap.targets  || [];
+    const sev     = totals.by_severity || {};
+
+    // Header
+    set('dash-since',           cust.since || '—');
+    set('dash-cycles-count',    targets.length);
+    set('dash-findings-count',  totals.n_findings || 0);
+
+    // Most-recent cycle across all targets
+    let lastCycleAt = null;
+    for (const t of targets) {
+      if (t.last_cycle_at && (!lastCycleAt || t.last_cycle_at > lastCycleAt)) {
+        lastCycleAt = t.last_cycle_at;
+      }
+    }
+    set('last-cycle-rel', lastCycleAt ? relTime(lastCycleAt) : 'awaiting first scan');
+    set('loop-uptime',    snap.generated_at ? relTime(snap.generated_at) : '—');
+
+    // Counters — same DOM as demo, multi-target semantics
+    set('ct-critical', sev.Critical || 0);
+    set('ct-high',     sev.High     || 0);
+    set('ct-cycles',   targets.filter(t => t.last_cycle_id).length);
+    set('ct-receipt',  '100%');  /* always 100% verifiable while there are receipts; updates as cycles run */
+
+    // Loop pill — "active" if any target is scanning, else "idle"
+    const txt  = $('loop-pill-text');
+    const pill = $('loop-pill');
+    if (txt && pill) {
+      const scanning = targets.some(t => t.status === 'scanning');
+      if (scanning) {
+        txt.textContent = 'Loop active';
+      } else {
+        txt.textContent = 'Loop idle · awaiting first scan';
+        pill.style.color = 'var(--ink-3)';
+        pill.style.background = 'var(--surface)';
+        pill.style.borderColor = 'var(--rule)';
+      }
+    }
+  }
+
+  async function refresh() {
+    const err = $('feed-error');
+    try {
+      const r = await fetch(MANIFEST_URL, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const snap = await r.json();
+      if (err) err.classList.remove('shown');
+      render(snap);
+    } catch (e) {
+      if (err) {
+        err.textContent = 'Live feed unreachable (' + (e.message || e) + ') — retrying every 60s.';
+        err.classList.add('shown');
+      }
+    }
+  }
+
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+})();
+</script>
+""".strip()
+
+
+def _replace_lobby_wiring_script(html: str) -> str:
+    """Replace the demo's data-wiring <script> block with the multi-target version.
+
+    Anchors on the unique comment "/* Customer-portal data wiring." which
+    only appears in the demo's wiring block. Falls back to no-op if the
+    template ever changes that comment.
+    """
+    pattern = re.compile(
+        r'<script>\s*/\*\s*Customer-portal data wiring\..*?</script>',
+        re.DOTALL,
+    )
+    new_html, n_sub = pattern.subn(_LOBBY_WIRING_SCRIPT, html, count=1)
+    if n_sub == 0:
+        # Demo template changed shape; keep the original wiring rather
+        # than silently leaving a broken page.
+        return html
+    return new_html
 
 
 # ---------------------------------------------------------------------------

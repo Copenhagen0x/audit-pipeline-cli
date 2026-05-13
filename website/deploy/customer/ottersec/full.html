@@ -1353,7 +1353,7 @@ main.bridge {
        ═══════════════════════════════════════════════════════════════════ -->
   <div class="bridge-actions">
     <a class="primary" href="/cycles/">Cycle archive ↗</a>
-    <a href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">snapshot.json ↗</a>
+    <a href="./manifest.json" target="_blank" rel="noopener">snapshot.json ↗</a>
     <a href="https://api.jelleo.com/heartbeat.json" target="_blank" rel="noopener">heartbeat.json ↗</a>
     <a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Public key ↗</a>
     <a href="/customer/ottersec/">Lobby view ←</a>
@@ -1384,8 +1384,8 @@ main.bridge {
     return;
   }
 
-  const SNAPSHOT_URL = 'https://api.jelleo.com/snapshot.json';
-  const MANIFEST_URL = 'https://api.jelleo.com/customer/ottersec/manifest.json';
+  const SNAPSHOT_URL = './manifest.json';
+  const MANIFEST_URL = './manifest.json';
   const HEARTBEAT_URL = 'https://api.jelleo.com/heartbeat.json';
   const SSE_URL      = 'https://api.jelleo.com/events/ottersec';
 
