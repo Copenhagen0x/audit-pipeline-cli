@@ -80,6 +80,13 @@ async def _tail_active_log() -> None:
                     "event": "cycle_active",
                     "cycle": cycle.name,
                     "ts": time.time(),
+                    # Explicit customer_id so _broadcast routes ONLY
+                    # to the percolator (demo) customer's subscribers.
+                    # Without this the event defaulted to "demo" in
+                    # _broadcast, which was correct — but being
+                    # explicit prevents future refactors from
+                    # silently broadening the audience.
+                    "customer_id": "demo",
                 })
             except OSError:
                 fh = None
@@ -100,6 +107,12 @@ async def _tail_active_log() -> None:
         except json.JSONDecodeError:
             continue
         event["_cycle"] = cycle.name
+        # Stamp customer_id="demo" so _broadcast routes hunt.log.jsonl
+        # events ONLY to demo subscribers. The engine today only runs
+        # the Percolator workspace; when per-customer hunts ship, this
+        # stamp will be replaced by reading customer_id from the cycle
+        # workspace.json.
+        event.setdefault("customer_id", "demo")
         await _broadcast(event)
 
 
@@ -167,13 +180,26 @@ async def _handle_sse(writer, customer_id) -> None:
         "ts": time.time(),
     })
 
-    cycle = _latest_cycle()
-    if cycle:
-        await _write_sse(writer, {
-            "event": "cycle_active",
-            "cycle": cycle.name,
-            "ts": time.time(),
-        })
+    # CRITICAL audit fix (2026-05-13): `_latest_cycle()` returns whatever
+    # cycle the engine is currently running — which today is always the
+    # Percolator workspace's cycle. Sending that to every customer that
+    # connects leaked the Percolator cycle id into every customer
+    # dashboard (e.g. OtterSec's "Cycle 20260511-183154 is running").
+    #
+    # Customers other than the engine's home (`demo` = Percolator)
+    # don't have their own cycle stream wired through this service
+    # yet — their on-connect message should be sse_connected ONLY,
+    # not a stale Percolator cycle. When per-customer cycle wiring
+    # ships, the `if customer_id == "demo"` gate becomes a more
+    # general scoped-cycle lookup.
+    if customer_id == "demo":
+        cycle = _latest_cycle()
+        if cycle:
+            await _write_sse(writer, {
+                "event": "cycle_active",
+                "cycle": cycle.name,
+                "ts": time.time(),
+            })
 
     queue: asyncio.Queue = asyncio.Queue(maxsize=200)
     _subscribers[customer_id].add(queue)
