@@ -1657,6 +1657,21 @@ def _hunt_run(
             except Exception:  # noqa: BLE001
                 return ""
 
+        # Derive framework from the first poc_result that recorded one.
+        # The adapter writes ``framework`` per fire (``aptos-cli`` for
+        # Aptos, ``forge`` for Solidity, ``cargo`` for Solana, ``clang``
+        # for C). The judge prompt header gets this so the LLM knows
+        # what kind of fire signal it's reading (Move abort code vs
+        # cargo panic vs ASan report). Without it, the Solana-tuned
+        # prompt misread Aptos move-test output as "fire signal is
+        # empty" and classified all 7 fires FALSE / SOFT — Operator
+        # caught this on cycle 20260513-191318.
+        _framework_for_triage: str | None = None
+        for _pr in poc_results.values():
+            _fw = _pr.get("framework")
+            if _fw:
+                _framework_for_triage = _fw
+                break
         try:
             triage_out = _triage(
                 cycle_dir,
@@ -1670,6 +1685,7 @@ def _hunt_run(
                 # test abort codes for Aptos), and so the LLM judge's
                 # fence tag matches the test body's syntax.
                 language=language,
+                framework=_framework_for_triage,
             )
             log("triage_done",
                 strong=triage_out["counts"]["STRONG"],

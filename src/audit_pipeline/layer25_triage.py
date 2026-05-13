@@ -279,14 +279,39 @@ def classify_by_pattern(
     return None
 
 
-def extract_panic_line(cargo_log: str) -> str:
-    """Pull the panic line(s) out of a cargo test log.
+def extract_panic_line(cargo_log: str, language: str = "solana") -> str:
+    """Pull the fire-signal line(s) out of a test runner log.
 
-    Returns the first ``panicked at`` line + the next line (which is
-    usually the assertion message). Returns "" if no panic detected.
+    Each language's toolchain reports failures differently:
+      * Solana / Rust:   ``panicked at ...`` + assertion message
+      * Aptos / Move:    ``[ FAIL ] 0x42::mod::test_x`` + ``aborted with
+                          code <N>`` (custom error codes) + abort location
+      * C / clang+ASan:  ``runtime error: ...`` + ASan/UBSan report
+      * Solidity / forge: ``[FAIL]`` + ``Error: ...`` revert payload
+
+    Returns "" if no fire signal detected. **Critical**: when this returns
+    "" the LLM judge sees an empty signal and routinely classifies the
+    fire as FALSE ("fire signal is empty"). Cycle 20260513-191318 had
+    all 7 Aptos fires misclassified FALSE/SOFT for this exact reason —
+    extract_panic_line was hardcoded to Rust idioms.
+
+    PHASE 2 — language-aware extraction. Defaults to Solana for back-
+    compat with existing callers that don't pass ``language``.
     """
     if not cargo_log:
         return ""
+    lang = (language or "solana").lower().strip()
+    if lang in ("aptos", "move"):
+        return _extract_aptos_fire_signal(cargo_log)
+    if lang == "c":
+        return _extract_c_fire_signal(cargo_log)
+    if lang in ("solidity", "evm"):
+        return _extract_solidity_fire_signal(cargo_log)
+    return _extract_rust_fire_signal(cargo_log)
+
+
+def _extract_rust_fire_signal(cargo_log: str) -> str:
+    """Original Solana / cargo extractor — preserved verbatim."""
     lines = cargo_log.splitlines()
     for i, line in enumerate(lines):
         if "panicked at" in line.lower():
@@ -300,12 +325,86 @@ def extract_panic_line(cargo_log: str) -> str:
     return ""
 
 
+def _extract_aptos_fire_signal(move_test_log: str) -> str:
+    """Extract `aptos move test` failure signal.
+
+    Move test output has three signal-bearing lines we want to capture:
+      1. ``[ FAIL ] 0x42::module::test_fn`` — test that failed
+      2. ``aborted with code <N>`` — the custom error code from the
+         test's ``E_BUG_<NAME>: u64 = 9999`` constants. THIS IS THE
+         primary STRONG signal — a test author's custom abort code
+         means the inverted-assertion fired, which means the bug was
+         demonstrated.
+      3. ``error[E11001]: test failure ... originating in ... rooted here``
+         — abort location pointing inside the test module.
+
+    Captures the FAIL line + next ~15 lines so the judge sees the full
+    error tail (Move's compiler-style multi-line error blocks).
+    """
+    lines = move_test_log.splitlines()
+    # Find the first FAIL marker
+    fail_idx = None
+    for i, line in enumerate(lines):
+        if re.search(r"\[\s*FAIL\s*\]", line):
+            fail_idx = i
+            break
+    if fail_idx is None:
+        # Fallback — direct hit on "aborted with code" without a FAIL header
+        for i, line in enumerate(lines):
+            if re.search(r"abort(?:ed)?\s+(?:with\s+)?code", line, re.IGNORECASE):
+                fail_idx = i
+                break
+    if fail_idx is None:
+        # Last resort — look for the summary line
+        for i, line in enumerate(lines):
+            if re.search(r"Test\s+result:\s*FAILED", line, re.IGNORECASE):
+                fail_idx = i
+                break
+    if fail_idx is None:
+        return ""
+    # Capture FAIL line + tail of error block (cap at 20 lines, 2000 chars)
+    tail = lines[fail_idx : min(fail_idx + 20, len(lines))]
+    return "\n".join(tail)[:2000].strip()
+
+
+def _extract_c_fire_signal(clang_log: str) -> str:
+    """Extract clang+ASan/UBSan failure signal for C PoCs."""
+    lines = clang_log.splitlines()
+    # Sanitizer report block — typically starts with `==<pid>==ERROR:` or
+    # `runtime error:` (UBSan). Capture the header + a few stack frames.
+    for i, line in enumerate(lines):
+        if re.search(r"==\d+==ERROR:|runtime error:|AddressSanitizer|"
+                     r"UndefinedBehaviorSanitizer", line, re.IGNORECASE):
+            tail = lines[i : min(i + 15, len(lines))]
+            return "\n".join(tail)[:2000].strip()
+    # Plain assertion failure
+    for i, line in enumerate(lines):
+        if re.search(r"assertion .* failed|Aborted", line, re.IGNORECASE):
+            return line.strip()
+    return ""
+
+
+def _extract_solidity_fire_signal(forge_log: str) -> str:
+    """Extract Foundry forge test failure signal for Solidity PoCs."""
+    lines = forge_log.splitlines()
+    # forge marks failed tests with `[FAIL...]` then a reason line.
+    for i, line in enumerate(lines):
+        if re.search(r"\[\s*FAIL", line):
+            tail = lines[i : min(i + 12, len(lines))]
+            return "\n".join(tail)[:2000].strip()
+    # Compiler errors
+    for i, line in enumerate(lines):
+        if "Error:" in line or "Compiler run failed" in line:
+            return line.strip()
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # LLM judge (called only for fires that didn't fast-path)
 # ---------------------------------------------------------------------------
 
 
-JUDGE_SYSTEM_PROMPT = """\
+_SOLANA_JUDGE_PROMPT = """\
 You are a Solana security audit triage judge. You receive ONE PoC fire
 that the L2 layer reported as a "test failed - bug reproduced." Your job
 is to classify the fire into exactly one of:
@@ -327,6 +426,124 @@ Return JSON only. Schema:
 
 Do not add commentary outside the JSON.
 """
+
+
+_APTOS_JUDGE_PROMPT = """\
+You are an Aptos / Move security audit triage judge. You receive ONE
+PoC fire that the L2 layer reported as a "test failed - bug reproduced."
+
+CRITICAL — UNDERSTAND THE FIRE-SIGNAL FORMAT:
+* `aptos move test` reports failures as `[ FAIL ] 0x42::module::test_fn`.
+* The Move VM aborts a transaction with a numeric code, like
+  `aborted with code 9999`. PoCs in this engine define a per-test
+  custom abort code, conventionally `E_BUG_HIT: u64 = 9999` or
+  `E_BUG_<NAME>`, and assert!() with that code when the invariant the
+  hypothesis claims is violated. A non-zero abort code from the test
+  module is the STRONG-fire signal.
+* The test pattern is **inverted assertion**: the PoC sets up a state
+  where the invariant SHOULD hold, performs the attack action, and
+  then asserts the invariant still holds. If the bug exists, the
+  invariant breaks, the assertion fails, and the test aborts with the
+  PoC's custom code. Aborts inside the test_<name> module aborting
+  with the PoC's E_BUG_<NAME>-shaped code = STRONG. Do NOT misread the
+  inverted-assertion pattern as "the test contradicts itself" — both
+  assertions can never both hold simultaneously, that IS the design.
+* Aborts inside `aptos_framework::*`, `0x1::*`, or `0x3::*` modules
+  (the stdlib) during setup (account::create_account_for_test,
+  coin::register, timestamp::set_time_has_started_for_testing) =
+  FALSE — test never reached the claim.
+* Compile errors in the test source = FALSE (broken test).
+
+Classify into exactly one of:
+
+  STRONG - Test aborts with the PoC's custom E_BUG code (4-5 digits,
+           authored by L2), abort originates in 0x42::test_<name>
+           module (the L2-authored PoC), and the test body's claim-
+           assertion path matches the hypothesis. Worth promoting to
+           Move Prover (L3) + property fuzz (L4).
+  SOFT   - Test aborts in 0x42::test_<name> with a custom code, BUT
+           the test demonstrates a DIFFERENT invariant than the
+           hypothesis claims (e.g. test asserts auth-bypass, hyp
+           claims event-emit-missing). Real bug, wrong claim mapping.
+  FALSE  - Test aborts inside `aptos_framework::*`, `0x1::*`, `0x3::*`,
+           or during pre-claim setup helpers. Compile errors. Abort
+           code 0 with no signal. Test never reached the claim.
+
+Return JSON only. Schema:
+  {"classification": "STRONG"|"SOFT"|"FALSE",
+   "reason": "<one-sentence explanation that cites the abort code if present>"}
+
+Do not add commentary outside the JSON.
+"""
+
+
+_C_JUDGE_PROMPT = """\
+You are a C security audit triage judge. You receive ONE PoC fire from
+the L2 layer (clang + ASan + UBSan).
+
+CRITICAL — UNDERSTAND THE FIRE-SIGNAL FORMAT:
+* AddressSanitizer reports as `==<pid>==ERROR: AddressSanitizer: <kind>`
+  followed by stack frames. UBSan reports as `runtime error: <kind>`.
+* The stack frame location is the key signal. If the top frame is in
+  the program-under-test (not test_<name>.c), the fire is STRONG. If
+  the top frame is in test_<name>.c itself, the test caused its own
+  memory bug = FALSE.
+
+Classify into exactly one of:
+  STRONG - Sanitizer hit inside the program-under-test (heap-buffer-
+           overflow / use-after-free / signed-integer-overflow with
+           top frame in `src/*.c`, NOT in test_<name>.c).
+  SOFT   - Sanitizer hit in PUT but on a different invariant than
+           the hypothesis claims.
+  FALSE  - Sanitizer hit inside test_<name>.c (we caused the bug).
+           Compile errors. Empty signal.
+
+Return JSON only. Schema:
+  {"classification": "STRONG"|"SOFT"|"FALSE",
+   "reason": "<one-sentence explanation>"}
+"""
+
+
+_SOLIDITY_JUDGE_PROMPT = """\
+You are a Solidity security audit triage judge. You receive ONE PoC fire
+from the L2 layer (Foundry forge).
+
+CRITICAL — UNDERSTAND THE FIRE-SIGNAL FORMAT:
+* forge reports failures as `[FAIL...]` followed by a reason line
+  (revert reason, assertion error, or counterexample).
+* A `revert(0x...)` with a custom error selector matching the bug
+  invariant is STRONG. A revert from `setUp()` or pre-claim helper
+  is FALSE.
+
+Classify into exactly one of:
+  STRONG - Revert from the contract under test on the claimed
+           invariant path (custom error or `require` failure tied to
+           the hypothesis).
+  SOFT   - Revert from the contract under test but on a different
+           invariant.
+  FALSE  - Revert during setUp(), test helper, or compile failure.
+
+Return JSON only. Schema:
+  {"classification": "STRONG"|"SOFT"|"FALSE",
+   "reason": "<one-sentence explanation>"}
+"""
+
+
+_JUDGE_PROMPT_BY_LANGUAGE: dict[str, str] = {
+    "solana":   _SOLANA_JUDGE_PROMPT,
+    "rust":     _SOLANA_JUDGE_PROMPT,
+    "anchor":   _SOLANA_JUDGE_PROMPT,
+    "c":        _C_JUDGE_PROMPT,
+    "solidity": _SOLIDITY_JUDGE_PROMPT,
+    "evm":      _SOLIDITY_JUDGE_PROMPT,
+    "aptos":    _APTOS_JUDGE_PROMPT,
+    "move":     _APTOS_JUDGE_PROMPT,
+}
+
+
+# Back-compat: external callers can still import JUDGE_SYSTEM_PROMPT.
+# Defaults to the Solana prompt to preserve existing behaviour.
+JUDGE_SYSTEM_PROMPT = _SOLANA_JUDGE_PROMPT
 
 
 # Per-language fence tag for code blocks in the judge prompt — keeps
@@ -535,11 +752,19 @@ def judge_one(
         test_body, panic_line, engine_source,
         language=language, framework=framework,
     )
+    # PHASE 2 — language-aware system prompt. The Solana prompt mentions
+    # `RiskParams`, Anchor, `unwrap()` — irrelevant noise for Aptos /
+    # Solidity / C and an active source of FALSE misclassifications.
+    # Per-language prompts describe each toolchain's actual fire-signal
+    # format (Move abort codes, ASan stack frames, forge revert payload).
+    system_prompt = _JUDGE_PROMPT_BY_LANGUAGE.get(
+        (language or "").lower().strip(), _SOLANA_JUDGE_PROMPT,
+    )
     try:
         if model:
-            resp = complete_fn(user_prompt, system=JUDGE_SYSTEM_PROMPT, model=model)
+            resp = complete_fn(user_prompt, system=system_prompt, model=model)
         else:
-            resp = complete_fn(user_prompt, system=JUDGE_SYSTEM_PROMPT)
+            resp = complete_fn(user_prompt, system=system_prompt)
     except Exception as e:  # noqa: BLE001
         return ("SOFT", f"judge call failed ({type(e).__name__}: {e!s:.150}); defaulting to SOFT")
     return _parse_judge_response(getattr(resp, "text", str(resp)))
@@ -712,7 +937,7 @@ def triage_cycle(
             ))
             continue
 
-        panic_line = extract_panic_line(cargo_log)
+        panic_line = extract_panic_line(cargo_log, language=language)
 
         # Fast-path FALSE — language-aware pattern set
         fast = classify_by_pattern(panic_line, language=language)
