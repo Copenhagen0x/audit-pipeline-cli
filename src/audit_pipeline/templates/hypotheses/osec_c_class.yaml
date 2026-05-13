@@ -1,0 +1,551 @@
+# OtterSec evaluation — C language hypothesis library.
+#
+# Designed for the sahuang-osec/c-{small,medium,large} synthetic-bug
+# repos. C is a general programming language (not a smart-contract
+# language) so the bug catalogue is the classic systems-software set:
+# memory safety, integer arithmetic, parsing/format-string,
+# null-deref, TOCTOU, sign confusion, allocator hygiene.
+#
+# Each hypothesis is framed as a binary "is this invariant violated?"
+# question so a clean negative result strengthens our verdict, and a
+# clean positive triggers the L2 PoC scaffold (clang + ASan/UBSan).
+#
+# Run with:
+#   audit-pipeline hunt \
+#     --hypotheses .../osec_c_class.yaml \
+#     --language c \
+#     --refinement-rounds 1 \
+#     --max-concurrent 4
+#
+# Discovery model: the recon agent's tool-using loop walks src/ to find
+# the actual programs (program_a.c / program_b.c / program_c.c plus the
+# auth/, common/, protocol/, queue/, runtime/, storage/ subtrees) and
+# binds each hyp to concrete file:line citations before rendering a
+# verdict.
+
+hypotheses:
+
+  # ─────────────────── Memory safety ───────────────────
+
+  - id: C1-buffer-write-off-by-one
+    class: arithmetic_overflow
+    severity: High
+    bug_class: buffer-write-off-by-one
+    engine_function: parse_frame
+    target_file: src/program_*.c
+    claim: >
+      Every fixed-size buffer write in parsing/copy functions uses a
+      STRICTLY LESS-THAN bounds check against the buffer capacity, not
+      LESS-OR-EQUAL. Specifically: any code that writes a null
+      terminator at `buf[len]` after `memcpy(buf, src, len)` MUST have
+      verified `len < sizeof(buf)`, never `len <= sizeof(buf)`. A check
+      using `<=` admits a one-byte write past the buffer end.
+    relevant_instructions: |
+      Any function with `memcpy`, `memmove`, `strncpy`, `snprintf`,
+      followed by a manual null-terminator write.
+    relevant_constants: |
+      sizeof(buf), MAX_PAYLOAD, BUFFER_SIZE constants
+
+  - id: C2-memcpy-bounds-from-attacker-controlled-length
+    class: arithmetic_overflow
+    severity: Critical
+    bug_class: memcpy-attacker-length
+    engine_function: parse_frame
+    target_file: src/program_*.c
+    claim: >
+      Every `memcpy(dst, src, len)` where `len` is derived from
+      untrusted input verifies `len <= sizeof(dst)` BEFORE the copy,
+      using the destination's actual capacity (not a magic number).
+      Hidden risks: integer-overflow-to-zero on a u16 length read, or
+      a check that uses the wrong capacity (a header field instead of
+      the actual buffer).
+    relevant_instructions: |
+      Frame/packet parsing functions that read a length from input
+      (read_u16, read_u32, deserialize_length).
+
+  - id: C3-integer-overflow-in-size-calc
+    class: arithmetic_overflow
+    severity: Critical
+    bug_class: integer-overflow-size-calc
+    engine_function: alloc_buffer
+    target_file: src/*.c
+    claim: >
+      Every `malloc(a * b)` or `malloc(a + b)` where `a` and `b` are
+      derived from untrusted input has explicit overflow checks BEFORE
+      the multiplication or addition. Integer overflow in the size
+      computation gives a smaller-than-expected allocation followed by
+      writes assuming the full requested size — classic heap overflow.
+    relevant_instructions: |
+      Allocator calls (malloc, calloc, realloc) with computed sizes.
+
+  - id: C4-use-after-free
+    class: state_transition
+    severity: Critical
+    bug_class: use-after-free
+    engine_function: session_close
+    target_file: src/auth/*.c
+    claim: >
+      Every code path that calls `free(p)` either NULLs the pointer
+      immediately afterward, OR the variable is in a stack frame that
+      returns before any further dereference of `p`. Specifically:
+      `Session*` and frame buffers must not be reachable via aliased
+      pointers after free. Look for `free(s); ... s->field` patterns.
+    relevant_instructions: |
+      Session lifecycle: session_open, session_close, session_destroy.
+      Buffer free paths in queue/runtime modules.
+
+  - id: C5-double-free
+    class: state_transition
+    severity: High
+    bug_class: double-free
+    engine_function: session_close
+    target_file: src/auth/*.c
+    claim: >
+      No code path calls `free(p)` twice on the same allocation.
+      Multiple-cleanup paths (error fallthroughs, signal handlers)
+      either set the pointer to NULL after first free or use a
+      single-cleanup discipline.
+    relevant_instructions: |
+      Error-cleanup branches in session, queue, storage modules.
+
+  - id: C6-null-deref-after-malloc
+    class: invariant_property
+    severity: High
+    bug_class: null-deref-after-malloc
+    engine_function: alloc_buffer
+    target_file: src/*.c
+    claim: >
+      Every `malloc/calloc/realloc/strdup` return value is checked
+      against NULL BEFORE any field access or memcpy into the returned
+      pointer. Failing to check leads to NULL-pointer dereference under
+      OOM, exploitable as a remote DoS.
+    relevant_instructions: |
+      Any allocator call followed by a write.
+
+  - id: C7-uninitialized-stack-read
+    class: invariant_property
+    severity: High
+    bug_class: uninit-stack-read
+    engine_function: process_frame
+    target_file: src/*.c
+    claim: >
+      Every stack-allocated struct or buffer that's passed by pointer
+      to a function that READS fields is initialized to a defined
+      value before that call. Specifically: `Frame f;` followed by
+      `process_frame(&f)` with no `memset(&f, 0, sizeof(f))` or full
+      field assignment exposes attacker-controlled or stale data.
+    relevant_instructions: |
+      Functions that declare local structs / buffers + pass-by-ref.
+
+  - id: C8-stack-buffer-overflow-via-format
+    class: arithmetic_overflow
+    severity: Critical
+    bug_class: stack-format-overflow
+    engine_function: log_message
+    target_file: src/*.c
+    claim: >
+      Every `sprintf` / `vsprintf` / `strcpy` / `strcat` call uses a
+      BOUNDED variant (`snprintf`, `vsnprintf`, `strncpy`, `strncat`)
+      OR has a static-analysis proof that the destination is large
+      enough for the worst-case input. Unbounded variants on
+      attacker-controlled data are stack overflows.
+    relevant_instructions: |
+      sprintf, strcpy, strcat anywhere in the codebase.
+
+  # ─────────────────── Integer hygiene ───────────────────
+
+  - id: C9-signed-unsigned-comparison
+    class: arithmetic_overflow
+    severity: High
+    bug_class: signed-unsigned-compare
+    engine_function: bounds_check
+    target_file: src/*.c
+    claim: >
+      Bounds checks comparing a signed integer (e.g. `int len`) against
+      an unsigned size (e.g. `size_t cap`) handle negative values
+      explicitly. `if (len < cap)` where `len` is signed and negative
+      passes the check (because `len` gets promoted to unsigned), then
+      a `memcpy(buf, src, len)` writes huge chunks.
+    relevant_instructions: |
+      Bounds-check expressions across the codebase.
+
+  - id: C10-sign-conversion-on-input
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: sign-conversion
+    engine_function: read_length
+    target_file: src/*.c
+    claim: >
+      Every conversion from a signed external value (e.g. `int` read
+      from a frame field) to an unsigned size type rejects negative
+      values BEFORE the conversion. Implicit `(size_t)int_var`
+      conversions of negative values wrap to huge unsigned values.
+
+  - id: C11-integer-overflow-in-addition
+    class: arithmetic_overflow
+    severity: High
+    bug_class: integer-overflow-add
+    engine_function: compute_offset
+    target_file: src/*.c
+    claim: >
+      Every `offset += delta` or `len + extra` computation involving
+      attacker-controlled inputs uses an overflow-safe pattern (saturate,
+      use a wider type, or check before add). Wrap-around on a u32 or
+      size_t offset can place the result before a buffer start.
+
+  - id: C12-shift-overflow
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: shift-overflow
+    engine_function: parse_field
+    target_file: src/*.c
+    claim: >
+      Every left-shift `x << n` constrains `n < bit_width(x)`. Shifts
+      where `n` equals or exceeds the type width are undefined behavior
+      and produce unpredictable results across compilers.
+
+  # ─────────────────── Authorization / TOCTOU ───────────────────
+
+  - id: C13-toctou-file-or-state
+    class: authorization
+    severity: High
+    bug_class: toctou-file-or-state
+    engine_function: open_resource
+    target_file: src/storage/*.c
+    claim: >
+      Every check-then-use of a resource (file existence, session
+      state, lock status) treats the time between check and use as
+      untrusted. Specifically: `if (file_exists(p)) { open(p); }`
+      patterns are TOCTOU-vulnerable; use file handles or atomic ops.
+
+  - id: C14-missing-auth-on-privileged-op
+    class: authorization
+    severity: Critical
+    bug_class: missing-auth-check
+    engine_function: privileged_op
+    target_file: src/auth/*.c
+    claim: >
+      Every privileged operation (admin-only mutation, key rotation,
+      session-level escalation) verifies caller authority BEFORE
+      mutating state, not after. Look for state-changing functions
+      that don't check `is_admin(session)` / `session->role` first.
+
+  - id: C15-inverted-auth-check
+    class: authorization
+    severity: Critical
+    bug_class: inverted-auth-check
+    engine_function: privileged_op
+    target_file: src/auth/*.c
+    claim: >
+      Every authorization conditional is in the correct sense — the
+      privileged branch executes ONLY when the check passes. Common
+      pattern bug: `if (auth_failed) { /* allow */ } else { /* deny */ }`
+      (inverted), or empty-true-branch patterns that allow when they
+      should deny.
+
+  # ─────────────────── Parsing hardening ───────────────────
+
+  - id: C16-format-string-with-user-input
+    class: arithmetic_overflow
+    severity: Critical
+    bug_class: format-string-injection
+    engine_function: log_message
+    target_file: src/*.c
+    claim: >
+      Every `printf`-family call uses a STATIC format string, not a
+      user-controlled buffer as the format argument. `printf(user_input)`
+      is an arbitrary-read/write primitive.
+
+  - id: C17-unbounded-loop-on-untrusted-length
+    class: arithmetic_overflow
+    severity: High
+    bug_class: unbounded-loop
+    engine_function: process_records
+    target_file: src/queue/*.c
+    claim: >
+      Every loop iterating over a count read from untrusted input
+      caps the iteration to a hardcoded maximum. Otherwise a malicious
+      counter wedges the parser indefinitely (DoS) or walks past
+      the end of the input buffer.
+
+  - id: C18-memcmp-timing-on-secret
+    class: invariant_property
+    severity: Medium
+    bug_class: timing-side-channel-memcmp
+    engine_function: verify_secret
+    target_file: src/auth/*.c
+    claim: >
+      Every comparison of a secret (token, MAC, password hash) against
+      a user-supplied value uses a CONSTANT-TIME compare (custom XOR
+      loop or `CRYPTO_memcmp`), not standard `memcmp`/`strcmp` which
+      short-circuit and leak length via timing.
+
+  # ─────────────────── Concurrency / state ───────────────────
+
+  - id: C19-missing-state-validation-after-callback
+    class: state_transition
+    severity: High
+    bug_class: state-invariant-broken
+    engine_function: process_event
+    target_file: src/runtime/*.c
+    claim: >
+      Every state transition after a user-supplied callback re-validates
+      session/object state. Callbacks can mutate state arbitrarily;
+      assuming the post-callback state matches the pre-callback state
+      is a use-after-mutation hazard.
+
+  - id: C20-race-on-shared-counter
+    class: state_transition
+    severity: Medium
+    bug_class: race-shared-counter
+    engine_function: increment_counter
+    target_file: src/*.c
+    claim: >
+      Every shared counter accessed from multiple paths uses atomic
+      operations (`__atomic_add_fetch`, `stdatomic.h`) or explicit
+      locks. Plain `++` on a shared counter is a data race.
+
+  # ─────────────────── Allocator/buffer hygiene ───────────────────
+
+  - id: C21-realloc-leaks-on-failure
+    class: state_transition
+    severity: Medium
+    bug_class: realloc-leak
+    engine_function: realloc_buffer
+    target_file: src/*.c
+    claim: >
+      Every `p = realloc(p, n)` pattern checks the return value before
+      overwriting `p`. `realloc` returns NULL on failure WITHOUT freeing
+      the original allocation; `p = realloc(p, n); if (!p) return -1;`
+      leaks the original.
+
+  - id: C22-zero-length-malloc
+    class: invariant_property
+    severity: Low
+    bug_class: zero-length-malloc
+    engine_function: alloc_buffer
+    target_file: src/*.c
+    claim: >
+      Every `malloc(n)` where `n` could be zero handles the result
+      correctly. `malloc(0)` may return either NULL or a non-NULL
+      single-byte pointer; both interpretations are valid C, so the
+      caller must not assume either.
+
+  - id: C23-strncpy-no-null-terminator
+    class: invariant_property
+    severity: Medium
+    bug_class: strncpy-no-null-term
+    engine_function: copy_string
+    target_file: src/*.c
+    claim: >
+      Every `strncpy(dst, src, n)` is followed by `dst[n - 1] = '\0'`
+      OR the caller never treats `dst` as a C-string. `strncpy` does
+      NOT guarantee null termination when src is >= n bytes.
+
+  # ─────────────────── Type confusion ───────────────────
+
+  - id: C24-cast-truncation
+    class: arithmetic_overflow
+    severity: High
+    bug_class: cast-truncation
+    engine_function: parse_record
+    target_file: src/*.c
+    claim: >
+      Every cast from a wider integer to a narrower one (u64 -> u32,
+      u32 -> u16) either bounds-checks first or accepts the truncation
+      as intentional. Silent truncation of length/index values causes
+      buffer-bounds bypass.
+
+  - id: C25-struct-padding-uninit
+    class: invariant_property
+    severity: Medium
+    bug_class: struct-padding-uninit
+    engine_function: serialize_record
+    target_file: src/*.c
+    claim: >
+      Every struct that's serialized (memcpy'd to a wire buffer or hash)
+      is fully initialized (memset or per-field assignment of EVERY
+      field) before the serialize, including padding bytes. Otherwise
+      padding leaks stack/heap memory.
+
+  # ─────────────────── Crypto/protocol ───────────────────
+
+  - id: C26-iv-or-nonce-reuse
+    class: invariant_property
+    severity: Critical
+    bug_class: iv-nonce-reuse
+    engine_function: encrypt_block
+    target_file: src/auth/*.c
+    claim: >
+      Every encryption call uses a unique IV/nonce per (key, session).
+      Counter resets without key rotation, or hardcoded IVs, fully
+      compromise AEAD security.
+
+  - id: C27-mac-not-verified-before-decrypt
+    class: state_transition
+    severity: Critical
+    bug_class: mac-not-checked
+    engine_function: decrypt_authenticated
+    target_file: src/auth/*.c
+    claim: >
+      Every authenticated-decryption path verifies the MAC BEFORE
+      processing the plaintext (encrypt-then-MAC, EtM). Decrypting
+      first and checking the MAC after is the padding-oracle pattern.
+
+  - id: C28-pkcs-padding-oracle
+    class: state_transition
+    severity: High
+    bug_class: padding-oracle
+    engine_function: pkcs7_unpad
+    target_file: src/auth/*.c
+    claim: >
+      Every block-cipher padding-verification function returns a single
+      bit ("valid/invalid") without distinguishing failure modes via
+      timing or error code variety. Distinguishable failure modes leak
+      the padding via Bleichenbacher / CBC-padding-oracle attacks.
+
+  # ─────────────────── Protocol state ───────────────────
+
+  - id: C29-out-of-order-state-machine
+    class: state_transition
+    severity: High
+    bug_class: state-machine-bypass
+    engine_function: handle_message
+    target_file: src/protocol/*.c
+    claim: >
+      Every state-machine handler rejects messages received in the
+      wrong state. Examples: handling a DATA message before HANDSHAKE
+      completed; accepting a CLOSE from an unauthenticated peer.
+
+  - id: C30-unbounded-allocation-via-protocol-field
+    class: arithmetic_overflow
+    severity: High
+    bug_class: unbounded-alloc
+    engine_function: handle_message
+    target_file: src/protocol/*.c
+    claim: >
+      Every protocol field that drives an allocation (record count,
+      payload length, list size) is bounded against a sane maximum
+      before the allocator call. Otherwise a single message exhausts
+      memory (resource starvation DoS).
+
+  - id: C31-recursion-without-depth-limit
+    class: arithmetic_overflow
+    severity: High
+    bug_class: stack-exhaustion-recursion
+    engine_function: parse_nested
+    target_file: src/*.c
+    claim: >
+      Every recursive function (TLV parsers, expression evaluators,
+      tree walkers) enforces a max depth. Unbounded recursion on
+      attacker-controlled input is a stack-exhaustion DoS.
+
+  # ─────────────────── File / OS interaction ───────────────────
+
+  - id: C32-path-traversal
+    class: authorization
+    severity: High
+    bug_class: path-traversal
+    engine_function: open_file
+    target_file: src/storage/*.c
+    claim: >
+      Every file-open path that uses an attacker-controlled component
+      either uses `realpath`+prefix-check or rejects `..` components.
+      Allowing `../../../etc/passwd` through `open(user_path)` is a
+      classic path-traversal bug.
+
+  - id: C33-symlink-race
+    class: state_transition
+    severity: Medium
+    bug_class: symlink-race
+    engine_function: open_file
+    target_file: src/storage/*.c
+    claim: >
+      Every privileged file-open uses `O_NOFOLLOW` and/or
+      open-then-fstat to avoid following an attacker-planted symlink
+      mid-operation. Otherwise an attacker can swap a regular file for
+      a symlink pointing at a privileged target between `lstat` and
+      `open`.
+
+  - id: C34-tempfile-predictable-name
+    class: state_transition
+    severity: Medium
+    bug_class: predictable-tempfile
+    engine_function: open_tempfile
+    target_file: src/storage/*.c
+    claim: >
+      Every temporary file creation uses `mkstemp` (or equivalent),
+      not `tmpnam`/`tempnam`+`open`. The predictable-name + race-window
+      pattern is exploitable for symlink attacks.
+
+  # ─────────────────── Vendor / dependency ───────────────────
+
+  - id: C35-vendor-strict-mode
+    class: invariant_property
+    severity: Low
+    bug_class: vendor-mode-unchecked
+    engine_function: vendor_init
+    target_file: src/vendor/*.c
+    claim: >
+      Every call into vendored crypto/parsing libraries passes the
+      strict/safe mode flag where one exists (e.g. `STRICT_MODE=1`,
+      `PEDANTIC=1`). Default modes often allow unsafe input shapes.
+
+  # ─────────────────── Logging / observability ───────────────────
+
+  - id: C36-secret-in-log
+    class: invariant_property
+    severity: Medium
+    bug_class: secret-in-log
+    engine_function: log_message
+    target_file: src/*.c
+    claim: >
+      No `printf`/`syslog`/log-file write includes raw secret material
+      (keys, session tokens, password fields). Logging is an
+      exfiltration channel.
+
+  - id: C37-error-discards-context
+    class: state_transition
+    severity: Low
+    bug_class: error-context-loss
+    engine_function: handle_error
+    target_file: src/*.c
+    claim: >
+      Every error path that translates errno -> domain error preserves
+      ENOUGH context for the caller to make a correct decision. Mapping
+      every error to a single ERROR_GENERIC erases the auditor's ability
+      to tell EPERM from EACCES from EBADF.
+
+  # ─────────────────── Numeric edge cases ───────────────────
+
+  - id: C38-divide-by-zero
+    class: arithmetic_overflow
+    severity: High
+    bug_class: divide-by-zero
+    engine_function: compute_ratio
+    target_file: src/*.c
+    claim: >
+      Every division `a / b` where `b` is derived from user input or
+      computed from variable state checks `b != 0` BEFORE the divide.
+      C division by zero on integers is undefined behavior; on FP
+      it produces inf/nan that propagates silently.
+
+  - id: C39-modulo-by-zero
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: modulo-by-zero
+    engine_function: hash_record
+    target_file: src/*.c
+    claim: >
+      Every `a % b` where `b` derives from input checks `b != 0` first.
+
+  - id: C40-pointer-comparison-objects
+    class: invariant_property
+    severity: Low
+    bug_class: pointer-comparison-different-objects
+    engine_function: compare_ptrs
+    target_file: src/*.c
+    claim: >
+      Pointer comparisons (`<`, `<=`, `>`, `>=`) only happen between
+      pointers into the SAME object/array. Cross-object comparisons
+      are undefined behavior in C.

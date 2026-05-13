@@ -1,0 +1,512 @@
+# OtterSec evaluation — Aptos Move language hypothesis library.
+#
+# Designed for the sahuang-osec/aptos-{small,medium,large} synthetic-bug
+# repos. Covers Move-specific bug classes (resource confusion,
+# capability misuse, signer-check absence, type-arg confusion,
+# borrow_global without auth) plus universal patterns (oracle staleness,
+# integer overflow DoS, access-control bypass, missing pause).
+#
+# Each hypothesis is a binary "is this invariant violated?" question.
+# L2 PoC uses `aptos move test` with `#[test]` annotations; L3 uses
+# the Move Prover (`aptos move prove`); L4 uses property-based tests
+# with randomized inputs.
+#
+# Run with:
+#   audit-pipeline hunt \
+#     --hypotheses .../osec_aptos_class.yaml \
+#     --language aptos \
+#     --refinement-rounds 1 \
+#     --max-concurrent 4
+#
+# Move-specific notes:
+#   * Resources are linear: cannot be copied/dropped, must be moved.
+#   * borrow_global/borrow_global_mut acquire is an explicit auth gate.
+#   * Capabilities (Caps with `key` or `store` ability) gate priv ops.
+#   * `signer` is the auth proof; address-of-signer == identity proof.
+
+hypotheses:
+
+  # ─────────────────── Authorization / signer ───────────────────
+
+  - id: APT1-borrow-global-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: borrow-global-no-auth
+    engine_function: privileged_op
+    target_file: sources/*.move
+    claim: >
+      Every `borrow_global_mut<T>(addr)` operation on a privileged
+      resource is gated by an auth check that the caller is the owner
+      of `addr` (or holds the right capability). Permissionlessly
+      borrowing a privileged resource (admin config, treasury) lets
+      anyone mutate it.
+    relevant_instructions: |
+      borrow_global, borrow_global_mut, move_from on admin/config types
+
+  - id: APT2-missing-signer-check
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: privileged_op
+    target_file: sources/*.move
+    claim: >
+      Every public entry function that performs an admin-only or
+      owner-only mutation calls `assert!(signer::address_of(s) == owner)`
+      before the mutation. Functions that take a `&signer` and never
+      use it for an identity check are admin-bypass primitives.
+
+  - id: APT3-signer-address-of-not-checked
+    class: authorization
+    severity: Critical
+    bug_class: signer-not-bound-to-resource
+    engine_function: deposit
+    target_file: sources/*.move
+    claim: >
+      Every operation on a per-user resource binds the signer's address
+      to the resource's owner. `borrow_global_mut<UserBalance>(some_addr)`
+      where `some_addr` is NOT `signer::address_of(&signer)` admits
+      cross-account state-mutation attacks.
+
+  - id: APT4-capability-stored-not-consumed
+    class: authorization
+    severity: High
+    bug_class: cap-leak
+    engine_function: grant_capability
+    target_file: sources/*.move
+    claim: >
+      Every privileged capability with `store` ability is given out
+      under a finite, intentional issuance plan (one cap per admin,
+      destroyed on rotation). Storing a cap in a public-readable struct
+      or in a per-user resource grants permanent admin to anyone.
+
+  - id: APT5-acl-bypass-via-direct-entry
+    class: authorization
+    severity: Critical
+    bug_class: acl-bypass-entry
+    engine_function: privileged_op
+    target_file: sources/access_control.move
+    claim: >
+      Every access-control-gated module function is reached ONLY
+      through the gated entry. Adding a direct `public entry fun`
+      that performs the same mutation without going through
+      access_control::assert_admin is a bypass.
+
+  - id: APT6-friend-module-trust
+    class: authorization
+    severity: High
+    bug_class: friend-module-trust
+    engine_function: friend_call
+    target_file: sources/*.move
+    claim: >
+      Every `friend` declaration is reciprocal and the friend module
+      ALSO enforces its own auth checks. A friend module called from
+      a trusted context still needs to verify the calling signer if
+      it doesn't pass-through.
+
+  # ─────────────────── Resource / linear type ───────────────────
+
+  - id: APT7-resource-double-move
+    class: state_transition
+    severity: High
+    bug_class: resource-double-move
+    engine_function: transfer_resource
+    target_file: sources/*.move
+    claim: >
+      Every code path that moves a linear resource handles ALL early
+      returns by either re-storing the resource or destroying it
+      explicitly. Move's borrow checker catches simple cases, but
+      conditional branches can still leak resources or hit "you must
+      consume" errors that DOS legitimate calls.
+
+  - id: APT8-resource-leak
+    class: state_transition
+    severity: Medium
+    bug_class: resource-leak
+    engine_function: process
+    target_file: sources/*.move
+    claim: >
+      Every function that acquires a resource via `move_from` or
+      `borrow_global_mut` and conditionally early-returns puts the
+      resource back. Forgetting to re-store leaves the resource locked
+      / unreachable.
+
+  - id: APT9-event-emit-missing
+    class: state_transition
+    severity: Low
+    bug_class: event-emit-missing
+    engine_function: mutate_state
+    target_file: sources/*.move
+    claim: >
+      Every state-mutating function emits an event with the relevant
+      fields. Auditability requires events on transfers, role changes,
+      parameter updates — silent state mutations are opaque to
+      observers.
+
+  # ─────────────────── Integer / arithmetic ───────────────────
+
+  - id: APT10-u64-overflow-arith
+    class: arithmetic_overflow
+    severity: High
+    bug_class: u64-overflow-arith
+    engine_function: deposit
+    target_file: sources/*.move
+    claim: >
+      Every arithmetic op on a u64 balance / counter that COULD
+      overflow either uses a wider type (u128/u256) or has a
+      pre-check. Move ABORTS on overflow (not wraps) — so unguarded
+      overflow is a DoS, not a fund-loss. Reachable DoS is still a
+      severity High.
+
+  - id: APT11-u64-underflow-DoS
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: u64-underflow-dos
+    engine_function: withdraw
+    target_file: sources/*.move
+    claim: >
+      Every subtraction `a - b` on u64 values checks `a >= b` before
+      the subtract. Underflow aborts, which DoSes legitimate paths
+      (e.g. withdraw 0 from a balance of 0).
+
+  - id: APT12-fixed-point-precision-drop
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: precision-drop
+    engine_function: share_value
+    target_file: sources/*.move
+    claim: >
+      Every multi-step share/reward calculation orders multiply-before-
+      divide to preserve precision (`(a * c) / b`, not `(a / b) * c`).
+
+  - id: APT13-cast-truncation
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: cast-truncation
+    engine_function: cast_amount
+    target_file: sources/*.move
+    claim: >
+      Every narrowing cast (u128 -> u64, u64 -> u8) checks bounds
+      before casting. Move's narrowing cast aborts on overflow, but
+      reaching that abort path with attacker-controlled inputs DoSes
+      the function.
+
+  - id: APT14-divide-by-zero
+    class: arithmetic_overflow
+    severity: High
+    bug_class: divide-by-zero
+    engine_function: compute_ratio
+    target_file: sources/*.move
+    claim: >
+      Every division `a / b` where `b` is derived from input or state
+      checks `b != 0` first. Division by zero aborts — reachable
+      abort = DoS.
+
+  - id: APT15-rounding-direction
+    class: arithmetic_overflow
+    severity: High
+    bug_class: rounding-direction
+    engine_function: convert_to_shares
+    target_file: sources/vault.move
+    claim: >
+      Every share-vault function rounds in the protocol's favor:
+      mint/deposit rounds DOWN on shares minted (so user pays more
+      assets per share), withdraw/redeem rounds UP on assets paid
+      (so user gets fewer assets per share). Inverting direction
+      drains the vault.
+
+  # ─────────────────── Oracle / external data ───────────────────
+
+  - id: APT16-oracle-staleness
+    class: invariant_property
+    severity: Critical
+    bug_class: oracle-staleness
+    engine_function: get_price
+    target_file: sources/oracle.move
+    claim: >
+      Every oracle price read checks the `updated_at` timestamp is
+      within a max-staleness window. Stale prices during oracle
+      outages create arbitrage primitives.
+
+  - id: APT17-oracle-zero-price
+    class: invariant_property
+    severity: High
+    bug_class: oracle-zero-price
+    engine_function: get_price
+    target_file: sources/oracle.move
+    claim: >
+      Every oracle read rejects zero or negative prices. Zero is
+      often a sentinel for "feed unavailable" and silently rejecting
+      it as a valid price corrupts downstream math (divide by zero,
+      free shares).
+
+  - id: APT18-oracle-decimals-mismatch
+    class: invariant_property
+    severity: High
+    bug_class: oracle-decimals-mismatch
+    engine_function: normalize_price
+    target_file: sources/oracle.move
+    claim: >
+      Every multi-asset price normalization uses each feed's actual
+      decimals, not a hardcoded 8 or 18. Mixing produces 10^N errors.
+
+  # ─────────────────── Pause / emergency ───────────────────
+
+  - id: APT19-missing-pause-check
+    class: state_transition
+    severity: Medium
+    bug_class: missing-pause-check
+    engine_function: deposit
+    target_file: sources/*.move
+    claim: >
+      Every user-facing state-mutating function checks the pause flag
+      before mutating. Skipping pause on some functions means a paused
+      protocol still bleeds via the unguarded paths.
+
+  - id: APT20-asymmetric-pause
+    class: state_transition
+    severity: High
+    bug_class: pause-asymmetric
+    engine_function: withdraw
+    target_file: sources/*.move
+    claim: >
+      Pause applies symmetrically to deposit and withdraw. Pausing
+      only withdrawals while deposits remain open is a rug-pull
+      primitive.
+
+  # ─────────────────── Share / vault accounting ───────────────────
+
+  - id: APT21-share-inflation-first-depositor
+    class: arithmetic_overflow
+    severity: Critical
+    bug_class: share-inflation-first-depositor
+    engine_function: deposit
+    target_file: sources/vault.move
+    claim: >
+      Every vault that mints shares from assets handles the first-
+      depositor inflation: either virtual shares (constant offset) or
+      a dead-shares burn on first deposit. Naive
+      `shares = assets * total_supply / total_assets` admits the
+      donate-1-wei-then-10^18 inflation attack.
+
+  - id: APT22-share-donation-inflation
+    class: state_transition
+    severity: High
+    bug_class: share-donation
+    engine_function: convert_to_shares
+    target_file: sources/vault.move
+    claim: >
+      Every vault's share conversion math is robust to direct token
+      transfers (donations) into the vault. Donations that inflate
+      total_assets without minting corresponding shares should not
+      be profitable to the attacker.
+
+  - id: APT23-total-supply-divergence
+    class: invariant_property
+    severity: High
+    bug_class: total-supply-divergence
+    engine_function: invariant
+    target_file: sources/*.move
+    claim: >
+      For every token-like aggregate (vault shares, governance votes,
+      reward points), the protocol-tracked total equals the sum of
+      per-user balances at every state transition.
+
+  # ─────────────────── Slippage / front-running ───────────────────
+
+  - id: APT24-missing-slippage
+    class: state_transition
+    severity: High
+    bug_class: missing-slippage
+    engine_function: swap
+    target_file: sources/*.move
+    claim: >
+      Every swap/redeem function accepts a min-out parameter and
+      enforces it. Otherwise MEV bots arbitrage every swap.
+
+  - id: APT25-no-deadline-on-permit
+    class: state_transition
+    severity: Medium
+    bug_class: missing-deadline
+    engine_function: swap
+    target_file: sources/*.move
+    claim: >
+      Every off-chain-signed action (relayed tx, permit) has a deadline
+      timestamp and rejects past-deadline submissions.
+
+  # ─────────────────── Withdrawal / staking ───────────────────
+
+  - id: APT26-withdraw-delay-bypass
+    class: state_transition
+    severity: High
+    bug_class: withdraw-delay-bypass
+    engine_function: withdraw
+    target_file: sources/staking*.move
+    claim: >
+      Every cooldown/unstake delay is unstoppable once requested.
+      Functions that reset the readyAt timer on routine actions
+      (transfer, claim) are unstake-delay-bypass primitives.
+
+  - id: APT27-stake-double-claim
+    class: state_transition
+    severity: High
+    bug_class: stake-double-claim
+    engine_function: claim_rewards
+    target_file: sources/rewards.move
+    claim: >
+      Every reward-claim path marks the user's snapshot consumed
+      atomically with the payout. Re-entrant or two-call patterns
+      where the snapshot updates AFTER the payout admit double-claim.
+
+  # ─────────────────── Auction / marketplace ───────────────────
+
+  - id: APT28-auction-bid-after-end
+    class: state_transition
+    severity: High
+    bug_class: auction-bid-after-end
+    engine_function: place_bid
+    target_file: sources/auction.move
+    claim: >
+      Every bid-placing function rejects bids after the auction's
+      end_time. A late-bid-accepted auction allows arbitrage of
+      after-end market info.
+
+  - id: APT29-auction-settle-no-winner
+    class: state_transition
+    severity: Medium
+    bug_class: auction-settle-no-winner
+    engine_function: settle_auction
+    target_file: sources/auction.move
+    claim: >
+      Every settle path handles the no-bid case correctly — returns
+      the listed asset to the seller, does NOT transfer to the zero
+      address or to the seller's auction_id mapping with a 0 amount.
+
+  # ─────────────────── Module / publisher ───────────────────
+
+  - id: APT30-module-publisher-confusion
+    class: authorization
+    severity: High
+    bug_class: module-publisher-confusion
+    engine_function: init_module
+    target_file: sources/*.move
+    claim: >
+      Every `init_module` (or initializer pattern) verifies the
+      caller is the expected publisher address. Modules deployable
+      under multiple addresses can lead to "wrong publisher" trust
+      bypass.
+
+  - id: APT31-type-argument-confusion
+    class: authorization
+    severity: High
+    bug_class: type-argument-confusion
+    engine_function: generic_op
+    target_file: sources/*.move
+    claim: >
+      Every generic function `f<T>` that branches based on `T` (e.g.
+      via phantom-type tags) verifies T is one of the expected types.
+      Otherwise an attacker calls `f<AttackerOwnedToken>` to bypass
+      whitelists.
+
+  - id: APT32-phantom-type-trust
+    class: authorization
+    severity: Medium
+    bug_class: phantom-type-trust
+    engine_function: typed_resource_op
+    target_file: sources/*.move
+    claim: >
+      Every operation that consumes a `Resource<T>` and trusts its
+      semantics requires a runtime check that T is an admitted/
+      whitelisted type — phantom types only enforce at compile time;
+      Move runtime can dispatch on attacker-supplied types.
+
+  # ─────────────────── Liquidation / lending ───────────────────
+
+  - id: APT33-liquidation-no-min-amount
+    class: state_transition
+    severity: High
+    bug_class: liquidation-no-min-amount
+    engine_function: liquidate
+    target_file: sources/liquidation*.move
+    claim: >
+      Every liquidation function rejects min-size violations (a
+      liquidate of $0.01 should revert, not consume gas + emit events).
+      Otherwise spammers grief the liquidation queue.
+
+  - id: APT34-liquidation-bonus-overflow
+    class: arithmetic_overflow
+    severity: High
+    bug_class: liquidation-bonus-overflow
+    engine_function: compute_liq_bonus
+    target_file: sources/liquidation*.move
+    claim: >
+      Every liquidation-bonus calculation is bounded such that
+      bonus + repay <= collateral_seized, even after rounding. Bonus
+      formulas that admit `bonus > collateral` are insolvency primitives.
+
+  - id: APT35-lending-interest-accrual-overflow
+    class: arithmetic_overflow
+    severity: High
+    bug_class: lending-interest-accrual
+    engine_function: accrue_interest
+    target_file: sources/lending_pool.move
+    claim: >
+      Every interest-accrual computation handles long time-since-last-
+      accrue gracefully (caps or saturates). An untouched pool over
+      months that's then poked with `accrue_interest` could overflow
+      u128 and DoS the pool.
+
+  # ─────────────────── Treasury / fees ───────────────────
+
+  - id: APT36-fee-receiver-unauthorized
+    class: authorization
+    severity: High
+    bug_class: fee-receiver-bypass
+    engine_function: set_fee_receiver
+    target_file: sources/treasury.move
+    claim: >
+      Every fee-receiver setter is gated by admin auth AND validates
+      the new receiver is non-zero, non-self. Letting the receiver
+      be the contract itself can lock fees.
+
+  - id: APT37-fee-percent-bound
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: fee-percent-bound
+    engine_function: set_fee_bps
+    target_file: sources/treasury.move
+    claim: >
+      Every fee-percentage setter rejects values >= 100% (10_000 bps).
+
+  - id: APT38-treasury-drain
+    class: authorization
+    severity: Critical
+    bug_class: treasury-drain
+    engine_function: withdraw_treasury
+    target_file: sources/treasury.move
+    claim: >
+      Every treasury-withdrawal function checks admin auth AND limits
+      the amount to a sane fraction or via a time-lock. Unbounded
+      admin withdrawal is a treasury rug-pull.
+
+  # ─────────────────── Governance ───────────────────
+
+  - id: APT39-governance-flashloan-vote
+    class: state_transition
+    severity: Critical
+    bug_class: governance-flashloan-vote
+    engine_function: cast_vote
+    target_file: sources/governance.move
+    claim: >
+      Every governance vote-weight read uses a historical snapshot at
+      `proposal_created_at - 1` (or analogous), not current state.
+      Live-balance voting is flash-loan-manipulable.
+
+  - id: APT40-proposal-replay
+    class: state_transition
+    severity: High
+    bug_class: proposal-replay
+    engine_function: execute_proposal
+    target_file: sources/governance.move
+    claim: >
+      Every proposal execution transitions the proposal state from
+      Queued to Executed atomically; second execution call reverts.
