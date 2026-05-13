@@ -41,6 +41,50 @@ def _propagate_target(workspace: Path, finding_id: int) -> None:
     propagate_from_finding_async(workspace, finding_id)
 
 
+def _resolve_findings_db_path(workspace_path: Path) -> Path:
+    """Return the path to findings.db for ``workspace_path``.
+
+    Default: ``<workspace>/findings.db`` — the long-standing single-
+    workspace layout.
+
+    Multi-workspace shared DB: when the workspace is a per-cell dir
+    under a customer-eval rollup (e.g. ``audit_runs/ottersec-eval/
+    workspaces/aptos-small/``), the DB lives at the customer-eval
+    root (``audit_runs/ottersec-eval/findings.db``) so every cell
+    shares one finding store. ``hunt.py`` already walks up to that
+    location when ``customer_id`` is set — bundle / narrative /
+    every other subcommand needs the same behaviour or
+    ``finding_id`` lookups fail with "Finding 41 not found".
+
+    Detection: if the per-workspace path doesn't have a DB but
+    ``parent.parent / findings.db`` exists AND the parent.parent
+    dir name ends with ``-eval`` (the customer-rollup convention),
+    use that. Falls back to the legacy per-workspace path for
+    single-workspace layouts.
+
+    Operator-caught regression on cycle 20260513-191318: bundle +
+    narrative emitted "Error: Finding 41 not found" for every
+    confirmed finding because the per-workspace DB at
+    ``workspaces/aptos-small/findings.db`` was empty — the real
+    rows lived in the shared customer DB.
+    """
+    default = workspace_path / "findings.db"
+    if default.is_file():
+        return default
+    try:
+        candidate = workspace_path.parent.parent
+        shared = candidate / "findings.db"
+        if (
+            workspace_path.parent.name == "workspaces"
+            and candidate.name.endswith("-eval")
+            and shared.is_file()
+        ):
+            return shared
+    except (AttributeError, OSError):
+        pass
+    return default  # fall back to default path even if missing — caller will see ENOENT
+
+
 def open_findings_db(workspace_path: Path) -> Any:
     """Factory: pick SQLite or Postgres backend based on JELLEO_DB_URL.
 
@@ -53,6 +97,11 @@ def open_findings_db(workspace_path: Path) -> Any:
     callers already import FindingsDB; making the factory available
     alongside it preserves muscle memory and avoids touching every
     call site.
+
+    Multi-workspace customer rollups: when invoked against a per-cell
+    workspace whose parent layout looks like ``<root>/<cust>-eval/
+    workspaces/<cell>/``, the shared customer DB at ``<root>/<cust>-
+    eval/findings.db`` is preferred. See ``_resolve_findings_db_path``.
     """
     import os
     url = os.environ.get("JELLEO_DB_URL", "").strip()
@@ -61,7 +110,7 @@ def open_findings_db(workspace_path: Path) -> Any:
         # cost (and doesn't crash if psycopg isn't installed)
         from audit_pipeline.db_postgres import PostgresFindingsDB
         return PostgresFindingsDB(url)
-    return FindingsDB(workspace_path / "findings.db")
+    return FindingsDB(_resolve_findings_db_path(workspace_path))
 
 SCHEMA = [
     """

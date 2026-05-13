@@ -1325,8 +1325,35 @@ def _hunt_run(
                     except OSError:
                         prior_event = None
                     if prior_event:
+                        # scaffold_path was NOT logged on poc_adapter_done
+                        # before commit fixing-this. For events written by
+                        # older orchestrator versions, reconstruct from
+                        # the adapter's known output convention
+                        # (workspace/tests/<lang>/test_<slug>.<ext>) so
+                        # triage can read test bodies on resume.
+                        scaffold = prior_event.get("scaffold_path")
+                        if not scaffold:
+                            ext = _l2_adapter.test_file_extension
+                            # Solidity uses `.t.sol` (Foundry convention);
+                            # adapter applies the `.t` infix itself in
+                            # write_test_file. Mirror its layout exactly.
+                            if language in ("solidity", "evm"):
+                                stem = f"test_{finding_name}.t"
+                                scaffold = str(
+                                    workspace / "tests" / "solidity"
+                                    / f"{stem}{ext}"
+                                )
+                            else:
+                                lang_dir = (
+                                    "aptos" if language in ("aptos", "move")
+                                    else language
+                                )
+                                scaffold = str(
+                                    workspace / "tests" / lang_dir
+                                    / f"test_{finding_name}{ext}"
+                                )
                         poc_results[hyp_id] = {
-                            "scaffold_path": prior_event.get("scaffold_path"),
+                            "scaffold_path": scaffold,
                             "scaffold_rc": 0,
                             "compile_test_rc": None,
                             "fired": bool(prior_event.get("fired", False)),
@@ -1344,7 +1371,8 @@ def _hunt_run(
                         }
                         log("poc_adapter_resumed_from_existing",
                             hypothesis_id=hyp_id,
-                            fired=bool(prior_event.get("fired")))
+                            fired=bool(prior_event.get("fired")),
+                            scaffold_path=scaffold)
                         continue
                     # Runlog exists but no event in log → re-run defensively
 
@@ -1424,8 +1452,19 @@ def _hunt_run(
                     "reason": outcome_obj.reason,
                     "duration_s": outcome_obj.duration_s,
                 }
+                # IMPORTANT: scaffold_path MUST be on the log event so
+                # --resume-cycle can repopulate poc_results without
+                # re-running L2. Without it, resume sets scaffold_path
+                # = None, triage's test_body read returns "", and every
+                # fire is misclassified LOST → L3/L4 dispatch set
+                # empty → entire post-L2 pipeline runs against an empty
+                # finding set ("Finding 41 not found" cascade).
+                # Operator caught this on 2026-05-13 23:07 full-pipe
+                # fire — wasted ~$14 of compute time.
                 log("poc_adapter_done", hypothesis_id=hyp_id,
                     language=language, fired=outcome_obj.fired,
+                    scaffold_path=str(test_path),
+                    framework=outcome_obj.framework,
                     reason=outcome_obj.reason[:160])
                 continue
             # ----- Solana legacy cargo path (unchanged below) -----
