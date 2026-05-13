@@ -216,10 +216,15 @@ async def _handle_sse(writer, customer_id) -> None:
     })
 
     # On-connect cycle-active hint: scan THIS customer's watched
-    # workspaces and emit a cycle_active for the most recent active
-    # cycle so the dashboard immediately knows what's live without
-    # waiting for a fresh broadcast event. Scoped per-customer so
-    # we never bleed cross-customer state on connect.
+    # workspaces and emit a cycle_active ONLY for cycles that are
+    # actually in_progress (hunt_summary.json does NOT exist).
+    #
+    # Without the in_progress gate, every page refresh on a finished
+    # cycle re-painted "L1 running" — the dashboard saw the on-connect
+    # cycle_active and set L1=active, even though the cycle ended hours
+    # ago. Operator caught this with the report:
+    # "after L2 was done all waterfall items fired as done and now it
+    # shows that L1 is running and all of the others are in queue".
     customer_workspaces = WATCHED_WORKSPACES.get(customer_id, [])
     latest_cycle_path: Path | None = None
     latest_mtime: float = 0.0
@@ -231,12 +236,34 @@ async def _handle_sse(writer, customer_id) -> None:
                 latest_mtime = mt
                 latest_cycle_path = c
     if latest_cycle_path:
-        await _write_sse(writer, {
-            "event": "cycle_active",
-            "cycle": latest_cycle_path.name,
-            "ts": time.time(),
-            "customer_id": customer_id,
-        })
+        # Cycle is "in progress" if hunt_summary.json does NOT exist
+        # in its dir (the orchestrator writes that file ONLY at end of
+        # cycle). A .publish-blocked sentinel also signals end-of-cycle.
+        hunt_summary = latest_cycle_path / "hunt_summary.json"
+        publish_blocked = latest_cycle_path / ".publish-blocked"
+        retraction = latest_cycle_path / "retraction.json"
+        cycle_is_done = (
+            hunt_summary.is_file()
+            or publish_blocked.is_file()
+            or retraction.is_file()
+        )
+        if not cycle_is_done:
+            await _write_sse(writer, {
+                "event": "cycle_active",
+                "cycle": latest_cycle_path.name,
+                "ts": time.time(),
+                "customer_id": customer_id,
+            })
+        else:
+            # Cycle is done — emit a cycle_complete instead so the
+            # dashboard paints "Cycle complete" + all layers done
+            # rather than waiting for the manifest tick.
+            await _write_sse(writer, {
+                "event": "cycle_complete",
+                "cycle": latest_cycle_path.name,
+                "ts": time.time(),
+                "customer_id": customer_id,
+            })
 
     queue: asyncio.Queue = asyncio.Queue(maxsize=200)
     _subscribers[customer_id].add(queue)

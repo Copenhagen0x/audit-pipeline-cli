@@ -1889,6 +1889,10 @@ main.bridge {
   state.targetIdByName = {};
   state.targetNameById = {};
   state.cycleIdToTargetId = {};
+  // cycle_id → finished_at (string or null). Lets cycle_active SSE
+  // handler detect stale on-connect emissions for already-finished
+  // cycles and avoid painting "L1 running" on a done cycle.
+  state.cycleFinishedAt = {};
 
   function activeTargetId() {
     const name = window.JELLEO_ACTIVE_TARGET;
@@ -1953,13 +1957,32 @@ main.bridge {
     if (!eventBelongsToActiveTab(ev)) return;
 
     if (k === 'cycle_active') {
+      // GUARD: the SSE service emits cycle_active on connect for the
+      // LATEST cycle in the customer's workspace — even if that cycle
+      // is already finished. Treating that as "L1 running" left the
+      // waterfall stuck after every page refresh on a completed cycle.
+      //
+      // Decide if the cycle is actually in progress by checking the
+      // manifest cache. If we already have the cycle in
+      // state.cycleIdToTargetId from a prior manifest fetch AND that
+      // cycle's recent_cycles entry says finished_at != null, treat
+      // this as a stale on-connect emission: only push the event log
+      // and let the manifest paint the "Last cycle" stage / done
+      // waterfall.
+      const cycleEntry = state.cycleIdToTargetId[ev.cycle];
+      // We need the full cycle record to check finished_at — cache it
+      // when refreshSnapshot/refreshManifest populate the maps.
+      const cycleFinished = (state.cycleFinishedAt && state.cycleFinishedAt[ev.cycle]) ? true : false;
+      if (cycleFinished) {
+        // Push to event terminal so the operator sees the SSE arrived,
+        // but DON'T paint stale "running" state.
+        pushEvent('cycle_active', 'cycle ' + ev.cycle + ' (already finished)', ev.ts);
+        return;
+      }
+
       // POST-AUDIT FIX (2026-05-12 re-audit catch): reset per-cycle state
       // before populating. Without this, state.hyps + state.hypsOrder
-      // accumulated entries across every cycle the browser tab observed
-      // — a long-running tab watching N cycles ended up with N * H tiles
-      // in the grid (and N * H DOM nodes), most marked done from a prior
-      // cycle. Now we wipe the grid + the maps on cycle_active so each
-      // cycle paints from a clean slate.
+      // accumulated entries across every cycle the browser tab observed.
       try {
         const grid = $('hyp-grid');
         if (grid) {
@@ -2064,6 +2087,13 @@ main.bridge {
 
     if (k === 'cycle_complete' || k === 'hunt_complete') {
       state.lastCycleAt = Date.now();
+      // Cache the cycle as finished so subsequent stale cycle_active
+      // events on this cycle id don't paint "L1 running" again.
+      if (ev.cycle) {
+        state.cycleFinishedAt[ev.cycle] = new Date().toISOString();
+      }
+      const completedCycle = state.activeCycle;
+      setLayer('L0', 'done', '✓');
       setLayer('L1', 'done', '✓');
       ['L1.5','L2','L2.5','L3','L4'].forEach(L => {
         const r = document.querySelector('.layer-row[data-layer="' + L + '"]');
@@ -2073,10 +2103,16 @@ main.bridge {
       });
       setStage(
         'Cycle complete',
-        `Cycle <span class="accent">${safeStr(state.activeCycle || '—', 28)}</span> finished. <span class="dim">Watching upstream for next commit.</span>`,
+        `Cycle <span class="accent">${safeStr(completedCycle || '—', 28)}</span> finished. <span class="dim">Watching upstream for next commit.</span>`,
         null
       );
-      pushEvent('cycle_complete', 'cycle ' + state.activeCycle, ev.ts);
+      pushEvent('cycle_complete', 'cycle ' + completedCycle, ev.ts);
+      // Clear active-cycle markers so the rAF tick stops showing
+      // "Cycle for X" and flips to "Idle for X". Without this the
+      // cycle elapsed timer kept ticking after completion.
+      state.activeCycle = null;
+      state.cycleStartedAt = null;
+      $('cycle-elapsed').textContent = '—';
       scheduleRefetch();
       return;
     }
@@ -2185,7 +2221,9 @@ main.bridge {
     const done = cycle.phase_done;
     const total = cycle.phase_total;
     const pct = cycle.progress_pct;
-    // Phase → corresponding L# label
+    const ALL_LAYERS = ['L0','L1','L1.5','L2','L2.5','L3','L4'];
+
+    // Phase → L# label. Used while cycle is in_progress.
     const PHASE_TO_LAYER = {
       'recon':       'L1',
       'debate':      'L1.5',
@@ -2196,27 +2234,56 @@ main.bridge {
       'formal':      'L3',
       'litesvm':     'L4',
       'fuzz':        'L4',
-      'publishing':  null,  // every layer done
+      'publishing':  null,  // all layers done
     };
-    const ALL_LAYERS = ['L0','L1','L1.5','L2','L2.5','L3','L4'];
-    const activeLayer = PHASE_TO_LAYER[phase];
-    if (activeLayer == null && phase !== 'publishing') {
-      // Unknown phase — leave layers as-is (SSE will repaint)
+
+    // ── FINISHED-CYCLE PATH ──
+    // Detect "cycle is done" by EITHER:
+    //   1. finished_at is set in manifest (DB-finished)
+    //   2. phase is null/empty AND in_progress is false/null (filesystem
+    //      heuristic exhausted)
+    //   3. phase == 'publishing' (hunt_summary.json present)
+    // In all three, paint every layer as done so the dashboard reflects
+    // reality. Without this, the cycle_active SSE event left layers
+    // stuck at "L1 running" forever after the cycle ended.
+    const isFinished = (
+      cycle.finished_at != null
+      || (phase === '' && !cycle.in_progress)
+      || phase === 'publishing'
+    );
+    if (isFinished) {
+      ALL_LAYERS.forEach(L => setLayer(L, 'done', '✓'));
       return;
     }
-    // L0 is always done once a cycle exists (freshness gate passed)
+
+    // ── UNKNOWN PHASE PATH ──
+    const activeLayer = PHASE_TO_LAYER[phase];
+    if (activeLayer == null) {
+      // No phase info yet — leave as-is for SSE/next manifest to update.
+      return;
+    }
+
+    // ── IN-PROGRESS PATH ──
     setLayer('L0', 'done', '✓');
-    // Mark every layer BEFORE activeLayer as done
-    const activeIdx = activeLayer ? ALL_LAYERS.indexOf(activeLayer) : ALL_LAYERS.length;
+    const activeIdx = ALL_LAYERS.indexOf(activeLayer);
     for (let i = 1; i < activeIdx; i++) {
       setLayer(ALL_LAYERS[i], 'done', '✓');
     }
-    // The active layer itself
-    if (activeLayer) {
-      const label = (done != null && total)
-        ? (done + '/' + total)
-        : 'running';
-      setLayer(activeLayer, 'active', label, pct != null ? pct : 5);
+    const label = (done != null && total)
+      ? (done + '/' + total)
+      : 'running';
+    setLayer(activeLayer, 'active', label, pct != null ? pct : 5);
+    // Explicitly reset later layers to queued so they don't carry over
+    // from a previous cycle (e.g. when resuming with --resume-cycle).
+    for (let i = activeIdx + 1; i < ALL_LAYERS.length; i++) {
+      const row = document.querySelector('.layer-row[data-layer="' + ALL_LAYERS[i] + '"]');
+      if (row && !row.classList.contains('done') && !row.classList.contains('skipped')) {
+        row.classList.remove('active');
+        const s = row.querySelector('.status');
+        if (s) s.textContent = 'queued';
+        const b = row.querySelector('.bar > div');
+        if (b) b.style.width = '0%';
+      }
     }
   }
 
@@ -2266,6 +2333,12 @@ main.bridge {
         if (c.cycle_id && c.target_id != null) {
           state.cycleIdToTargetId[c.cycle_id] = c.target_id;
         }
+        if (c.cycle_id) {
+          // Track finished_at so the cycle_active SSE handler can
+          // tell stale on-connect emissions apart from real new
+          // cycles. null/undefined means "still in progress".
+          state.cycleFinishedAt[c.cycle_id] = c.finished_at || null;
+        }
       });
     }
 
@@ -2282,7 +2355,13 @@ main.bridge {
         const latest = matching[0];
         paintStageFromCycle(latest);
         paintGridFromCycle(latest);
-        if (latest.cycle_id && !state.activeCycle && latest.in_progress) {
+        // The active-cycle id pinning:
+        //   in_progress=true → set state.activeCycle so elapsed timer runs
+        //   in_progress=false (finished) → clear state.activeCycle so the
+        //     elapsed timer flips to "Idle for X", AND populate
+        //     state.lastCycleAt from finished_at so the idle counter
+        //     measures from a real timestamp.
+        if (latest.in_progress) {
           state.activeCycle = latest.cycle_id;
           $('active-cycle').textContent = safeStr(latest.cycle_id, 28);
           if (latest.started_at) {
@@ -2292,6 +2371,17 @@ main.bridge {
               $('cycle-started').textContent = fmtTime(t);
             }
           }
+        } else {
+          // Cycle is FINISHED for this tab. Clear active markers so
+          // the elapsed timer doesn't keep ticking on a dead cycle.
+          state.activeCycle = null;
+          state.cycleStartedAt = null;
+          $('active-cycle').textContent = safeStr(latest.cycle_id, 28);
+          $('cycle-elapsed').textContent = '—';
+          if (latest.finished_at) {
+            const ft = Date.parse(latest.finished_at);
+            if (!isNaN(ft)) state.lastCycleAt = ft;
+          }
         }
       } else if (activeId != null) {
         // Active tab has no cycle yet — show honest empty state
@@ -2299,7 +2389,19 @@ main.bridge {
           `<span class="dim">${safeStr(window.JELLEO_ACTIVE_TARGET, 40)} hasn't started a cycle yet</span>`,
           null);
         state.activeCycle = null;
+        state.cycleStartedAt = null;
         $('active-cycle').textContent = '—';
+        // Also reset waterfall to all queued — no cycle means no layers active
+        ['L0','L1','L1.5','L2','L2.5','L3','L4'].forEach(L => {
+          const row = document.querySelector('.layer-row[data-layer="' + L + '"]');
+          if (row) {
+            row.classList.remove('active', 'done', 'skipped');
+            const s = row.querySelector('.status');
+            if (s) s.textContent = 'queued';
+            const b = row.querySelector('.bar > div');
+            if (b) b.style.width = '0%';
+          }
+        });
       }
     }
   }
@@ -2325,6 +2427,12 @@ main.bridge {
       d.recent_cycles.forEach(c => {
         if (c.cycle_id && c.target_id != null) {
           state.cycleIdToTargetId[c.cycle_id] = c.target_id;
+        }
+        if (c.cycle_id) {
+          // Track finished_at so the cycle_active SSE handler can
+          // tell stale on-connect emissions apart from real new
+          // cycles. null/undefined means "still in progress".
+          state.cycleFinishedAt[c.cycle_id] = c.finished_at || null;
         }
       });
     }
@@ -2615,7 +2723,11 @@ main.bridge {
     state.cycleStartedAt = null;
     state.activeHypId = null;
     state.activeHypProgress = null;
-    state.lastCycleAt = null;
+    // NOTE: do NOT clear state.lastCycleAt here. refreshSnapshot will
+    // overwrite it from the new tab's per-target finished_at if a
+    // finished cycle exists, but if it stays null in the meantime the
+    // rAF tick can't compute "Idle for X" — better to leave the prior
+    // value briefly than show "—" until the manifest fetch returns.
     $('active-cycle').textContent = '—';
     $('cycle-started').textContent = '—';
     $('cycle-elapsed').textContent = '—';
