@@ -299,6 +299,17 @@ console = Console()
         "independent re-derivation rather than rubber-stamp."
     ),
 )
+@click.option(
+    "--triage-fires/--no-triage-fires", default=True, show_default=True,
+    help=(
+        "Layer 2.5: between Layer 2 (PoC) and Layer 3 (Kani), classify each "
+        "PoC fire as STRONG / SOFT / FALSE / LOST and dispatch ONLY the "
+        "STRONG cluster representatives to Layer 3. Saves ~$280 of "
+        "wasted Kani+LiteSVM spend per false-fire-heavy cycle. Productized "
+        "from the manual triage that collapsed cycle 20260511's 64 fires "
+        "down to 7 STRONG / 4 root causes."
+    ),
+)
 @click.pass_context
 def hunt_cmd(
     ctx: click.Context,
@@ -334,6 +345,7 @@ def hunt_cmd(
     tool_max_turns: int,
     challenger_model: str | None,
     redact_proposer_evidence: bool,
+    triage_fires: bool,
 ) -> None:
     """Autonomous full hunt cycle: recon -> debate -> PoC -> Kani -> report.
 
@@ -610,6 +622,7 @@ def hunt_cmd(
             tool_max_turns=tool_max_turns,
             challenger_model=challenger_model,
             redact_proposer_evidence=redact_proposer_evidence,
+            triage_fires=triage_fires,
         )
     finally:
         if snap_cm is not None:
@@ -649,6 +662,7 @@ def _hunt_run(
     tool_max_turns: int = 12,
     challenger_model: str | None = None,
     redact_proposer_evidence: bool = True,
+    triage_fires: bool = True,
 ) -> None:
     """Hunt cycle body, factored out so the snapshot lifecycle wraps it cleanly."""
 
@@ -1300,10 +1314,88 @@ def _hunt_run(
             }
             log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc_author)
 
-    # ---------- Layer 3: Kani harness (only on PoC-fired) ----------
+    # ---------- Layer 2.5: fire triage (STRONG / SOFT / FALSE / LOST) ----------
+    # Productized from the manual STRONG/SOFT/FALSE bucket-sort that
+    # collapsed cycle 20260511's 64 PoC fires down to 7 STRONG (4 root
+    # causes). Without this stage, Layer 3 + Layer 4 would burn $300+
+    # on Kani/LiteSVM against false-fire PoC infra panics.
+    #
+    # Default: ON when --use-tools is on (matches the rest of the
+    # source-grounding posture). Skipped when triage_fires is off OR
+    # there are zero PoC fires.
+    layer3_dispatch_filter: set[str] | None = None
+    triage_summary: dict[str, Any] | None = None
+    if triage_fires and any(pr.get("fired") for pr in poc_results.values()):
+        from audit_pipeline.layer25_triage import triage_cycle as _triage
+        console.print()
+        console.print("[bold]Layer 2.5 - fire triage (STRONG/SOFT/FALSE/LOST)[/bold]")
+
+        def _engine_loader(fn_name: str) -> str:
+            if not fn_name:
+                return ""
+            try:
+                from audit_pipeline.utils.code_extract import collect_grounded_code
+                engine_src = engine_dir_for_cargo / "src"
+                rs_files = sorted(engine_src.glob("*.rs")) if engine_src.is_dir() else []
+                grounded = collect_grounded_code([fn_name], rs_files, max_lines=80)
+                return next((v for v in grounded.values() if v), "")
+            except Exception:  # noqa: BLE001
+                return ""
+
+        try:
+            triage_out = _triage(
+                cycle_dir,
+                poc_results=poc_results,
+                hyp_meta=hyp_meta,
+                engine_src_loader=_engine_loader,
+                judge_model=challenger_model,  # if operator passed --challenger-model, reuse it
+            )
+            log("triage_done",
+                strong=triage_out["counts"]["STRONG"],
+                soft=triage_out["counts"]["SOFT"],
+                false=triage_out["counts"]["FALSE"],
+                lost=triage_out["counts"]["LOST"],
+                n_clusters=len(triage_out["clusters"]),
+                n_llm_calls=triage_out["n_llm_calls"],
+                dispatch_set_size=len(triage_out["layer3_dispatch_set"]))
+            console.print(
+                f"  STRONG={triage_out['counts']['STRONG']} "
+                f"SOFT={triage_out['counts']['SOFT']} "
+                f"FALSE={triage_out['counts']['FALSE']} "
+                f"LOST={triage_out['counts']['LOST']} | "
+                f"{len(triage_out['clusters'])} root-cause cluster(s) | "
+                f"Layer 3 dispatch set: {len(triage_out['layer3_dispatch_set'])} reps"
+            )
+            for r in triage_out["results"]:
+                log("triage_one",
+                    hypothesis_id=r["hyp_id"],
+                    classification=r["classification"],
+                    cluster_id=r.get("cluster_id"),
+                    is_representative=r.get("is_representative", False),
+                    used_llm=r.get("used_llm", False),
+                    reason=r.get("reason", "")[:200])
+            layer3_dispatch_filter = set(triage_out["layer3_dispatch_set"])
+            # Capture for cycle_summary — minus the per-fire results list
+            # (already in triage.jsonl) so summary stays compact.
+            triage_summary = {
+                "counts": triage_out["counts"],
+                "n_clusters": len(triage_out["clusters"]),
+                "n_llm_calls": triage_out["n_llm_calls"],
+                "layer3_dispatch_set": triage_out["layer3_dispatch_set"],
+                "clusters": triage_out["clusters"],
+            }
+        except Exception as e:  # noqa: BLE001 — never crash hunt over triage
+            log("triage_failed", error=str(e)[:300])
+            console.print(f"[yellow]triage failed ({e}); falling back to all-fires dispatch[/yellow]")
+            layer3_dispatch_filter = None
+            triage_summary = {"error": str(e)[:300]}
+
+    # ---------- Layer 3: Kani harness (only on PoC-fired, optionally triage-filtered) ----------
     fired_for_kani = [
         v for v in candidates
         if poc_results.get(v["hypothesis_id"], {}).get("fired")
+        and (layer3_dispatch_filter is None
+             or v["hypothesis_id"] in layer3_dispatch_filter)
     ]
     if not skip_kani and fired_for_kani and daily_cap.remaining_today() > 0.50:
         console.print()
@@ -1443,6 +1535,7 @@ def _hunt_run(
         "verdicts": verdicts,
         "debate": debate_results,
         "poc": poc_results,
+        "triage": triage_summary,            # Layer 2.5 STRONG/SOFT/FALSE counts + clusters
         "kani": kani_results,
         "litesvm": litesvm_results,
         "narrative": narrative_results,
