@@ -189,10 +189,29 @@ that:
 
 # Output format
 
-Output ONLY a single ```move ... ``` (or ```rust ... ``` — Move uses
-Rust-like syntax) fenced code block containing the complete test
-module. Do not output any prose, explanation, or markdown outside
-the fenced block.
+Output ONLY a single ```move ... ``` fenced code block containing
+the COMPLETE test module. The contents MUST begin with
+`module <named_address>::<test_module_name> {{` and end with the
+matching `}}`. Do NOT paste raw `public entry fun` snippets from the
+source — those compile only inside their original modules. Do NOT
+output any prose, explanation, or markdown outside the fenced
+block. Do NOT output multiple fenced blocks — only ONE.
+
+Bad output (rejected):
+  ```move
+  public entry fun withdraw(...) {{ ... }}   // bare function — NOT a module
+  ```
+
+Good output (accepted):
+  ```move
+  module mutatis::test_apt_X {{
+      use mutatis::token_vault;
+      #[test]
+      fun test_witness() {{
+          // setup + call + assert
+      }}
+  }}
+  ```
 
 If you can't write a real PoC (e.g. the hypothesis is wrong, the bug
 isn't reachable, or you don't have enough information), output:
@@ -208,23 +227,52 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
 """
 
     def parse_test_body(self, llm_response: str) -> str:
-        # Primary: move-tagged fence
-        m = re.search(r"```(?:move|Move)\s*\n([\s\S]*?)\n```", llm_response)
-        if m:
-            return m.group(1).strip() + "\n"
-        # Secondary: rust-tagged (Move uses rust syntax highlighting often)
-        m = re.search(r"```(?:rust|Rust)\s*\n([\s\S]*?)\n```", llm_response)
-        if m:
-            body = m.group(1).strip()
-            if "module" in body and "#[test" in body:
-                return body + "\n"
-        # Tertiary: any fenced block that looks like Move
-        m = re.search(r"```\s*\n([\s\S]*?)\n```", llm_response)
-        if m:
-            body = m.group(1).strip()
-            if "module " in body or "#[test" in body:
-                return body + "\n"
-        # Bare body
+        # Find ALL move/Move/rust/bare fenced blocks and pick the one
+        # that LOOKS like a complete test module. Without this, the
+        # parser used to grab the FIRST fence — which is often the
+        # LLM showing "here's the source I'm testing against:" as a
+        # quoted context block, NOT the actual test. The buggy
+        # behavior was caught during the aptos-small dry-run where
+        # APT11's first fence was bare `public entry fun withdraw...`
+        # source code (no module wrapper) → compile failed.
+        fences: list[str] = []
+        fence_re = re.compile(
+            r"```(?:move|Move|rust|Rust)?\s*\n([\s\S]*?)\n```"
+        )
+        for m in fence_re.finditer(llm_response):
+            fences.append(m.group(1).strip())
+
+        # Score each fence: prefer ones with BOTH module wrapper AND
+        # #[test] annotation. Fall back to fences with just module,
+        # then just #[test]. Reject bare source pastes.
+        def _score(body: str) -> int:
+            has_module = bool(re.search(r"\bmodule\s+\S+\s*\{", body))
+            has_test = "#[test" in body
+            has_cant = "CANNOT_TEST" in body
+            if has_cant:
+                # CANNOT_TEST stub — accept (caller's pseudo-pass
+                # marker catches it). Score lower than a real test.
+                return 1 if has_module else 0
+            if has_module and has_test:
+                return 100
+            if has_module:
+                return 50
+            if has_test:
+                return 30
+            return -100  # bare source paste — REJECT
+
+        best = -1000
+        best_body = None
+        for body in fences:
+            s = _score(body)
+            if s > best:
+                best = s
+                best_body = body
+
+        if best_body and best > 0:
+            return best_body + "\n"
+
+        # Bare body fallback (LLM forgot fences)
         stripped = llm_response.strip()
         if stripped.startswith("module ") or "#[test" in stripped:
             return stripped + "\n"

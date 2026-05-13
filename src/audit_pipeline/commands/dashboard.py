@@ -1114,12 +1114,19 @@ def _in_progress_cycle_progress(
             sum(1 for _ in debate_dir.glob("*_challenger_response.md"))
             if debate_dir.is_dir() else 0
         )
+        # Multi-language PoC detection: test files land at .rs (Solana),
+        # .move (Aptos), .t.sol (Solidity), .c (C). Run logs land as
+        # cargo_*.log (Solana) or runlog_*.log (other adapters). Without
+        # this, Aptos hunts stayed at "phase: debate" forever because
+        # n_poc_logs only looked for cargo_*.log.
         n_poc_tests = (
-            sum(1 for _ in poc_dir.glob("test_*.rs"))
+            sum(1 for ext in ("*.rs", "*.move", "*.t.sol", "*.c")
+                for _ in poc_dir.glob(f"test_{ext}"))
             if poc_dir.is_dir() else 0
         )
         n_poc_logs = (
-            sum(1 for _ in poc_dir.glob("cargo_*.log"))
+            sum(1 for pattern in ("cargo_*.log", "runlog_*.log")
+                for _ in poc_dir.glob(pattern))
             if poc_dir.is_dir() else 0
         )
         n_kani_harnesses = (
