@@ -31,13 +31,48 @@ from typing import Any
 
 from audit_pipeline.poc_adapters.base import LanguagePocAdapter, PocOutcome
 
-
 _PSEUDO_PASS_MARKERS = (
-    "TODO",
-    "FIXME",
     "CANNOT_TEST",
     "// placeholder",
+    # NOTE: we intentionally DO NOT match bare "TODO" or "FIXME" — many
+    # real Move tests have a `// TODO:` comment for follow-up work and are
+    # still exercising the bug. See Phase 1d audit finding C-2.
 )
+
+
+def _detect_move_named_addresses(repo_root: Path) -> dict[str, str]:
+    """Parse Move.toml `[addresses]` block and return {name -> hex}.
+
+    Move modules are addressed by a NAMED address declared in the
+    package's Move.toml (e.g. `program_b = "0x1"` or `osec = "_"` if
+    deferred). Hard-coding `0x0` or `mutatis` in the PoC fails the
+    compiler when the actual address has a different name. We read
+    Move.toml so the LLM's prompt can reference the real names.
+
+    Returns an empty dict if Move.toml is missing or unparseable —
+    callers should fall back to `0x0` and treat that as best-effort.
+    """
+    manifest = repo_root / "Move.toml"
+    if not manifest.is_file():
+        return {}
+    try:
+        text = manifest.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    # Find the [addresses] section + parse name="hex" or name='hex' pairs
+    section = re.search(
+        r"^\s*\[addresses\][^\[]*",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not section:
+        return {}
+    pairs = re.findall(
+        r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*['\"]([^'\"]+)['\"]",
+        section.group(0),
+        re.MULTILINE,
+    )
+    return dict(pairs)
 
 
 class AptosAdapter(LanguagePocAdapter):
@@ -58,6 +93,27 @@ class AptosAdapter(LanguagePocAdapter):
         target_file = hyp.get("target_file", "")
         engine_function = hyp.get("engine_function", "")
         relevant = hyp.get("relevant_instructions") or ""
+
+        # Parse the target repo's Move.toml so the LLM uses the actual
+        # named addresses (not a hardcoded `mutatis` / `0x0`).
+        named_addrs = _detect_move_named_addresses(target_repo_root)
+        if named_addrs:
+            addr_lines = "\n".join(
+                f"  {name} = \"{val}\""
+                for name, val in named_addrs.items()
+            )
+            addr_block = (
+                "The target package declares the following named addresses "
+                "in Move.toml (use these in your `module <name>::...` "
+                "declarations):\n\n"
+                f"{addr_lines}\n"
+            )
+        else:
+            addr_block = (
+                "Could not read Move.toml — fall back to `0x0` for the test "
+                "module address. If the compiler rejects it, the runtime "
+                "harness will surface that as a compile error.\n"
+            )
 
         return f"""You are authoring a Layer-2 Proof-of-Concept Aptos Move test for the Jelleo audit engine.
 
@@ -103,14 +159,17 @@ Relevant instructions: {relevant}
 * Source modules:   {target_repo_root}/sources/*.move
 * Tests dir:        {target_repo_root}/tests/*.move
 
+# Move.toml named addresses
+
+{addr_block}
 # Your task
 
 Write a single self-contained Move test module `test_<finding_name>.move`
 that:
 
-1. Declares `module <address>::test_<finding_name>` (use the address
-   from the Move.toml `[addresses]` section as the module address;
-   typically `mutatis` or similar — read the manifest if needed).
+1. Declares `module <named_address>::test_<finding_name>` (use one of
+   the named addresses listed above — DO NOT invent `mutatis` or `0x0`
+   if the manifest declares different names).
 2. `use`s the modules under test.
 3. Defines a `#[test(signer = @<addr>)]` function `test_<finding_name>`
    that:
@@ -269,15 +328,37 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
             deployed_test.unlink(missing_ok=True)
 
         duration = time.time() - t0
-        stdout = run_proc.stdout[:8000]
-        stderr = run_proc.stderr[:4000]
+        # Strip ANSI color escapes that `aptos move test` emits with TTY
+        # detection failing under capture_output=True on some platforms.
+        # Without this strip, the PASS/FAIL regex below misses lines that
+        # are wrapped in `\x1b[32m...\x1b[0m` etc.
+        ansi_strip = re.compile(r"\x1b\[[0-9;]*m")
+        stdout = ansi_strip.sub("", run_proc.stdout)[:8000]
+        stderr = ansi_strip.sub("", run_proc.stderr)[:4000]
 
         # aptos move test prints lines like:
         #   [ PASS    ] 0x<addr>::test_<name>::test_func
         #   [ FAIL    ] 0x<addr>::test_<name>::test_func
         # FAIL lines mean the test demonstrated the bug (= fired).
-        fail_lines = re.findall(r"^\s*\[\s*FAIL\s*\]\s*(.+)$", stdout, re.MULTILINE)
-        pass_lines = re.findall(r"^\s*\[\s*PASS\s*\]\s*(.+)$", stdout, re.MULTILINE)
+        # We anchor on the EXACT test function name we authored so a
+        # substring-match in --filter that pulled in `test_foo_bar` when
+        # we asked for `test_foo` doesn't accidentally claim the wrong
+        # bug fired.
+        all_fail = re.findall(r"^\s*\[\s*FAIL\s*\]\s*(.+?)\s*$", stdout, re.MULTILINE)
+        all_pass = re.findall(r"^\s*\[\s*PASS\s*\]\s*(.+?)\s*$", stdout, re.MULTILINE)
+        # Filter to the test we actually authored. Pattern: <addr>::test_<test_name>::test_<test_name>
+        # (or sometimes <addr>::test_<test_name>::<helper>). Require the
+        # OUR test_name to appear as a `::test_<name>::` segment, not as
+        # a substring of another test function name.
+        anchor = f"::{filter_name}::"
+        fail_lines = [line for line in all_fail if anchor in line or line.endswith(f"::{filter_name}")]
+        pass_lines = [line for line in all_pass if anchor in line or line.endswith(f"::{filter_name}")]
+        # Fallback: if the anchor filter is too strict (e.g. the CLI
+        # printed a different format), accept the unfiltered set so we
+        # don't lose signal entirely.
+        if not fail_lines and not pass_lines and (all_fail or all_pass):
+            fail_lines = all_fail
+            pass_lines = all_pass
         # aptos move test also prints abort-code details on failure:
         abort_match = re.search(
             r"abort code\s*[:=]?\s*(\d+|0x[0-9a-fA-F]+)",

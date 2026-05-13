@@ -23,6 +23,7 @@ deterministic regression tests if needed.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -241,24 +242,35 @@ If you can't write a real harness:
 
         # Run AFL++ for the time budget. -V <seconds> exits cleanly
         # when the budget runs out.
+        #
+        # Bind fuzz_proc to a sentinel BEFORE the try block so a
+        # TimeoutExpired raise doesn't leave it unbound — downstream
+        # crash-detection logic reads .stdout / .stderr from it.
+        fuzz_proc: subprocess.CompletedProcess | None = None
         fuzz_cmd = [
             "afl-fuzz",
             "-i", str(seed_dir),
             "-o", str(out_dir),
             "-V", str(time_budget_s),
             "-m", "none",
+            "-M", "fuzzer01",  # named instance; AFL writes to out_dir/fuzzer01/
             "--", str(bin_path),
         ]
+        # Build a fuzzer env that PRESERVES the user's PATH (so afl-fuzz
+        # can find afl-clang-fast / the system clang it needs) while
+        # adding AFL-specific tunables. Stripping PATH entirely broke
+        # the fuzzer on Linux distros that put binaries in /opt/.
+        fuzz_env = {**os.environ}
+        fuzz_env.update({
+            "AFL_SKIP_CPUFREQ": "1",
+            "AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES": "1",
+            "AFL_NO_AFFINITY": "1",  # don't bind to a CPU in shared VPS
+        })
         try:
             fuzz_proc = subprocess.run(
                 fuzz_cmd, capture_output=True, text=True,
                 timeout=time_budget_s + 60,
-                env={
-                    "AFL_SKIP_CPUFREQ": "1",
-                    "AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES": "1",
-                    "PATH": "/usr/bin:/usr/local/bin:/bin",
-                    "HOME": "/tmp",
-                },
+                env=fuzz_env,
             )
         except FileNotFoundError:
             return RuntimeOutcome(
@@ -273,14 +285,23 @@ If you can't write a real harness:
                 reason="toolchain missing: afl-fuzz",
                 metadata={"infra_error": True},
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             # Fuzzer exceeded budget — that's expected, treat as ran-clean
-            # if no crashes are present in the output dir.
-            pass
+            # if no crashes are present in the output dir. Preserve any
+            # partial output the subprocess captured before the kill.
+            fuzz_proc = None
+            captured_stdout = (e.stdout.decode("utf-8", errors="replace")
+                               if isinstance(e.stdout, bytes) else (e.stdout or ""))
+            captured_stderr = (e.stderr.decode("utf-8", errors="replace")
+                               if isinstance(e.stderr, bytes) else (e.stderr or ""))
 
         duration = time.time() - t0
-        crash_dir = out_dir / "default" / "crashes"
-        # Older AFL versions don't nest under default/; check both
+        # AFL++ named-instance layout: out_dir/fuzzer01/crashes/.
+        # Older AFL versions used out_dir/default/crashes/ or
+        # out_dir/crashes/ — check all three.
+        crash_dir = out_dir / "fuzzer01" / "crashes"
+        if not crash_dir.is_dir():
+            crash_dir = out_dir / "default" / "crashes"
         if not crash_dir.is_dir():
             crash_dir = out_dir / "crashes"
 
@@ -290,6 +311,16 @@ If you can't write a real harness:
                 p for p in crash_dir.iterdir()
                 if p.is_file() and not p.name.startswith("README")
             ]
+
+        # Resolve stdout/stderr from whichever path we took (completed run
+        # vs timeout). Defensive — fuzz_proc may still be None on early
+        # paths we didn't anticipate.
+        if fuzz_proc is not None:
+            run_stdout = (fuzz_proc.stdout or "")[:4000]
+            run_stderr = (fuzz_proc.stderr or "")[:4000]
+        else:
+            run_stdout = (captured_stdout or "")[:4000]
+            run_stderr = (captured_stderr or "")[:4000]
 
         if crashes:
             # Capture witness inputs for L2.5 reproduction
@@ -306,8 +337,8 @@ If you can't write a real harness:
                 crash_found=True,
                 ran_clean=False,
                 harness_path=harness_path,
-                stdout=(fuzz_proc.stdout if 'fuzz_proc' in dir() else "")[:4000],
-                stderr=(fuzz_proc.stderr if 'fuzz_proc' in dir() else "")[:4000],
+                stdout=run_stdout,
+                stderr=run_stderr,
                 returncode=0,
                 duration_s=duration,
                 fuzzer=self.fuzzer,
@@ -320,8 +351,8 @@ If you can't write a real harness:
             crash_found=False,
             ran_clean=True,
             harness_path=harness_path,
-            stdout=(fuzz_proc.stdout if 'fuzz_proc' in dir() else "")[:4000],
-            stderr=(fuzz_proc.stderr if 'fuzz_proc' in dir() else "")[:4000],
+            stdout=run_stdout,
+            stderr=run_stderr,
             returncode=0,
             duration_s=duration,
             fuzzer=self.fuzzer,

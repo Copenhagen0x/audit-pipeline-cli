@@ -7,8 +7,12 @@
   <defs>
 </defs>
   <style>
+    /* Amber on dark backgrounds; the customer portal's nav is var(--bg)
+       which is near-black. Black-on-black logos previously rendered
+       invisible — switching to the Jelleo amber accent keeps the
+       OtterSec wordmark visible on every theme variant. */
     path {
-      fill: #000;
+      fill: #f5b800;
     }
   </style>
 </svg>

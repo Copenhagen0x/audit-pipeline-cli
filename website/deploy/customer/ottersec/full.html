@@ -1157,6 +1157,38 @@ main.bridge {
     if (e.key === 'ArrowLeft'  && i > 0) setActive(TARGETS[i - 1]);
   });
 })();
+
+/* Multi-target Bridge state filter — listens for jelleo:target-switched
+   and hides ROW elements whose data-target attribute doesn't match.
+   IMPORTANT: scopes out the tab-bar itself (tab buttons carry
+   data-target too; without this guard the filter would hide every
+   tab except the active one — operator saw only "C small" visible). */
+(function () {
+  if (!document.getElementById('tab-bar')) return;
+  function applyFilter(target) {
+    if (!target) return;
+    const tabBar = document.getElementById('tab-bar');
+    document.querySelectorAll('[data-target]').forEach((el) => {
+      if (tabBar && tabBar.contains(el)) return;  // skip tab navigation
+      const owner = el.dataset.target;
+      if (!owner) return;
+      el.style.display = (owner === target) ? '' : 'none';
+    });
+    document.querySelectorAll('[data-target-counter]').forEach((el) => {
+      const visible = document.querySelectorAll(
+        '[data-target="' + target + '"][data-counter-row="' + el.dataset.targetCounter + '"]'
+      ).length;
+      el.textContent = String(visible);
+    });
+    document.querySelectorAll('[data-target-label]').forEach((el) => {
+      el.textContent = target;
+    });
+  }
+  applyFilter(window.JELLEO_ACTIVE_TARGET);
+  window.addEventListener('jelleo:target-switched', (e) => {
+    applyFilter(e.detail && e.detail.target);
+  });
+})();
 </script>
 
 
@@ -1352,7 +1384,7 @@ main.bridge {
   <div class="bridge-actions">
     <a class="primary" href="/cycles/">Cycle archive ↗</a>
     <a href="./manifest.json" target="_blank" rel="noopener">snapshot.json ↗</a>
-    <a href="https://api.jelleo.com/heartbeat.json" target="_blank" rel="noopener">heartbeat.json ↗</a>
+    <a href="./heartbeat.json" target="_blank" rel="noopener">heartbeat.json ↗</a>
     <a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Public key ↗</a>
     <a href="/customer/ottersec/">Lobby view ←</a>
     <a href="mailto:kirill@jelleo.com">Account manager</a>
@@ -1383,7 +1415,7 @@ main.bridge {
 
   const SNAPSHOT_URL = './manifest.json';
   const MANIFEST_URL = './manifest.json';
-  const HEARTBEAT_URL = 'https://api.jelleo.com/heartbeat.json';
+  const HEARTBEAT_URL = './heartbeat.json';
   const SSE_URL      = 'https://api.jelleo.com/events/ottersec';
 
   // ───── State ─────

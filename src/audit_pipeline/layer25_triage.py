@@ -71,12 +71,18 @@ _SOLANA_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         "never reached the assertion",
     ),
     (
+        # Anchor to the TEST FILE — bare `attempt to subtract with
+        # overflow` ANYWHERE in the panic stack used to suppress real
+        # F7-shape engine fires (which DO surface this exact panic
+        # when the engine's residual math underflows). Require the
+        # panic location to be in a tests/ path to scope this to test
+        # setup arithmetic only.
         re.compile(
-            r"attempt to (subtract with overflow|add with overflow|"
-            r"multiply with overflow)",
-            re.IGNORECASE,
+            r"(?=.*tests/[\w]+\.rs)"
+            r"(?=.*attempt to (?:subtract|add|multiply) with overflow)",
+            re.IGNORECASE | re.DOTALL,
         ),
-        "raw arithmetic overflow in test setup math — not the claim "
+        "raw arithmetic overflow in TEST FILE setup math — not the claim "
         "(claims about engine overflow should fire engine code, not test setup)",
     ),
     (
@@ -388,22 +394,114 @@ def build_judge_user_prompt(
     return "\n".join(blocks)
 
 
+def _extract_balanced_json_objects(text: str) -> list[str]:
+    """Pull every TOP-LEVEL balanced ``{ ... }`` substring out of `text`.
+
+    Old code used ``\\{[^{}]*\\}`` which breaks the moment the judge
+    embeds the schema as a literal example (the response then contains
+    a nested ``{"classification":"STRONG"|"SOFT"|"FALSE"}`` description
+    inside the actual answer JSON), or whenever a `reason` string
+    contains a brace.
+
+    Skips braces inside string literals so a `"reason": "foo {bar} baz"`
+    doesn't accidentally split the object.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c != "{":
+            i += 1
+            continue
+        depth = 0
+        start = i
+        in_string = False
+        escape = False
+        while i < n:
+            ch = text[i]
+            if escape:
+                escape = False
+                i += 1
+                continue
+            if ch == "\\":
+                escape = True
+                i += 1
+                continue
+            if ch == '"':
+                in_string = not in_string
+                i += 1
+                continue
+            if in_string:
+                i += 1
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append(text[start : i + 1])
+                    i += 1
+                    break
+            i += 1
+        else:
+            # Unbalanced trailing { — stop scanning
+            break
+    return out
+
+
+_VALID_CLASSIFICATIONS = frozenset({"STRONG", "SOFT", "FALSE"})
+
+
 def _parse_judge_response(text: str) -> tuple[str, str]:
-    """Extract (classification, reason) from a judge response. Robust to
-    surrounding prose if the model decided to chat anyway."""
-    # Find first JSON-looking object
-    m = re.search(r"\{[^{}]*\"classification\"[^{}]*\}", text, re.DOTALL)
-    if not m:
-        return ("SOFT", "judge response had no parseable JSON (defaulting to SOFT)")
-    try:
-        d = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return ("SOFT", "judge JSON unparseable (defaulting to SOFT)")
-    cls = str(d.get("classification", "")).upper().strip()
-    if cls not in ("STRONG", "SOFT", "FALSE"):
-        return ("SOFT", f"judge returned unknown classification {cls!r} (defaulting to SOFT)")
-    reason = str(d.get("reason") or "")[:300]
-    return (cls, reason)
+    """Extract (classification, reason) from a judge response.
+
+    Robustness:
+      * Handles nested braces inside `reason` strings.
+      * Tolerates the model echoing the schema as a sibling JSON object
+        — we iterate every balanced top-level `{...}` substring and
+        return the FIRST one whose `classification` is a valid label.
+      * Falls back to SOFT if no valid JSON shape is found, so we never
+        miscount an unparseable judge response as a real FALSE.
+    """
+    if not text:
+        return ("SOFT", "judge response was empty (defaulting to SOFT)")
+    candidates = _extract_balanced_json_objects(text)
+    if not candidates:
+        return ("SOFT", "judge response had no JSON object (defaulting to SOFT)")
+    for raw in candidates:
+        try:
+            d = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(d, dict):
+            continue
+        cls = str(d.get("classification", "")).upper().strip()
+        if cls not in _VALID_CLASSIFICATIONS:
+            continue
+        reason = str(d.get("reason") or "")[:300]
+        return (cls, reason)
+    # We saw JSON objects but none had a valid classification field —
+    # the model returned an unknown label (e.g. "MAYBE") or omitted the
+    # field entirely. Pull the bad label (if any) into the reason text
+    # so operators can see what the model returned without re-reading
+    # the raw response.
+    bad_label: str | None = None
+    for raw in candidates:
+        try:
+            d = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(d, dict) and "classification" in d:
+            bad_label = str(d.get("classification", ""))
+            break
+    if bad_label:
+        return (
+            "SOFT",
+            f"judge returned unknown classification {bad_label!r} "
+            "(defaulting to SOFT)",
+        )
+    return ("SOFT", "judge JSON had no valid classification field (defaulting to SOFT)")
 
 
 def judge_one(

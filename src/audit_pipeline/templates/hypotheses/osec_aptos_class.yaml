@@ -84,7 +84,7 @@ hypotheses:
     severity: Critical
     bug_class: acl-bypass-entry
     engine_function: privileged_op
-    target_file: sources/access_control.move
+    target_file: sources/*.move
     claim: >
       Every access-control-gated module function is reached ONLY
       through the gated entry. Adding a direct `public entry fun`
@@ -98,10 +98,13 @@ hypotheses:
     engine_function: friend_call
     target_file: sources/*.move
     claim: >
-      Every `friend` declaration is reciprocal and the friend module
-      ALSO enforces its own auth checks. A friend module called from
-      a trusted context still needs to verify the calling signer if
-      it doesn't pass-through.
+      `friend` declarations in Move are UNIDIRECTIONAL: `module A
+      friend module B` grants B private-function access to A; it
+      does NOT grant A access to B's privates. The cross-module trust
+      boundary check is: every friend module that exposes private
+      helpers verifies the calling signer if the helper mutates state.
+      A friend module called from a trusted context still needs its
+      own auth checks unless it's a pure passthrough.
 
   # ─────────────────── Resource / linear type ───────────────────
 
@@ -206,7 +209,7 @@ hypotheses:
     severity: High
     bug_class: rounding-direction
     engine_function: convert_to_shares
-    target_file: sources/vault.move
+    target_file: sources/*.move
     claim: >
       Every share-vault function rounds in the protocol's favor:
       mint/deposit rounds DOWN on shares minted (so user pays more
@@ -221,7 +224,7 @@ hypotheses:
     severity: Critical
     bug_class: oracle-staleness
     engine_function: get_price
-    target_file: sources/oracle.move
+    target_file: sources/*.move
     claim: >
       Every oracle price read checks the `updated_at` timestamp is
       within a max-staleness window. Stale prices during oracle
@@ -232,7 +235,7 @@ hypotheses:
     severity: High
     bug_class: oracle-zero-price
     engine_function: get_price
-    target_file: sources/oracle.move
+    target_file: sources/*.move
     claim: >
       Every oracle read rejects zero or negative prices. Zero is
       often a sentinel for "feed unavailable" and silently rejecting
@@ -244,7 +247,7 @@ hypotheses:
     severity: High
     bug_class: oracle-decimals-mismatch
     engine_function: normalize_price
-    target_file: sources/oracle.move
+    target_file: sources/*.move
     claim: >
       Every multi-asset price normalization uses each feed's actual
       decimals, not a hardcoded 8 or 18. Mixing produces 10^N errors.
@@ -280,7 +283,7 @@ hypotheses:
     severity: Critical
     bug_class: share-inflation-first-depositor
     engine_function: deposit
-    target_file: sources/vault.move
+    target_file: sources/*.move
     claim: >
       Every vault that mints shares from assets handles the first-
       depositor inflation: either virtual shares (constant offset) or
@@ -293,7 +296,7 @@ hypotheses:
     severity: High
     bug_class: share-donation
     engine_function: convert_to_shares
-    target_file: sources/vault.move
+    target_file: sources/*.move
     claim: >
       Every vault's share conversion math is robust to direct token
       transfers (donations) into the vault. Donations that inflate
@@ -340,7 +343,7 @@ hypotheses:
     severity: High
     bug_class: withdraw-delay-bypass
     engine_function: withdraw
-    target_file: sources/staking*.move
+    target_file: sources/*.move
     claim: >
       Every cooldown/unstake delay is unstoppable once requested.
       Functions that reset the readyAt timer on routine actions
@@ -351,7 +354,7 @@ hypotheses:
     severity: High
     bug_class: stake-double-claim
     engine_function: claim_rewards
-    target_file: sources/rewards.move
+    target_file: sources/*.move
     claim: >
       Every reward-claim path marks the user's snapshot consumed
       atomically with the payout. Re-entrant or two-call patterns
@@ -364,7 +367,7 @@ hypotheses:
     severity: High
     bug_class: auction-bid-after-end
     engine_function: place_bid
-    target_file: sources/auction.move
+    target_file: sources/*.move
     claim: >
       Every bid-placing function rejects bids after the auction's
       end_time. A late-bid-accepted auction allows arbitrage of
@@ -375,7 +378,7 @@ hypotheses:
     severity: Medium
     bug_class: auction-settle-no-winner
     engine_function: settle_auction
-    target_file: sources/auction.move
+    target_file: sources/*.move
     claim: >
       Every settle path handles the no-bid case correctly — returns
       the listed asset to the seller, does NOT transfer to the zero
@@ -426,7 +429,7 @@ hypotheses:
     severity: High
     bug_class: liquidation-no-min-amount
     engine_function: liquidate
-    target_file: sources/liquidation*.move
+    target_file: sources/*.move
     claim: >
       Every liquidation function rejects min-size violations (a
       liquidate of $0.01 should revert, not consume gas + emit events).
@@ -437,7 +440,7 @@ hypotheses:
     severity: High
     bug_class: liquidation-bonus-overflow
     engine_function: compute_liq_bonus
-    target_file: sources/liquidation*.move
+    target_file: sources/*.move
     claim: >
       Every liquidation-bonus calculation is bounded such that
       bonus + repay <= collateral_seized, even after rounding. Bonus
@@ -448,7 +451,7 @@ hypotheses:
     severity: High
     bug_class: lending-interest-accrual
     engine_function: accrue_interest
-    target_file: sources/lending_pool.move
+    target_file: sources/*.move
     claim: >
       Every interest-accrual computation handles long time-since-last-
       accrue gracefully (caps or saturates). An untouched pool over
@@ -462,7 +465,7 @@ hypotheses:
     severity: High
     bug_class: fee-receiver-bypass
     engine_function: set_fee_receiver
-    target_file: sources/treasury.move
+    target_file: sources/*.move
     claim: >
       Every fee-receiver setter is gated by admin auth AND validates
       the new receiver is non-zero, non-self. Letting the receiver
@@ -473,7 +476,7 @@ hypotheses:
     severity: Medium
     bug_class: fee-percent-bound
     engine_function: set_fee_bps
-    target_file: sources/treasury.move
+    target_file: sources/*.move
     claim: >
       Every fee-percentage setter rejects values >= 100% (10_000 bps).
 
@@ -482,7 +485,7 @@ hypotheses:
     severity: Critical
     bug_class: treasury-drain
     engine_function: withdraw_treasury
-    target_file: sources/treasury.move
+    target_file: sources/*.move
     claim: >
       Every treasury-withdrawal function checks admin auth AND limits
       the amount to a sane fraction or via a time-lock. Unbounded
@@ -495,7 +498,7 @@ hypotheses:
     severity: Critical
     bug_class: governance-flashloan-vote
     engine_function: cast_vote
-    target_file: sources/governance.move
+    target_file: sources/*.move
     claim: >
       Every governance vote-weight read uses a historical snapshot at
       `proposal_created_at - 1` (or analogous), not current state.
@@ -506,7 +509,7 @@ hypotheses:
     severity: High
     bug_class: proposal-replay
     engine_function: execute_proposal
-    target_file: sources/governance.move
+    target_file: sources/*.move
     claim: >
       Every proposal execution transitions the proposal state from
       Queued to Executed atomically; second execution call reverts.

@@ -179,31 +179,32 @@ write a real harness:
                 reason="harness stub (CANNOT_VERIFY)",
             )
 
-        # Deploy harness into the target repo so its imports resolve
-        deployed_dir = target_repo_root / "src"
-        deployed_dir.mkdir(parents=True, exist_ok=True)
-        deployed = deployed_dir / f"jelleo_l3_{harness_name}.sol"
+        # Deploy harness into a SCRATCH dir, not the target repo's src/.
+        # Two reasons:
+        #   1. The src/ dir is part of the audited surface — anything we
+        #      write there would be picked up by every subsequent
+        #      forge build and recon pass, polluting findings.
+        #   2. solc resolves imports against --allow-paths, so we can
+        #      reference src/<Real.sol> from a scratch directory just
+        #      as easily.
+        scratch_dir = workspace / "formal" / "solidity" / "scratch"
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        deployed = scratch_dir / f"jelleo_l3_{harness_name}.sol"
         deployed.write_text(body, encoding="utf-8")
 
-        # Use Foundry's solc invocation (foundry resolves remappings)
-        cmd = [
-            "forge", "build",
-            "--via-ir",  # SMTChecker needs IR
-            "--use", "solc",
-            "--extra-output-files", "abi",
-            # SMTChecker config via solc args
-            "--config-path", "foundry.toml",
-        ]
-        # Fall back to raw solc if forge isn't suitable for SMTChecker
-        # (forge doesn't expose --model-checker-* flags directly).
-        # Use solc directly:
+        # SMTChecker via raw solc. forge doesn't expose --model-checker-*
+        # flags directly, so we call solc and let it resolve imports via
+        # --allow-paths. The timeout is in MILLISECONDS, capped to fit
+        # within our wall-clock budget minus a safety margin.
+        smt_timeout_ms = max(5_000, min(timeout_s * 1000 - 5_000, 60_000))
         cmd = [
             "solc",
             "--model-checker-engine", "chc",
             "--model-checker-targets", "all",
-            "--model-checker-timeout", str(min(timeout_s * 1000 // 2, 60000)),
+            "--model-checker-timeout", str(smt_timeout_ms),
             "--model-checker-show-unproved",
-            "--allow-paths", str(target_repo_root),
+            "--allow-paths", f"{target_repo_root},{scratch_dir}",
+            "--base-path", str(target_repo_root),
             str(deployed),
         ]
 
@@ -275,10 +276,18 @@ write a real harness:
                 metadata={"counterexample": ce_text},
             )
 
-        # SMTChecker prints info messages on successful proofs
+        # SMTChecker prints info messages on successful proofs. The
+        # operator-precedence around the second clause was a bug —
+        # `A or B and C` evaluates as `A or (B and C)`, so the original
+        # signal "CHC: All X verified" only fired when BOTH literals
+        # appeared in the output. We make the AND explicit with parens
+        # and ALSO check for the newer "all checks were verified" form
+        # introduced in solc 0.8.20+.
         proved_signal = (
             "CHC: 0 verification conditions remained" in combined
-            or "CHC: All " in combined and "verified" in combined
+            or ("CHC: All " in combined and "verified" in combined)
+            or "CHC: All assertions in this contract are proved" in combined
+            or "all checks were verified" in combined.lower()
         )
         if proved_signal:
             return FormalOutcome(

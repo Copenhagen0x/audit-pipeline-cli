@@ -121,15 +121,28 @@ def _file_for(finding: dict, details: dict) -> str:
     return "(file unknown)"
 
 
-def _description_for(finding: dict, details: dict, narrative_path: Path | None) -> str:
+def _description_for(
+    finding: dict,
+    details: dict,
+    narrative_path: Path | None,
+    location: str,
+    file_: str,
+) -> str:
     """Build the longest-possible accurate description.
 
     Concat (in order):
       1. The finding's title (so the matcher always sees the headline)
-      2. The hypothesis claim (root-cause hypothesis, from details_json)
-      3. The first ~500 chars of the narrative writeup if available
+      2. Inline LOCATION + FILE — Nethermind's scoring algorithm matches
+         findings ONLY on `title` + `description`. The `location` and
+         `file` fields appear in the JSON but are NOT consulted during
+         vendor scoring (they're only used by the scorer's CLI for
+         human display). Putting location + file at the start of the
+         description ensures the matcher actually sees them. This is
+         the single highest-leverage change for F1 on the OSec eval.
+      3. The hypothesis claim (root-cause hypothesis, from details_json)
+      4. The first ~500 chars of the narrative writeup if available
          (narrative.py generates one of these per confirmed finding)
-      4. The PoC excerpt (truncated) if present
+      5. The PoC excerpt (truncated) if present
 
     Cap at ~2000 chars — the scoring LLM has finite context and a giant
     blob hurts matching precision (it can't pick out the root cause).
@@ -138,6 +151,15 @@ def _description_for(finding: dict, details: dict, narrative_path: Path | None) 
     title = finding.get("title") or ""
     if title:
         parts.append(title)
+    # Merge location + file into description so the scorer's LLM matcher
+    # sees them. Format kept short to avoid bloat.
+    loc_line_parts: list[str] = []
+    if file_ and file_ != "(file unknown)":
+        loc_line_parts.append(f"File: {file_}")
+    if location and location != "(location unknown)":
+        loc_line_parts.append(f"Location: {location}")
+    if loc_line_parts:
+        parts.append(" · ".join(loc_line_parts))
     claim = details.get("claim") or details.get("hypothesis_claim")
     if claim:
         parts.append(f"Claim: {claim}")
@@ -159,10 +181,94 @@ def _description_for(finding: dict, details: dict, narrative_path: Path | None) 
     return blob[:2000] if len(blob) > 2000 else blob
 
 
-# Real-finding statuses (mirrors report.py REAL_STATUSES). Anything not
-# in here is dropped from the submission.
+# Map our internal bug_class taxonomy to ScaBench's vulnerability_type
+# categories so the scorer groups findings correctly (otherwise everything
+# maps to "Other" and category-bucketed metrics — used in OSec internal
+# rankings — collapse to a useless flat list).
+_BUG_CLASS_TO_VULN_TYPE: dict[str, str] = {
+    # Memory + integer safety
+    "buffer_overflow":            "Memory Safety",
+    "out_of_bounds":              "Memory Safety",
+    "use_after_free":             "Memory Safety",
+    "double_free":                "Memory Safety",
+    "integer_overflow":           "Arithmetic",
+    "arithmetic_overflow":        "Arithmetic",
+    "division_by_zero":           "Arithmetic",
+    "rounding_error":             "Arithmetic",
+    # Auth / access control
+    "authorization":              "Access Control",
+    "missing_owner_check":        "Access Control",
+    "privilege_escalation":       "Access Control",
+    "signer_check":               "Access Control",
+    "capability_leak":            "Access Control",
+    # Reentrancy
+    "reentrancy":                 "Reentrancy",
+    "cross_function_reentrancy":  "Reentrancy",
+    # Oracle / external state
+    "oracle_manipulation":        "Oracle",
+    "oracle_staleness":           "Oracle",
+    "twap":                       "Oracle",
+    # State / invariants
+    "invariant_property":         "Invariant Violation",
+    "implicit_invariant":         "Invariant Violation",
+    "conservation":               "Invariant Violation",
+    "share_inflation":            "Accounting",
+    "share_math_direction":       "Accounting",
+    # State machines
+    "state_transition":           "State Machine",
+    "uninitialized_state":        "State Machine",
+    "epoch_staleness":            "State Machine",
+    # Crypto / sig
+    "signature_replay":           "Signature Replay",
+    "weak_randomness":            "Cryptography",
+    # Governance / flash loans
+    "governance_attack":          "Governance",
+    "flash_loan":                 "Flash Loan",
+    # DoS
+    "denial_of_service":          "Denial of Service",
+    "gas_griefing":               "Denial of Service",
+    # Logic
+    "logic_error":                "Logic Error",
+    "front_running":              "MEV",
+    "sandwich":                   "MEV",
+}
+
+
+def _vulnerability_type_for(details: dict) -> str:
+    """Map bug_class to ScaBench vulnerability_type. Fallback: 'Logic Error'.
+
+    Without this field every finding categorizes to 'Other' in the OSec
+    scoring dashboards — even when the matcher correctly identifies the
+    finding as TP, the cross-category breakdown shows 0% recall in every
+    bucket because "Other" never matches the underlying-bug-class
+    expected category.
+    """
+    bc = (details.get("bug_class") or "").strip().lower()
+    if bc in _BUG_CLASS_TO_VULN_TYPE:
+        return _BUG_CLASS_TO_VULN_TYPE[bc]
+    # Partial-match fallback (handles e.g. "arithmetic_overflow_unsigned")
+    for key, val in _BUG_CLASS_TO_VULN_TYPE.items():
+        if bc.startswith(key):
+            return val
+    # Hypothesis class fallback (recon prompts label most findings with a
+    # `class` field even when bug_class is unset).
+    cls = (details.get("class") or "").strip().lower()
+    if cls in _BUG_CLASS_TO_VULN_TYPE:
+        return _BUG_CLASS_TO_VULN_TYPE[cls]
+    return "Logic Error"
+
+
+# Real-finding statuses for ScaBench submission.
+#
+# DELIBERATELY excludes `closed_not_planned` — that's an internal
+# Jelleo lifecycle bucket for "we found this, decided it's not a bug
+# OR is by-design and won't fix." Including it in a VENDOR EVALUATION
+# pollutes the FP count: the scorer can't tell our `closed_not_planned`
+# from a real-but-rejected finding, so it counts as a false positive
+# against us. For internal report.py we keep it; for OSec submissions
+# we don't. See audit finding ScaBench-3.
 _REAL_STATUSES: frozenset[str] = frozenset({
-    "confirmed", "disclosed", "fixed", "verified", "closed_not_planned",
+    "confirmed", "disclosed", "fixed", "verified",
 })
 
 
@@ -260,12 +366,21 @@ def export_scabench_cmd(
             details = {}
         nid = f.get("id")
         narrative_path = narrative_root / f"finding_{nid}.md"
+        location = _location_for(f, details)
+        file_path = _file_for(f, details)
         out_findings.append({
             "title": f.get("title") or f.get("hypothesis_id") or "(untitled)",
-            "description": _description_for(f, details, narrative_path),
+            # Description is the only field the scorer's matcher LLM
+            # actually reads in detail; we merge location + file inline
+            # so the matcher can use them too.
+            "description": _description_for(f, details, narrative_path,
+                                            location=location, file_=file_path),
             "severity": _scabench_severity(f.get("severity")),
-            "location": _location_for(f, details),
-            "file": _file_for(f, details),
+            "location": location,
+            "file": file_path,
+            # ScaBench category breakdown — drives the per-category F1
+            # metrics OSec uses to compare vendor coverage by bug class.
+            "vulnerability_type": _vulnerability_type_for(details),
         })
 
     payload = {

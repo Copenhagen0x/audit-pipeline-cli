@@ -28,14 +28,42 @@ from typing import Any
 
 from audit_pipeline.poc_adapters.base import LanguagePocAdapter, PocOutcome
 
-
 # Markers that mean the test didn't actually exercise the bug.
 _PSEUDO_PASS_MARKERS = (
-    "TODO",
     "FIXME",
     "CANNOT_TEST",
     "// placeholder",
+    # NOTE: we intentionally DO NOT match bare "TODO" — many real Foundry
+    # tests have a `// TODO:` comment for follow-up work and are still
+    # exercising the bug. We only block markers that signal "the author
+    # gave up authoring this test." See Phase 1d audit finding C-2.
 )
+
+
+def _detect_foundry_test_dir(repo_root: Path) -> Path:
+    """Parse foundry.toml and return the directory tests must live in.
+
+    Foundry honors a configurable `test` key under [profile.default];
+    OSec repos use `test/` (Foundry default) or `tests/`. We read the
+    raw text rather than importing tomli to keep deps minimal — the
+    pattern we look for is `test = "<dir>"` under [profile.default].
+    """
+    manifest = repo_root / "foundry.toml"
+    if not manifest.is_file():
+        return repo_root / "test"
+    try:
+        text = manifest.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return repo_root / "test"
+    # Match `test = "tests"` (with optional whitespace + single or double quotes)
+    m = re.search(
+        r"^\s*test\s*=\s*['\"]([^'\"]+)['\"]",
+        text,
+        re.MULTILINE,
+    )
+    if m:
+        return repo_root / m.group(1)
+    return repo_root / "test"
 
 
 class SolidityAdapter(LanguagePocAdapter):
@@ -217,10 +245,11 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
                     metadata={"pseudo_pass": True, "marker": marker},
                 )
 
-        # Foundry expects tests in <repo>/test/. Copy the test there for
-        # the run; remove after. Use a unique filename to avoid collisions
-        # with other concurrent runs.
-        repo_test_dir = target_repo_root / "test"
+        # Foundry's test dir is configurable in foundry.toml (key `test`
+        # under [profile.default]). Different OSec repos use `test/` or
+        # `tests/` — read the manifest to pick the right one. Default
+        # to `test/` if foundry.toml is missing or unparseable.
+        repo_test_dir = _detect_foundry_test_dir(target_repo_root)
         repo_test_dir.mkdir(parents=True, exist_ok=True)
         deployed_test = repo_test_dir / f"jelleo_l2_{test_name}.t.sol"
         deployed_test.write_text(body, encoding="utf-8")
@@ -275,9 +304,15 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
         stderr = run_proc.stderr[:4000]
 
         # Parse forge's JSON output to know precisely what happened.
-        # Forge --json emits one JSON object per file under test;
-        # each contains test_results: { test_name: { success: bool, reason: str } }
+        # Forge --json schema varies by version:
+        #   * Older forge: test_results: { test_name: { success: bool, reason } }
+        #   * Newer forge: test_results: { test_name: { status: "Success"|"Failure", reason } }
+        # We accept BOTH. A test fires if EITHER success is False OR status
+        # is "Failure" (case-insensitive). The status field also occasionally
+        # appears as "Skipped" — we treat that as not-fired-and-not-clean
+        # (the test never actually ran).
         fired_tests: list[str] = []
+        skipped_tests: list[str] = []
         failure_reason: str | None = None
         try:
             for line in run_proc.stdout.splitlines():
@@ -296,13 +331,19 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
                     for tname, tdata in results.items():
                         if not isinstance(tdata, dict):
                             continue
-                        if tdata.get("success") is False:
+                        status = str(tdata.get("status") or "").strip().lower()
+                        success = tdata.get("success")
+                        if status == "failure" or success is False:
                             fired_tests.append(tname)
+                            decoded_logs = tdata.get("decoded_logs") or [""]
+                            first_log = decoded_logs[0] if decoded_logs else ""
                             failure_reason = (
                                 tdata.get("reason")
-                                or tdata.get("decoded_logs", [""])[0]
+                                or first_log
                                 or "test failed"
                             )
+                        elif status == "skipped":
+                            skipped_tests.append(tname)
         except (TypeError, KeyError):
             pass
 
@@ -335,6 +376,19 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
                 framework=self.framework,
                 reason=f"forge exited {run_proc.returncode} with no parseable test failure (likely compile error)",
                 metadata={"phase": "compile"},
+            )
+
+        if skipped_tests and not fired_tests:
+            return PocOutcome(
+                fired=False,
+                test_path=test_path,
+                stdout=stdout,
+                stderr=stderr,
+                returncode=0,
+                duration_s=duration,
+                framework=self.framework,
+                reason=f"forge skipped {len(skipped_tests)} test(s) — PoC didn't actually run",
+                metadata={"skipped_tests": skipped_tests[:5], "phase": "skipped"},
             )
 
         return PocOutcome(

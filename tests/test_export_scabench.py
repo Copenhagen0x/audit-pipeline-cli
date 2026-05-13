@@ -216,3 +216,122 @@ def test_location_falls_back_gracefully(tmp_path: Path) -> None:
     f0 = payload["findings"][0]
     assert f0["location"] == "bare_hyp"  # falls back to hypothesis_id
     assert f0["file"] == "(file unknown)"
+
+
+# ---------------------------------------------------------------------------
+# REGRESSION TESTS — added 2026-05-13 after 18-agent self-audit found
+# three CRITICAL gaps in the ScaBench export. Each test pins one of those
+# gaps so it can't silently re-open.
+# ---------------------------------------------------------------------------
+
+
+def test_description_includes_location_and_file_inline(tmp_path: Path) -> None:
+    """REGRESSION: Nethermind's auditagent-scoring-algo matcher LLM only
+    reads `title` + `description` when deciding whether two findings are
+    the same. The top-level `location` and `file` JSON fields are NOT
+    consulted during matching — they only show in the human-readable
+    output. Without inlining them into description, every per-location
+    finding looks like the same generic claim to the matcher.
+
+    Pin that location + file appear inside the description body so
+    the scoring LLM actually sees them.
+    """
+    db = FindingsDB(tmp_path / "findings.db")
+    tid = db.upsert_target("t", engine_repo="x")
+    db.insert_cycle("c1", tid)
+    db.upsert_finding(
+        tid, "c1", "rich_hyp",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.CONFIRMED,
+        title="Withdraw drains vault",
+        details={
+            "target_file": "programs/vault/src/lib.rs",
+            "target_function": "withdraw",
+            "target_lines": "42-65",
+            "claim": "no amount cap",
+        },
+    )
+    runner = CliRunner()
+    runner.invoke(cli_main, [
+        "-w", str(tmp_path), "export-scabench",
+        "--target-name", "t", "--project-id", "p",
+    ])
+    payload = json.loads((tmp_path / "submissions" / "p_results.json").read_text())
+    desc = payload["findings"][0]["description"]
+    assert "programs/vault/src/lib.rs" in desc, (
+        "target_file must appear in description for the scorer's matcher"
+    )
+    assert "withdraw" in desc, (
+        "target_function must appear in description for the scorer's matcher"
+    )
+
+
+def test_closed_not_planned_excluded_from_submission(tmp_path: Path) -> None:
+    """REGRESSION: closed_not_planned is an internal lifecycle label for
+    "found but not actionable / by-design". It should NEVER reach a
+    vendor evaluation submission — to the scorer it looks like a real
+    finding the auditor is claiming, and inflates the FP count.
+
+    The audit found this label was being shipped to evaluators. Pin that
+    it's now blocked.
+    """
+    db = FindingsDB(tmp_path / "findings.db")
+    tid = db.upsert_target("t", engine_repo="x")
+    db.insert_cycle("c1", tid)
+    db.upsert_finding(
+        tid, "c1", "closed_hyp",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.CLOSED_NOT_PLANNED,
+        title="we-found-it-but-wont-fix",
+    )
+    db.upsert_finding(
+        tid, "c1", "confirmed_hyp",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.CONFIRMED,
+        title="real-confirmed-bug",
+    )
+    runner = CliRunner()
+    runner.invoke(cli_main, [
+        "-w", str(tmp_path), "export-scabench",
+        "--target-name", "t", "--project-id", "p",
+    ])
+    payload = json.loads((tmp_path / "submissions" / "p_results.json").read_text())
+    titles = {f["title"] for f in payload["findings"]}
+    assert "we-found-it-but-wont-fix" not in titles, (
+        "closed_not_planned must not appear in vendor submission"
+    )
+    assert "real-confirmed-bug" in titles
+
+
+def test_vulnerability_type_emitted_for_known_bug_class(tmp_path: Path) -> None:
+    """REGRESSION: ScaBench's per-category F1 rollup groups findings by
+    `vulnerability_type`. Without this field every finding categorizes
+    to 'Other' and the cross-category recall metrics collapse to a flat
+    list, hurting how OSec's internal eval reads our coverage.
+    """
+    db = FindingsDB(tmp_path / "findings.db")
+    tid = db.upsert_target("t", engine_repo="x")
+    db.insert_cycle("c1", tid)
+    db.upsert_finding(
+        tid, "c1", "reent_hyp",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.CONFIRMED,
+        title="reentrancy in withdraw",
+        details={"bug_class": "reentrancy"},
+    )
+    db.upsert_finding(
+        tid, "c1", "arith_hyp",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.CONFIRMED,
+        title="overflow in mint",
+        details={"bug_class": "arithmetic_overflow"},
+    )
+    runner = CliRunner()
+    runner.invoke(cli_main, [
+        "-w", str(tmp_path), "export-scabench",
+        "--target-name", "t", "--project-id", "p",
+    ])
+    payload = json.loads((tmp_path / "submissions" / "p_results.json").read_text())
+    by_title = {f["title"]: f for f in payload["findings"]}
+    assert by_title["reentrancy in withdraw"]["vulnerability_type"] == "Reentrancy"
+    assert by_title["overflow in mint"]["vulnerability_type"] == "Arithmetic"

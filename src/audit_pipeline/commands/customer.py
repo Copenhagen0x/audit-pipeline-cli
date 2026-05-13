@@ -133,9 +133,12 @@ def add_cmd(
     branding: dict | None = None
     if any((logo_path, hero_title, footer_text, pdf_watermark)):
         branding = {}
-        if hero_title:    branding["hero_title"] = hero_title
-        if footer_text:   branding["footer_text"] = footer_text
-        if pdf_watermark: branding["pdf_watermark"] = pdf_watermark
+        if hero_title:
+            branding["hero_title"] = hero_title
+        if footer_text:
+            branding["footer_text"] = footer_text
+        if pdf_watermark:
+            branding["pdf_watermark"] = pdf_watermark
         # Logo handling: copy into the customer's branding dir + record
         # the workspace-relative path. We don't store an absolute path
         # in customers.json since the registry may move workspaces.
@@ -171,7 +174,7 @@ def add_cmd(
         console.print(f"  contact_email: {contact_email}")
     if branding:
         console.print(
-            f"  branding:      "
+            "  branding:      "
             + ", ".join(f"{k}={v!r}" for k, v in entry["branding"].items())
         )
 

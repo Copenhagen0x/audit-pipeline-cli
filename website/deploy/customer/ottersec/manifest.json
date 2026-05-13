@@ -2,7 +2,7 @@
   "customer": {
     "id": "ottersec",
     "name": "OtterSec",
-    "protocol_name": "Vendor evaluation pilot",
+    "protocol_name": "Vendor evaluation",
     "tier": "Production",
     "since": "2026-05-13"
   },
@@ -10,8 +10,17 @@
     "hero_title": "OtterSec \u00d7 Jelleo \u00b7 Vendor Evaluation",
     "footer_text": "Confidential \u2014 OtterSec multi-vendor benchmark, do not redistribute",
     "pdf_watermark": "Confidential \u2014 OtterSec evaluation",
-    "logo_path": "customers\\ottersec\\branding\\logo.svg"
+    "logo_path": "customers/ottersec/branding/logo.svg"
   },
+  "services": {
+    "hunt_loop": "running",
+    "snapshot_writer": "running",
+    "heartbeat": "running"
+  },
+  "cycles_total": 0,
+  "loop_uptime_human": "active",
+  "recent_cycles": [],
+  "public_findings": [],
   "targets": [
     {
       "id": 12,

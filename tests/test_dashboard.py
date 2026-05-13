@@ -159,3 +159,113 @@ def test_production_function_handles_missing_docroot() -> None:
     # Tolerant: passes both on dev (returns None) and on the actual VPS
     # (might return a real fingerprint).
     assert result is None or (isinstance(result, str) and result.endswith("…"))
+
+
+# ---------------------------------------------------------------------------
+# REGRESSION TEST — added 2026-05-13 after a SHIP-BLOCKER cross-customer
+# leak: the OtterSec portal was showing Percolator's live cycle id
+# (20260511-183154 "is running") because `_build_customer_manifest`'s
+# cycles/findings filter used `not owned_target_ids or ...` and the
+# empty set evaluated the OR clause to True — bypassing the filter
+# entirely and returning every cycle in the shared DB.
+#
+# Empty owned_target_ids MUST mean "owns nothing" (zero cycles / zero
+# findings), NOT "owns everything". Without this test, a future refactor
+# could silently re-introduce the falsy bypass.
+# ---------------------------------------------------------------------------
+
+
+def test_customer_manifest_no_targets_returns_empty(tmp_path):
+    """REGRESSION: a customer whose target_match doesn't match any DB
+    target rows must see ZERO cycles + ZERO findings — never the global
+    DB's contents. This is the OtterSec leak fix.
+    """
+    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.lifecycle import Status
+    from audit_pipeline.severity import Severity
+
+    # Seed a DB with ONLY Percolator data — no OtterSec targets.
+    db = FindingsDB(tmp_path / "findings.db")
+    tid = db.upsert_target("percolator", engine_repo="x")
+    db.insert_cycle(tid, "20260511-183154")
+    db.upsert_finding(
+        tid, "20260511-183154", "F7",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.CRITICAL, status=Status.CONFIRMED,
+        title="vault drain via use_insurance_buffer",
+    )
+
+    # Customer whose target_match doesn't match any DB rows
+    ottersec_customer = {
+        "id":           "ottersec",
+        "name":         "OtterSec",
+        "target_match": "osec-solana-small,osec-c-small",
+    }
+
+    manifest = dashboard._build_customer_manifest(
+        db, ottersec_customer, workspace=tmp_path,
+    )
+
+    # The bug: previously returned [percolator_cycle], [percolator_finding].
+    # Fix: empty filter = owns nothing.
+    assert manifest["recent_cycles"] == [], (
+        "EMPTY owned_target_ids must return ZERO cycles — Percolator cycles "
+        "must NEVER leak into OtterSec's manifest"
+    )
+    assert manifest["public_findings"] == [], (
+        "EMPTY owned_target_ids must return ZERO findings — Percolator "
+        "F7 must NEVER leak into OtterSec's manifest"
+    )
+    assert manifest["targets"] == [], (
+        "Customer with no matching targets owns no targets"
+    )
+    assert manifest["cycles_total"] == 0
+
+
+def test_customer_manifest_scopes_to_matched_targets(tmp_path):
+    """When the customer's target_match DOES match some DB targets, the
+    manifest returns ONLY those — never other customers' cycles."""
+    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.lifecycle import Status
+    from audit_pipeline.severity import Severity
+
+    db = FindingsDB(tmp_path / "findings.db")
+    # Percolator (other customer)
+    perc_tid = db.upsert_target("percolator", engine_repo="x")
+    db.insert_cycle(perc_tid, "20260511-183154")
+    db.upsert_finding(
+        perc_tid, "20260511-183154", "F7",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.CRITICAL, status=Status.CONFIRMED,
+        title="percolator-bug",
+    )
+    # OtterSec (our customer)
+    osec_tid = db.upsert_target("osec-solana-small", engine_repo="x")
+    db.insert_cycle(osec_tid, "20260513-osec")
+    db.upsert_finding(
+        osec_tid, "20260513-osec", "SOL1",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.HIGH, status=Status.CONFIRMED,
+        title="ottersec-bug",
+    )
+
+    ottersec_customer = {
+        "id":           "ottersec",
+        "name":         "OtterSec",
+        "target_match": "osec-solana-small",
+    }
+    manifest = dashboard._build_customer_manifest(
+        db, ottersec_customer, workspace=tmp_path,
+    )
+
+    cycle_ids = [c["cycle_id"] for c in manifest["recent_cycles"]]
+    finding_titles = [f["title"] for f in manifest["public_findings"]]
+
+    assert "20260513-osec" in cycle_ids
+    assert "20260511-183154" not in cycle_ids, (
+        "Percolator's cycle MUST NOT appear in OtterSec's manifest"
+    )
+    assert "ottersec-bug" in finding_titles
+    assert "percolator-bug" not in finding_titles, (
+        "Percolator's finding MUST NOT appear in OtterSec's manifest"
+    )

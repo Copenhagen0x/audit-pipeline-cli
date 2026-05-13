@@ -360,6 +360,29 @@ def hunt_cmd(
         )
     config = json.loads(config_path.read_text())
 
+    # Phase 1h — language-aware multi-target dispatch.
+    #
+    # workspace.json may declare:
+    #   * "language":   "solana" | "c" | "solidity" | "aptos"
+    #   * "hyp_library": "path/to/<class>.yaml" — class library to load when
+    #                    no --hypotheses / --protocol-class is passed.
+    #   * "customer_id": "ottersec" | "percolator" | ... — selects which
+    #                    customer-scoped findings.db to write into. Without
+    #                    this, every OSec eval cell would write to its own
+    #                    isolated per-workspace DB and the dashboard would
+    #                    see no findings.
+    #
+    # Defaults preserve legacy Percolator behavior (language=solana, DB
+    # local to workspace).
+    config_language = str(config.get("language") or "solana").strip().lower()
+    if config_language not in ("solana", "c", "solidity", "aptos"):
+        raise click.ClickException(
+            f"workspace.json `language` = {config_language!r} is not one of "
+            "{solana, c, solidity, aptos}."
+        )
+    workspace_hyp_library = config.get("hyp_library") or None
+    customer_id_from_workspace = config.get("customer_id") or None
+
     # Gate L0.freshness — refuse to start the cycle if upstream has moved
     # past our pinned SHA more than --max-stale-hours ago. Cycle 20260511-183154
     # was retracted in part because the wrapper clone was 3 commits behind
@@ -436,13 +459,49 @@ def hunt_cmd(
         hypotheses = tmp.name
         _atexit_hunt.register(_cleanup_temp_yaml, tmp.name)
     elif hypotheses is None:
-        candidate = workspace / "hypotheses.yaml"
-        if not candidate.exists():
+        # Resolution order:
+        #   1. CLI flag --hypotheses (already handled above)
+        #   2. CLI flag --protocol-class (already handled above)
+        #   3. workspace.json `hyp_library` (declared per-target language class)
+        #   4. <workspace>/hypotheses.yaml (legacy)
+        candidate_paths: list[Path] = []
+        if workspace_hyp_library:
+            # hyp_library may be relative to the audit-pipeline-cli package's
+            # templates dir (`src/audit_pipeline/templates/...`) OR an absolute
+            # path. Try both.
+            hl_path = Path(workspace_hyp_library)
+            if hl_path.is_absolute() and hl_path.exists():
+                candidate_paths.append(hl_path)
+            else:
+                # Relative to the installed package
+                from audit_pipeline import __file__ as _ap_pkg_path
+                pkg_root = Path(_ap_pkg_path).resolve().parent.parent
+                pkg_relative = pkg_root / workspace_hyp_library
+                if pkg_relative.exists():
+                    candidate_paths.append(pkg_relative)
+                # Also try relative to repo root (one level above the
+                # `src/audit_pipeline/...` package install location)
+                src_relative = (pkg_root.parent / workspace_hyp_library)
+                if src_relative.exists():
+                    candidate_paths.append(src_relative)
+                # Also try relative to workspace itself
+                ws_relative = workspace / workspace_hyp_library
+                if ws_relative.exists():
+                    candidate_paths.append(ws_relative)
+        candidate_paths.append(workspace / "hypotheses.yaml")
+
+        chosen: Path | None = next((p for p in candidate_paths if p.exists()), None)
+        if chosen is None:
             raise click.ClickException(
-                f"No --hypotheses or --protocol-class passed and {candidate} not found. "
-                "Either pass --hypotheses, --protocol-class, or drop a hypotheses.yaml in the workspace."
+                "No --hypotheses or --protocol-class passed, and no library "
+                f"found at any of: {', '.join(str(p) for p in candidate_paths)}.\n"
+                "Either pass --hypotheses, --protocol-class, declare hyp_library "
+                "in workspace.json, or drop hypotheses.yaml in the workspace."
             )
-        hypotheses = str(candidate)
+        hypotheses = str(chosen)
+        console.print(
+            f"  [cyan]Using hyp library: {chosen}[/cyan]"
+        )
 
     # Tier 2 #11 — diff-aware hunting.
     # If --diff-since-sha is set, compute the diff against the engine repo
@@ -641,6 +700,8 @@ def hunt_cmd(
             challenger_model=challenger_model,
             redact_proposer_evidence=redact_proposer_evidence,
             triage_fires=triage_fires,
+            language=config_language,
+            customer_id=customer_id_from_workspace,
         )
     finally:
         if snap_cm is not None:
@@ -681,6 +742,8 @@ def _hunt_run(
     challenger_model: str | None = None,
     redact_proposer_evidence: bool = True,
     triage_fires: bool = True,
+    language: str = "solana",
+    customer_id: str | None = None,
 ) -> None:
     """Hunt cycle body, factored out so the snapshot lifecycle wraps it cleanly."""
 
@@ -742,7 +805,29 @@ def _hunt_run(
         )
 
     # ---------- DB setup ----------
-    db = open_findings_db(workspace)
+    #
+    # PHASE 1h B1 fix: when workspace.json declares customer_id (OSec
+    # eval, or any other multi-target customer), every cell's findings
+    # need to flow into the SHARED customer-level findings.db that the
+    # dashboard reads. Without this, each per-workspace DB is isolated
+    # and the customer dashboard sees zero findings.
+    #
+    # Convention: the shared DB lives at
+    #   <repo_root>/audit_runs/<customer_id>-eval/findings.db
+    # which is the parent of the per-workspace dirs created by
+    # ottersec-eval/setup_workspaces.py.
+    db_workspace = workspace
+    if customer_id:
+        # Walk up: workspace is <repo>/audit_runs/<customer>-eval/workspaces/<cell>
+        # parent.parent.parent gives us <repo>/audit_runs/<customer>-eval
+        candidate = workspace.parent.parent
+        if (candidate / "findings.db").exists() or candidate.name.endswith("-eval"):
+            db_workspace = candidate
+            console.print(
+                f"  [cyan]customer_id={customer_id}: writing findings to "
+                f"shared DB at {candidate / 'findings.db'}[/cyan]"
+            )
+    db = open_findings_db(db_workspace)
     target_id = db.upsert_target(
         name=target,
         github_url=config.get("engine", {}).get("repo"),
@@ -899,6 +984,11 @@ def _hunt_run(
             "--budget-cap-usd", str(recon_cap),
             "--refinement-rounds", str(refinement_rounds),
             "--ground-code" if ground_code else "--no-ground-code",
+            # PHASE 1h: pass the target language so recon picks the right
+            # system prompt + language-specific framing. Without this the
+            # recon subprocess defaults to Solana semantics regardless of
+            # what workspace.json said.
+            "--language", language,
         ]
         # L1 recon Defect 01 (the cycle-20260511 retraction root cause):
         # thread --use-tools and --tool-max-turns through the autonomous
@@ -1028,6 +1118,10 @@ def _hunt_run(
                     "--hypotheses-file", hypotheses,
                     "--output", str(debate_out),
                     "--auto",
+                    # PHASE 1h: pass language so the challenger uses the
+                    # right adversarial frame (Solana/Anchor vs C/UB vs
+                    # Solidity/EVM vs Aptos/Move).
+                    "--language", language,
                 ]
                 # L1.5 debate independence — thread through into the hunt
                 # loop's debate subprocess so cycles get the independence
@@ -1091,13 +1185,30 @@ def _hunt_run(
                 daily_cap.record_spend(0.05)
                 total_cost += 0.05
 
-    # ---------- Layer 2: PoC scaffold + cargo test ----------
+    # ---------- Layer 2: PoC scaffold + run ----------
+    #
+    # PHASE 1h: dispatch by `language`. Solana keeps the existing
+    # cargo-test path (unchanged) because we have a large body of Solana
+    # cycles that depend on it. Other languages route through the
+    # `poc_adapters/` package — same interface, language-specific tooling.
     poc_results: dict[str, dict[str, Any]] = {}
+    # Resolve the language adapter once. Used by the non-Solana branches.
+    _l2_adapter = None
+    if language != "solana":
+        from audit_pipeline.poc_adapters import get_adapter as _get_poc_adapter
+        try:
+            _l2_adapter = _get_poc_adapter(language)
+        except Exception as e:  # noqa: BLE001
+            log("l2_adapter_unavailable", language=language, error=str(e))
+            console.print(
+                f"[red]No L2 PoC adapter for language={language!r}; "
+                f"skipping Layer 2 entirely[/red]"
+            )
     if not skip_poc and candidates:
         console.print()
         console.print(
             f"[bold]Layer 2 - empirical PoC scaffolding on "
-            f"{len(candidates)} candidates[/bold]"
+            f"{len(candidates)} candidates ({language})[/bold]"
         )
         poc_out = cycle_dir / "poc"
         poc_out.mkdir(parents=True, exist_ok=True)
@@ -1109,6 +1220,108 @@ def _hunt_run(
         for v in candidates:
             hyp_id = v["hypothesis_id"]
             finding_name = _slugify(hyp_id)
+
+            # ----- PHASE 1h: non-Solana languages use adapter dispatch -----
+            if language != "solana":
+                if _l2_adapter is None:
+                    # Adapter unavailable; record skip and move on.
+                    poc_results[hyp_id] = {
+                        "scaffold_path": None,
+                        "scaffold_rc": -1,
+                        "compile_test_rc": None,
+                        "fired": False,
+                        "outcome": "adapter_unavailable",
+                        "authoring_mode": f"adapter:{language}",
+                    }
+                    continue
+                meta = hyp_meta.get(hyp_id, {})
+                # Build the LLM authoring prompt + call the model
+                from audit_pipeline.utils import complete as _complete_l2
+                source_context = ""
+                if ground_code and meta.get("target_file"):
+                    try:
+                        tf = engine_dir / meta["target_file"]
+                        if tf.is_file():
+                            source_context = tf.read_text(
+                                encoding="utf-8", errors="replace"
+                            )[:60_000]
+                    except OSError:
+                        pass
+                prompt = _l2_adapter.build_author_prompt(
+                    hyp=meta, source_context=source_context,
+                    target_repo_root=engine_dir,
+                )
+                try:
+                    resp = _complete_l2(prompt)
+                    raw_text = getattr(resp, "text", str(resp))
+                    body = _l2_adapter.parse_test_body(raw_text)
+                except Exception as e:  # noqa: BLE001
+                    log("l2_author_failed", hypothesis_id=hyp_id, error=str(e))
+                    poc_results[hyp_id] = {
+                        "scaffold_path": None,
+                        "scaffold_rc": -2,
+                        "compile_test_rc": None,
+                        "fired": False,
+                        "outcome": "author_failed",
+                        "authoring_mode": f"adapter:{language}",
+                    }
+                    continue
+                # CALIBRATED: per-hyp PoC author cost ~$0.05 (same as Solana).
+                daily_cap.record_spend(0.05)
+                total_cost += 0.05
+                # Write test file then run it via the adapter
+                try:
+                    test_path = _l2_adapter.write_test_file(
+                        workspace, finding_name, body,
+                    )
+                    outcome_obj = _l2_adapter.run_test(
+                        workspace, finding_name, engine_dir,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    log("l2_run_error", hypothesis_id=hyp_id, error=str(e))
+                    poc_results[hyp_id] = {
+                        "scaffold_path": None,
+                        "scaffold_rc": 0,
+                        "compile_test_rc": -3,
+                        "fired": False,
+                        "outcome": f"adapter_run_error:{type(e).__name__}",
+                        "authoring_mode": f"adapter:{language}",
+                    }
+                    continue
+                # Write the cargo-equivalent log so L2.5 triage can read it.
+                # Each adapter exposes stdout/stderr — combine into one log
+                # file in the same format as the Solana cargo log.
+                log_path = poc_out / f"runlog_{finding_name}.log"
+                log_path.write_text(
+                    (outcome_obj.stdout or "") + "\n--- STDERR ---\n"
+                    + (outcome_obj.stderr or ""),
+                    encoding="utf-8",
+                )
+                poc_results[hyp_id] = {
+                    "scaffold_path": str(test_path),
+                    "scaffold_rc": 0,
+                    "compile_test_rc": outcome_obj.returncode,
+                    "fired": outcome_obj.fired,
+                    "outcome": (
+                        "test_failed_bug_reproduced"
+                        if outcome_obj.fired
+                        else (
+                            "compile_error"
+                            if outcome_obj.metadata.get("phase") == "compile"
+                            else "test_passed_no_bug"
+                        )
+                    ),
+                    "cargo_log_path": str(log_path),
+                    "authoring_mode": f"adapter:{language}",
+                    "framework": outcome_obj.framework,
+                    "reason": outcome_obj.reason,
+                    "duration_s": outcome_obj.duration_s,
+                }
+                log("poc_adapter_done", hypothesis_id=hyp_id,
+                    language=language, fired=outcome_obj.fired,
+                    reason=outcome_obj.reason[:160])
+                continue
+            # ----- Solana legacy cargo path (unchanged below) -----
             scaffold_path = poc_out / f"test_{finding_name}.rs"
             cargo_log_path = poc_out / f"cargo_{finding_name}.log"
             # RESUME: if both scaffold AND cargo log exist from a prior run,
@@ -1344,6 +1557,12 @@ def _hunt_run(
                 hyp_meta=hyp_meta,
                 engine_src_loader=_engine_loader,
                 judge_model=challenger_model,  # if operator passed --challenger-model, reuse it
+                # PHASE 1h: pass language so the FALSE-pattern fast-path
+                # matches the language's toolchain output (cargo for
+                # Solana, ASan for C, forge for Solidity, aptos move
+                # test abort codes for Aptos), and so the LLM judge's
+                # fence tag matches the test body's syntax.
+                language=language,
             )
             log("triage_done",
                 strong=triage_out["counts"]["STRONG"],
@@ -1385,19 +1604,90 @@ def _hunt_run(
             layer3_dispatch_filter = None
             triage_summary = {"error": str(e)[:300]}
 
-    # ---------- Layer 4: LiteSVM exploit-chain authoring (PoC-fired + triage-filtered) ----------
-    # POST-AUDIT FIX: now runs AFTER L2.5 triage so `layer3_dispatch_filter`
-    # (which also gates L4 — the variable name is historical; it covers
-    # both Kani + LiteSVM) drops FALSE / SOFT / LOST fires. Cycle 20260511
-    # would have skipped 45 of 64 fires here, saving ~$280 of LiteSVM
-    # author + dispatch spend.
+    # ---------- Layer 4: LiteSVM / runtime fuzz (PoC-fired + triage-filtered) ----------
+    # PHASE 1h: language-aware. Solana keeps LiteSVM (existing path).
+    # C → AFL++ fuzz; Solidity → forge-fuzz; Aptos → aptos-move-test
+    # property runs. All routed through `runtime_adapters/`.
     fired_for_litesvm = [
         v for v in candidates
         if poc_results.get(v["hypothesis_id"], {}).get("fired")
         and (layer3_dispatch_filter is None
              or v["hypothesis_id"] in layer3_dispatch_filter)
     ]
-    if not skip_litesvm and fired_for_litesvm:
+    _l4_adapter = None
+    if language != "solana" and not skip_litesvm:
+        from audit_pipeline.runtime_adapters import (
+            get_adapter as _get_runtime_adapter,
+        )
+        try:
+            _l4_adapter = _get_runtime_adapter(language)
+        except Exception as e:  # noqa: BLE001
+            log("l4_adapter_unavailable", language=language, error=str(e))
+            console.print(
+                f"[yellow]No L4 runtime adapter for language={language!r}; "
+                f"skipping Layer 4[/yellow]"
+            )
+    if not skip_litesvm and fired_for_litesvm and language != "solana":
+        if _l4_adapter is not None:
+            console.print()
+            console.print(
+                f"[bold]Layer 4 - {_l4_adapter.fuzzer} runtime fuzz on "
+                f"{len(fired_for_litesvm)} PoC-fired findings ({language})[/bold]"
+            )
+            fuzz_out = cycle_dir / "fuzz"
+            fuzz_out.mkdir(parents=True, exist_ok=True)
+            for v in fired_for_litesvm:
+                hyp_id = v["hypothesis_id"]
+                meta = hyp_meta.get(hyp_id, {})
+                harness_name = _slugify(hyp_id)
+                from audit_pipeline.utils import complete as _complete_l4
+                source_context = ""
+                if meta.get("target_file"):
+                    try:
+                        tf = engine_dir_for_cargo / meta["target_file"]
+                        if tf.is_file():
+                            source_context = tf.read_text(
+                                encoding="utf-8", errors="replace"
+                            )[:60_000]
+                    except OSError:
+                        pass
+                prompt = _l4_adapter.build_harness_prompt(
+                    hyp=meta, source_context=source_context,
+                    target_repo_root=engine_dir_for_cargo,
+                )
+                try:
+                    resp = _complete_l4(prompt)
+                    body = _l4_adapter.parse_harness_body(getattr(resp, "text", str(resp)))
+                    _l4_adapter.write_harness_file(workspace, harness_name, body)
+                    runtime_outcome = _l4_adapter.run_fuzzer(
+                        workspace, harness_name, engine_dir_for_cargo,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    log("l4_adapter_error", hypothesis_id=hyp_id, error=str(e))
+                    litesvm_results[hyp_id] = {
+                        "returncode": -1,
+                        "scaffold_dir": str(fuzz_out),
+                        "error": f"{type(e).__name__}: {e}",
+                    }
+                    continue
+                daily_cap.record_spend(0.10)
+                total_cost += 0.10
+                litesvm_results[hyp_id] = {
+                    "returncode": runtime_outcome.returncode,
+                    "scaffold_dir": str(fuzz_out),
+                    "crash_found": runtime_outcome.crash_found,
+                    "ran_clean": runtime_outcome.ran_clean,
+                    "fuzzer": runtime_outcome.fuzzer,
+                    "reason": runtime_outcome.reason,
+                    "duration_s": runtime_outcome.duration_s,
+                    "n_witnesses": len(runtime_outcome.witness_inputs or []),
+                }
+                log("l4_adapter_done", hypothesis_id=hyp_id,
+                    language=language,
+                    crash_found=runtime_outcome.crash_found,
+                    ran_clean=runtime_outcome.ran_clean)
+        # Non-Solana L4 done — skip the Solana LiteSVM section below.
+    elif not skip_litesvm and fired_for_litesvm:
         console.print()
         console.print(
             f"[bold]Layer 4 - LiteSVM exploit-chain authoring + dispatch on "
@@ -1448,14 +1738,91 @@ def _hunt_run(
             }
             log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc_author)
 
-    # ---------- Layer 3: Kani harness (only on PoC-fired, optionally triage-filtered) ----------
+    # ---------- Layer 3: formal verification (Kani / CBMC / SMTChecker / Move Prover) ----------
+    #
+    # PHASE 1h: dispatch L3 by language. Solana keeps the existing Kani
+    # path (unchanged). Other languages route through `formal_adapters/`.
     fired_for_kani = [
         v for v in candidates
         if poc_results.get(v["hypothesis_id"], {}).get("fired")
         and (layer3_dispatch_filter is None
              or v["hypothesis_id"] in layer3_dispatch_filter)
     ]
-    if not skip_kani and fired_for_kani and daily_cap.remaining_today() > 0.50:
+    _l3_adapter = None
+    if language != "solana" and not skip_kani:
+        from audit_pipeline.formal_adapters import get_adapter as _get_formal_adapter
+        try:
+            _l3_adapter = _get_formal_adapter(language)
+        except Exception as e:  # noqa: BLE001
+            log("l3_adapter_unavailable", language=language, error=str(e))
+            console.print(
+                f"[yellow]No L3 formal adapter for language={language!r}; "
+                f"skipping Layer 3[/yellow]"
+            )
+    if not skip_kani and fired_for_kani and language != "solana":
+        if _l3_adapter is not None:
+            console.print()
+            console.print(
+                f"[bold]Layer 3 - {_l3_adapter.verifier} formal verification on "
+                f"{len(fired_for_kani)} PoC-fired findings ({language})[/bold]"
+            )
+            formal_out = cycle_dir / "formal"
+            formal_out.mkdir(parents=True, exist_ok=True)
+            for v in fired_for_kani:
+                if daily_cap.remaining_today() < 0.50:
+                    log("l3_halted_daily_cap", spent=daily_cap.today_spend())
+                    break
+                hyp_id = v["hypothesis_id"]
+                meta = hyp_meta.get(hyp_id, {})
+                harness_name = f"{_slugify(hyp_id)}_invariant"
+                # Build LLM prompt + author harness
+                from audit_pipeline.utils import complete as _complete_l3
+                source_context = ""
+                if meta.get("target_file"):
+                    try:
+                        tf = engine_dir_for_cargo / meta["target_file"]
+                        if tf.is_file():
+                            source_context = tf.read_text(
+                                encoding="utf-8", errors="replace"
+                            )[:60_000]
+                    except OSError:
+                        pass
+                prompt = _l3_adapter.build_harness_prompt(
+                    hyp=meta, source_context=source_context,
+                    target_repo_root=engine_dir_for_cargo,
+                )
+                try:
+                    resp = _complete_l3(prompt)
+                    body = _l3_adapter.parse_harness_body(getattr(resp, "text", str(resp)))
+                    _l3_adapter.write_harness_file(workspace, harness_name, body)
+                    formal_outcome = _l3_adapter.run_verifier(
+                        workspace, harness_name, engine_dir_for_cargo,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    log("l3_adapter_error", hypothesis_id=hyp_id, error=str(e))
+                    kani_results[hyp_id] = {
+                        "returncode": -1,
+                        "harness_dir": str(formal_out),
+                        "error": f"{type(e).__name__}: {e}",
+                    }
+                    continue
+                # Charge ~$0.50 like synth-kani
+                daily_cap.record_spend(0.50)
+                total_cost += 0.50
+                kani_results[hyp_id] = {
+                    "returncode": formal_outcome.returncode,
+                    "harness_dir": str(formal_out),
+                    "proved": formal_outcome.proved,
+                    "counterexample": formal_outcome.counterexample,
+                    "reason": formal_outcome.reason,
+                    "duration_s": formal_outcome.duration_s,
+                    "verifier": formal_outcome.verifier,
+                }
+                log("l3_adapter_done", hypothesis_id=hyp_id,
+                    language=language, proved=formal_outcome.proved,
+                    counterexample=formal_outcome.counterexample)
+        # Non-Solana L3 done — skip the Solana Kani section below.
+    elif not skip_kani and fired_for_kani and daily_cap.remaining_today() > 0.50:
         console.print()
         console.print(
             f"[bold]Layer 3 - Kani harness synthesis on "
@@ -1899,7 +2266,10 @@ def _hunt_run(
                           if config.get("engine") else None)
             wrapper_src = (workspace / config["wrapper"]["local"] / "src"
                            if config.get("wrapper") else None)
-            _db = open_findings_db(workspace)
+            # PHASE 1h B1: same DB-relocation logic as the main DB open
+            # above — when customer_id is set, the post-cycle QA reads
+            # from the SHARED customer-eval DB, not a per-workspace one.
+            _db = open_findings_db(db_workspace)
             confirmed = [
                 f for f in _db.list_findings(limit=1000)
                 if f.get("cycle_id") == cycle_id and f.get("poc_fired")

@@ -42,6 +42,7 @@ Harness pattern the LLM writes:
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import time
@@ -164,6 +165,11 @@ write a real harness, output:
         out_path.write_text(body, encoding="utf-8")
         return out_path
 
+    # Per-language unwind bound. 16 is generous for most boundary
+    # checks but small for any harness that scans buffers — callers
+    # can override via env CBMC_UNWIND.
+    DEFAULT_UNWIND = 32
+
     def run_verifier(
         self,
         workspace: Path,
@@ -200,9 +206,20 @@ write a real harness, output:
             if "vendor" not in p.parts and "tests" not in p.parts
         ] if include_dir.is_dir() else []
 
+        # Configurable unwind via CBMC_UNWIND env (default 32). Add
+        # --unwinding-assertions so unwind-bound exceeded becomes a
+        # counterexample (not silent unsoundness). Without this flag
+        # CBMC silently truncates loops it can't unroll and reports
+        # VERIFICATION SUCCESSFUL even when assertions WOULD fire
+        # past the bound.
+        try:
+            unwind = int(os.environ.get("CBMC_UNWIND", str(self.DEFAULT_UNWIND)))
+        except ValueError:
+            unwind = self.DEFAULT_UNWIND
         cmd = [
             "cbmc",
-            "--unwind", "16",
+            "--unwind", str(unwind),
+            "--unwinding-assertions",
             "--bounds-check", "--pointer-check",
             "--signed-overflow-check", "--unsigned-overflow-check",
             "--conversion-check", "--div-by-zero-check",

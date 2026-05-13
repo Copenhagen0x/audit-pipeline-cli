@@ -32,7 +32,6 @@ from typing import Any
 
 from audit_pipeline.poc_adapters.base import LanguagePocAdapter, PocOutcome
 
-
 _PSEUDO_PASS_MARKERS = (
     "#[ignore]",
     "unimplemented!()",

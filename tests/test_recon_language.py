@@ -19,7 +19,6 @@ from __future__ import annotations
 from click.testing import CliRunner
 
 from audit_pipeline.commands.recon import (
-    LANGUAGE_SYSTEM_PROMPTS,
     SUPPORTED_LANGUAGES,
     _system_prompt_for,
     recon_cmd,

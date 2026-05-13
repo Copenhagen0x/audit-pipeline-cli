@@ -10,14 +10,13 @@ findings on Solidity / C / Aptos repos.
 from __future__ import annotations
 
 from audit_pipeline.layer25_triage import (
+    _APTOS_FALSE_PATTERNS,
     _C_FALSE_PATTERNS,
     _SOLANA_FALSE_PATTERNS,
     _SOLIDITY_FALSE_PATTERNS,
-    _APTOS_FALSE_PATTERNS,
     build_judge_user_prompt,
     classify_by_pattern,
 )
-
 
 # ────────── Fast-path FALSE patterns per language ──────────
 

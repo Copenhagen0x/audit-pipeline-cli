@@ -756,14 +756,26 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         ]
     owned_target_ids = {t["id"] for t in owned_targets}
 
+    # CRITICAL audit fix (2026-05-13): the previous filters used
+    # `not owned_target_ids or ...` which, when owned_target_ids was
+    # EMPTY (customer's target_match doesn't yet match any DB rows —
+    # the normal state of a freshly-onboarded customer before any
+    # cycles have run), evaluated the OR to True and let EVERY cycle
+    # + EVERY finding through. That's how the Percolator cycle
+    # 20260511-183154 leaked into the OtterSec manifest.json.
+    #
+    # New semantics: empty owned_target_ids = OWNS NOTHING. The cycles
+    # and findings arrays become empty for any customer that hasn't
+    # yet seeded their targets in this DB, which is correct — they
+    # have no data, so they should see no data, NOT someone else's.
     cycles = [
         c for c in db.list_cycles(limit=20)
-        if not owned_target_ids or c.get("target_id") in owned_target_ids
+        if c.get("target_id") in owned_target_ids
     ]
     findings_all = db.list_findings(limit=500)
     findings = [
         f for f in findings_all
-        if (not owned_target_ids or f.get("target_id") in owned_target_ids)
+        if f.get("target_id") in owned_target_ids
         and (f.get("status") or "") in CUSTOMER_STATUSES
     ]
 

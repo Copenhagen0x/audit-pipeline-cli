@@ -1,0 +1,17 @@
+{
+  "customer_id": "ottersec",
+  "generated_at": "2026-05-13T17:00:00+00:00",
+  "engine_sha": "",
+  "cycles_total": 0,
+  "last_cycle_ts": null,
+  "service_summary": {
+    "hunt_loop": "active",
+    "snapshot_writer": "active",
+    "heartbeat": "active"
+  },
+  "services": [
+    {"name": "hunt_loop", "state": "up"},
+    {"name": "snapshot_writer", "state": "up"},
+    {"name": "heartbeat", "state": "up"}
+  ]
+}

@@ -477,3 +477,153 @@ def test_hunt_source_threads_triage_fires_to_layer3_filter() -> None:
 def test_triage_fires_cli_registered() -> None:
     from audit_pipeline.cli import main
     assert "triage-fires" in main.commands
+
+
+# ---------------------------------------------------------------------------
+# REGRESSION TESTS — added 2026-05-13 after the 18-agent self-audit caught
+# two HIGH-severity defects in layer25_triage:
+#   1. _parse_judge_response regex `\{[^{}]*\"classification\"[^{}]*\}`
+#      breaks when the judge echoes the schema as a sibling JSON object
+#      OR when the reason string contains a literal brace (very common
+#      when the test body is quoted back).
+#   2. Solana arithmetic-overflow fast-path pattern matched ANYWHERE in
+#      the panic stack, suppressing real F7-shape engine fires that
+#      surface the same panic from engine-side underflow.
+# ---------------------------------------------------------------------------
+
+
+def test_parse_judge_response_handles_nested_braces_in_reason() -> None:
+    """REGRESSION: reason strings often quote brace-containing test bodies.
+    The old non-greedy regex broke on the first inner `}`.
+    """
+    text = (
+        '{"classification": "STRONG", '
+        '"reason": "test_body had `fn x() { let _ = y; }` which fires"}'
+    )
+    cls, reason = _parse_judge_response(text)
+    assert cls == "STRONG"
+    assert "fires" in reason
+    assert "fn x()" in reason
+
+
+def test_parse_judge_response_handles_schema_echo() -> None:
+    """REGRESSION: When the model echoes the schema as a sibling JSON
+    object BEFORE the real answer, we must skip it and find the real
+    classification, not return SOFT for the schema.
+    """
+    text = (
+        "Schema: "
+        '{"classification": "STRONG|SOFT|FALSE", "reason": "<text>"}\n'
+        "Answer: "
+        '{"classification": "FALSE", "reason": "params factory panic"}'
+    )
+    cls, reason = _parse_judge_response(text)
+    # First object has invalid classification value, second is the real one
+    assert cls == "FALSE"
+    assert "params factory" in reason
+
+
+def test_parse_judge_response_prose_then_json() -> None:
+    """REGRESSION: model decides to chat before answering. Still find the JSON."""
+    text = (
+        "Let me think about this carefully.\n\n"
+        "The test setup looks fine; the assertion references the claim.\n\n"
+        '{"classification": "STRONG", "reason": "real bug confirmed"}'
+    )
+    cls, reason = _parse_judge_response(text)
+    assert cls == "STRONG"
+    assert "real bug" in reason
+
+
+def test_solana_overflow_pattern_anchored_to_tests_path() -> None:
+    """REGRESSION: bare `attempt to subtract with overflow` should NOT
+    suppress fires that originate in the engine (F7-shape findings DO
+    surface this exact panic from engine-side underflow). Only the
+    test-setup variant (panic in tests/<x>.rs) should classify FALSE.
+    """
+    # Engine-side overflow: must NOT match the FALSE pattern (real fire)
+    engine_panic = (
+        "thread 'tests::y' panicked at src/engine/risk.rs:118:9: "
+        "attempt to subtract with overflow"
+    )
+    assert classify_by_pattern(engine_panic) is None, (
+        "engine-side overflow must NOT classify as FALSE — it's the F7 shape"
+    )
+
+    # Test-setup overflow: SHOULD match the FALSE pattern
+    setup_panic = (
+        "thread 'tests::z' panicked at tests/test_h17.rs:11:5: "
+        "attempt to subtract with overflow"
+    )
+    result = classify_by_pattern(setup_panic)
+    assert result is not None
+    assert result[0] == "FALSE"
+
+
+def test_classify_by_pattern_language_dispatch_c() -> None:
+    """REGRESSION: language=c must dispatch to C ASan patterns, not the
+    Solana set. ASan-in-test-file matches FALSE; the same string under
+    language=solana does NOT.
+    """
+    panic = (
+        "==12345==ERROR: AddressSanitizer: heap-buffer-overflow at "
+        "tests/test_h12.c:55"
+    )
+    # C dispatch: matches ASan-in-test pattern
+    c_result = classify_by_pattern(panic, language="c")
+    assert c_result is not None
+    assert c_result[0] == "FALSE"
+    # Solana dispatch: same string, but Solana patterns don't include
+    # the AddressSanitizer signature → no match.
+    sol_result = classify_by_pattern(panic, language="solana")
+    assert sol_result is None
+
+
+def test_classify_by_pattern_language_dispatch_solidity() -> None:
+    """REGRESSION: language=solidity dispatches to forge setUp() patterns."""
+    panic = "setUp() failed in test_h12.t.sol"
+    result = classify_by_pattern(panic, language="solidity")
+    assert result is not None
+    assert result[0] == "FALSE"
+    assert "setUp" in result[1]
+
+
+def test_classify_by_pattern_language_dispatch_aptos() -> None:
+    """REGRESSION: language=aptos dispatches to Move compile/abort patterns."""
+    panic = "error[E04001]: cannot resolve module"
+    result = classify_by_pattern(panic, language="aptos")
+    assert result is not None
+    assert result[0] == "FALSE"
+    assert "compile" in result[1].lower()
+
+
+def test_classify_by_pattern_unknown_language_falls_back_to_solana() -> None:
+    """REGRESSION: unknown language must NOT throw — it falls back to the
+    Solana pattern set so legacy callers don't break."""
+    # F7-shape unwrap on engine constructor error
+    panic = (
+        "thread 'tests::a' panicked at src/eng.rs:1:1: "
+        "called `Result::unwrap()` on an `Err` value: BadConfig"
+    )
+    result = classify_by_pattern(panic, language="klingon")
+    assert result is not None
+    assert result[0] == "FALSE"
+
+
+def test_hunt_threads_language_to_triage() -> None:
+    """The hunt orchestrator's triage call must pass `language=` so the
+    fast-path dispatches to the right pattern set. Without this, the
+    Solana FALSE patterns would suppress real C/Solidity/Aptos fires
+    (or worse, miss the C-specific false-fire patterns that should
+    fast-path away).
+    """
+    import audit_pipeline.commands.hunt as hunt_mod
+    src = Path(hunt_mod.__file__).read_text(encoding="utf-8")
+    # The _triage(...) call MUST include language=language
+    idx = src.find("triage_out = _triage(")
+    assert idx > 0, "triage call not found"
+    chunk = src[idx:idx + 800]
+    assert "language=language" in chunk, (
+        "hunt.py must pass language=language to _triage() so FALSE "
+        "patterns match the right toolchain"
+    )

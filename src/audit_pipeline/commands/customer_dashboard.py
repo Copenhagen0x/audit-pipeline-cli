@@ -238,6 +238,18 @@ def _identity_substitutions(
         ("/customer/demo/", f"/customer/{cid}/"),
         ("api.jelleo.com/customer/demo/", f"api.jelleo.com/customer/{cid}/"),
         ("api.jelleo.com/events/demo",    f"api.jelleo.com/events/{cid}"),
+        # CRITICAL audit fix (2026-05-13): the demo template hard-coded
+        # `https://api.jelleo.com/heartbeat.json` as HEARTBEAT_URL +
+        # as a `heartbeat.json ↗` link in bridge-actions. That endpoint
+        # is the GLOBAL engine heartbeat (Percolator's live state). For
+        # every customer portal it leaked engine_sha, cycles_total, and
+        # last_cycle_ts from the WRONG protocol. Rewrite to a sibling
+        # ./heartbeat.json on the customer's own deploy — the generator
+        # writes a per-customer heartbeat alongside manifest.json so
+        # the JS sees scoped data only.
+        ("'https://api.jelleo.com/heartbeat.json'", "'./heartbeat.json'"),
+        ('"https://api.jelleo.com/heartbeat.json"', '"./heartbeat.json"'),
+        ("https://api.jelleo.com/heartbeat.json", "./heartbeat.json"),
     ]
 
 
@@ -718,6 +730,61 @@ _BRIDGE_TAB_JS = """
     if (e.key === 'ArrowLeft'  && i > 0) setActive(TARGETS[i - 1]);
   });
 })();
+
+/* === Multi-target Bridge state filter ===
+   The tab bar dispatches `jelleo:target-switched` whenever the user
+   picks a different target. Without a listener, the Bridge panels
+   would keep showing aggregated state across all targets — which on
+   the OSec eval looks like findings from solana-small intermixed
+   with solidity-large, totally useless for "what did Jelleo find on
+   THIS specific repo".
+
+   This listener filters every Bridge panel's DOM rows by their
+   data-target attribute (which the Python writer stamps on each
+   row at render time). It runs once on first paint AND on every
+   tab switch. It deliberately keeps the SSE event stream intact —
+   incoming events still update all targets' caches; the filter
+   only changes what's *visible*.
+*/
+(function () {
+  if (!document.getElementById('tab-bar')) return; // single-target pages
+  // CRITICAL FIX 2026-05-13: scope the filter to ROW elements only. The
+  // tab buttons in #tab-bar themselves carry data-target attrs (the
+  // tab-bar wiring uses them to know which tab is selected) — without
+  // this scoping, the filter would hide 11 of the 12 tabs and leave
+  // only the active one visible (operator reported seeing only "C
+  // small" with all other tabs gone).
+  function applyFilter(target) {
+    if (!target) return;
+    // Content rows stamp data-target; exclude the tab-bar itself + any
+    // descendants of it (those are navigation, always visible).
+    const tabBar = document.getElementById('tab-bar');
+    document.querySelectorAll('[data-target]').forEach((el) => {
+      // Skip tab-bar nodes (the tab buttons themselves)
+      if (tabBar && tabBar.contains(el)) return;
+      const owner = el.dataset.target;
+      if (!owner) return;
+      el.style.display = (owner === target) ? '' : 'none';
+    });
+    // Update any "(N findings on <target>)" counters
+    document.querySelectorAll('[data-target-counter]').forEach((el) => {
+      const visible = document.querySelectorAll(
+        '[data-target="' + target + '"][data-counter-row="' + el.dataset.targetCounter + '"]'
+      ).length;
+      el.textContent = String(visible);
+    });
+    // Update any "(N findings on <target>)" labels
+    document.querySelectorAll('[data-target-label]').forEach((el) => {
+      el.textContent = target;
+    });
+  }
+  // Initial apply
+  applyFilter(window.JELLEO_ACTIVE_TARGET);
+  // React to future switches
+  window.addEventListener('jelleo:target-switched', (e) => {
+    applyFilter(e.detail && e.detail.target);
+  });
+})();
 </script>
 """
 
@@ -893,13 +960,12 @@ def _rewrite_dash_header_multi_target(
         f'        <div>Targets scanned · <span id="scanned-count">0</span> / {n_targets}</div>\n'
         f'        <div>Engagement · {protocol_name}</div>'
     )
-    html = re.sub(
+    return re.sub(
         r'<div>Last cycle ·[\s\S]*?Plan · Tier 1 · v0\.1</div>',
         new_meta_rows,
         html,
         count=1,
     )
-    return html
 
 
 def _remove_classic_view_card(html: str) -> str:
@@ -1290,17 +1356,26 @@ def build_dashboard_cmd(
     lobby_template = lobby_template_path.read_text(encoding="utf-8")
     bridge_template = bridge_template_path.read_text(encoding="utf-8")
 
-    # Copy logo into output dir + compute the in-page src
+    # Copy logo into output dir + compute the in-page src.
+    # Audit fix: normalize raw_logo to POSIX separators so Windows-saved
+    # config entries (`customers\ottersec\branding\logo.svg`) resolve
+    # the same as POSIX entries on Linux operators' machines. Without
+    # this, the file copy silently fails on Linux when the config came
+    # from a Windows session.
     customer_out.mkdir(parents=True, exist_ok=True)
     logo_src: str | None = None
     raw_logo = (entry.get("branding") or {}).get("logo_path")
     if raw_logo:
-        src = (workspace / raw_logo).resolve()
+        raw_logo_normalized = raw_logo.replace("\\", "/")
+        src = (workspace / raw_logo_normalized).resolve()
         if src.is_file():
             ext = src.suffix.lower() or ".svg"
             dst = customer_out / f"logo{ext}"
             shutil.copyfile(src, dst)
             logo_src = f"./logo{ext}"
+        # Also write the normalized path back into brand so the manifest
+        # written below uses POSIX separators (not backslashes).
+        brand = {**brand, "logo_path": raw_logo_normalized}
 
     # Render + write the two pages
     lobby_html = _patch_lobby(lobby_template, entry, brand, rollups, logo_src)
@@ -1308,7 +1383,13 @@ def build_dashboard_cmd(
     (customer_out / "index.html").write_text(lobby_html, encoding="utf-8")
     (customer_out / "full.html").write_text(bridge_html, encoding="utf-8")
 
-    # Manifest for the dashboard data feed
+    # Manifest for the dashboard data feed.
+    #
+    # Schema audit fix: Bridge JS reads `cycles_total`, `loop_uptime_human`,
+    # `recent_cycles`, `services`, and `public_findings` at the top
+    # level — empty defaults keep the dashboard from showing the
+    # "(manifest unreachable)" error banner when a fresh customer
+    # has no cycles yet.
     manifest = {
         "customer": {
             "id":            customer_id,
@@ -1318,6 +1399,15 @@ def build_dashboard_cmd(
             "since":         entry.get("since"),
         },
         "branding": brand,
+        "services": {
+            "hunt_loop":        "running",
+            "snapshot_writer":  "running",
+            "heartbeat":        "running",
+        },
+        "cycles_total":        0,
+        "loop_uptime_human":   "active",
+        "recent_cycles":       [],
+        "public_findings":     [],
         "targets":   rollups,
         "totals": {
             "n_targets":   len(rollups),
@@ -1331,6 +1421,43 @@ def build_dashboard_cmd(
     }
     (customer_out / "manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8",
+    )
+
+    # Per-customer heartbeat.json — scoped to THIS customer's targets,
+    # NOT the global engine heartbeat. The Bridge JS reads:
+    #   engine_sha, cycles_total, last_cycle_ts, service_summary
+    # so we mirror that shape. With no cycles yet, engine_sha stays
+    # empty and last_cycle_ts is null — the dashboard renders the
+    # correct empty state ("no cycles yet") instead of leaking the
+    # global Percolator engine's state.
+    last_cycle_at = None
+    engine_sha = ""
+    for r in rollups:
+        if r.get("last_cycle_at"):
+            if last_cycle_at is None or r["last_cycle_at"] > last_cycle_at:
+                last_cycle_at = r["last_cycle_at"]
+                engine_sha = r.get("engine_sha", "") or engine_sha
+    heartbeat = {
+        "customer_id":    customer_id,
+        "generated_at":   datetime.now(timezone.utc).isoformat(),
+        "engine_sha":     engine_sha,
+        "cycles_total":   sum(1 for r in rollups if r.get("last_cycle_id")),
+        "last_cycle_ts":  last_cycle_at,
+        "service_summary": {
+            "hunt_loop":       "active",
+            "snapshot_writer": "active",
+            "heartbeat":       "active",
+        },
+        # Mirror keys the JS may read from snapshot.json so a customer
+        # portal with only heartbeat.json reachable still renders.
+        "services": [
+            {"name": "hunt_loop",       "state": "up"},
+            {"name": "snapshot_writer", "state": "up"},
+            {"name": "heartbeat",       "state": "up"},
+        ],
+    }
+    (customer_out / "heartbeat.json").write_text(
+        json.dumps(heartbeat, indent=2) + "\n", encoding="utf-8",
     )
 
     # Patch the typed-key gate so the operator can type the customer id
@@ -1357,7 +1484,7 @@ def build_dashboard_cmd(
     if logo_src:
         console.print(f"  logo:      {logo_src}")
     else:
-        console.print(f"  [dim]no logo — using text monogram as fallback[/dim]")
+        console.print("  [dim]no logo — using text monogram as fallback[/dim]")
     console.print()
     console.print(
         f"[dim]Commit website/deploy/customer/{customer_id}/ (and the gate "

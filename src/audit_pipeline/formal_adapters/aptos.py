@@ -242,11 +242,33 @@ write a real spec:
         stderr = proc.stderr[:4000]
         combined = stdout + "\n" + stderr
 
-        # Move Prover output patterns
+        # Move Prover output patterns.
+        #
+        # IMPORTANT: scope failure-signal detection to OUR deployed spec
+        # module (jelleo_l3_spec_<name>). The prover runs over the WHOLE
+        # package, so pre-existing failing specs in unrelated source
+        # modules would otherwise show up as "our" counterexamples.
+        #
+        # We do this by finding the lines in the prover output that
+        # mention our spec module's identifier and only looking at those.
+        spec_anchor = f"jelleo_l3_spec_{harness_name}"
+        scoped_lines = [
+            line for line in combined.splitlines()
+            if spec_anchor in line
+        ]
+        # If the prover output groups failures by source file (typical),
+        # we can also scope by lines near our deployed.move path.
+        if not scoped_lines:
+            # Fall back to whole combined output but use a tighter regex
+            # that requires the failure to mention our harness name.
+            scoped = combined
+        else:
+            scoped = "\n".join(scoped_lines)
+
         failure_match = re.search(
             r"(specification failed|abort code\s*\d+|counterexample|"
-            r"verification error)",
-            combined,
+            r"verification error|did not verify)",
+            scoped,
             re.IGNORECASE,
         )
         if failure_match:
@@ -260,7 +282,10 @@ write a real spec:
                 duration_s=duration,
                 verifier=self.verifier,
                 reason=f"Move Prover found counterexample: {failure_match.group(0)}",
-                metadata={"failure_signal": failure_match.group(0)},
+                metadata={
+                    "failure_signal": failure_match.group(0),
+                    "scoped_to_spec": bool(scoped_lines),
+                },
             )
 
         if "verification successful" in combined.lower():

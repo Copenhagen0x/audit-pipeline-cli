@@ -756,9 +756,11 @@ hypotheses:
     target_file: src/Contract*.sol
     claim: >
       Every long-window reward emission curve uses `block.timestamp`,
-      not `block.number`. After EIP-7251, block intervals are not
-      reliable for chain-time on most L1s, and L2s have erratic block
-      numbers.
+      not `block.number`. After Ethereum's Merge (EIP-3675) block
+      intervals stabilized around 12s but are not strictly fixed, and
+      L2s have erratic / non-monotonic block numbers depending on the
+      sequencer's batching policy. Using `block.number * SECONDS_PER_BLOCK`
+      as a time proxy desyncs over long windows.
 
   # ─────────────────── Module composition ───────────────────
 

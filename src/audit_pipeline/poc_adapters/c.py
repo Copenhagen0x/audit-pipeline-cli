@@ -28,6 +28,7 @@ PocOutcome.fired = False.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import time
@@ -35,7 +36,6 @@ from pathlib import Path
 from typing import Any
 
 from audit_pipeline.poc_adapters.base import LanguagePocAdapter, PocOutcome
-
 
 # Sanitizer kinds we look for in stderr — used to populate
 # PocOutcome.metadata['sanitizer'] so L2.5 auto-judge knows what kind
@@ -54,11 +54,16 @@ _SANITIZER_PATTERNS = (
 # pseudo-pass list the Solana post-cycle gate already uses. We block
 # these at PoC write time so a "I can't test this" stub never counts
 # as a passed/fired result.
+#
+# NOTE: we intentionally DO NOT match bare "TODO" or "FIXME" — many
+# real C tests have a `// TODO: replace with stronger oracle once X`
+# comment for follow-up work and are still exercising the bug. We
+# only block markers that signal "the author gave up authoring this
+# test." See Phase 1d audit finding C-2.
 _PSEUDO_PASS_MARKERS = (
-    "TODO",
-    "FIXME",
     "CANNOT_TEST",
     "/* placeholder",
+    "// placeholder",
 )
 
 
@@ -308,20 +313,26 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
                 metadata={"phase": "compile"},
             )
 
-        # Compile OK; run the binary
+        # Compile OK; run the binary.
+        #
+        # Merge ASAN/UBSAN tuning options ON TOP of the parent env so we
+        # don't strip the user's PATH / LD_LIBRARY_PATH / SHELL etc —
+        # which broke ASan's symbolizer on systems where llvm-symbolizer
+        # lives outside /usr/bin (e.g. /opt/homebrew/opt/llvm/bin).
+        run_env = {**os.environ}
+        run_env.update({
+            # Disable leak-detection by default to keep noise down;
+            # ASan's other detectors (heap-buffer-overflow, etc) stay on.
+            "ASAN_OPTIONS": "detect_leaks=0:abort_on_error=0:exitcode=42",
+            "UBSAN_OPTIONS": "print_stacktrace=1:abort_on_error=0",
+        })
         try:
             run_proc = subprocess.run(
                 [str(bin_path)],
                 capture_output=True,
                 text=True,
                 timeout=timeout_s,
-                env={
-                    # Disable leak-detection by default to keep noise down;
-                    # ASan's other detectors (heap-buffer-overflow, etc) stay on.
-                    "ASAN_OPTIONS": "detect_leaks=0:abort_on_error=0:exitcode=42",
-                    "UBSAN_OPTIONS": "print_stacktrace=1:abort_on_error=0",
-                    "PATH": "/usr/bin:/usr/local/bin:/bin",
-                },
+                env=run_env,
             )
         except subprocess.TimeoutExpired:
             return PocOutcome(
