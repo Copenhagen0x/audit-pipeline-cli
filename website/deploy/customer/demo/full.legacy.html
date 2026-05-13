@@ -780,11 +780,22 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
     <span><strong>Percolator</strong> · perpetual DEX</span>
   </div>
   <div class="nav-divider"></div>
-  <span class="nav-status"><span class="dot"></span>Customer · cus_demo · jelleo-cluster-3 / node-07</span>
+  <span class="nav-status"><span class="dot"></span>Customer · cus_demo · classic 4-panel view</span>
   <div class="nav-spacer"></div>
+  <a href="/customer/demo/full.html" class="nav-back" style="margin-right: 12px; color: #f5b800; font-weight: 600;">Bridge view →</a>
   <a href="/customer/demo/" class="nav-back" style="margin-right: 12px;">← summary</a>
   <a href="/customer/" class="nav-back">Sign out</a>
 </nav>
+
+<!-- Banner: switch to the new Bridge view. Sits BETWEEN nav and main so
+     it's the first thing visible on the classic page; can't be missed. -->
+<div style="background: linear-gradient(90deg, rgba(245,184,0,0.12), rgba(245,184,0,0.02)); border-bottom: 1px solid rgba(245,184,0,0.3); padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; font-family: 'JetBrains Mono', monospace; font-size: 12px;">
+  <div style="color: #f5f3ed;">
+    <span style="color: #f5b800; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; font-size: 10px; margin-right: 14px;">New</span>
+    Live mission-control dashboard available — Bridge view streams every recon hyp, tool call, and triage decision in real time.
+  </div>
+  <a href="/customer/demo/full.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 9px 18px; background: #f5b800; color: #050504; text-decoration: none; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em; border-radius: 4px; transition: background 0.2s;">Open Bridge view →</a>
+</div>
 
 <!-- ============== IDENTITY STRIP ============== -->
 <main id="main">

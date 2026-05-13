@@ -37,7 +37,9 @@
 }
 
 main.bridge {
-  padding: 84px 0 0;
+  /* Top padding leaves room for the sticky nav. shared.css's .nav is
+     ~64px tall; we add 8px of breathing room before the header strip. */
+  padding: 24px 0 0;
   min-height: 100vh;
   background:
     radial-gradient(ellipse at top, rgba(245,184,0,0.04) 0%, transparent 50%),
@@ -878,10 +880,44 @@ main.bridge {
 <div class="cursor-ring" id="ring"></div>
 <div class="cursor-dot" id="dot"></div>
 
-<!-- Demo banner — only on the public demo customer -->
-<div class="demo-banner">
-  <span class="badge">DEMO</span> Live Bridge view · real data from the Percolator audit loop · <a href="/customer/demo/full.html?legacy=1">classic view ↗</a>
+<!-- Site-wide nav — same shape as the lobby + every other page. Customer
+     needs to be able to navigate AWAY from the Bridge view, not just
+     scroll to the footer. Sticky at top, slim, dense — matches the
+     mission-control aesthetic. -->
+<nav class="nav" id="nav" style="--nav-h: 48px;">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+    <a href="/customer/demo/">← Lobby</a>
+    <a href="/protocols/">Protocols</a>
+    <a href="/bug-classes.html">Catalog</a>
+    <a href="/methodology.html">Methodology</a>
+    <a href="/security.html">Security</a>
+    <a href="/cycles/">Cycles</a>
+    <a href="/customer/demo/full.html?legacy=1">Classic view</a>
+  </div>
+  <div class="nav-right">
+    <span class="nav-status">
+      <span class="live-dot"></span>
+      Demo customer · cus_demo
+    </span>
+    <a href="/customer/" class="nav-cta">Sign out</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/customer/demo/" role="menuitem">← Summary</a>
+  <a href="/customer/demo/full.html?legacy=1" role="menuitem">Classic 4-panel view</a>
+  <a href="/protocols/" role="menuitem">Protocols</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/cycles/" role="menuitem">Cycles</a>
+  <a href="/customer/" role="menuitem">Sign out</a>
 </div>
+<!-- Demo identification lives in the nav-status badge above; no separate
+     demo-banner needed (would overlap with the sticky nav). -->
+
 
 <main class="bridge">
 

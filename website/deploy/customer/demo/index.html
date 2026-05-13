@@ -400,6 +400,131 @@ section.dash { padding: 100px 0 60px; }
       </div>
     </div>
 
+    <!-- ════════════════════════════════════════════════════════════════
+         DASHBOARDS — the primary action after login. Hoisted above the
+         fold because dashboard access is what customers come here for;
+         everything below (findings table, receipts, propagation) is
+         secondary context. Two-card switcher: Bridge (primary) + Classic.
+         ════════════════════════════════════════════════════════════════ -->
+    <style>
+      .dash-launcher {
+        display: grid;
+        grid-template-columns: 1.6fr 1fr;
+        gap: 16px;
+        margin: 0 0 48px;
+      }
+      @media (max-width: 768px) {
+        .dash-launcher { grid-template-columns: 1fr; gap: 12px; }
+      }
+      .dash-launcher-card {
+        position: relative;
+        display: block;
+        padding: 28px 28px 24px;
+        border: 1px solid var(--rule);
+        border-radius: 10px;
+        background: var(--surface);
+        text-decoration: none;
+        color: inherit;
+        overflow: hidden;
+        transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1),
+                    border-color 0.32s, background 0.32s;
+      }
+      .dash-launcher-card:hover {
+        transform: translateY(-2px);
+        border-color: var(--amber);
+      }
+      .dash-launcher-card.primary {
+        border-color: rgba(245,184,0,0.4);
+        background: linear-gradient(135deg, rgba(245,184,0,0.10) 0%, rgba(245,184,0,0.02) 60%, transparent 100%);
+      }
+      .dash-launcher-card.primary:hover {
+        background: linear-gradient(135deg, rgba(245,184,0,0.18) 0%, rgba(245,184,0,0.04) 60%, transparent 100%);
+        border-color: var(--amber);
+      }
+      .dash-launcher-card .eyebrow {
+        font-family: var(--mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.22em;
+        color: var(--amber);
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dash-launcher-card .eyebrow .pulse {
+        display: inline-block;
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: var(--amber);
+        animation: launcherPulse 1.6s ease-out infinite;
+      }
+      @keyframes launcherPulse {
+        0%   { box-shadow: 0 0 0 0 rgba(245,184,0,0.5); }
+        70%  { box-shadow: 0 0 0 8px rgba(245,184,0,0); }
+        100% { box-shadow: 0 0 0 0 rgba(245,184,0,0); }
+      }
+      .dash-launcher-card .secondary-eyebrow {
+        color: var(--ink-3);
+      }
+      .dash-launcher-card .secondary-eyebrow .pulse {
+        background: var(--ink-3);
+        animation: none;
+      }
+      .dash-launcher-card h2 {
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--ink);
+        line-height: 1.05;
+        margin: 0 0 10px;
+      }
+      .dash-launcher-card.primary h2 { font-size: 32px; }
+      .dash-launcher-card p {
+        font-size: 14px;
+        color: var(--ink-2);
+        line-height: 1.5;
+        margin: 0 0 18px;
+        max-width: 50ch;
+      }
+      .dash-launcher-card .cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px;
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        font-weight: 600;
+        border-radius: 4px;
+        background: var(--amber);
+        color: var(--bg);
+        transition: background 0.2s, transform 0.2s;
+      }
+      .dash-launcher-card .cta.outline {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--rule-2);
+      }
+      .dash-launcher-card:hover .cta { transform: translateX(3px); }
+      .dash-launcher-card .cta.outline:hover { border-color: var(--amber); color: var(--amber); }
+    </style>
+    <div class="dash-launcher">
+      <a class="dash-launcher-card primary" href="/customer/demo/full.html" aria-label="Open Bridge view — live mission control dashboard">
+        <div class="eyebrow"><span class="pulse"></span>Live · mission-control · new</div>
+        <h2>Bridge view</h2>
+        <p>Watch the autonomous loop work in real time — source-grounded tool calls, the hypothesis grid lighting up, layer-2.5 triage bucketing, every cycle phase streaming as it happens.</p>
+        <span class="cta">Open Bridge view →</span>
+      </a>
+      <a class="dash-launcher-card" href="/customer/demo/full.html?legacy=1" aria-label="Open classic 4-panel view">
+        <div class="eyebrow secondary-eyebrow"><span class="pulse"></span>Classic · 4-panel</div>
+        <h2>Findings · Ops · Receipts</h2>
+        <p>The original layout. Quieter — refreshes per cycle, not per second. Use when you want the day's outcome without the motion.</p>
+        <span class="cta outline">Open classic view ↗</span>
+      </a>
+    </div>
+
     <div class="error-banner" id="feed-error">Live feed unreachable — showing the most recent cached state if available. Retrying every 60s.</div>
 
     <!-- Counters -->
@@ -462,24 +587,16 @@ section.dash { padding: 100px 0 60px; }
       <div class="loading-row">Loading propagation hits…</div>
     </div>
 
-    <!-- Bridge CTA — push power users into the live mission-control view -->
-    <div style="margin: 40px 0 56px; padding: 28px 32px; border: 1px solid rgba(245,184,0,0.4); border-radius: 8px; background: linear-gradient(135deg, rgba(245,184,0,0.06), rgba(245,184,0,0.02)); display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
-      <div>
-        <div style="font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.22em; color: var(--amber); margin-bottom: 6px;">New · Bridge view</div>
-        <div style="font-size: 18px; color: var(--ink); font-weight: 500; line-height: 1.4; max-width: 60ch;">Live mission-control. Watch the autonomous loop work in real time — source-grounded tool calls, hypothesis grid, layer-2.5 triage, all streaming.</div>
-      </div>
-      <a href="/customer/demo/full.html" style="display: inline-flex; align-items: center; gap: 10px; padding: 14px 24px; background: var(--amber); color: var(--bg); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; font-weight: 700; border-radius: 4px; transition: background 0.2s;">Open Bridge view <span style="font-size: 14px;">→</span></a>
-    </div>
-
-    <!-- Actions -->
-    <div class="dash-section-label">04 · Actions</div>
-    <h2 class="dash-section-title">Reports and configuration</h2>
+    <!-- Actions — dashboard CTAs hoisted to top; this block is now just
+         supplementary links (archive / key / contact). -->
+    <div class="dash-section-label">04 · More</div>
+    <h2 class="dash-section-title">Reports and references</h2>
     <div class="action-bar">
-      <a href="/customer/demo/full.html">Bridge view <span class="arrow">→</span></a>
-      <a href="/customer/demo/full.html?legacy=1">Classic 4-panel view <span class="arrow">↗</span></a>
       <a id="action-last-cycle" href="https://api.jelleo.com/cycles/" target="_blank" rel="noopener">Last cycle report <span class="arrow">↗</span></a>
       <a href="/cycles/">Cycle archive</a>
       <a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Platform public key ↗</a>
+      <a href="/methodology.html">Methodology</a>
+      <a href="/security.html">Security model</a>
       <a href="mailto:kirill@jelleo.com">Email account manager →</a>
     </div>
 
