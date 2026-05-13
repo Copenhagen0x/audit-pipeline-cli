@@ -1187,12 +1187,22 @@ def _in_progress_cycle_progress(
         label = "Layer 3 Kani"
     elif n_poc_logs > 0 or n_poc_tests > 0:
         phase = "poc"
-        # PoC progress is reported strictly against the L2 queue from recon
-        # (TRUE + NEEDS_LAYER_2 verdicts). Hyps tested via yaml-direct paths
-        # outside the recon-promoted set don't count toward "L2 queue
-        # progress" — otherwise the denominator drifts and we get >100%.
-        #   numerator = unique tested hyps INTERSECT recon L2 queue
-        #   denominator = recon L2 queue size (n_contested)
+        # PoC progress was previously reported against just the L2 queue
+        # (TRUE + NEEDS_LAYER_2 verdicts) and counted only `poc_test_run`
+        # events. Two bugs caused "L2 · 0/14" for an Aptos hunt that was
+        # actually 14/26:
+        #
+        # 1. Debate (L1.5) PROMOTES some FALSE/HIGH verdicts to L2 when
+        #    the challenger says NEEDS_LAYER_2 or DISAGREE. So the real
+        #    L2 queue is (TRUE + NEEDS_LAYER_2) + (promoted FALSEs).
+        #
+        # 2. Adapter-based languages (Aptos / C / Solidity) emit
+        #    `poc_adapter_done` events, NOT `poc_test_run`. Counting
+        #    only the legacy event missed 100% of Aptos L2 progress.
+        #
+        # Now: count all PoC outcome events (both shapes) and use
+        # max(L2 queue, observed tested) as denominator so the ratio
+        # tracks reality even when debate promotion expands the queue.
         l2_queue_ids: set[str] = set()
         if recon_summary.is_file():
             try:
@@ -1217,15 +1227,29 @@ def _in_progress_cycle_progress(
                             ev = json.loads(line)
                         except json.JSONDecodeError:
                             continue
-                        if ev.get("event") == "poc_test_run":
+                        # poc_test_run = Solana legacy
+                        # poc_adapter_done = Aptos / C / Solidity
+                        if ev.get("event") in ("poc_test_run", "poc_adapter_done"):
                             hid = ev.get("hypothesis_id")
                             if hid:
                                 tested_ids.add(hid)
             except OSError:
                 pass
         if l2_queue_ids:
-            n_done = len(tested_ids & l2_queue_ids)
-            n_total = len(l2_queue_ids)
+            # numerator = unique tested hyps observed in the log.
+            #   union (not intersection) — debate-promoted FALSE
+            #   hyps appear in tested_ids but NOT in l2_queue_ids,
+            #   and we still want them counted as L2 progress.
+            n_done = len(tested_ids)
+            # denominator = real L2 queue size. The orchestrator
+            # dispatches L2 on the (l2_queue_ids ∪ debate-promoted)
+            # set. We don't know the promoted set without parsing
+            # the debate output, but we DO know:
+            #   real_total >= l2_queue_ids size
+            #   real_total >= number of unique tested ids observed
+            # So max(l2_queue, tested) is a safe lower bound that
+            # tracks reality as new PoCs land.
+            n_total = max(len(l2_queue_ids), len(tested_ids), n_poc_logs, 1)
         else:
             # Fallback if recon_summary unreadable
             n_done = len(tested_ids) if tested_ids else n_poc_logs
