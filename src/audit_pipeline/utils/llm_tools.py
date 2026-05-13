@@ -33,12 +33,52 @@ class ToolUsingResult:
 # ---------------------------------------------------------------------------
 
 
+def _workspace_engine_roots(workspace: Path) -> list[Path]:
+    """Read workspace.json and return resolved engine.local + wrapper.local
+    dirs (if any). These are trusted source roots — the recon agent
+    MUST be able to read them, even when they live outside
+    ``workspace`` and outside ``/root/audit_runs``.
+
+    Returns an empty list if workspace.json is missing/unparseable.
+    Cached per-workspace via a tiny module-level dict to keep tool
+    calls cheap.
+    """
+    cache = getattr(_workspace_engine_roots, "_cache", {})
+    key = str(workspace)
+    if key in cache:
+        return cache[key]
+    import json as _json
+    out: list[Path] = []
+    cfg_path = workspace / "workspace.json"
+    if cfg_path.is_file():
+        try:
+            cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
+            for k in ("engine", "wrapper"):
+                local = (cfg.get(k) or {}).get("local")
+                if local:
+                    try:
+                        p = (workspace / local).resolve()
+                        if p.is_dir():
+                            out.append(p)
+                    except OSError:
+                        pass
+        except (_json.JSONDecodeError, OSError):
+            pass
+    cache[key] = out
+    _workspace_engine_roots._cache = cache  # type: ignore[attr-defined]
+    return out
+
+
 def _normalize_path(workspace: Path, path: str) -> Path | None:
     """Resolve a tool-supplied path, refusing escapes outside workspace.
 
-    Trusted prefixes: ``workspace`` plus the audit_runs root (resolved
-    via ``audit_pipeline.utils.vps_paths``). The latter is env-var
-    overridable so dev/CI doesn't need ``/root/audit_runs`` to exist.
+    Trusted prefixes:
+      1. ``workspace`` itself
+      2. the audit_runs root (env-var overridable via vps_paths)
+      3. ``engine.local`` + ``wrapper.local`` declared in
+         workspace.json — required for non-Solana OSec workspaces
+         whose engine clone lives under a sibling path like
+         ``/root/audit_runs/<eval>/repos/<lang>-<size>/``
     """
     try:
         p = (workspace / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
@@ -49,12 +89,18 @@ def _normalize_path(workspace: Path, path: str) -> Path | None:
     except OSError:
         return None
     from audit_pipeline.utils.vps_paths import is_under_trusted_root
-    # Allow paths inside the workspace OR inside the audit_runs root
-    # (for the full Cargo workspace which lives at workspace/target/...).
     p_str = str(p)
-    if not (p_str.startswith(str(ws)) or is_under_trusted_root(p)):
-        return None
-    return p
+    if p_str.startswith(str(ws)) or is_under_trusted_root(p):
+        return p
+    # Workspace-declared engine roots (third trusted set). Without this,
+    # the recon agent on aptos-small returned UNKNOWN/HIGH for every
+    # hyp because every read_file / grep against the engine source
+    # got "outside workspace" rejected — see audit log
+    # 2026-05-13 aptos-small dry-run, $17 wasted.
+    for engine_root in _workspace_engine_roots(workspace):
+        if p_str.startswith(str(engine_root)):
+            return p
+    return None
 
 
 def tool_read_file(workspace: Path, path: str, start_line: int = 1, end_line: int | None = None) -> str:
@@ -90,7 +136,18 @@ def tool_grep(workspace: Path, pattern: str, path: str = ".", max_matches: int =
     if p.is_file():
         files = [p]
     else:
-        for ext in (".rs", ".md"):
+        # All four OSec-eval languages — Rust (.rs), C (.c/.h), Solidity
+        # (.sol), Aptos Move (.move). Without .move, .c, .sol the recon
+        # agents on non-Solana repos got "no matches" for every grep
+        # and came back with UNKNOWN/HIGH on every hyp ($17 wasted on
+        # blind recon during the 2026-05-13 aptos-small dry-run).
+        for ext in (
+            ".rs", ".md",
+            ".move",
+            ".sol",
+            ".c", ".h", ".cpp", ".cc", ".hpp",
+            ".toml", ".json", ".yaml", ".yml",
+        ):
             files.extend(p.rglob(f"*{ext}"))
     matches: list[str] = []
     for f in files:
