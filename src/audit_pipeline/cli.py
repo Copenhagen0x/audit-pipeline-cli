@@ -15,6 +15,7 @@ from audit_pipeline.commands import (
     confirm,
     cross_check,
     customer,
+    cycle,
     dashboard,
     debate,
     derive_siblings,
@@ -131,6 +132,7 @@ main.add_command(lint_hypotheses.lint_hypotheses_cmd)  # pre-cycle YAML schema +
 main.add_command(expand_coverage.expand_coverage_cmd)  # generate hyps from spec, kani-gaps, wrapper
 main.add_command(derive_siblings.derive_siblings_cmd)  # auto-derive siblings from a confirmed finding (Tier 2 #8)
 main.add_command(cache.cache_group)                # PoC test cache (Tier 2 #10): list / flush / stats
+main.add_command(cycle.cycle_cmd)                  # cycle lifecycle: list / finish / retract
 main.add_command(triage.triage_cmd)                # Triage UI (Tier 2 #12): local web UI for new-findings backlog
 main.add_command(triage_fires.triage_fires_cmd)    # Layer 2.5: classify PoC fires STRONG/SOFT/FALSE/LOST
 main.add_command(triage_siblings.triage_siblings_cmd)  # P2 D13: review/approve/reject/merge LLM-derived siblings

@@ -4,31 +4,49 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jelleo · Customer portal</title>
-<meta name="description" content="Customer dashboards are now token-gated. Redirecting to the customer portal.">
+<meta name="description" content="Customer dashboards are now token-gated. The live demo dashboard is open to all visitors.">
 <meta name="theme-color" content="#050504">
-<meta http-equiv="refresh" content="0; url=/customer/">
+<!-- 3s redirect to the customer portal — slow enough that visitors can
+     read the "demo dashboard is open" CTA and click it directly. -->
+<meta http-equiv="refresh" content="3; url=/customer/">
 <link rel="canonical" href="https://jelleo.com/customer/">
 <meta name="robots" content="noindex,nofollow">
 <style>
 html, body { background: #050504; color: #f5f3ed; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; height: 100%; }
 .box { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
-.card { max-width: 480px; text-align: center; }
+.card { max-width: 560px; text-align: center; }
 .card .eyebrow { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.22em; color: #f5b800; margin-bottom: 16px; }
-.card h1 { font-size: 22px; font-weight: 700; margin: 0 0 12px; letter-spacing: -0.02em; }
+.card h1 { font-size: 24px; font-weight: 700; margin: 0 0 14px; letter-spacing: -0.02em; }
 .card p { font-size: 14px; line-height: 1.6; color: rgba(245,243,237,0.72); margin: 0 0 24px; }
-.card a { display: inline-block; padding: 12px 22px; background: #f5b800; color: #050504; text-decoration: none; font-weight: 600; border-radius: 6px; transition: background .2s ease; }
-.card a:hover { background: #ffce4a; }
+.card .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.card a { display: inline-block; padding: 12px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; transition: background .2s ease, color .2s ease, border-color .2s ease; }
+.card a.primary { background: #f5b800; color: #050504; }
+.card a.primary:hover { background: #ffce4a; }
+.card a.ghost { color: #f5f3ed; border: 1px solid rgba(245,243,237,0.18); }
+.card a.ghost:hover { border-color: #f5b800; color: #f5b800; }
+.card .escape { margin-top: 28px; font-size: 11px; color: rgba(245,243,237,0.32); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.06em; }
+.card .escape a { padding: 0; background: none; color: rgba(245,243,237,0.56); text-decoration: underline; font-weight: 400; }
+.card .escape a:hover { color: #f5b800; }
 </style>
 </head>
 <body>
 <div class="box">
   <div class="card">
-    <div class="eyebrow">Token-gated</div>
+    <div class="eyebrow">Token-gated · redirecting in 3s</div>
     <h1>Dashboards are now per-customer.</h1>
-    <p>Each protocol's dashboard is accessible only with its customer token. The universal demo token is <strong>demo</strong>. Redirecting to the portal…</p>
-    <a href="/customer/">Open the customer portal →</a>
+    <p>Each protocol's dashboard is unlocked by its customer token. The <strong>demo customer is open to everyone</strong> — open it below to see the live mission-control Bridge view without signing in.</p>
+    <div class="actions">
+      <a href="/customer/demo/full.html" class="primary">Open live demo dashboard →</a>
+      <a href="/customer/" class="ghost">Customer portal ↗</a>
+    </div>
+    <div class="escape">
+      <a href="/">jelleo home</a> &middot;
+      <a href="/methodology.html">Methodology</a> &middot;
+      <a href="/cycles/">Cycle archive</a> &middot;
+      <a href="/security.html">Security</a> &middot;
+      <a href="/protocols/">Protocols</a>
+    </div>
   </div>
 </div>
-<!-- setTimeout double-redirect removed; meta refresh above is the canonical redirect -->
 </body>
 </html>

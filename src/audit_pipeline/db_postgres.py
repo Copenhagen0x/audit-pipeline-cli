@@ -309,6 +309,33 @@ class PostgresFindingsDB:
                 (_now(), n_confirmed, total_cost_usd, cycle_id),
             )
 
+    def mark_cycle_finished(
+        self,
+        cycle_id: str,
+        finished_at: str | None = None,
+    ) -> bool:
+        """Set finished_at on a cycle without disturbing other columns.
+
+        Used by ``audit-pipeline cycle finish`` to retroactively close
+        out cycles killed mid-run.
+        """
+        ts = finished_at or _now()
+        with self._conn() as c:
+            cur = c.cursor()
+            cur.execute(
+                "UPDATE cycles SET finished_at = %s "
+                "WHERE cycle_id = %s AND finished_at IS NULL",
+                (ts, cycle_id),
+            )
+            return cur.rowcount > 0
+
+    def get_cycle(self, cycle_id: str) -> dict | None:
+        with self._conn() as c:
+            cur = c.cursor()
+            cur.execute("SELECT * FROM cycles WHERE cycle_id = %s", (cycle_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
     def list_cycles(self, target_id: int | None = None, limit: int = 50) -> list[dict]:
         with self._conn() as c:
             cur = c.cursor()

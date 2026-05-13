@@ -401,6 +401,37 @@ class FindingsDB:
                 (_now(), n_dispatched, n_confirmed, total_cost_usd, cycle_id),
             )
 
+    def mark_cycle_finished(
+        self,
+        cycle_id: str,
+        finished_at: str | None = None,
+    ) -> bool:
+        """Set ``finished_at`` on a cycle without disturbing other columns.
+
+        Used by ``audit-pipeline cycle finish <cycle_id>`` to retroactively
+        close out cycles that were killed mid-run (e.g. cycle 20260511-
+        183154, which was retracted manually and never had its
+        finished_at set, so the dashboard kept reporting ``in_progress:
+        true`` indefinitely).
+
+        Returns True if a row was updated, False if no matching cycle.
+        """
+        ts = finished_at or _now()
+        with self._conn() as c:
+            cur = c.execute(
+                "UPDATE cycles SET finished_at = ? WHERE cycle_id = ? AND finished_at IS NULL",
+                (ts, cycle_id),
+            )
+            return cur.rowcount > 0
+
+    def get_cycle(self, cycle_id: str) -> dict | None:
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT * FROM cycles WHERE cycle_id = ?",
+                (cycle_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
     def list_cycles(self, target_id: int | None = None, limit: int = 50) -> list[dict]:
         with self._conn() as c:
             if target_id is not None:
