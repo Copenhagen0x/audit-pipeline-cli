@@ -1250,6 +1250,59 @@ def _hunt_run(
                         "authoring_mode": f"adapter:{language}",
                     }
                     continue
+
+                # ---- Per-hyp adapter resume check ----
+                # Without this, --resume-cycle re-spent ~$0.10/hyp re-
+                # authoring + re-running L2 PoCs for hyps that already
+                # had outcomes from a prior run. Adapter path now mirrors
+                # the Solana legacy path: if runlog exists from a prior
+                # run in this cycle dir, reload the outcome from
+                # hunt.log.jsonl instead of re-running.
+                _adapter_log_path = poc_out / f"runlog_{finding_name}.log"
+                if (
+                    resume_cycle
+                    and _adapter_log_path.is_file()
+                    and _adapter_log_path.stat().st_size > 50
+                ):
+                    # Find last poc_adapter_done event for this hyp
+                    prior_event = None
+                    try:
+                        with (cycle_dir / "hunt.log.jsonl").open("r", encoding="utf-8") as _f:
+                            for _line in _f:
+                                if '"poc_adapter_done"' not in _line:
+                                    continue
+                                if f'"hypothesis_id": "{hyp_id}"' not in _line:
+                                    continue
+                                try:
+                                    prior_event = json.loads(_line)
+                                except json.JSONDecodeError:
+                                    continue
+                    except OSError:
+                        prior_event = None
+                    if prior_event:
+                        poc_results[hyp_id] = {
+                            "scaffold_path": prior_event.get("scaffold_path"),
+                            "scaffold_rc": 0,
+                            "compile_test_rc": None,
+                            "fired": bool(prior_event.get("fired", False)),
+                            "outcome": (
+                                "test_failed_bug_reproduced"
+                                if prior_event.get("fired")
+                                else "test_passed_no_bug"
+                            ),
+                            "cargo_log_path": str(_adapter_log_path),
+                            "authoring_mode": f"adapter:{language}",
+                            "framework": prior_event.get("framework"),
+                            "reason": prior_event.get("reason"),
+                            "duration_s": 0,
+                            "resumed": True,
+                        }
+                        log("poc_adapter_resumed_from_existing",
+                            hypothesis_id=hyp_id,
+                            fired=bool(prior_event.get("fired")))
+                        continue
+                    # Runlog exists but no event in log → re-run defensively
+
                 meta = hyp_meta.get(hyp_id, {})
                 # Build the LLM authoring prompt + call the model
                 from audit_pipeline.utils import complete as _complete_l2
