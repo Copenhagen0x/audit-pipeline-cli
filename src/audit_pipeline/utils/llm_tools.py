@@ -172,33 +172,80 @@ def tool_grep(workspace: Path, pattern: str, path: str = ".", max_matches: int =
         rx = re.compile(pattern)
     except re.error as e:
         return f"ERROR: bad regex `{pattern}`: {e}"
-    files = []
+    _EXTS = (
+        ".rs", ".md",
+        ".move",
+        ".sol",
+        ".c", ".h", ".cpp", ".cc", ".hpp",
+        ".toml", ".json", ".yaml", ".yml",
+    )
+    files: list[Path] = []
     if p.is_file():
         files = [p]
     else:
-        # All four OSec-eval languages — Rust (.rs), C (.c/.h), Solidity
-        # (.sol), Aptos Move (.move). Without .move, .c, .sol the recon
-        # agents on non-Solana repos got "no matches" for every grep
-        # and came back with UNKNOWN/HIGH on every hyp ($17 wasted on
-        # blind recon during the 2026-05-13 aptos-small dry-run).
-        for ext in (
-            ".rs", ".md",
-            ".move",
-            ".sol",
-            ".c", ".h", ".cpp", ".cc", ".hpp",
-            ".toml", ".json", ".yaml", ".yml",
-        ):
+        for ext in _EXTS:
             files.extend(p.rglob(f"*{ext}"))
+        # rglob() does NOT follow symlinks by default. OSec workspaces
+        # use a symlinked `engine` dir → without explicit engine_root
+        # traversal, grep on workspace root returned ZERO .move files
+        # and the agent concluded "the repo is empty" → INCONCLUSIVE/LOW
+        # verdicts. Explicitly iterate every engine_root declared in
+        # workspace.json so symlinked source trees ARE searched.
+        try:
+            p_resolved = p.resolve()
+        except OSError:
+            p_resolved = p
+        for engine_root in _workspace_engine_roots(workspace):
+            try:
+                er_resolved = engine_root.resolve()
+            except OSError:
+                er_resolved = engine_root
+            # Only add if engine_root isn't already under p_resolved
+            # (avoid double-scanning when workspace is the engine root)
+            if str(er_resolved).startswith(str(p_resolved)):
+                continue
+            # Iterate ALL files matching ext directly via os.walk
+            # (handles symlinked targets reliably across Python versions).
+            import os as _os
+            for root, dirs, fnames in _os.walk(er_resolved, followlinks=True):
+                # Skip vendor / .git noise
+                dirs[:] = [d for d in dirs if d not in (".git", "node_modules", "target", "build")]
+                for fn in fnames:
+                    if any(fn.endswith(ext) for ext in _EXTS):
+                        files.append(Path(root) / fn)
+    # Display path relative to whichever root the file lives under
+    # (workspace OR engine_root), so the agent sees readable paths
+    # like "sources/auction.move" instead of bare filenames.
+    def _display_path(f: Path) -> str:
+        try:
+            if f.is_relative_to(workspace):
+                return str(f.relative_to(workspace))
+        except (AttributeError, ValueError):
+            pass
+        for root in _workspace_engine_roots(workspace):
+            try:
+                if f.is_relative_to(root):
+                    return str(f.relative_to(root))
+            except (AttributeError, ValueError):
+                continue
+        return f.name
+
     matches: list[str] = []
+    seen_files: set[str] = set()
     for f in files:
+        # Dedupe (engine_root walk + workspace rglob may double-list
+        # if user has manually copied source into workspace)
+        fkey = str(f.resolve()) if f.exists() else str(f)
+        if fkey in seen_files:
+            continue
+        seen_files.add(fkey)
         try:
             for ln, line in enumerate(
                 f.read_text(encoding="utf-8", errors="replace").splitlines(),
                 start=1,
             ):
                 if rx.search(line):
-                    rel = f.name if not f.is_relative_to(workspace) else str(f.relative_to(workspace))
-                    matches.append(f"{rel}:{ln}: {line}")
+                    matches.append(f"{_display_path(f)}:{ln}: {line}")
                     if len(matches) >= max_matches:
                         break
         except OSError:
