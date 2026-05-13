@@ -1211,7 +1211,7 @@ main.bridge {
       </span>
       <span class="bridge-cost">
         <span id="cost-now">$ 0.000</span>
-        <span class="cap">/ $ <span id="cost-cap">—</span> today</span>
+        <span class="cap">this cycle</span>
         <span class="bridge-cost-bar"><div id="cost-bar-fill" style="width: 0%"></div></span>
       </span>
     </div>
@@ -1841,22 +1841,32 @@ main.bridge {
     el.textContent = fmt ? fmt(val) : val;
   }
 
-  // ───── Cost ticker (with digit-roll animation feel via transition) ─────
-  function setCost(now, cap) {
+  // ───── Cycle-cost ticker (live from SSE recon_hyp_done events) ─────
+  // The OLD code lied: it claimed "/ $800 today" was a real budget cap
+  // and read d.spend.today_usd which was rarely populated. Now we
+  // accumulate the actual per-hyp spend from recon_hyp_done SSE events
+  // for the ACTIVE CYCLE only — every hyp emits input_tokens +
+  // output_tokens which we convert to USD at the Sonnet 4.6 rate.
+  // Resets to 0 on every cycle_active event.
+  state.cycleSpendUsd = 0;
+  function setCost(now) {
     if (typeof now === 'number') {
       state.costNow = now;
       $('cost-now').textContent = '$ ' + now.toFixed(3);
     }
-    if (typeof cap === 'number' && cap > 0) {
-      state.costCap = cap;
-      $('cost-cap').textContent = cap.toFixed(0);
-    }
-    const pct = state.costCap > 0
-      ? Math.min(100, (state.costNow / state.costCap) * 100)
-      : 0;
+    // No fixed cap — bar shows progress toward a soft $25 reference
+    // line so the visual gives a sense of scale without claiming a
+    // hard limit (the engine runs uncapped today per operator request).
+    const softRef = 25;
+    const pct = Math.min(100, (state.costNow / softRef) * 100);
     $('cost-bar-fill').style.width = pct + '%';
   }
-  setCost(0, 800);
+  setCost(0);
+
+  // Sonnet 4.6 pricing — input $3/M, output $15/M tokens.
+  function _tokenCostUsd(inputTokens, outputTokens) {
+    return ((inputTokens || 0) / 1e6) * 3 + ((outputTokens || 0) / 1e6) * 15;
+  }
 
   // ───── Per-tab target↔cycle maps (populated from manifest) ─────
   // These let us slice global manifest/SSE data by the active tab so
@@ -1870,6 +1880,20 @@ main.bridge {
     return name ? state.targetIdByName[name] : null;
   }
 
+  // Derive target_name from SSE-supplied workspace path. The OSec eval
+  // convention is workspace `/root/audit_runs/ottersec-eval/workspaces/<cell>`
+  // ↔ target_name `osec-<cell>`. Percolator: workspace `percolator-live`
+  // ↔ target_name `percolator`. Falls back to last path component.
+  function _targetNameFromWorkspace(wsPath) {
+    if (!wsPath || typeof wsPath !== 'string') return null;
+    const parts = wsPath.split('/').filter(Boolean);
+    const last = parts[parts.length - 1];
+    if (!last) return null;
+    if (wsPath.indexOf('/ottersec-eval/workspaces/') >= 0) return 'osec-' + last;
+    if (last === 'percolator-live') return 'percolator';
+    return last;
+  }
+
   function eventBelongsToActiveTab(ev) {
     // No active tab → show everything (single-target view)
     const activeId = activeTargetId();
@@ -1877,9 +1901,19 @@ main.bridge {
     // Map event._cycle (cycle name) → target_id via cache
     const cycleId = ev._cycle || ev.cycle;
     if (!cycleId) return true; // events without a cycle ref (e.g. sse_connected) are global
-    const evTargetId = state.cycleIdToTargetId[cycleId];
-    // Unknown cycle (haven't seen it in a manifest yet) → show by default
-    // so we don't drop events that arrive before the next snapshot tick
+    let evTargetId = state.cycleIdToTargetId[cycleId];
+    // RACE FIX: if cycle_active carries `workspace`, derive target_id
+    // directly from path without waiting for manifest refresh. Closes
+    // the 5-second window where events leaked across tabs.
+    if (evTargetId == null && ev.workspace) {
+      const tname = _targetNameFromWorkspace(ev.workspace);
+      if (tname && state.targetIdByName[tname] != null) {
+        evTargetId = state.targetIdByName[tname];
+        state.cycleIdToTargetId[cycleId] = evTargetId;
+      }
+    }
+    // Unknown cycle AND no workspace hint → show by default so we
+    // don't drop events that arrive before manifest finishes loading
     if (evTargetId == null) return true;
     return evTargetId === activeId;
   }
@@ -1929,6 +1963,9 @@ main.bridge {
 
       state.activeCycle = ev.cycle;
       state.cycleStartedAt = Date.now();
+      // Reset cycle-cost accumulator — every new cycle starts at $0
+      state.cycleSpendUsd = 0;
+      setCost(0);
       $('active-cycle').textContent = safeStr(ev.cycle, 28);
       $('cycle-started').textContent = fmtTime(Date.now());
       setStage('Cycle active', `Cycle <span class="accent">${safeStr(ev.cycle, 28)}</span> is running`);
@@ -1970,6 +2007,12 @@ main.bridge {
       state.hypsDoneThisMinute.push(Date.now());
       if (typeof ev.input_tokens === 'number') {
         state.tokensThisSec.push({ts: Date.now(), tokens: (ev.input_tokens + (ev.output_tokens || 0))});
+        // Accumulate REAL cycle cost from per-hyp token counts at
+        // Sonnet 4.6 pricing. Replaces the lying "$0.000 / $800 today"
+        // display with actual spend that ticks up live as each hyp
+        // completes.
+        state.cycleSpendUsd += _tokenCostUsd(ev.input_tokens, ev.output_tokens);
+        setCost(state.cycleSpendUsd);
       }
       pushEvent('recon_hyp', 'done ' + ev.hyp_id + ' → ' + (v || '—') + ' / ' + (ev.confidence || ''), ev.ts);
       return;
@@ -2130,12 +2173,10 @@ main.bridge {
     }
     // uptime — use loop_uptime_human (snapshot's real field name)
     if (d.loop_uptime_human) $('loop-uptime').textContent = d.loop_uptime_human;
-    // spend — snapshot exposes today_usd + total_usd. Daily cap isn't in
-    // the API; default to $800 (recon's default --budget-cap-usd × ~3).
-    if (d.spend) {
-      const today = d.spend.today_usd != null ? d.spend.today_usd : 0;
-      setCost(today, state.costCap || 800);
-    }
+    // Spend is now driven by SSE recon_hyp_done events (per-hyp tokens
+    // × Sonnet 4.6 price), reset on cycle_active. The d.spend manifest
+    // field was unreliable (rarely populated, no cap to compare to)
+    // and showed a confusing "/ $800 today" lie. Drop it.
     // Cache target_id ↔ target_name + cycle_id → target_id maps so
     // per-tab filtering can answer "is this cycle/event for my tab?"
     if (Array.isArray(d.targets)) {
@@ -2340,11 +2381,24 @@ main.bridge {
     const dt = nowMs - lastTickMs;
     lastTickMs = nowMs;
 
-    // Idle-since timer: always counting up
-    if (state.lastCycleAt) {
-      $('idle-since').textContent = fmtDur(Date.now() - state.lastCycleAt);
-    } else if (state.cycleStartedAt) {
-      $('cycle-elapsed').textContent = fmtDur(Date.now() - state.cycleStartedAt);
+    // Cycle / idle timer: if a cycle is running, show how long it's
+    // been running (label flips to "Cycle for"). If between cycles,
+    // show idle time since last cycle. If neither, dash.
+    const idleEl = $('idle-since');
+    const idleLabel = idleEl ? idleEl.parentElement.querySelector('.label') : null;
+    if (state.activeCycle && state.cycleStartedAt) {
+      if (idleLabel) idleLabel.textContent = 'Cycle for';
+      idleEl.textContent = fmtDur(Date.now() - state.cycleStartedAt);
+    } else if (state.lastCycleAt) {
+      if (idleLabel) idleLabel.textContent = 'Idle for';
+      idleEl.textContent = fmtDur(Date.now() - state.lastCycleAt);
+    } else {
+      if (idleLabel) idleLabel.textContent = 'Idle for';
+      idleEl.textContent = '—';
+    }
+    if (state.cycleStartedAt) {
+      const el = $('cycle-elapsed');
+      if (el) el.textContent = fmtDur(Date.now() - state.cycleStartedAt);
     }
 
     // Heartbeat age display
