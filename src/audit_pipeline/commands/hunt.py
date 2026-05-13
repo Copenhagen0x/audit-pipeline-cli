@@ -1766,137 +1766,19 @@ def _hunt_run(
             layer3_dispatch_filter = None
             triage_summary = {"error": str(e)[:300]}
 
-    # ---------- Layer 4: LiteSVM / runtime fuzz (PoC-fired + triage-filtered) ----------
-    # PHASE 1h: language-aware. Solana keeps LiteSVM (existing path).
-    # C → AFL++ fuzz; Solidity → forge-fuzz; Aptos → aptos-move-test
-    # property runs. All routed through `runtime_adapters/`.
-    fired_for_litesvm = [
-        v for v in candidates
-        if poc_results.get(v["hypothesis_id"], {}).get("fired")
-        and (layer3_dispatch_filter is None
-             or v["hypothesis_id"] in layer3_dispatch_filter)
-    ]
-    _l4_adapter = None
-    if language != "solana" and not skip_litesvm:
-        from audit_pipeline.runtime_adapters import (
-            get_adapter as _get_runtime_adapter,
-        )
-        try:
-            _l4_adapter = _get_runtime_adapter(language)
-        except Exception as e:  # noqa: BLE001
-            log("l4_adapter_unavailable", language=language, error=str(e))
-            console.print(
-                f"[yellow]No L4 runtime adapter for language={language!r}; "
-                f"skipping Layer 4[/yellow]"
-            )
-    if not skip_litesvm and fired_for_litesvm and language != "solana":
-        if _l4_adapter is not None:
-            console.print()
-            console.print(
-                f"[bold]Layer 4 - {_l4_adapter.fuzzer} runtime fuzz on "
-                f"{len(fired_for_litesvm)} PoC-fired findings ({language})[/bold]"
-            )
-            fuzz_out = cycle_dir / "fuzz"
-            fuzz_out.mkdir(parents=True, exist_ok=True)
-            for v in fired_for_litesvm:
-                hyp_id = v["hypothesis_id"]
-                meta = hyp_meta.get(hyp_id, {})
-                harness_name = _slugify(hyp_id)
-                from audit_pipeline.utils import complete as _complete_l4
-                source_context = _grounded_source_for_hyp(
-                    engine_dir_for_cargo, meta, ground_code=True,
-                )
-                prompt = _l4_adapter.build_harness_prompt(
-                    hyp=meta, source_context=source_context,
-                    target_repo_root=engine_dir_for_cargo,
-                )
-                try:
-                    resp = _complete_l4(prompt)
-                    body = _l4_adapter.parse_harness_body(getattr(resp, "text", str(resp)))
-                    _l4_adapter.write_harness_file(workspace, harness_name, body)
-                    runtime_outcome = _l4_adapter.run_fuzzer(
-                        workspace, harness_name, engine_dir_for_cargo,
-                    )
-                except Exception as e:  # noqa: BLE001
-                    log("l4_adapter_error", hypothesis_id=hyp_id, error=str(e))
-                    litesvm_results[hyp_id] = {
-                        "returncode": -1,
-                        "scaffold_dir": str(fuzz_out),
-                        "error": f"{type(e).__name__}: {e}",
-                    }
-                    continue
-                daily_cap.record_spend(0.10)
-                total_cost += 0.10
-                litesvm_results[hyp_id] = {
-                    "returncode": runtime_outcome.returncode,
-                    "scaffold_dir": str(fuzz_out),
-                    "crash_found": runtime_outcome.crash_found,
-                    "ran_clean": runtime_outcome.ran_clean,
-                    "fuzzer": runtime_outcome.fuzzer,
-                    "reason": runtime_outcome.reason,
-                    "duration_s": runtime_outcome.duration_s,
-                    "n_witnesses": len(runtime_outcome.witness_inputs or []),
-                }
-                log("l4_adapter_done", hypothesis_id=hyp_id,
-                    language=language,
-                    crash_found=runtime_outcome.crash_found,
-                    ran_clean=runtime_outcome.ran_clean)
-        # Non-Solana L4 done — skip the Solana LiteSVM section below.
-    elif not skip_litesvm and fired_for_litesvm:
-        console.print()
-        console.print(
-            f"[bold]Layer 4 - LiteSVM exploit-chain authoring + dispatch on "
-            f"{len(fired_for_litesvm)} PoC-fired findings[/bold]"
-        )
-        litesvm_out = cycle_dir / "litesvm"
-        litesvm_out.mkdir(parents=True, exist_ok=True)
-        # FIX 3: After authoring, actually invoke dispatch_litesvm.sh to run
-        # the LiteSVM test. Pass the actual wrapper path (workspace config)
-        # so the script does NOT depend on /tmp/audit symlinks. If vps.host
-        # is null (running on the VPS itself), use "-" "-" to skip SSH.
-        vps_host = config.get("vps", {}).get("host") or "-"
-        vps_key = config.get("vps", {}).get("ssh_key") or "-"
-        from audit_pipeline import __file__ as pkg_init_path
-        dispatch_script = Path(pkg_init_path).parent / "scripts" / "dispatch_litesvm.sh"
-        wrapper_dir = workspace / config.get("wrapper", {}).get("local", "target/wrapper")
-        for v in fired_for_litesvm:
-            hyp_id = v["hypothesis_id"]
-            finding_name = _slugify(hyp_id)
-            litesvm_file = litesvm_out / f"test_{finding_name}_bound_analysis.rs"
-            if resume_cycle and litesvm_file.exists():
-                log("litesvm_resumed_from_existing", hypothesis_id=hyp_id)
-                rc_author = 0
-            else:
-                rc_author = _run([
-                    _audit_pipeline_bin(), "--workspace", str(workspace),
-                    "litesvm", "author",
-                    "--finding", finding_name,
-                    "--template", "litesvm_bound_analysis",
-                    "--output", str(litesvm_out),
-                ])
-            dispatch_rc: int | None = None
-            if rc_author == 0 and dispatch_script.exists():
-                test_name = f"test_{finding_name}_bound_analysis"
-                dispatch_rc = _run(
-                    [
-                        "bash", str(dispatch_script),
-                        vps_host, vps_key, test_name, str(wrapper_dir),
-                    ],
-                    timeout=600,
-                )
-                log("litesvm_dispatched", hypothesis_id=hyp_id,
-                    test=test_name, returncode=dispatch_rc)
-            litesvm_results[hyp_id] = {
-                "returncode": rc_author,
-                "dispatch_returncode": dispatch_rc,
-                "scaffold_dir": str(litesvm_out),
-            }
-            log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc_author)
-
     # ---------- Layer 3: formal verification (Kani / CBMC / SMTChecker / Move Prover) ----------
     #
     # PHASE 1h: dispatch L3 by language. Solana keeps the existing Kani
     # path (unchanged). Other languages route through `formal_adapters/`.
+    #
+    # Order: L3 (formal) BEFORE L4 (runtime fuzz). Cheap deterministic
+    # proofs run first — they either definitively prove the invariant
+    # or yield a concrete counterexample. L4 then explores reachable
+    # states more broadly. Operator-corrected on 2026-05-13 23:24:
+    # blocks were previously inverted, with L4 running before L3,
+    # which is wrong both conceptually (proof-then-test) and
+    # economically (expensive fuzz running on bugs the cheap prover
+    # could have settled).
     fired_for_kani = [
         v for v in candidates
         if poc_results.get(v["hypothesis_id"], {}).get("fired")
@@ -2024,6 +1906,135 @@ def _hunt_run(
             # synth-kani is iterative; budget ~$0.50 per attempt
             daily_cap.record_spend(0.50)
             total_cost += 0.50
+
+    # ---------- Layer 4: LiteSVM / runtime fuzz (PoC-fired + triage-filtered) ----------
+    # PHASE 1h: language-aware. Solana keeps LiteSVM (existing path).
+    # C → AFL++ fuzz; Solidity → forge-fuzz; Aptos → aptos-move-test
+    # property runs. All routed through `runtime_adapters/`.
+    #
+    # Runs AFTER L3 — see L3 header for rationale.
+    fired_for_litesvm = [
+        v for v in candidates
+        if poc_results.get(v["hypothesis_id"], {}).get("fired")
+        and (layer3_dispatch_filter is None
+             or v["hypothesis_id"] in layer3_dispatch_filter)
+    ]
+    _l4_adapter = None
+    if language != "solana" and not skip_litesvm:
+        from audit_pipeline.runtime_adapters import (
+            get_adapter as _get_runtime_adapter,
+        )
+        try:
+            _l4_adapter = _get_runtime_adapter(language)
+        except Exception as e:  # noqa: BLE001
+            log("l4_adapter_unavailable", language=language, error=str(e))
+            console.print(
+                f"[yellow]No L4 runtime adapter for language={language!r}; "
+                f"skipping Layer 4[/yellow]"
+            )
+    if not skip_litesvm and fired_for_litesvm and language != "solana":
+        if _l4_adapter is not None:
+            console.print()
+            console.print(
+                f"[bold]Layer 4 - {_l4_adapter.fuzzer} runtime fuzz on "
+                f"{len(fired_for_litesvm)} PoC-fired findings ({language})[/bold]"
+            )
+            fuzz_out = cycle_dir / "fuzz"
+            fuzz_out.mkdir(parents=True, exist_ok=True)
+            for v in fired_for_litesvm:
+                hyp_id = v["hypothesis_id"]
+                meta = hyp_meta.get(hyp_id, {})
+                harness_name = _slugify(hyp_id)
+                from audit_pipeline.utils import complete as _complete_l4
+                source_context = _grounded_source_for_hyp(
+                    engine_dir_for_cargo, meta, ground_code=True,
+                )
+                prompt = _l4_adapter.build_harness_prompt(
+                    hyp=meta, source_context=source_context,
+                    target_repo_root=engine_dir_for_cargo,
+                )
+                try:
+                    resp = _complete_l4(prompt)
+                    body = _l4_adapter.parse_harness_body(getattr(resp, "text", str(resp)))
+                    _l4_adapter.write_harness_file(workspace, harness_name, body)
+                    runtime_outcome = _l4_adapter.run_fuzzer(
+                        workspace, harness_name, engine_dir_for_cargo,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    log("l4_adapter_error", hypothesis_id=hyp_id, error=str(e))
+                    litesvm_results[hyp_id] = {
+                        "returncode": -1,
+                        "scaffold_dir": str(fuzz_out),
+                        "error": f"{type(e).__name__}: {e}",
+                    }
+                    continue
+                daily_cap.record_spend(0.10)
+                total_cost += 0.10
+                litesvm_results[hyp_id] = {
+                    "returncode": runtime_outcome.returncode,
+                    "scaffold_dir": str(fuzz_out),
+                    "crash_found": runtime_outcome.crash_found,
+                    "ran_clean": runtime_outcome.ran_clean,
+                    "fuzzer": runtime_outcome.fuzzer,
+                    "reason": runtime_outcome.reason,
+                    "duration_s": runtime_outcome.duration_s,
+                    "n_witnesses": len(runtime_outcome.witness_inputs or []),
+                }
+                log("l4_adapter_done", hypothesis_id=hyp_id,
+                    language=language,
+                    crash_found=runtime_outcome.crash_found,
+                    ran_clean=runtime_outcome.ran_clean)
+        # Non-Solana L4 done — skip the Solana LiteSVM section below.
+    elif not skip_litesvm and fired_for_litesvm:
+        console.print()
+        console.print(
+            f"[bold]Layer 4 - LiteSVM exploit-chain authoring + dispatch on "
+            f"{len(fired_for_litesvm)} PoC-fired findings[/bold]"
+        )
+        litesvm_out = cycle_dir / "litesvm"
+        litesvm_out.mkdir(parents=True, exist_ok=True)
+        # FIX 3: After authoring, actually invoke dispatch_litesvm.sh to run
+        # the LiteSVM test. Pass the actual wrapper path (workspace config)
+        # so the script does NOT depend on /tmp/audit symlinks. If vps.host
+        # is null (running on the VPS itself), use "-" "-" to skip SSH.
+        vps_host = config.get("vps", {}).get("host") or "-"
+        vps_key = config.get("vps", {}).get("ssh_key") or "-"
+        from audit_pipeline import __file__ as pkg_init_path
+        dispatch_script = Path(pkg_init_path).parent / "scripts" / "dispatch_litesvm.sh"
+        wrapper_dir = workspace / config.get("wrapper", {}).get("local", "target/wrapper")
+        for v in fired_for_litesvm:
+            hyp_id = v["hypothesis_id"]
+            finding_name = _slugify(hyp_id)
+            litesvm_file = litesvm_out / f"test_{finding_name}_bound_analysis.rs"
+            if resume_cycle and litesvm_file.exists():
+                log("litesvm_resumed_from_existing", hypothesis_id=hyp_id)
+                rc_author = 0
+            else:
+                rc_author = _run([
+                    _audit_pipeline_bin(), "--workspace", str(workspace),
+                    "litesvm", "author",
+                    "--finding", finding_name,
+                    "--template", "litesvm_bound_analysis",
+                    "--output", str(litesvm_out),
+                ])
+            dispatch_rc: int | None = None
+            if rc_author == 0 and dispatch_script.exists():
+                test_name = f"test_{finding_name}_bound_analysis"
+                dispatch_rc = _run(
+                    [
+                        "bash", str(dispatch_script),
+                        vps_host, vps_key, test_name, str(wrapper_dir),
+                    ],
+                    timeout=600,
+                )
+                log("litesvm_dispatched", hypothesis_id=hyp_id,
+                    test=test_name, returncode=dispatch_rc)
+            litesvm_results[hyp_id] = {
+                "returncode": rc_author,
+                "dispatch_returncode": dispatch_rc,
+                "scaffold_dir": str(litesvm_out),
+            }
+            log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc_author)
 
     # ---------- Synthesis: build the cycle report + write to DB ----------
     elapsed = time.time() - started_at
