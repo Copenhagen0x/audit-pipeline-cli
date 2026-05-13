@@ -485,25 +485,54 @@ Notes:        {hyp.get("notes", "(none)")}
               (legacy path, kept so --use-tools is opt-in).
         """
         try:
+            # Bridge dashboard event: hyp dispatch starts
+            try:
+                from audit_pipeline.utils.event_log import emit_event as _emit
+                _emit("recon_hyp_start", hyp_id=hyp_id, use_tools=bool(use_tools))
+            except Exception:  # noqa: BLE001
+                pass
             if use_tools:
                 # L1 recon Defect 01 fix: source-grounded tool loop.
                 from audit_pipeline.utils.llm_tools import run_tool_using_agent
-                system_prompt = (
-                    "You are an expert Solana security auditor running Layer 1 "
-                    "recon. You have read_file, grep, and find_function tools "
-                    "against the live workspace source. Use them to verify "
-                    "every claim before rendering a verdict — do NOT speculate. "
-                    "Cite concrete file paths and line numbers. End your final "
-                    "answer with a `## Verdict` section containing one of "
-                    "TRUE / FALSE / INCONCLUSIVE and a confidence "
-                    "(HIGH / MEDIUM / LOW)."
-                )
-                tu_result = run_tool_using_agent(
-                    workspace,
-                    system_prompt,
-                    prompt_text,
-                    max_turns=tool_max_turns,
-                )
+                # Stash hyp id in env so llm_tools.emit_event for tool_call
+                # can associate the call with the active hypothesis.
+                import os as _os
+                _prev_hyp = _os.environ.get("JELLEO_ACTIVE_HYP_ID")
+                _os.environ["JELLEO_ACTIVE_HYP_ID"] = hyp_id
+                try:
+                    system_prompt = (
+                        "You are an expert Solana security auditor running Layer 1 "
+                        "recon. You have read_file, grep, and find_function tools "
+                        "against the live workspace source. Use them to verify "
+                        "every claim before rendering a verdict — do NOT speculate. "
+                        "Cite concrete file paths and line numbers. End your final "
+                        "answer with a `## Verdict` section containing one of "
+                        "TRUE / FALSE / INCONCLUSIVE and a confidence "
+                        "(HIGH / MEDIUM / LOW)."
+                    )
+                    tu_result = run_tool_using_agent(
+                        workspace,
+                        system_prompt,
+                        prompt_text,
+                        max_turns=tool_max_turns,
+                    )
+                finally:
+                    if _prev_hyp is None:
+                        _os.environ.pop("JELLEO_ACTIVE_HYP_ID", None)
+                    else:
+                        _os.environ["JELLEO_ACTIVE_HYP_ID"] = _prev_hyp
+                # Emit verdict event for the dashboard's hypothesis grid
+                try:
+                    _verdict_match = _parse_verdict(tu_result.text)
+                    _emit("recon_hyp_done",
+                          hyp_id=hyp_id,
+                          verdict=_verdict_match[0],
+                          confidence=_verdict_match[1],
+                          input_tokens=tu_result.input_tokens,
+                          output_tokens=tu_result.output_tokens,
+                          n_tool_turns=tu_result.n_turns)
+                except Exception:  # noqa: BLE001
+                    pass
                 return hyp_id, {
                     "ok": True,
                     "text": tu_result.text,
@@ -535,6 +564,17 @@ Notes:        {hyp.get("notes", "(none)")}
                 })
                 resp = challenge_resp  # last round becomes the final verdict
 
+            try:
+                _v = _parse_verdict(rounds_data[-1]["text"])
+                _emit("recon_hyp_done",
+                      hyp_id=hyp_id,
+                      verdict=_v[0],
+                      confidence=_v[1],
+                      input_tokens=sum(r["input_tokens"] for r in rounds_data),
+                      output_tokens=sum(r["output_tokens"] for r in rounds_data),
+                      n_tool_turns=0)
+            except Exception:  # noqa: BLE001
+                pass
             return hyp_id, {
                 "ok": True,
                 "text": rounds_data[-1]["text"],
@@ -546,6 +586,11 @@ Notes:        {hyp.get("notes", "(none)")}
                 "stop_reason": resp.stop_reason,
             }
         except Exception as e:  # noqa: BLE001 — surface every failure as data
+            try:
+                _emit("recon_hyp_done", hyp_id=hyp_id, verdict="ERROR",
+                      confidence="LOW", error=str(e)[:200])
+            except Exception:  # noqa: BLE001
+                pass
             return hyp_id, {"ok": False, "error": str(e)}
 
     # Resume support: if a previous recon left behind <hyp_id>_response.md in

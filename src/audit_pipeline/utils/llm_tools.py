@@ -246,6 +246,25 @@ def run_tool_using_agent(
                 tool_name = block.name
                 tool_input = block.input or {}
                 tool_calls_log.append({"tool": tool_name, "input": tool_input})
+                # Live-feed the tool call to subscribed customer dashboards
+                # (the Bridge view's tool-call stream + hypothesis grid
+                # "thinking" animations). Best-effort; never raises.
+                try:
+                    from audit_pipeline.utils.event_log import emit_event
+                    _hyp_id = os.environ.get("JELLEO_ACTIVE_HYP_ID", "")
+                    emit_event(
+                        "tool_call",
+                        hyp_id=_hyp_id,
+                        tool=tool_name,
+                        path=str(tool_input.get("path", ""))[:200],
+                        pattern=str(tool_input.get("pattern", ""))[:200],
+                        name=str(tool_input.get("name", ""))[:200],
+                        start_line=tool_input.get("start_line"),
+                        end_line=tool_input.get("end_line"),
+                        turn=n_turns,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
                 try:
                     if tool_name == "read_file":
                         result = tool_read_file(

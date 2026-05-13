@@ -752,6 +752,15 @@ def _hunt_run(
             cycle_dir = hunts_dir / cycle_id
         cycle_dir.mkdir(parents=True, exist_ok=True)
 
+        # Live-dashboard event emission: every subprocess (recon, debate,
+        # poc-llm, ...) inherits JELLEO_CYCLE_LOG_PATH so its emit_event
+        # calls write into THIS cycle's hunt.log.jsonl, which the SSE
+        # service tails and broadcasts to subscribed customer dashboards.
+        # The python process running hunt.py reads the same env var.
+        import os as _os
+        _os.environ["JELLEO_CYCLE_LOG_PATH"] = str(cycle_dir / "hunt.log.jsonl")
+        _os.environ["JELLEO_WORKSPACE"] = str(workspace)
+
         db.insert_cycle(
             target_id=target_id,
             cycle_id=cycle_id,

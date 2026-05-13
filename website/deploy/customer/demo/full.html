@@ -2,76 +2,761 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="robots" content="noindex, nofollow">
-<link rel="canonical" href="https://jelleo.com/customer/demo/">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Jelleo · Percolator dashboard</title>
-<meta name="description" content="Embedded customer dashboard — what a Jelleo-monitored Solana DeFi protocol sees. Live findings feed, on-chain attestation registry, cluster activity.">
+<title>Jelleo · Bridge view · Demo</title>
+<meta name="description" content="Jelleo Bridge — live mission-control view of the autonomous audit loop. Source-grounded recon, layer-2.5 triage, attestation, all live.">
+<link rel="canonical" href="https://jelleo.com/customer/demo/full.html">
 <meta name="theme-color" content="#050504">
+<meta name="robots" content="noindex,nofollow">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
 <style>
-
-.skip-link{position:absolute;left:-9999px;top:0;background:#f5b800;color:#000;padding:10px 16px;font-family:var(--mono,monospace);font-size:13px;font-weight:600;text-decoration:none;z-index:9999;border-radius:0 0 4px 0}
-.skip-link:focus{left:0}
-
+/* ──────────────────────────────────────────────────────────────────────
+   BRIDGE — mission-control layout for the autonomous audit loop.
+   Dense by design. Always-on motion: heartbeat pip, sparklines, cost
+   ticker, even when the engine is idle.
+   ────────────────────────────────────────────────────────────────────── */
 
 :root {
-  --bg:           #050504;
-  --bg-2:         #0a0908;
-  --bg-3:         #100e0c;
-  --surface:      rgba(245,243,237,0.025);
-  --surface-2:    rgba(245,243,237,0.045);
-  --surface-3:    rgba(245,243,237,0.08);
-
-  --ink:          #f5f3ed;
-  --ink-2:        rgba(245,243,237,0.72);
-  --ink-3:        rgba(245,243,237,0.46);
-  --ink-4:        rgba(245,243,237,0.28);
-  --ink-5:        rgba(245,243,237,0.12);
-
-  --rule:         rgba(245,243,237,0.08);
-  --rule-2:       rgba(245,243,237,0.16);
-
-  --amber:        #f5b800;
-  --amber-2:      #ffce4a;
-  --amber-glow:   rgba(245,184,0,0.4);
-
-  --ok:           #4ade80;
-  --warn:         #fbbf24;
-  --high:         #f97316;
-  --crit:         #ef4444;
-  --info:         #60a5fa;
-  --gray:         #71717a;
-
-  --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
-
-  --font:         'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --mono:         'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --bridge-bg:     #050504;
+  --bridge-panel:  rgba(245,243,237,0.025);
+  --bridge-rule:   rgba(245,243,237,0.08);
+  --bridge-rule-2: rgba(245,243,237,0.14);
+  --bridge-tile-idle:   rgba(245,243,237,0.06);
+  --bridge-tile-active: rgba(245,184,0,0.55);
+  --bridge-tile-ok:     rgba(74,222,128,0.45);
+  --bridge-tile-fire:   rgba(239,68,68,0.65);
+  --bridge-tile-conf:   #ef4444;
+  --tool-cyan: #67e8f9;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-/* html font-size MUST be 16px so iOS doesn't auto-zoom on inputs and so
-   browser-zoom users get the same scale as the rest of the site. */
-html { font-size: 16px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-body {
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--font);
-  font-size: 14px;
-  line-height: 1.55;
-  font-feature-settings: 'cv02','cv03','cv04','cv11','ss01';
+main.bridge {
+  padding: 84px 0 0;
   min-height: 100vh;
+  background:
+    radial-gradient(ellipse at top, rgba(245,184,0,0.04) 0%, transparent 50%),
+    var(--bridge-bg);
 }
 
-a { color: inherit; text-decoration: none; }
-button { font-family: inherit; border: none; background: none; color: inherit; cursor: pointer; }
+/* ===== HERO HEADER STRIP ===== */
+.bridge-header {
+  padding: 12px 32px;
+  border-bottom: 1px solid var(--bridge-rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  letter-spacing: 0.08em;
+  flex-wrap: wrap;
+}
+.bridge-header-left { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
+.bridge-customer-tag {
+  color: var(--ink-2);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.bridge-customer-tag .name { color: var(--amber); }
+.bridge-engine-sha {
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.bridge-engine-sha .sha {
+  color: var(--ink); font-weight: 500;
+  background: rgba(245,184,0,0.06);
+  padding: 2px 8px;
+  border: 1px solid rgba(245,184,0,0.2);
+  border-radius: 3px;
+  letter-spacing: 0.06em;
+  transition: background 0.6s ease, color 0.6s ease;
+}
+.bridge-engine-sha.sha-flicker .sha {
+  background: rgba(245,184,0,0.5);
+  color: var(--bg);
+  animation: shaFlicker 0.6s steps(8, end);
+}
+@keyframes shaFlicker {
+  0%   { opacity: 1; }
+  10%  { opacity: 0.3; }
+  20%  { opacity: 1; }
+  30%  { opacity: 0.4; }
+  100% { opacity: 1; }
+}
 
-::selection { background: var(--amber); color: var(--bg); }
+/* Heartbeat pip — always pulses */
+.bridge-heart {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--ok);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.bridge-heart .pip {
+  display: block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 0 var(--ok);
+  animation: pip 1.4s ease-out infinite;
+}
+@keyframes pip {
+  0%   { box-shadow: 0 0 0 0 rgba(74,222,128,0.6); transform: scale(1.0); }
+  60%  { box-shadow: 0 0 0 10px rgba(74,222,128,0); transform: scale(1.0); }
+  100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); transform: scale(1.0); }
+}
+.bridge-heart.offline { color: var(--crit); }
+.bridge-heart.offline .pip {
+  background: var(--crit);
+  animation: pip-offline 1.4s ease-out infinite;
+}
+@keyframes pip-offline {
+  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
+  60%  { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
 
-/* ======== DEMO WATERMARK ======== */
+.bridge-header-right { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
+.bridge-cost {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.bridge-cost .cap { color: var(--ink-3); margin-left: 6px; }
+.bridge-cost-bar {
+  width: 80px; height: 4px;
+  background: var(--bridge-rule);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-left: 8px;
+  display: inline-block;
+  vertical-align: middle;
+}
+.bridge-cost-bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber), var(--amber-2));
+  transition: width 0.4s var(--ease-out);
+}
+
+.bridge-poll {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+.bridge-poll .label { color: var(--ink-4); margin-right: 4px; }
+.bridge-poll .val { color: var(--ink); font-weight: 500; }
+
+/* ===== SPARKLINE STRIP ===== */
+.spark-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  border-bottom: 1px solid var(--bridge-rule);
+}
+@media (max-width: 768px) {
+  .spark-strip { grid-template-columns: repeat(2, 1fr); }
+  .spark-cell:nth-child(2) { border-right: none; }
+}
+.spark-cell {
+  padding: 10px 18px;
+  border-right: 1px solid var(--bridge-rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+}
+.spark-cell:last-child { border-right: none; }
+.spark-cell-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-4);
+  white-space: nowrap;
+}
+.spark-cell-value {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.spark-cell svg {
+  flex: 1;
+  height: 28px;
+  overflow: visible;
+}
+.spark-cell svg polyline {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 3px rgba(245,184,0,0.4));
+}
+
+/* ===== MAIN GRID ===== */
+.bridge-main {
+  display: grid;
+  grid-template-columns: 280px 1fr 280px;
+  gap: 0;
+  min-height: 580px;
+}
+@media (max-width: 1100px) {
+  .bridge-main { grid-template-columns: 1fr; }
+  .bridge-side { border-right: none !important; border-bottom: 1px solid var(--bridge-rule); }
+}
+
+.bridge-side {
+  padding: 18px 20px;
+  border-right: 1px solid var(--bridge-rule);
+  overflow: hidden;
+}
+.bridge-side:last-of-type { border-right: none; border-left: 1px solid var(--bridge-rule); }
+
+.bridge-section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.bridge-section-label .count {
+  color: var(--amber);
+  font-size: 11px;
+}
+
+/* ===== FINDINGS WATERFALL (LEFT) ===== */
+.findings-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 540px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bridge-rule-2) transparent;
+}
+.findings-stream::-webkit-scrollbar { width: 6px; }
+.findings-stream::-webkit-scrollbar-thumb { background: var(--bridge-rule-2); border-radius: 3px; }
+
+.finding-card {
+  background: var(--bridge-panel);
+  border: 1px solid var(--bridge-rule);
+  border-left: 3px solid var(--ink-4);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  transition: border-color 0.4s, background 0.6s;
+  animation: slideIn 0.4s var(--ease-out);
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.finding-card.new-glow {
+  animation: slideIn 0.4s var(--ease-out), newPulse 3s ease-out;
+}
+@keyframes newPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(245,184,0,0.6); border-color: var(--amber); background: rgba(245,184,0,0.08); }
+  100% { box-shadow: 0 0 0 0 rgba(245,184,0,0); }
+}
+.finding-card.sev-Critical, .finding-card.sev-CRIT { border-left-color: var(--crit); }
+.finding-card.sev-High      { border-left-color: var(--high); }
+.finding-card.sev-Medium    { border-left-color: var(--warn); }
+.finding-card.sev-Low       { border-left-color: var(--info); }
+.finding-card .hid {
+  color: var(--ink); font-weight: 600;
+  font-size: 11px; letter-spacing: 0.06em;
+}
+.finding-card .sev-badge {
+  float: right;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+.finding-card .sev-Critical .sev-badge,
+.finding-card.sev-Critical .sev-badge { background: var(--crit); color: #fff; }
+.finding-card.sev-High .sev-badge { background: var(--high); color: #fff; }
+.finding-card.sev-Medium .sev-badge { background: var(--warn); color: var(--bg); }
+.finding-card.sev-Low .sev-badge { background: var(--info); color: var(--bg); }
+.finding-card .title {
+  display: block;
+  color: var(--ink-2);
+  margin-top: 4px;
+  font-size: 11px;
+  font-family: var(--font);
+  font-weight: 400;
+  line-height: 1.45;
+}
+.finding-card .meta {
+  margin-top: 4px;
+  color: var(--ink-4);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ===== CENTER STAGE ===== */
+.bridge-stage {
+  padding: 18px 24px 0;
+  min-width: 0;
+}
+
+.stage-row {
+  background: linear-gradient(180deg, rgba(245,184,0,0.04), transparent);
+  border: 1px solid var(--bridge-rule-2);
+  border-radius: 6px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+  min-height: 76px;
+}
+.stage-row::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--amber) 50%, transparent);
+  opacity: 0.5;
+  animation: stageSweep 6s ease-in-out infinite;
+}
+@keyframes stageSweep {
+  0%, 100% { transform: translateX(-100%); opacity: 0; }
+  50% { transform: translateX(100%); opacity: 0.5; }
+}
+.stage-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--amber);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.stage-eyebrow .pulse {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  animation: pip 1.6s ease-out infinite;
+}
+.stage-headline {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.stage-headline .accent { color: var(--amber); font-weight: 600; }
+.stage-headline .dim { color: var(--ink-3); }
+.stage-progress {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+}
+.stage-progress-bar {
+  flex: 1;
+  height: 3px;
+  background: var(--bridge-rule);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.stage-progress-bar > div {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--amber), var(--amber-2));
+  box-shadow: 0 0 4px var(--amber-glow);
+  transition: width 0.4s var(--ease-out);
+}
+
+/* ===== HYPOTHESIS GRID ===== */
+.grid-wrap {
+  background: var(--bridge-panel);
+  border: 1px solid var(--bridge-rule);
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+.grid-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+}
+.grid-header .legend {
+  display: flex; align-items: center; gap: 14px;
+  font-size: 9px; letter-spacing: 0.14em;
+  color: var(--ink-4);
+}
+.grid-header .legend span { display: inline-flex; align-items: center; gap: 4px; }
+.grid-header .legend i {
+  display: inline-block; width: 7px; height: 7px;
+  border-radius: 1px;
+}
+.grid-header .legend .gi-idle   { background: var(--bridge-tile-idle); }
+.grid-header .legend .gi-active { background: var(--bridge-tile-active); }
+.grid-header .legend .gi-ok     { background: var(--bridge-tile-ok); }
+.grid-header .legend .gi-fire   { background: var(--bridge-tile-fire); }
+.grid-header .legend .gi-conf   { background: var(--bridge-tile-conf); }
+
+.hyp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
+  gap: 3px;
+  min-height: 120px;
+}
+.hyp-tile {
+  aspect-ratio: 1;
+  background: var(--bridge-tile-idle);
+  border-radius: 2px;
+  position: relative;
+  transition: background 0.4s var(--ease-out), transform 0.2s;
+  cursor: pointer;
+}
+.hyp-tile:hover {
+  transform: scale(1.6);
+  z-index: 5;
+  outline: 1px solid var(--amber);
+}
+.hyp-tile.active {
+  background: var(--bridge-tile-active);
+  animation: tilePulse 1.2s ease-in-out infinite;
+}
+@keyframes tilePulse {
+  0%, 100% { opacity: 0.6; box-shadow: 0 0 0 0 rgba(245,184,0,0.5); }
+  50%      { opacity: 1; box-shadow: 0 0 0 2px rgba(245,184,0,0.15); }
+}
+.hyp-tile.ok      { background: var(--bridge-tile-ok); }
+.hyp-tile.fire    { background: var(--bridge-tile-fire); }
+.hyp-tile.fire.confirmed { background: var(--bridge-tile-conf); }
+.hyp-tile.tooltip-target::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: 130%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(5,5,4,0.96);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  border: 1px solid var(--bridge-rule-2);
+  z-index: 10;
+}
+.hyp-tile:hover.tooltip-target::after { opacity: 1; }
+
+/* ===== TOOL CALL STREAM ===== */
+.toolstream {
+  background: var(--bridge-panel);
+  border: 1px solid var(--bridge-rule);
+  border-radius: 6px;
+  padding: 0;
+  margin-bottom: 18px;
+  max-height: 260px;
+  display: flex;
+  flex-direction: column;
+}
+.toolstream-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--bridge-rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+}
+.toolstream-body {
+  padding: 8px 0;
+  overflow-y: auto;
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bridge-rule-2) transparent;
+}
+.toolstream-body::-webkit-scrollbar { width: 4px; }
+.toolstream-body::-webkit-scrollbar-thumb { background: var(--bridge-rule-2); border-radius: 2px; }
+.toolstream-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--ink-4);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.toolstream-row {
+  padding: 4px 16px;
+  display: grid;
+  grid-template-columns: 70px 70px 1fr;
+  gap: 12px;
+  color: var(--ink-2);
+  border-left: 2px solid transparent;
+  transition: background 0.2s;
+  animation: toolRowIn 0.32s var(--ease-out);
+  word-break: break-word;
+}
+@keyframes toolRowIn {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.toolstream-row:hover { background: rgba(245,184,0,0.04); }
+.toolstream-row.fresh { border-left-color: var(--amber); }
+.toolstream-row .ts { color: var(--ink-4); font-size: 10px; }
+.toolstream-row .hid { color: var(--amber); font-weight: 600; font-size: 10px; }
+.toolstream-row .tool { color: var(--tool-cyan); font-weight: 500; }
+.toolstream-row .args { color: var(--ink-3); }
+
+/* ===== L2.5 TRIAGE BAR ===== */
+.triage-bar-wrap {
+  background: var(--bridge-panel);
+  border: 1px solid var(--bridge-rule);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+.triage-bar-head {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+.triage-bar {
+  height: 12px;
+  background: var(--bridge-rule);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  transition: opacity 0.3s;
+}
+.triage-bar.empty { opacity: 0.35; }
+.triage-bar .seg { transition: width 0.5s var(--ease-out); }
+.triage-bar .seg.strong { background: var(--crit); }
+.triage-bar .seg.soft   { background: var(--warn); }
+.triage-bar .seg.false_ { background: var(--gray); }
+.triage-bar .seg.lost   { background: #a855f7; }
+.triage-legend {
+  display: flex;
+  gap: 18px;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+.triage-legend span {
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.triage-legend span::before {
+  content: ""; display: inline-block;
+  width: 6px; height: 6px; border-radius: 1px;
+}
+.triage-legend .strong::before { background: var(--crit); }
+.triage-legend .soft::before   { background: var(--warn); }
+.triage-legend .false_::before { background: var(--gray); }
+.triage-legend .lost::before   { background: #a855f7; }
+.triage-legend .val { color: var(--ink); font-weight: 500; }
+
+/* ===== CYCLE WATERFALL (RIGHT) ===== */
+.cycle-waterfall {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 10px;
+  margin-bottom: 22px;
+}
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.layer-row .name {
+  flex: 0 0 70px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.layer-row .bar {
+  flex: 1;
+  height: 6px;
+  background: var(--bridge-rule);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.layer-row .bar > div {
+  height: 100%;
+  width: 0;
+  background: var(--ink-4);
+  transition: width 0.5s var(--ease-out), background 0.4s;
+  border-radius: 3px;
+}
+.layer-row.active .bar > div {
+  background: var(--amber);
+  width: var(--p, 30%);
+  animation: barShimmer 1.6s ease-in-out infinite;
+}
+@keyframes barShimmer {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245,184,0,0.3); }
+  50%      { box-shadow: 0 0 6px 0 rgba(245,184,0,0.6); }
+}
+.layer-row.done .bar > div { background: var(--ok); width: 100%; }
+.layer-row.skipped .bar > div { background: var(--ink-5); width: 100%; }
+.layer-row .status {
+  flex: 0 0 64px;
+  text-align: right;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+}
+.layer-row.done .status { color: var(--ok); }
+.layer-row.active .status { color: var(--amber); }
+.layer-row.skipped .status { color: var(--ink-4); }
+
+/* ===== SIDE STATS ===== */
+.side-stat {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  letter-spacing: 0.04em;
+}
+.side-stat .val { color: var(--ink); font-weight: 500; }
+.side-stat .val.amber { color: var(--amber); }
+.side-stat .val.ok    { color: var(--ok); }
+.side-stat .val.crit  { color: var(--crit); }
+.side-divider {
+  height: 1px;
+  background: var(--bridge-rule);
+  margin: 14px 0;
+}
+
+/* ===== EVENT TERMINAL ===== */
+.event-terminal {
+  margin-top: 0;
+  background: rgba(5,5,4,0.5);
+  border-top: 1px solid var(--bridge-rule);
+  border-bottom: 1px solid var(--bridge-rule);
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  max-height: 180px;
+  display: flex;
+  flex-direction: column;
+}
+.event-terminal-head {
+  padding: 10px 32px;
+  border-bottom: 1px solid var(--bridge-rule);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.event-terminal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bridge-rule-2) transparent;
+}
+.event-terminal-body::-webkit-scrollbar { height: 4px; width: 4px; }
+.event-terminal-body::-webkit-scrollbar-thumb { background: var(--bridge-rule-2); border-radius: 2px; }
+.event-row {
+  padding: 3px 32px;
+  display: grid;
+  grid-template-columns: 80px 130px 1fr;
+  gap: 14px;
+  color: var(--ink-2);
+  animation: toolRowIn 0.32s var(--ease-out);
+}
+.event-row .ts   { color: var(--ink-4); font-size: 10px; }
+.event-row .kind { color: var(--amber); font-size: 10px; letter-spacing: 0.06em; }
+.event-row .kind.ok   { color: var(--ok); }
+.event-row .kind.crit { color: var(--crit); }
+.event-row .body { color: var(--ink-3); }
+
+/* ===== FOOTER ACTIONS ===== */
+.bridge-actions {
+  padding: 24px 32px 60px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.bridge-actions a {
+  color: var(--ink-2);
+  padding: 8px 14px;
+  border: 1px solid var(--bridge-rule);
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 10px;
+  transition: all 0.2s;
+}
+.bridge-actions a:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(245,184,0,0.04);
+}
+.bridge-actions .primary {
+  background: var(--amber);
+  color: var(--bg);
+  border-color: var(--amber);
+  font-weight: 600;
+}
+.bridge-actions .primary:hover {
+  background: var(--amber-2);
+  color: var(--bg);
+}
+
+/* ===== DEMO BANNER ===== */
 .demo-banner {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -96,1646 +781,883 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
   margin-right: 8px;
   font-weight: 700;
 }
+.demo-banner a { color: var(--ink); text-decoration: underline; }
 
-/* ======== TOP NAV ======== */
-.topnav {
-  position: sticky;
-  top: 28px;
-  z-index: 50;
-  background: rgba(5,5,4,0.85);
-  backdrop-filter: blur(20px) saturate(140%);
-  border-bottom: 1px solid var(--rule);
-  padding: 14px 32px;
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.28s ease;
-  will-change: transform;
+@media (max-width: 768px) {
+  .bridge-header { padding: 10px 16px; flex-direction: column; align-items: flex-start; }
+  .bridge-side { padding: 14px 18px; }
+  .bridge-stage { padding: 16px 18px 0; }
+  .bridge-actions { padding: 16px 18px 32px; }
+  .event-row { grid-template-columns: 60px 100px 1fr; padding: 3px 18px; }
 }
-/* Auto-hide on scroll-down so the nav doesn't overlap the dashboard
-   content the user is scanning. Reappears immediately on scroll-up. */
-.topnav.topnav-hidden {
-  transform: translateY(calc(-100% - 32px));
-  opacity: 0;
-  pointer-events: none;
-}
-
-.nav-logo {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  font-weight: 800;
-  font-size: 18px;
-  letter-spacing: -0.025em;
-  color: var(--ink);
-  padding: 6px 14px;
-}
-.nav-logo::before, .nav-logo::after {
-  content: '';
-  position: absolute;
-  width: 9px; height: 9px;
-  border: 1.5px solid var(--amber);
-  filter: drop-shadow(0 0 4px var(--amber-glow));
-}
-.nav-logo::before { top: 0; right: 0; border-left: none; border-bottom: none; }
-.nav-logo::after  { bottom: 0; left: 0; border-right: none; border-top: none; }
-
-.nav-divider {
-  width: 1px; height: 16px;
-  background: var(--rule-2);
-}
-
-.nav-protocol {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--ink-2);
-}
-.nav-protocol strong { color: var(--ink); font-weight: 700; }
-.nav-pulse {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 10px rgba(74,222,128,0.7);
-  animation: pulse 1.6s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.8); }
-}
-
-.nav-status {
-  font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--ink-3);
-}
-.nav-status .dot {
-  display: inline-block;
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--ok);
-  margin-right: 6px;
-  vertical-align: middle;
-}
-
-.nav-spacer { flex: 1; }
-
-.nav-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--ink-3);
-  font-family: var(--mono);
-  letter-spacing: 0.04em;
-  padding: 6px 12px;
-  border: 1px solid var(--rule-2);
-  border-radius: 999px;
-  transition: border-color .2s, color .2s;
-}
-.nav-back:hover {
-  color: var(--amber);
-  border-color: var(--amber);
-}
-
-/* ======== IDENTITY STRIP ======== */
-.identity {
-  padding: 32px;
-  border-bottom: 1px solid var(--rule);
-  background: linear-gradient(180deg, rgba(245,184,0,0.03), transparent);
-}
-
-.id-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.id-name {
-  font-size: 32px;
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  color: var(--ink);
-}
-.id-name .meta {
-  display: block;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink-3);
-  letter-spacing: 0;
-  margin-top: 4px;
-}
-
-.id-status-block {
-  text-align: right;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.id-status-block .live-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
-  background: rgba(74,222,128,0.1);
-  border: 1px solid rgba(74,222,128,0.3);
-  border-radius: 999px;
-  color: var(--ok);
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-
-.id-grid {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 0;
-  border-top: 1px solid var(--rule);
-  padding-top: 18px;
-}
-
-.id-cell {
-  padding: 0 18px;
-  border-right: 1px solid var(--rule);
-}
-.id-cell:first-child { padding-left: 0; }
-.id-cell:last-child { border-right: none; padding-right: 0; }
-
-.id-label {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-4);
-  margin-bottom: 4px;
-}
-.id-value {
-  font-size: 14px;
-  color: var(--ink);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.id-value.amber { color: var(--amber); }
-.id-value.mono { font-family: var(--mono); font-size: 13px; }
-
-@media (max-width: 1100px) {
-  .id-grid { grid-template-columns: repeat(3, 1fr); gap: 14px; border-top: none; }
-  .id-cell { border-right: none; padding: 0; }
-}
-
-/* ======== MAIN GRID ======== */
-.main {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-  gap: 0;
-  padding: 28px 32px 80px;
-}
-
-@media (max-width: 1100px) {
-  .main { grid-template-columns: 1fr; padding: 20px 16px 60px; gap: 24px; }
-}
-
-/* Phone-width breakpoint */
-@media (max-width: 640px) {
-  .topnav { padding: 12px 16px; gap: 12px; flex-wrap: wrap; }
-  .nav-divider { display: none; }
-  .nav-status { display: none; }
-  .identity { padding: 20px 16px; }
-  .id-name { font-size: 24px; }
-  .id-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
-  .id-cell { padding: 0; }
-  .main { padding: 16px 12px 40px; gap: 16px; }
-  .panel-head { padding: 12px 14px; }
-  .feed-toolbar { padding: 10px 12px; }
-  .footer-bar { padding: 14px 16px; flex-direction: column; gap: 6px; align-items: flex-start; }
-  /* Demo banner on phones: hide all the original content (spans + loose
-     text nodes) and replace with a single short label via ::before.
-     Using `color: transparent` + `text-indent: 100%` + `overflow: hidden`
-     to neutralise the loose text nodes that display: none on spans
-     can't reach. */
-  .demo-banner {
-    color: transparent !important;
-    padding: 7px 10px; line-height: 1.2;
-    overflow: hidden; white-space: nowrap;
-    text-overflow: clip;
-    height: 28px;
-    position: relative;
-  }
-  .demo-banner * { display: none !important; }
-  .demo-banner::before {
-    content: "LIVE";
-    display: inline-block;
-    background: var(--amber); color: var(--bg);
-    font-size: 9px; font-weight: 700; padding: 2px 6px;
-    border-radius: 3px; margin-right: 8px;
-  }
-  .demo-banner::after {
-    content: "demo · public snapshot";
-    color: var(--ink-3); font-size: 10px; font-family: var(--mono);
-    letter-spacing: 0.04em;
-  }
-}
-@media (max-width: 480px) {
-  .id-grid { grid-template-columns: 1fr; gap: 10px; }
-}
-
-/* ======== PANELS (shared) ======== */
-.panel {
-  background: linear-gradient(180deg, rgba(12,11,9,0.85), rgba(5,4,3,0.85));
-  border: 1px solid var(--rule-2);
-  border-radius: 12px;
-  overflow: hidden;
-  margin-bottom: 18px;
-  box-shadow:
-    0 20px 50px -25px rgba(0,0,0,0.55),
-    inset 0 1px 0 rgba(245,243,237,0.04);
-  position: relative;
-}
-.panel::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--amber-glow), transparent);
-  opacity: 0.55;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--rule);
-  background: rgba(245,243,237,0.025);
-}
-
-.panel-pulse {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 8px rgba(74,222,128,0.6);
-  animation: pulse 1.4s ease-in-out infinite;
-}
-.panel-pulse.warn { background: var(--warn); box-shadow: 0 0 8px rgba(251,191,36,0.6); }
-.panel-pulse.amber { background: var(--amber); box-shadow: 0 0 8px var(--amber-glow); }
-
-.panel-title {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-.panel-meta {
-  margin-left: auto;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-4);
-}
-
-.panel-body { padding: 0; }
-
-/* sidebar-sized panels */
-.right .panel-head { padding: 12px 16px; }
-
-/* ======== LEFT — FINDINGS FEED ======== */
-.left { padding-right: 24px; }
-@media (max-width: 1100px) { .left { padding-right: 0; } }
-
-.feed-toolbar {
-  display: flex;
-  gap: 8px;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--rule);
-  background: rgba(5,4,3,0.4);
-  flex-wrap: wrap;
-}
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  background: rgba(245,243,237,0.025);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--ink-2);
-  cursor: pointer;
-  transition: all .2s;
-}
-.chip:hover { color: var(--ink); border-color: var(--rule-2); }
-.chip.active { color: var(--amber); border-color: rgba(245,184,0,0.4); background: rgba(245,184,0,0.08); }
-.chip .count {
-  display: inline-block;
-  font-family: var(--mono);
-  font-size: 10px;
-  background: rgba(245,243,237,0.06);
-  padding: 1px 6px;
-  border-radius: 999px;
-  margin-left: 4px;
-}
-.chip.active .count { background: rgba(245,184,0,0.18); color: var(--amber); }
-
-.findings {
-  font-family: var(--mono);
-}
-
-.finding-row {
-  display: grid;
-  grid-template-columns: 110px 1fr 110px;
-  grid-template-rows: auto auto;
-  gap: 4px 16px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--rule);
-  border-left: 2px solid transparent;
-  transition: background .15s, border-left-color .15s;
-  cursor: pointer;
-  position: relative;
-}
-.finding-row:last-child { border-bottom: none; }
-.finding-row:hover { background: rgba(245,184,0,0.025); }
-
-.finding-row.crit { border-left-color: var(--crit); }
-.finding-row.high { border-left-color: var(--high); }
-.finding-row.med { border-left-color: var(--warn); }
-.finding-row.low { border-left-color: var(--info); }
-.finding-row.info { border-left-color: var(--ink-4); }
-
-.fr-id {
-  grid-row: 1; grid-column: 1;
-  font-weight: 700;
-  font-size: 13px;
-  color: var(--amber);
-}
-.fr-class {
-  grid-row: 1; grid-column: 2;
-  font-size: 13px;
-  color: var(--ink);
-  font-weight: 500;
-  font-family: var(--font);
-  letter-spacing: -0.005em;
-}
-.fr-age {
-  grid-row: 1; grid-column: 3;
-  font-size: 11px;
-  color: var(--ink-3);
-  text-align: right;
-  letter-spacing: 0.04em;
-}
-.fr-meta {
-  grid-row: 2; grid-column: 1 / -1;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-  font-size: 10.5px;
-  color: var(--ink-3);
-}
-.fr-cite {
-  font-family: var(--mono);
-  color: var(--ink-3);
-  font-size: 11px;
-}
-.fr-cite::before { content: '→ '; color: var(--ink-4); }
-
-.severity-badge {
-  display: inline-block;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  border: 1px solid;
-}
-.severity-badge.crit { color: var(--crit); border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.1); }
-.severity-badge.high { color: var(--high); border-color: rgba(249,115,22,0.35); background: rgba(249,115,22,0.1); }
-.severity-badge.med  { color: var(--warn); border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.1); }
-.severity-badge.low  { color: var(--info); border-color: rgba(96,165,250,0.35); background: rgba(96,165,250,0.1); }
-.severity-badge.info { color: var(--ink-3); border-color: var(--rule-2); background: rgba(245,243,237,0.04); }
-
-.status-pill {
-  display: inline-block;
-  padding: 1px 8px;
-  border-radius: 4px;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  border: 1px solid;
-}
-.status-pill.embargo { color: var(--high); border-color: rgba(249,115,22,0.3); background: rgba(249,115,22,0.08); }
-.status-pill.review  { color: var(--warn); border-color: rgba(251,191,36,0.3); background: rgba(251,191,36,0.08); }
-.status-pill.merged  { color: var(--ok); border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.08); }
-.status-pill.locked  { color: var(--amber); border-color: rgba(245,184,0,0.4); background: rgba(245,184,0,0.1); }
-.status-pill.scanning { color: var(--info); border-color: rgba(96,165,250,0.3); background: rgba(96,165,250,0.08); }
-.status-pill.rejected { color: var(--ink-3); border-color: var(--rule-2); background: rgba(113,113,122,0.08); text-decoration: line-through; }
-
-/* expandable preview */
-.fr-preview {
-  display: none;
-  grid-row: 3; grid-column: 1 / -1;
-  margin-top: 8px;
-  padding: 12px;
-  background: rgba(5,4,3,0.7);
-  border-radius: 6px;
-  font-size: 11px;
-  color: var(--ink-2);
-  line-height: 1.6;
-  border-left: 2px solid var(--amber);
-}
-.finding-row.expanded { background: rgba(245,184,0,0.04); }
-.finding-row.expanded .fr-preview { display: block; }
-
-/* Mobile finding-row collapse — placed AFTER base fr-id/fr-class/fr-age
-   rules above so the cascade order picks up these grid-area overrides
-   on viewport match (the source-order tie-breaker is what matters here). */
-@media (max-width: 1100px) {
-  .finding-row {
-    grid-template-columns: 1fr !important;
-    grid-template-rows: auto auto auto !important;
-    padding: 12px 14px !important;
-    gap: 4px 12px !important;
-  }
-  .finding-row .fr-id    { grid-column: 1 !important; grid-row: 1 !important; }
-  .finding-row .fr-class { grid-column: 1 !important; grid-row: 2 !important; }
-  .finding-row .fr-age   { grid-column: 1 !important; grid-row: 1 !important;
-                           justify-self: end !important; text-align: right; }
-  .finding-row .fr-meta  { grid-column: 1 !important; grid-row: 3 !important;
-                           flex-wrap: wrap; }
-  .finding-row .fr-class { white-space: normal; word-break: break-word; }
-}
-
-.fr-preview .verdict-line {
-  display: flex;
-  gap: 12px;
-  padding-bottom: 6px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid var(--rule);
-  font-family: var(--mono);
-}
-.fr-preview .verdict-line .label {
-  color: var(--ink-4);
-  font-size: 9.5px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-.fr-preview .verdict-line .value { color: var(--ink); }
-
-/* ======== RIGHT SIDEBAR ======== */
-.right { display: flex; flex-direction: column; }
-
-/* Cluster activity */
-.cluster-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0;
-}
-.cluster-cell {
-  padding: 14px 16px;
-  border-right: 1px solid var(--rule);
-  border-bottom: 1px solid var(--rule);
-}
-.cluster-cell:nth-child(2n) { border-right: none; }
-.cluster-cell:nth-last-child(-n+2) { border-bottom: none; }
-.cluster-label {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--ink-4);
-  margin-bottom: 6px;
-}
-.cluster-value {
-  font-family: var(--mono);
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--amber);
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-.cluster-value.ink { color: var(--ink); }
-.cluster-sub {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--ink-3);
-  margin-top: 4px;
-}
-
-.spend-bar {
-  height: 6px;
-  background: rgba(245,184,0,0.1);
-  border-radius: 3px;
-  overflow: hidden;
-  margin-top: 6px;
-}
-.spend-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--amber), var(--amber-2));
-  width: 38%;
-  box-shadow: 0 0 8px var(--amber-glow);
-  transition: width 1.5s var(--ease-out);
-}
-
-/* Attestation registry */
-.attest-list {
-  font-family: var(--mono);
-}
-.attest-row {
-  display: grid;
-  grid-template-columns: 70px 1fr auto;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--rule);
-  align-items: center;
-  font-size: 11px;
-  transition: background .15s;
-}
-.attest-row:last-child { border-bottom: none; }
-.attest-row:hover { background: rgba(245,184,0,0.025); }
-.ar-time {
-  color: var(--ink-4);
-  font-size: 10px;
-}
-.ar-detail .ar-line1 {
-  color: var(--ink);
-  font-weight: 500;
-  font-size: 11px;
-  margin-bottom: 2px;
-}
-.ar-detail .ar-line2 {
-  color: var(--ink-3);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-}
-.ar-tx {
-  color: var(--info);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-decoration: underline dotted;
-  text-decoration-color: var(--rule-2);
-}
-
-/* Reports */
-.reports {
-  padding: 14px 16px;
-}
-.report-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  border: 1px solid var(--rule-2);
-  border-radius: 6px;
-  background: rgba(245,243,237,0.02);
-  transition: all .2s;
-  cursor: pointer;
-}
-.report-item:hover {
-  border-color: var(--amber);
-  background: rgba(245,184,0,0.05);
-}
-.report-item:last-child { margin-bottom: 0; }
-.report-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ink);
-  letter-spacing: -0.005em;
-}
-.report-name .meta {
-  display: block;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--ink-3);
-  font-weight: 500;
-  margin-top: 2px;
-}
-.report-action {
-  font-size: 10px;
-  color: var(--amber);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
-  padding: 4px 8px;
-  border-radius: 3px;
-}
-.report-action:hover {
-  background: rgba(245,184,0,0.12);
-  border-color: var(--amber);
-}
-.report-action.disabled {
-  color: var(--ink-3);
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-/* Footer */
-.footer-bar {
-  padding: 18px 32px;
-  border-top: 1px solid var(--rule);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--ink-4);
-  letter-spacing: 0.04em;
-}
-.footer-bar a { color: var(--ink-3); }
-.footer-bar a:hover { color: var(--amber); }
-
-/* Tick-flash animation */
-@keyframes tick-flash {
-  0% { color: var(--amber); text-shadow: 0 0 16px var(--amber-glow); }
-  100% { color: inherit; text-shadow: none; }
-}
-.tick-flash { animation: tick-flash 1.4s var(--ease-out); }
-
 </style>
 </head>
 <body>
-<a href="#main" class="skip-link">Skip to main content</a>
 
-<nav class="topnav">
-  <a href="/" class="nav-logo">jelleo</a>
-  <div class="nav-divider"></div>
-  <div class="nav-protocol">
-    <span class="nav-pulse"></span>
-    <span><strong>Percolator</strong> · perpetual DEX</span>
-  </div>
-  <div class="nav-divider"></div>
-  <span class="nav-status"><span class="dot"></span>Customer · cus_demo · jelleo-cluster-3 / node-07</span>
-  <div class="nav-spacer"></div>
-  <a href="/customer/demo/" class="nav-back" style="margin-right: 12px;">← summary</a>
-  <a href="/customer/" class="nav-back">Sign out</a>
-</nav>
-
-<!-- ============== IDENTITY STRIP ============== -->
-<main id="main">
-<section class="identity">
-  <div class="id-top">
-    <h1 class="id-name">
-      Percolator
-      <span class="meta">Anatoly Yakovenko's perpetual DEX · engine + BPF wrapper · funded-state preview (today: v0.1 hunt loop, F7 disclosed)</span>
-    </h1>
-    <div class="id-status-block">
-      <div class="live-badge" id="jelleo-live-dot" data-state="offline" style="color: var(--ok);"><span class="nav-pulse"></span><span id="jelleo-live-label">Live · connecting…</span></div>
-    </div>
-  </div>
-
-  <div class="id-grid">
-    <div class="id-cell">
-      <div class="id-label">Engine SHA</div>
-      <div class="id-value mono" id="id-engine-sha">5940285</div>
-    </div>
-    <div class="id-cell">
-      <div class="id-label">Wrapper SHA</div>
-      <div class="id-value mono" id="id-wrapper-sha">c447686</div>
-    </div>
-    <div class="id-cell">
-      <div class="id-label">Hyps dispatched <span style="color: var(--ink-4); font-size: 10px; letter-spacing: 0.04em;">· latest cycle</span></div>
-      <div class="id-value amber"><span id="id-hyps-dispatched">—</span></div>
-    </div>
-    <div class="id-cell">
-      <div class="id-label">Open findings</div>
-      <div class="id-value" id="id-open-findings">— open</div>
-    </div>
-    <div class="id-cell">
-      <div class="id-label">Disclosed · cumulative</div>
-      <div class="id-value" id="id-disclosed">—</div>
-    </div>
-    <div class="id-cell">
-      <div class="id-label">Coverage tier</div>
-      <div class="id-value amber" id="id-tier">—</div>
-    </div>
-  </div>
-</section>
-
-<!-- ============== MAIN GRID ============== -->
-<div class="main">
-
-  <!-- LEFT: Findings feed -->
-  <div class="left">
-    <div class="panel">
-      <div class="panel-head">
-        <span class="panel-pulse"></span>
-        <span class="panel-title">Findings feed</span>
-        <span class="panel-meta">live · 12 total · 7 open · F7 closed-without-merge (regression-locked at <code>a1afd2e</code>)</span>
-      </div>
-
-      <div class="feed-toolbar" id="feed-toolbar">
-        <span class="chip active">All <span class="count" data-sev-count="All">12</span></span>
-        <span class="chip">Critical <span class="count" data-sev-count="Critical">0</span></span>
-        <span class="chip">High <span class="count" data-sev-count="High">2</span></span>
-        <span class="chip">Medium <span class="count" data-sev-count="Medium">5</span></span>
-        <span class="chip">Low <span class="count" data-sev-count="Low">3</span></span>
-        <span class="chip">Info <span class="count" data-sev-count="Info">2</span></span>
-        <span style="color: var(--ink-3); font-size: 11px; margin-left: 8px;">(includes resolved + merged; open subset shown in identity strip above)</span>
-      </div>
-
-      <!-- FIX #11: previously the static rows rendered as if live when the
-           manifest 404'd, exposing fictional PERC-23/29/31/... findings as
-           if they were confirmed bugs. Added a visible "PREVIEW · NO LIVE
-           DATA" warning that renders only when JS doesn't replace the rows.
-           When live manifest succeeds, JS sets data-live="1" on .findings and
-           the warning is hidden via CSS. -->
-      <div class="preview-banner" id="preview-banner" style="display: block; padding: 8px 12px; margin: 8px 0; background: rgba(245,184,0,0.12); border: 1px solid rgba(245,184,0,0.4); border-radius: 4px; font-size: 11px; color: var(--amber); letter-spacing: 0.04em;">
-        <strong>PREVIEW · NO LIVE DATA</strong> — these rows are mocked sample
-        findings shown when the live customer manifest is unreachable. They are
-        NOT real findings. Wait for the live data to load (auto-refreshes every
-        60s) or sign in to view your real engagement data.
-      </div>
-      <div class="findings" id="findings" data-customer-findings>
-
-        <!-- F7 — the headline -->
-        <div class="finding-row crit">
-          <span class="fr-id">F7</span>
-          <span class="fr-class">Residual-conservation / insurance-siphon (self-dealing attack class)</span>
-          <span class="fr-age">12 mo</span>
-          <span class="fr-meta">
-            <span class="severity-badge crit"> CRITICAL</span>
-            <span class="status-pill locked">regression-locked · #39</span>
-            <span class="fr-cite">engine/src/lib.rs:4250–4260 · use_insurance_buffer</span>
-          </span>
-          <div class="fr-preview">
-            <div class="verdict-line">
-              <span class="label">Verdict:</span>
-              <span class="value">use_insurance_buffer shrinks insurance counter without debiting vault → haircut residual grows by absorbed amount → attacker's K/F-winning side claims it via self-trade</span>
-            </div>
-            Disclosed at <strong>aeyakovenko/percolator-prog#39</strong> — closed-without-merge, regression-locked on main at commit <strong>a1afd2e</strong>. 4/4 wrapper paths verified <code>insurance_drop = 0</code>; Kani harness <code>proof_junior_profit_backing</code> satisfies 2/2 cover properties.
-          </div>
-        </div>
-
-        <!-- High - active -->
-        <div class="finding-row high">
-          <span class="fr-id">PERC-23</span>
-          <span class="fr-class">Cross-tx liquidation-race window during cursor-wrap reset</span>
-          <span class="fr-age">3 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge high">HIGH · 7.4</span>
-            <span class="status-pill embargo">embargo · 30d</span>
-            <span class="fr-cite">engine/src/lib.rs:6155 · advance_cursor_atomic</span>
-          </span>
-          <div class="fr-preview">
-            <div class="verdict-line">
-              <span class="label">Verdict:</span>
-              <span class="value">Cursor-wrap atomically resets consumption budget without absorbing volatility — second-order liquidation race observed when cursor reset coincides with high-volatility tick</span>
-            </div>
-            PoC compiled (cargo test PASS, 8.2KB). Maintainer notified. Embargo window: 30 days. Fix bundle in development — Kani harness draft pending.
-          </div>
-        </div>
-
-        <!-- Medium -->
-        <div class="finding-row med">
-          <span class="fr-id">PERC-31</span>
-          <span class="fr-class">advance_profit_warmup overflow on synthetic high-vol path</span>
-          <span class="fr-age">8 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge med">MEDIUM · 6.2</span>
-            <span class="status-pill review">fix-bundle · in review</span>
-            <span class="fr-cite">engine/src/lib.rs:4680 · advance_profit_warmup</span>
-          </span>
-          <div class="fr-preview">
-            <div class="verdict-line">
-              <span class="label">Verdict:</span>
-              <span class="value">mul_div_floor_u128 overflow — Kani-true but ~167M years to reach via legitimate flow at default caps</span>
-            </div>
-            Recommended fix: swap to <code>wide_mul_div_floor_u128</code> (U256 helper that exists in codebase). One-token swap. PR opened, awaiting maintainer review.
-          </div>
-        </div>
-
-        <div class="finding-row med">
-          <span class="fr-id">PERC-29</span>
-          <span class="fr-class">account_equity_trade_open_raw overflow under extreme price input</span>
-          <span class="fr-age">9 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge med">MEDIUM · 5.9</span>
-            <span class="status-pill review">fix-bundle · in review</span>
-            <span class="fr-cite">engine/src/lib.rs:3915 · account_equity_trade_open_raw</span>
-          </span>
-        </div>
-
-        <div class="finding-row med">
-          <span class="fr-id">PERC-44</span>
-          <span class="fr-class">Funding-rate rounding direction inconsistent between settlement paths</span>
-          <span class="fr-age">14 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge med">MEDIUM · 5.1</span>
-            <span class="status-pill review">fix-bundle · in review</span>
-            <span class="fr-cite">engine/src/funding.rs:892 · settle_funding_round</span>
-          </span>
-        </div>
-
-        <div class="finding-row med">
-          <span class="fr-id">PERC-47</span>
-          <span class="fr-class">Slab routing drift under concurrent crank submission</span>
-          <span class="fr-age">18 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge med">MEDIUM · 4.8</span>
-            <span class="status-pill review">fix-bundle · awaiting Kani</span>
-            <span class="fr-cite">router/src/dispatch.rs:1247 · route_slab_atomic</span>
-          </span>
-        </div>
-
-        <div class="finding-row med">
-          <span class="fr-id">PERC-52</span>
-          <span class="fr-class">effective_pos_q_checked overflow under white-box state (defense-in-depth)</span>
-          <span class="fr-age">22 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge med">MEDIUM · 4.5</span>
-            <span class="status-pill merged">advisory · merged</span>
-            <span class="fr-cite">engine/src/lib.rs:2642 · effective_pos_q_checked</span>
-          </span>
-        </div>
-
-        <div class="finding-row low">
-          <span class="fr-id">PERC-58</span>
-          <span class="fr-class">Decimal-precision drift between solana-program 1.x and 2.x flow</span>
-          <span class="fr-age">5 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge low">LOW · 3.8</span>
-            <span class="status-pill review">fix-bundle · in review</span>
-            <span class="fr-cite">engine/src/decimal.rs:147 · scale_to_native</span>
-          </span>
-        </div>
-
-        <div class="finding-row low">
-          <span class="fr-id">PERC-63</span>
-          <span class="fr-class">Rounding-direction mismatch on partial-fill remainder</span>
-          <span class="fr-age">11 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge low">LOW · 3.4</span>
-            <span class="status-pill merged">merged</span>
-            <span class="fr-cite">engine/src/match.rs:704 · partial_fill_remainder</span>
-          </span>
-        </div>
-
-        <div class="finding-row low">
-          <span class="fr-id">PERC-67</span>
-          <span class="fr-class">deposit-cap-overflow check off-by-one at 32-byte boundary</span>
-          <span class="fr-age">19 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge low">LOW · 3.2</span>
-            <span class="status-pill merged">merged</span>
-            <span class="fr-cite">router/src/cap.rs:312 · deposit_cap_check</span>
-          </span>
-        </div>
-
-        <div class="finding-row info">
-          <span class="fr-id">PERC-71</span>
-          <span class="fr-class">Event-emission gap on liquidation-cascade path</span>
-          <span class="fr-age">2 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge info">INFO</span>
-            <span class="status-pill scanning">advisory · scanning</span>
-            <span class="fr-cite">engine/src/events.rs:88 · emit_liquidation_cascade</span>
-          </span>
-        </div>
-
-        <div class="finding-row info">
-          <span class="fr-id">PERC-72</span>
-          <span class="fr-class">Pyth oracle staleness gate triggers logging-only on edge case</span>
-          <span class="fr-age">6 d</span>
-          <span class="fr-meta">
-            <span class="severity-badge info">INFO</span>
-            <span class="status-pill merged">advisory · merged</span>
-            <span class="fr-cite">engine/src/oracle.rs:215 · check_oracle_staleness</span>
-          </span>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
-  <!-- RIGHT: sidebar -->
-  <div class="right">
-
-    <!-- Operations · live -->
-    <div class="panel">
-      <div class="panel-head">
-        <span class="panel-pulse amber"></span>
-        <span class="panel-title">Operations · live</span>
-        <span class="panel-meta" id="ops-meta">live · today</span>
-      </div>
-      <div class="panel-body">
-        <div class="cluster-grid">
-          <div class="cluster-cell">
-            <div class="cluster-label">Hyps · latest cycle</div>
-            <div class="cluster-value" id="ops-hyps-latest">—</div>
-            <div class="cluster-sub" id="ops-hyps-sub">dispatched</div>
-          </div>
-          <div class="cluster-cell">
-            <div class="cluster-label">Services up</div>
-            <div class="cluster-value" id="ops-services-up">—</div>
-            <div class="cluster-sub" id="ops-services-sub">of 8 platform units</div>
-          </div>
-          <div class="cluster-cell">
-            <div class="cluster-label">Cycles completed</div>
-            <div class="cluster-value" id="ops-cycles-total">—</div>
-            <div class="cluster-sub" id="ops-cycles-sub">total signed receipts</div>
-          </div>
-          <div class="cluster-cell">
-            <div class="cluster-label">Cluster nodes</div>
-            <div class="cluster-value ink" id="ops-nodes">1 / 1</div>
-            <div class="cluster-sub" style="color: var(--ink-4);"><span style="color: var(--amber); font-weight: 600;">Y1 target:</span> 12 nodes</div>
-          </div>
-        </div>
-        <div style="padding: 14px 16px; border-top: 1px solid var(--rule); font-size: 11px; color: var(--ink-3); font-family: var(--mono);">
-          <span>Loop uptime · <span id="ops-uptime" style="color: var(--ink-2);">—</span></span>
-          <span style="float: right; color: var(--ink-4);">API spend tracking · <span style="color: var(--amber); font-weight: 600;">Y1 funded</span></span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Cycle attestations -->
-    <div class="panel">
-      <div class="panel-head">
-        <span class="panel-pulse amber"></span>
-        <span class="panel-title">Signed cycle attestations</span>
-        <span class="panel-meta" id="attest-meta">last cycles</span>
-      </div>
-      <div class="panel-body">
-        <div class="attest-list" data-cycle-attestations>
-          <!-- populated by JS from manifest.recent_cycles[] + snapshot.cycle_merkle_roots[] -->
-          <div style="padding: 24px 20px; text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;">
-            Loading cycle attestations…
-          </div>
-        </div>
-        <div style="padding: 12px 16px; border-top: 1px solid var(--rule); font-size: 11px; color: var(--ink-4); font-family: var(--mono); letter-spacing: 0.04em;">
-          Each cycle Ed25519-signed off-chain · <span style="color: var(--amber); font-weight: 600;">Y1 funded:</span> Anchor program publishes roots to mainnet
-        </div>
-      </div>
-    </div>
-
-    <!-- Reports -->
-    <div class="panel">
-      <div class="panel-head">
-        <span class="panel-pulse"></span>
-        <span class="panel-title">Reports · cadence config</span>
-        <span class="panel-meta">delivery schedule · signed PDFs</span>
-      </div>
-      <div class="panel-body">
-        <div class="reports">
-          <div class="report-item">
-            <div class="report-name">F7 disclosure · Percolator
-              <span class="meta">PR #39 · LiteSVM PoC commit 43cdcd8 · regression on main at <code>a1afd2e</code></span>
-            </div>
-            <a class="report-action" href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">Open PR ↗</a>
-          </div>
-          <div class="report-item">
-            <div class="report-name">Live findings snapshot
-              <span class="meta">Public-safe JSON · refreshed every 60s · severity counts + bug-classes only (titles redacted)</span>
-            </div>
-            <a class="report-action" href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">snapshot.json ↗</a>
-          </div>
-          <div class="report-item">
-            <div class="report-name">Public verification key
-              <span class="meta">Ed25519 · use to verify any Jelleo-signed cycle artifact via <code>audit-pipeline sign verify</code></span>
-            </div>
-            <a class="report-action" href="/keys/jelleo.ed25519.pub" download="jelleo.ed25519.pub">jelleo.ed25519.pub ↓</a>
-          </div>
-          <div class="report-item">
-            <div class="report-name">Methodology &amp; severity rubric
-              <span class="meta">Full technical reference · 4 pillars · scoping schema · attestation protocol · disclosure cadence</span>
-            </div>
-            <a class="report-action" href="/methodology.html">methodology ↗</a>
-          </div>
-          <div class="report-item">
-            <div class="report-name">Cadence reports · email-delivered
-              <span class="meta">Signed PDFs delivered to your inbox · 09:00 UTC daily · Mondays 09:15 weekly · 1st of month 09:30 monthly · request access at <a href="mailto:security@jelleo.com?subject=Jelleo%20%E2%80%94%20cadence%20report%20access" style="color: var(--amber); border-bottom: 1px solid rgba(245,184,0,0.3);">security@jelleo.com</a></span>
-            </div>
-            <a class="report-action" href="mailto:security@jelleo.com?subject=Jelleo%20%E2%80%94%20cadence%20report%20access">Request ↗</a>
-          </div>
-        </div>
-      </div>
-    </div>
-
-  </div>
+<!-- Demo banner — only on the public demo customer -->
+<div class="demo-banner">
+  <span class="badge">DEMO</span> Live Bridge view · real data from the Percolator audit loop · <a href="/customer/demo/full.html?legacy=1">classic view ↗</a>
 </div>
 
-<div class="footer-bar">
-  <span>jelleo · Percolator embedded · v0.1 · severity counts + cycle history are <strong style="color: var(--ok);">live</strong> · F7-class details are public via <a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">PR #39</a> · in-progress findings are intentionally not exposed</span>
-  <span><a href="/">← back to jelleo.com</a></span>
-</div>
+<main class="bridge">
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       HERO HEADER STRIP
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="bridge-header">
+    <div class="bridge-header-left">
+      <span class="bridge-customer-tag">Customer · <span class="name">Percolator team</span></span>
+      <span class="bridge-engine-sha" id="engine-sha-wrap">
+        Engine
+        <span class="sha" id="engine-sha">—</span>
+      </span>
+      <span class="bridge-heart" id="heart">
+        <span class="pip"></span>
+        <span id="heart-text">Live</span>
+      </span>
+    </div>
+    <div class="bridge-header-right">
+      <span class="bridge-poll">
+        <span class="label">Idle for</span>
+        <span class="val" id="idle-since">—</span>
+      </span>
+      <span class="bridge-cost">
+        <span id="cost-now">$ 0.000</span>
+        <span class="cap">/ $ <span id="cost-cap">—</span> today</span>
+        <span class="bridge-cost-bar"><div id="cost-bar-fill" style="width: 0%"></div></span>
+      </span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       SPARKLINE STRIP (4 always-moving micro-charts)
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="spark-strip">
+    <div class="spark-cell">
+      <span class="spark-cell-label">Tokens/s</span>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <polyline id="spark-tokens" points=""></polyline>
+      </svg>
+      <span class="spark-cell-value" id="spark-tokens-val">0</span>
+    </div>
+    <div class="spark-cell">
+      <span class="spark-cell-label">Hyps/min</span>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <polyline id="spark-hyps" points=""></polyline>
+      </svg>
+      <span class="spark-cell-value" id="spark-hyps-val">0</span>
+    </div>
+    <div class="spark-cell">
+      <span class="spark-cell-label">Tools/min</span>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <polyline id="spark-tools" points=""></polyline>
+      </svg>
+      <span class="spark-cell-value" id="spark-tools-val">0</span>
+    </div>
+    <div class="spark-cell">
+      <span class="spark-cell-label">Loop Hz</span>
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <polyline id="spark-loop" points=""></polyline>
+      </svg>
+      <span class="spark-cell-value" id="spark-loop-val">1.0</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       MAIN 3-COLUMN GRID
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="bridge-main">
+
+    <!-- LEFT: findings waterfall + counters -->
+    <aside class="bridge-side">
+      <div class="bridge-section-label">Findings <span class="count" id="findings-count">0</span></div>
+      <div class="side-stat"><span>Critical · open</span><span class="val crit" id="ct-crit">0</span></div>
+      <div class="side-stat"><span>High · open</span><span class="val amber" id="ct-high">0</span></div>
+      <div class="side-stat"><span>Confirmed total</span><span class="val" id="ct-confirmed">0</span></div>
+      <div class="side-stat"><span>Cycles signed</span><span class="val" id="ct-cycles">0</span></div>
+      <div class="side-divider"></div>
+      <div class="findings-stream" id="findings-stream">
+        <div style="color: var(--ink-4); font-family: var(--mono); font-size: 10px; padding: 12px 0; text-align: center; letter-spacing: 0.18em; text-transform: uppercase;">Loading…</div>
+      </div>
+    </aside>
+
+    <!-- CENTER: stage + grid + tool stream + triage -->
+    <div class="bridge-stage">
+
+      <!-- THE STAGE (current task hero line) -->
+      <div class="stage-row" id="stage-row">
+        <div class="stage-eyebrow">
+          <span class="pulse"></span>
+          <span id="stage-eyebrow-text">Watching upstream</span>
+        </div>
+        <div class="stage-headline" id="stage-headline">
+          <span class="dim">No active cycle.</span> Next watch poll in
+          <span class="accent" id="next-poll">—</span>.
+        </div>
+        <div class="stage-progress" id="stage-progress" style="display: none;">
+          <span id="stage-progress-label">—</span>
+          <div class="stage-progress-bar"><div id="stage-progress-fill"></div></div>
+          <span id="stage-progress-pct">0%</span>
+        </div>
+      </div>
+
+      <!-- HYPOTHESIS GRID -->
+      <div class="grid-wrap">
+        <div class="grid-header">
+          <span>Hypothesis grid · <span id="grid-total">0</span></span>
+          <span class="legend">
+            <span><i class="gi-idle"></i>idle</span>
+            <span><i class="gi-active"></i>in flight</span>
+            <span><i class="gi-ok"></i>clean</span>
+            <span><i class="gi-fire"></i>fire</span>
+            <span><i class="gi-conf"></i>confirmed</span>
+          </span>
+        </div>
+        <div class="hyp-grid" id="hyp-grid"></div>
+      </div>
+
+      <!-- L2.5 TRIAGE BAR -->
+      <div class="triage-bar-wrap">
+        <div class="triage-bar-head">
+          <span>Layer 2.5 · fire triage</span>
+          <span id="triage-meta">no active fires</span>
+        </div>
+        <div class="triage-bar empty" id="triage-bar">
+          <div class="seg strong" id="seg-strong" style="width:0%"></div>
+          <div class="seg soft"   id="seg-soft"   style="width:0%"></div>
+          <div class="seg false_" id="seg-false"  style="width:0%"></div>
+          <div class="seg lost"   id="seg-lost"   style="width:0%"></div>
+        </div>
+        <div class="triage-legend">
+          <span class="strong">STRONG · <span class="val" id="cnt-strong">0</span></span>
+          <span class="soft">SOFT · <span class="val" id="cnt-soft">0</span></span>
+          <span class="false_">FALSE · <span class="val" id="cnt-false">0</span></span>
+          <span class="lost">LOST · <span class="val" id="cnt-lost">0</span></span>
+        </div>
+      </div>
+
+      <!-- TOOL CALL STREAM -->
+      <div class="toolstream">
+        <div class="toolstream-head">
+          <span>Source-grounding tool calls (live)</span>
+          <span id="toolstream-rate">—</span>
+        </div>
+        <div class="toolstream-body" id="toolstream-body">
+          <div class="toolstream-empty">Idle — tool calls stream here when Layer 1 is dispatching.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: cycle waterfall + ops stats -->
+    <aside class="bridge-side">
+      <div class="bridge-section-label">Active cycle</div>
+      <div class="side-stat"><span>Cycle id</span><span class="val" id="active-cycle">—</span></div>
+      <div class="side-stat"><span>Started</span><span class="val" id="cycle-started">—</span></div>
+      <div class="side-stat"><span>Elapsed</span><span class="val amber" id="cycle-elapsed">—</span></div>
+      <div class="side-divider"></div>
+
+      <div class="bridge-section-label">Layer waterfall</div>
+      <div class="cycle-waterfall" id="waterfall">
+        <div class="layer-row" data-layer="L0"><span class="name">L0</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L1"><span class="name">L1</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L1.5"><span class="name">L1.5</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L2"><span class="name">L2</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L2.5"><span class="name">L2.5</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L3"><span class="name">L3</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+        <div class="layer-row" data-layer="L4"><span class="name">L4</span><span class="bar"><div></div></span><span class="status">queued</span></div>
+      </div>
+
+      <div class="side-divider"></div>
+      <div class="bridge-section-label">Loop telemetry</div>
+      <div class="side-stat"><span>Uptime</span><span class="val" id="loop-uptime">—</span></div>
+      <div class="side-stat"><span>Last cycle</span><span class="val" id="last-cycle-rel">—</span></div>
+      <div class="side-stat"><span>Services</span><span class="val ok" id="services-up">—</span></div>
+      <div class="side-stat"><span>Heartbeat</span><span class="val" id="heart-age">—</span></div>
+    </aside>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       EVENT TERMINAL (auto-scroll, last 200 events)
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="event-terminal">
+    <div class="event-terminal-head">
+      <span>Event stream</span>
+      <span id="event-terminal-status">connecting…</span>
+    </div>
+    <div class="event-terminal-body" id="event-terminal-body">
+      <div class="event-row"><span class="ts">—</span><span class="kind">init</span><span class="body">Connecting to live event stream…</span></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       ACTIONS
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="bridge-actions">
+    <a class="primary" href="/cycles/">Cycle archive ↗</a>
+    <a href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">snapshot.json ↗</a>
+    <a href="https://api.jelleo.com/heartbeat.json" target="_blank" rel="noopener">heartbeat.json ↗</a>
+    <a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Public key ↗</a>
+    <a href="/customer/demo/">Lobby view ←</a>
+    <a href="?legacy=1">Classic 4-panel view ↗</a>
+    <a href="mailto:kirill@jelleo.com">Account manager</a>
+  </div>
+
+</main>
 
 <script>
+/* ──────────────────────────────────────────────────────────────────────
+   BRIDGE — vanilla JS only. No build step, no framework.
+   Three data sources:
+     1. snapshot.json  (public aggregate, cached, polled every 60s)
+     2. manifest.json  (per-customer, polled every 60s)
+     3. /events/demo   (SSE stream, real-time)
+   Plus an always-on rAF loop that animates idle-state motion (heartbeat,
+   sparkline drift, idle-since counter, next-poll countdown) so the page
+   NEVER looks frozen, even when the engine is between cycles.
+   ────────────────────────────────────────────────────────────────────── */
 (function() {
+  'use strict';
 
-  // Auto-hide top nav on scroll-down, reveal on scroll-up.
-  const topnav = document.querySelector('.topnav');
-  if (topnav) {
-    let lastY = window.scrollY;
-    let ticking = false;
-    window.addEventListener('scroll', () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => {
-        const y = window.scrollY;
-        const goingDown = y > lastY;
-        // Only hide once we're past the nav itself; always show near the top.
-        if (goingDown && y > 120) topnav.classList.add('topnav-hidden');
-        else                       topnav.classList.remove('topnav-hidden');
-        lastY = y;
-        ticking = false;
-      });
-    }, { passive: true });
+  // ───── Legacy fallback: ?legacy=1 loads the preserved 4-panel view ─────
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('legacy') === '1') {
+    window.location.replace('full.legacy.html');
+    return;
   }
 
-  // last-scan is populated by patchFromSnapshot() from data.generated_at
-  // (the real timestamp written by jelleo-snapshot.timer on the VPS).
-  // The mock setInterval that lived here counted seconds up to 90 then
-  // reset — it was racing the real value and lying when the snapshot
-  // was actually stale (e.g. while a hunt is in progress).
-
-  // Findings — click to expand
-  document.querySelectorAll('.finding-row').forEach((row) => {
-    row.addEventListener('click', () => {
-      // close others
-      document.querySelectorAll('.finding-row.expanded').forEach((other) => {
-        if (other !== row) other.classList.remove('expanded');
-      });
-      row.classList.toggle('expanded');
-    });
-  });
-
-  // Filter chips — wired to actually filter the findings feed by severity.
-  // Click "Critical" to see only critical findings, "All" to see everything.
-  document.querySelectorAll('.chip').forEach((chip) => {
-    chip.addEventListener('click', () => {
-      document.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
-      chip.classList.add('active');
-      // Extract the severity label (text node before the count span).
-      const label = (chip.firstChild && chip.firstChild.textContent || '').trim();
-      const norm = label.toLowerCase();
-      document.querySelectorAll('.findings .finding-row').forEach((row) => {
-        if (norm === 'all') { row.style.display = ''; return; }
-        const badge = row.querySelector('.severity-badge');
-        const sev = badge ? badge.textContent.trim().toLowerCase() : '';
-        row.style.display = sev.startsWith(norm) ? '' : 'none';
-      });
-    });
-  });
-
-  // (Mock setIntervals removed 2026-05-12 — were rendering fake spend, fake
-  // invocation rate, fake hunts-in-flight, fake inv-verified, and fake "new
-  // cycle" flash effects. Real spend now comes from snapshot.spend; the other
-  // panels are blanked until real sources exist for them.)
-  function flash(el) {
-    if (!el) return;
-    el.classList.remove('tick-flash');
-    void el.offsetWidth;
-    el.classList.add('tick-flash');
-  }
-  ['invocation-rate', 'hunts-inflight', 'spend-rate', 'inv-verified',
-   'spend-mtd'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = '—';
-  });
-  const _spendBar = document.getElementById('spend-bar');
-  if (_spendBar) _spendBar.style.width = '0%';
-  const _spendPct = document.getElementById('spend-pct');
-  if (_spendPct) _spendPct.textContent = '—';
-
-})();
-</script>
-
-<!--
-  ============== LIVE SNAPSHOT FETCH (Sprint 3.4) ==============
-  Defensive: tries to fetch /snapshot.json (written by `audit-pipeline
-  dashboard --snapshot-json /path/to/web/snapshot.json`). On success,
-  patches in live numbers and shows a "Live data" badge. On 404 / error /
-  fetch-block, leaves the static mockup intact — the page still works.
--->
-<!-- Floating live-data badge removed — the integrated LIVE banner at top
-     of the page is the single source of truth for the live status. -->
-
-
-<script>
-(function() {
-  // Two data sources, two trust tiers:
-  //
-  //   1. snapshot.json (public, anonymous-readable)
-  //      → aggregate stats, severity-by-target counts, recent cycles,
-  //        and disclosed-only public findings. Used to patch data-snapshot-key
-  //        elements throughout the page so anonymous visitors see live counters.
-  //
-  //   2. customer/<token>/manifest.json (per-customer, "token in URL is auth")
-  //      → INCLUDES in-progress findings (triaged/confirmed/disclosed/fixed/
-  //        verified) scoped to this customer's owned targets. Renders the
-  //        Findings feed, identity-strip counters, and attestations panel
-  //        as the actual current state.
-  //
-  // Both are tried. If either fails, the static demo content remains so the
-  // page never looks broken — graceful degradation by design.
   const SNAPSHOT_URL = 'https://api.jelleo.com/snapshot.json';
   const MANIFEST_URL = 'https://api.jelleo.com/customer/demo/manifest.json';
+  const HEARTBEAT_URL = 'https://api.jelleo.com/heartbeat.json';
   const SSE_URL      = 'https://api.jelleo.com/events/demo';
 
-  const SEVERITY_ORDER = ['Critical', 'High', 'Medium', 'Low', 'Info'];
-  const STATUS_PILL_CLASS = {
-    'disclosed':   'locked',
-    'fixed':       'merged',
-    'verified':    'merged',
-    'confirmed':   'review',
-    'triaged':     'review',
-    'rejected':    'rejected',  // FIX D-C5: NOT 'merged' (was reading green)
-    'new':         'review',
-    'open':        'review',     // lifecycle states from new hyp library
-    'debating':    'scanning',
-    'poc-firing':  'scanning',
+  // ───── State ─────
+  const state = {
+    hyps: new Map(),            // hyp_id → tile element
+    hypsOrder: [],              // insertion order
+    findings: new Map(),        // finding_id → card element
+    toolCallsThisMinute: [],    // sliding window of timestamps
+    hypsDoneThisMinute: [],
+    tokensThisSec: [],          // [{ts, tokens}]
+    layerState: {},             // {L1: 'active', L0: 'done', ...}
+    layerStarted: {},           // {L1: epoch_ms}
+    cycleStartedAt: null,
+    lastCycleAt: null,
+    lastEventAt: null,
+    heartbeatTs: null,
+    activeCycle: null,
+    activeHypId: null,
+    activeHypProgress: null,    // {done, total}
+    costNow: 0,
+    costCap: 800,
+    sparks: {
+      tokens: new Array(60).fill(0),
+      hyps:   new Array(60).fill(0),
+      tools:  new Array(60).fill(0),
+      loop:   new Array(60).fill(1),
+    },
+    triage: { strong: 0, soft: 0, false_: 0, lost: 0 },
+    sseConnected: false,
   };
-  const STATUS_PILL_LABEL = {
-    'disclosed':   'disclosed',
-    'fixed':       'fixed · merged',
-    'verified':    'verified · merged',
-    'confirmed':   'confirmed · in review',
-    'triaged':     'triaged · in review',
-    'rejected':    'rejected · false-positive',
-    'new':         'new',
-    'open':        'open · queued',
-    'debating':    'debating · L1.5',
-    'poc-firing':  'poc-firing · L2',
+
+  // ───── Helpers ─────
+  const $  = (id) => document.getElementById(id);
+  const fmtTime = (epoch) => {
+    if (!epoch) return '—';
+    const d = new Date(epoch);
+    return d.toTimeString().slice(0, 8);
   };
+  const fmtRel = (epoch) => {
+    if (!epoch) return '—';
+    const dt = Math.max(0, Date.now() - epoch);
+    if (dt < 1000) return 'just now';
+    const s = Math.floor(dt / 1000);
+    if (s < 60)  return s + 's ago';
+    const m = Math.floor(s / 60);
+    if (m < 60)  return m + 'm ago';
+    const h = Math.floor(m / 60);
+    if (h < 48)  return h + 'h ago';
+    return Math.floor(h / 24) + 'd ago';
+  };
+  const fmtDur = (ms) => {
+    if (!ms || ms < 0) return '—';
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + 'm ' + (s % 60) + 's';
+    const h = Math.floor(m / 60);
+    return h + 'h ' + (m % 60) + 'm';
+  };
+  const safeStr = (s, n) => (s == null ? '' : String(s)).slice(0, n || 80);
 
-  function relativeTime(iso) {
-    if (!iso) return '—';
-    try {
-      const t = new Date(iso).getTime();
-      const dt = Math.floor((Date.now() - t) / 1000);
-      if (dt < 60)    return dt + ' seconds ago';
-      if (dt < 3600)  return Math.floor(dt / 60) + ' minutes ago';
-      if (dt < 86400) return Math.floor(dt / 3600) + ' hours ago';
-      return Math.floor(dt / 86400) + ' days ago';
-    } catch (_) { return '—'; }
-  }
-
-  function escapeHtml(s) {
-    if (s == null) return '';
-    return String(s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
-
-  // Shared state — snapshot and manifest race in parallel, but the
-  // attestations panel needs both (cycle metadata from manifest, merkle
-  // roots from snapshot). Renders trigger after both land or whichever
-  // finishes first if the other 404s.
-  let snapshotData = null;
-  let manifestData = null;
-
-  // -------------------- snapshot.json (public, aggregate) --------------------
-
-  async function patchFromSnapshot() {
-    let data;
-    try {
-      const res = await fetch(SNAPSHOT_URL, { cache: 'no-store' });
-      if (!res.ok) return;
-      data = await res.json();
-    } catch (_) { return; }
-    if (!data || data.platform !== 'jelleo') return;
-
-    snapshotData = data;
-
-    // data-snapshot-key patcher (banner stats, etc.)
-    document.querySelectorAll('[data-snapshot-key]').forEach((el) => {
-      const path = el.getAttribute('data-snapshot-key').split('.');
-      let v = data;
-      for (const p of path) { if (v == null) break; v = v[p]; }
-      if (v != null) el.textContent = String(v);
-    });
-
-    // last-scan ticker reflects when snapshot.json itself was published
-    const lastScanEl = document.getElementById('last-scan');
-    if (lastScanEl && data.generated_at) {
-      lastScanEl.textContent = relativeTime(data.generated_at);
+  // ───── Heartbeat status (top-left pip + label) ─────
+  function setHeartStatus(state_) {
+    const el = $('heart');
+    const txt = $('heart-text');
+    if (!el || !txt) return;
+    if (state_ === 'live') {
+      el.classList.remove('offline');
+      txt.textContent = 'Live';
+    } else if (state_ === 'idle') {
+      el.classList.remove('offline');
+      txt.textContent = 'Watching';
+    } else {
+      el.classList.add('offline');
+      txt.textContent = 'Reconnecting…';
     }
-
-    // If manifest has already landed, re-render attestations now that
-    // we have merkle roots to join against.
-    if (manifestData) renderAttestationsPanel();
+  }
+  function setTerminalStatus(text) {
+    const el = $('event-terminal-status');
+    if (el) el.textContent = text;
   }
 
-  // -------------------- manifest.json (customer-private) --------------------
-
-  function renderFinding(f) {
-    const sev = (f.severity || 'Info');
-    const sevClass = sev.toLowerCase();
-    const status = (f.status || 'confirmed').toLowerCase();
-    const pillClass = STATUS_PILL_CLASS[status] || 'review';
-    const pillLabel = STATUS_PILL_LABEL[status] || status;
-    const disclosureUrl = f.disclosure_url;
-    const pillHtml = disclosureUrl
-      ? `<a class="status-pill ${pillClass}" href="${escapeHtml(disclosureUrl)}" target="_blank" rel="noopener">${escapeHtml(pillLabel)}</a>`
-      : `<span class="status-pill ${pillClass}">${escapeHtml(pillLabel)}</span>`;
-    // Finding ID convention: numeric ids (1, 7, 21...) get "F" prefix to
-    // match the established F7-style displayed across the site. Non-numeric
-    // ids (already-prefixed like "PERC-23") pass through unchanged.
-    const rawId = String(f.id ?? '?');
-    const findingIdShort = escapeHtml(/^\d+$/.test(rawId) ? `F${rawId}` : rawId);
-    // FIX #13: API truncates title to 120 chars at a hard byte boundary,
-    // which leaves mid-word "..." on every row. Clip at the nearest word
-    // boundary (>= 60% of max) before rendering so the displayed text reads
-    // cleanly. Full title can still be seen via the row's expand-preview.
-    const cleanClip = (s, max = 92) => {
-      if (!s) return '';
-      if (s.length <= max) return s;
-      const cut = s.slice(0, max);
-      const lastSp = cut.lastIndexOf(' ');
-      return (lastSp > max * 0.6 ? cut.slice(0, lastSp) : cut) + '…';
-    };
-    const bugClassOrTitle = cleanClip(f.title) || f.bug_class || '—';
-    const cite = f.hypothesis_id ? `hyp · ${escapeHtml(f.hypothesis_id)}` : '';
-    const age = f.updated_at ? escapeHtml(relativeTime(f.updated_at)) : '—';
-    const verdict = f.verdict ? `
-      <div class="fr-preview">
-        <div class="verdict-line">
-          <span class="label">Verdict:</span>
-          <span class="value">${escapeHtml(f.verdict)}</span>
-        </div>
-        ${f.poc_fired ? '<strong>PoC fired</strong> · ' : ''}${f.n_siblings ? `${f.n_siblings} sibling${f.n_siblings === 1 ? '' : 's'} flagged` : ''}
-      </div>` : '';
-
-    return `<div class="finding-row ${sevClass === 'critical' ? 'crit' : sevClass === 'medium' ? 'med' : sevClass}">
-      <span class="fr-id">${findingIdShort}</span>
-      <span class="fr-class">${escapeHtml(bugClassOrTitle)}</span>
-      <span class="fr-age">${age}</span>
-      <span class="fr-meta">
-        <span class="severity-badge ${sevClass === 'critical' ? 'crit' : sevClass === 'medium' ? 'med' : sevClass}">${escapeHtml(sev.toUpperCase())}</span>
-        ${pillHtml}
-        ${cite ? `<span class="fr-cite">${cite}</span>` : ''}
-      </span>${verdict}
-    </div>`;
-  }
-
-  function updateSeverityChips(findings) {
-    const counts = { All: findings.length, Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
-    findings.forEach(f => {
-      const sev = f.severity;
-      if (counts[sev] != null) counts[sev] += 1;
-    });
-    SEVERITY_ORDER.concat(['All']).forEach(s => {
-      document.querySelectorAll(`[data-sev-count="${s}"]`).forEach(el => {
-        el.textContent = String(counts[s] || 0);
-      });
-    });
-  }
-
-  function updateIdentityStrip(manifest) {
-    const findings = manifest.public_findings || [];
-    const recentCycles = manifest.recent_cycles || [];
-
-    // engine SHA from latest cycle
-    const latestCycle = recentCycles[0];
-    if (latestCycle) {
-      const engShaEl = document.getElementById('id-engine-sha');
-      if (engShaEl && latestCycle.engine_sha) engShaEl.textContent = String(latestCycle.engine_sha);
-    }
-
-    // hyps dispatched in latest cycle
-    const hypsEl = document.getElementById('id-hyps-dispatched');
-    if (hypsEl) {
-      const n = latestCycle ? latestCycle.n_dispatched : null;
-      hypsEl.textContent = (n != null) ? String(n) : '—';
-    }
-
-    // open findings count + distribution (open = triaged/confirmed, not yet disclosed/fixed/verified)
-    const OPEN_STATUSES = new Set(['triaged', 'confirmed', 'new']);
-    const openFindings = findings.filter(f => OPEN_STATUSES.has(f.status));
-    const total = findings.length;
-    const open = openFindings.length;
-    const dist = { High: 0, Medium: 0, Low: 0, Info: 0, Critical: 0 };
-    openFindings.forEach(f => { if (dist[f.severity] != null) dist[f.severity] += 1; });
-    const distStr = Object.entries(dist)
-      .filter(([_, n]) => n > 0)
-      .map(([s, n]) => `${n} ${s[0]}`)
-      .join(' · ');
-    const ofEl = document.getElementById('id-open-findings');
-    if (ofEl) {
-      ofEl.innerHTML = `${open} open <span style="color: var(--ink-3); font-weight: 400; font-size: 12px;">(of ${total} total)${distStr ? ' · open: ' + distStr : ''}</span>`;
-    }
-
-    // Disclosed cumulative — sum of by_severity_disclosed
-    const disclosedEl = document.getElementById('id-disclosed');
-    if (disclosedEl) {
-      const sd = (manifest.stats && manifest.stats.by_severity_disclosed) || {};
-      const disclosedTotal = Object.values(sd).reduce((acc, n) => acc + (n || 0), 0);
-      if (disclosedTotal > 0) {
-        disclosedEl.innerHTML = `${disclosedTotal} <span style="color: var(--ok); font-weight: 400; font-size: 12px;">disclosed to upstream</span>`;
+  // ───── Stage (the hero current-task line) ─────
+  function setStage(eyebrow, headlineHtml, progress) {
+    const eyeEl = $('stage-eyebrow-text');
+    const headEl = $('stage-headline');
+    const progRow = $('stage-progress');
+    if (eyeEl) eyeEl.textContent = eyebrow;
+    if (headEl) headEl.innerHTML = headlineHtml;
+    if (progRow) {
+      if (progress && typeof progress === 'object') {
+        progRow.style.display = 'flex';
+        const pct = Math.min(100, Math.max(0, progress.pct || 0));
+        $('stage-progress-fill').style.width = pct + '%';
+        $('stage-progress-pct').textContent = Math.round(pct) + '%';
+        $('stage-progress-label').textContent = progress.label || '';
       } else {
-        disclosedEl.innerHTML = `0 <span style="color: var(--ink-3); font-weight: 400; font-size: 12px;">disclosed (F7 closed upstream · awaiting authorization on others)</span>`;
+        progRow.style.display = 'none';
       }
     }
+  }
+  function setStageIdle() {
+    setStage(
+      'Watching upstream',
+      `<span class="dim">No active cycle.</span> Next watch poll in <span class="accent" id="next-poll">—</span>.`,
+      null
+    );
+  }
+  setStageIdle();
 
-    // Coverage tier — direct from customer block
-    const tierEl = document.getElementById('id-tier');
-    if (tierEl && manifest.customer && manifest.customer.tier) {
-      tierEl.textContent = String(manifest.customer.tier);
+  // ───── Hypothesis grid ─────
+  function ensureHypTile(hypId) {
+    if (state.hyps.has(hypId)) return state.hyps.get(hypId);
+    const tile = document.createElement('div');
+    tile.className = 'hyp-tile tooltip-target';
+    tile.setAttribute('data-tip', hypId);
+    tile.setAttribute('data-hyp-id', hypId);
+    $('hyp-grid').appendChild(tile);
+    state.hyps.set(hypId, tile);
+    state.hypsOrder.push(hypId);
+    $('grid-total').textContent = state.hyps.size;
+    return tile;
+  }
+  function setHypTileState(hypId, cls, extra) {
+    const tile = ensureHypTile(hypId);
+    tile.classList.remove('active', 'ok', 'fire', 'confirmed');
+    if (cls) tile.classList.add(cls);
+    if (extra && Array.isArray(extra)) extra.forEach(c => tile.classList.add(c));
+    if (cls === 'fire') {
+      tile.setAttribute('data-tip', hypId + ' · TRUE');
+    } else if (cls === 'ok') {
+      tile.setAttribute('data-tip', hypId + ' · clean');
+    } else if (cls === 'active') {
+      tile.setAttribute('data-tip', hypId + ' · in flight');
     }
   }
 
-  function updateOperationsPanel(manifest) {
-    const recentCycles = manifest.recent_cycles || [];
-    const latestCycle = recentCycles[0];
-    const services = manifest.services || [];
-
-    const hypsEl = document.getElementById('ops-hyps-latest');
-    if (hypsEl) {
-      if (latestCycle && latestCycle.in_progress && latestCycle.phase_total) {
-        // Mid-flight: show "N / total" for the CURRENT phase
-        // (recon / debate / poc / kani / litesvm).
-        hypsEl.textContent = `${latestCycle.phase_done || 0} / ${latestCycle.phase_total}`;
-      } else if (latestCycle && latestCycle.in_progress && latestCycle.n_planned) {
-        // Legacy back-compat
-        hypsEl.textContent = `${latestCycle.n_dispatched || 0} / ${latestCycle.n_planned}`;
-      } else {
-        hypsEl.textContent = latestCycle ? String(latestCycle.n_dispatched || 0) : '—';
-      }
+  // ───── Findings waterfall ─────
+  function upsertFinding(f) {
+    const fid = f.id != null ? String(f.id) : (f.hypothesis_id + '-' + (f.cycle_id || ''));
+    if (state.findings.has(fid)) return state.findings.get(fid);
+    const card = document.createElement('div');
+    card.className = 'finding-card sev-' + (f.severity || 'Medium') + ' new-glow';
+    card.setAttribute('data-fid', fid);
+    const hid = f.hypothesis_id || ('#' + f.id);
+    const title = f.title || '(untitled)';
+    const sev = f.severity || 'Medium';
+    const cyc = f.cycle_id || '';
+    card.innerHTML =
+      '<span class="hid">' + safeStr(hid, 40) + '</span>' +
+      '<span class="sev-badge">' + safeStr(sev, 12) + '</span>' +
+      '<span class="title">' + safeStr(title, 140) + '</span>' +
+      '<span class="meta">' + (cyc ? 'cycle ' + safeStr(cyc, 20) : '') + '</span>';
+    const stream = $('findings-stream');
+    if (stream.firstChild && stream.firstChild.style && stream.firstChild.style.textAlign === 'center') {
+      stream.innerHTML = '';
     }
-
-    const hypsSubEl = document.getElementById('ops-hyps-sub');
-    if (hypsSubEl && latestCycle) {
-      if (latestCycle.in_progress && latestCycle.started_at) {
-        // "Layer 1.5 debate · 30.6% · started 47 min ago"
-        const layerName = latestCycle.phase_label || 'dispatching';
-        const pct = latestCycle.progress_pct != null
-          ? ` · ${latestCycle.progress_pct}%`
-          : '';
-        hypsSubEl.textContent = `${layerName}${pct} · started ${relativeTime(latestCycle.started_at)}`;
-      } else if (latestCycle.finished_at) {
-        hypsSubEl.textContent = `dispatched · ${relativeTime(latestCycle.finished_at)}`;
-      } else if (latestCycle.started_at) {
-        hypsSubEl.textContent = `dispatching · started ${relativeTime(latestCycle.started_at)}`;
-      } else {
-        hypsSubEl.textContent = 'dispatching';
-      }
+    stream.prepend(card);
+    state.findings.set(fid, card);
+    setTimeout(() => card.classList.remove('new-glow'), 3200);
+    while (stream.children.length > 80) {
+      const last = stream.lastChild;
+      const lastFid = last && last.getAttribute && last.getAttribute('data-fid');
+      stream.removeChild(last);
+      if (lastFid) state.findings.delete(lastFid);
     }
-
-    const upCount = services.filter(s => s.state === 'up').length;
-    const total = services.length || 8;
-    const svcEl = document.getElementById('ops-services-up');
-    if (svcEl) svcEl.textContent = `${upCount} / ${total}`;
-    const svcSubEl = document.getElementById('ops-services-sub');
-    if (svcSubEl) svcSubEl.textContent = `of ${total} platform units`;
-
-    const cyclesEl = document.getElementById('ops-cycles-total');
-    if (cyclesEl) cyclesEl.textContent = String(manifest.cycles_total != null ? manifest.cycles_total : '—');
-    const cyclesSubEl = document.getElementById('ops-cycles-sub');
-    if (cyclesSubEl && manifest.receipts_signed != null) {
-      cyclesSubEl.textContent = `${manifest.receipts_signed} signed receipts`;
-    }
-
-    const uptimeEl = document.getElementById('ops-uptime');
-    if (uptimeEl && manifest.loop_uptime_human) {
-      uptimeEl.textContent = String(manifest.loop_uptime_human);
-    }
-
-    // Real LLM spend — replaces the fake setInterval tickers that were
-    // rendering "$1,180+" / "$36,740+" with no real source.
-    const spend = manifest.spend || {};
-    const todayEl = document.getElementById('spend-today');
-    if (todayEl) {
-      const v = spend.today_usd;
-      todayEl.textContent = (typeof v === 'number') ? '$' + v.toFixed(2) : '—';
-    }
-    const mtdEl = document.getElementById('spend-mtd');
-    if (mtdEl) {
-      const v = spend.total_usd;
-      mtdEl.textContent = (typeof v === 'number') ? '$' + v.toFixed(2) : '—';
+    return card;
+  }
+  function clearFindingsLoadingMsg() {
+    const stream = $('findings-stream');
+    if (stream && stream.firstChild && stream.firstChild.textContent &&
+        stream.firstChild.textContent.toLowerCase().includes('loading')) {
+      stream.innerHTML = '';
     }
   }
 
-  function renderAttestationsPanel() {
-    const container = document.querySelector('[data-cycle-attestations]');
-    if (!container) return;
-    if (!manifestData) return;
+  // ───── Tool-call stream ─────
+  const TOOL_MAX_ROWS = 80;
+  function pushToolCall(ev) {
+    const body = $('toolstream-body');
+    if (!body) return;
+    if (body.firstChild && body.firstChild.classList && body.firstChild.classList.contains('toolstream-empty')) {
+      body.innerHTML = '';
+    }
+    const ts = new Date((ev.ts || Date.now() / 1000) * 1000);
+    const row = document.createElement('div');
+    row.className = 'toolstream-row fresh';
+    let argStr = '';
+    if (ev.tool === 'read_file') {
+      argStr = ev.path + (ev.start_line ? ':' + ev.start_line + (ev.end_line ? '-' + ev.end_line : '') : '');
+    } else if (ev.tool === 'grep') {
+      argStr = '"' + (ev.pattern || '') + '" in ' + (ev.path || '.');
+    } else if (ev.tool === 'find_function') {
+      argStr = ev.name + (ev.path ? ' in ' + ev.path : '');
+    } else {
+      argStr = ev.path || ev.pattern || ev.name || '';
+    }
+    row.innerHTML =
+      '<span class="ts">' + ts.toTimeString().slice(0, 8) + '</span>' +
+      '<span class="hid">' + safeStr(ev.hyp_id || '—', 16) + '</span>' +
+      '<span class="args"><span class="tool">' + safeStr(ev.tool || 'tool', 14) + '</span> ' + safeStr(argStr, 200) + '</span>';
+    body.prepend(row);
+    setTimeout(() => row.classList.remove('fresh'), 800);
+    while (body.children.length > TOOL_MAX_ROWS) {
+      body.removeChild(body.lastChild);
+    }
+    state.toolCallsThisMinute.push(Date.now());
+  }
 
-    const cycles = manifestData.recent_cycles || [];
-    if (cycles.length === 0) {
-      container.innerHTML = `<div style="padding: 24px 20px; text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;">
-        No cycles yet · engine has not produced a signed cycle for this protocol.
-      </div>`;
+  // ───── Event terminal (bottom strip) ─────
+  const EVENT_MAX_ROWS = 200;
+  function pushEvent(kind, body, ts) {
+    const term = $('event-terminal-body');
+    if (!term) return;
+    if (term.firstChild && term.firstChild.classList &&
+        term.firstChild.querySelector('.kind') &&
+        term.firstChild.querySelector('.kind').textContent === 'init') {
+      term.innerHTML = '';
+    }
+    const t = new Date((ts || Date.now() / 1000) * 1000);
+    let cls = '';
+    if (kind === 'cycle_complete' || kind === 'hunt_complete' || kind === 'cycle_active') cls = 'ok';
+    if (kind === 'finding_persisted') cls = 'crit';
+    const row = document.createElement('div');
+    row.className = 'event-row';
+    row.innerHTML =
+      '<span class="ts">' + t.toTimeString().slice(0, 8) + '</span>' +
+      '<span class="kind ' + cls + '">' + safeStr(kind, 22) + '</span>' +
+      '<span class="body">' + safeStr(body, 240) + '</span>';
+    term.prepend(row);
+    while (term.children.length > EVENT_MAX_ROWS) {
+      term.removeChild(term.lastChild);
+    }
+  }
+
+  // ───── Layer waterfall ─────
+  function setLayer(label, cls, statusText, progressPct) {
+    const row = document.querySelector('.layer-row[data-layer="' + label + '"]');
+    if (!row) return;
+    row.classList.remove('active', 'done', 'skipped');
+    if (cls) row.classList.add(cls);
+    const status = row.querySelector('.status');
+    if (status) status.textContent = statusText || '';
+    const bar = row.querySelector('.bar > div');
+    if (bar) {
+      if (cls === 'active' && progressPct != null) {
+        row.style.setProperty('--p', Math.min(100, Math.max(0, progressPct)) + '%');
+      } else if (cls === 'done') {
+        bar.style.width = '100%';
+      } else if (cls === 'skipped') {
+        bar.style.width = '100%';
+      } else if (!cls) {
+        bar.style.width = '0%';
+      }
+    }
+  }
+
+  // ───── Triage bar ─────
+  function renderTriage() {
+    const t = state.triage;
+    const total = t.strong + t.soft + t.false_ + t.lost;
+    const bar = $('triage-bar');
+    if (total === 0) {
+      bar.classList.add('empty');
+      $('seg-strong').style.width = '0%';
+      $('seg-soft').style.width   = '0%';
+      $('seg-false').style.width  = '0%';
+      $('seg-lost').style.width   = '0%';
+      $('triage-meta').textContent = 'no active fires';
+    } else {
+      bar.classList.remove('empty');
+      $('seg-strong').style.width = (100 * t.strong / total) + '%';
+      $('seg-soft').style.width   = (100 * t.soft   / total) + '%';
+      $('seg-false').style.width  = (100 * t.false_ / total) + '%';
+      $('seg-lost').style.width   = (100 * t.lost   / total) + '%';
+      $('triage-meta').textContent = total + ' fires classified';
+    }
+    $('cnt-strong').textContent = t.strong;
+    $('cnt-soft').textContent   = t.soft;
+    $('cnt-false').textContent  = t.false_;
+    $('cnt-lost').textContent   = t.lost;
+  }
+  renderTriage();
+
+  // ───── Sparklines ─────
+  function pushSpark(key, val) {
+    state.sparks[key].push(val);
+    if (state.sparks[key].length > 60) state.sparks[key].shift();
+    const arr = state.sparks[key];
+    const max = Math.max(1, ...arr);
+    const poly = $('spark-' + key);
+    if (!poly) return;
+    const points = arr.map((v, i) => {
+      const x = (i / (arr.length - 1)) * 100;
+      const y = 28 - (v / max) * 26;
+      return x.toFixed(2) + ',' + y.toFixed(2);
+    }).join(' ');
+    poly.setAttribute('points', points);
+  }
+  function setSparkValue(key, val, fmt) {
+    const el = $('spark-' + key + '-val');
+    if (!el) return;
+    el.textContent = fmt ? fmt(val) : val;
+  }
+
+  // ───── Cost ticker (with digit-roll animation feel via transition) ─────
+  function setCost(now, cap) {
+    if (typeof now === 'number') {
+      state.costNow = now;
+      $('cost-now').textContent = '$ ' + now.toFixed(3);
+    }
+    if (typeof cap === 'number' && cap > 0) {
+      state.costCap = cap;
+      $('cost-cap').textContent = cap.toFixed(0);
+    }
+    const pct = state.costCap > 0
+      ? Math.min(100, (state.costNow / state.costCap) * 100)
+      : 0;
+    $('cost-bar-fill').style.width = pct + '%';
+  }
+  setCost(0, 800);
+
+  // ───── SSE event router ─────
+  function handleEvent(ev) {
+    if (!ev || typeof ev !== 'object') return;
+    state.lastEventAt = Date.now();
+    const k = ev.event;
+
+    if (k === 'sse_connected') {
+      state.sseConnected = true;
+      setHeartStatus('live');
+      setTerminalStatus('connected · live');
+      pushEvent('sse_connected', 'subscribed as ' + (ev.customer_id || '—'), ev.ts);
       return;
     }
 
-    // Build cycle_id -> merkle_root map from snapshot.cycle_merkle_roots
-    const merkleByCycleId = {};
-    if (snapshotData && Array.isArray(snapshotData.cycle_merkle_roots)) {
-      snapshotData.cycle_merkle_roots.forEach(m => {
-        if (m.cycle_id && m.merkle_root) {
-          merkleByCycleId[m.cycle_id] = {
-            root: m.merkle_root,
-            n_findings: m.n_findings,
-          };
+    if (k === 'cycle_active') {
+      state.activeCycle = ev.cycle;
+      state.cycleStartedAt = Date.now();
+      $('active-cycle').textContent = safeStr(ev.cycle, 28);
+      $('cycle-started').textContent = fmtTime(Date.now());
+      setStage('Cycle active', `Cycle <span class="accent">${safeStr(ev.cycle, 28)}</span> is running`);
+      pushEvent('cycle_active', 'cycle ' + ev.cycle, ev.ts);
+      setLayer('L0', 'done', '✓');
+      setLayer('L1', 'active', 'running', 5);
+      return;
+    }
+
+    if (k === 'recon_hyp_start') {
+      state.activeHypId = ev.hyp_id;
+      setHypTileState(ev.hyp_id, 'active');
+      const total = state.hyps.size;
+      const inFlight = document.querySelectorAll('.hyp-tile.active').length;
+      const done = total - inFlight;
+      setStage(
+        'Layer 1 · recon',
+        `<span class="accent">${safeStr(ev.hyp_id, 40)}</span> <span class="dim">·</span> source-grounded scan`,
+        { label: 'L1', pct: total ? (done / total) * 100 : 0 }
+      );
+      setLayer('L1', 'active', total ? (done + '/' + total) : 'running',
+               total ? (done / total) * 100 : 5);
+      pushEvent('recon_hyp', 'start ' + ev.hyp_id, ev.ts);
+      return;
+    }
+
+    if (k === 'recon_hyp_done') {
+      const v = (ev.verdict || '').toUpperCase();
+      if (v === 'TRUE') {
+        setHypTileState(ev.hyp_id, 'fire');
+      } else if (v === 'FALSE') {
+        setHypTileState(ev.hyp_id, 'ok');
+      } else if (v === 'ERROR') {
+        // Leave as idle-ish; not a verdict
+        setHypTileState(ev.hyp_id, null);
+      } else {
+        setHypTileState(ev.hyp_id, 'ok');
+      }
+      state.hypsDoneThisMinute.push(Date.now());
+      if (typeof ev.input_tokens === 'number') {
+        state.tokensThisSec.push({ts: Date.now(), tokens: (ev.input_tokens + (ev.output_tokens || 0))});
+      }
+      pushEvent('recon_hyp', 'done ' + ev.hyp_id + ' → ' + (v || '—') + ' / ' + (ev.confidence || ''), ev.ts);
+      return;
+    }
+
+    if (k === 'tool_call') {
+      pushToolCall(ev);
+      return;
+    }
+
+    if (k === 'triage_one') {
+      const cls = (ev.classification || '').toUpperCase();
+      if (cls === 'STRONG')      state.triage.strong++;
+      else if (cls === 'SOFT')   state.triage.soft++;
+      else if (cls === 'FALSE')  state.triage.false_++;
+      else if (cls === 'LOST')   state.triage.lost++;
+      renderTriage();
+      pushEvent('triage', ev.hyp_id + ' → ' + cls, ev.ts);
+      return;
+    }
+
+    if (k === 'triage_done') {
+      setLayer('L2.5', 'done', '✓');
+      pushEvent('triage_done', `STRONG=${ev.strong} SOFT=${ev.soft} FALSE=${ev.false} LOST=${ev.lost}`, ev.ts);
+      return;
+    }
+
+    if (k === 'finding_persisted') {
+      upsertFinding(ev);
+      scheduleRefetch();
+      pushEvent('finding', '#' + (ev.id || '?') + ' ' + (ev.severity || '') + ' ' + safeStr(ev.title, 80), ev.ts);
+      return;
+    }
+
+    if (k === 'cycle_complete' || k === 'hunt_complete') {
+      state.lastCycleAt = Date.now();
+      setLayer('L1', 'done', '✓');
+      ['L1.5','L2','L2.5','L3','L4'].forEach(L => {
+        const r = document.querySelector('.layer-row[data-layer="' + L + '"]');
+        if (r && !r.classList.contains('done') && !r.classList.contains('skipped')) {
+          setLayer(L, 'done', '✓');
         }
       });
-    }
-
-    const N = 6;
-    const rows = cycles.slice(0, N).map(c => {
-      const cycleId = c.cycle_id || '—';
-      const finishedAt = c.finished_at || c.started_at;
-      const age = finishedAt ? relativeTime(finishedAt) : '—';
-      const merkle = merkleByCycleId[cycleId];
-      const rootHash = merkle ? merkle.root : null;
-      const rootShort = rootHash ? `${rootHash.slice(0, 8)}…${rootHash.slice(-6)}` : 'merkle pending';
-      const detailHref = rootHash ? `/cycles/cycle.html?root=${encodeURIComponent(rootHash)}` : null;
-      const findingsLabel = (c.n_confirmed != null && c.n_dispatched != null)
-        ? `${c.n_confirmed} confirmed · ${c.n_dispatched} dispatched`
-        : (c.n_dispatched != null ? `${c.n_dispatched} hyps dispatched` : 'no candidates this cycle');
-      const linkOrSpan = detailHref
-        ? `<a class="ar-tx" href="${detailHref}">${escapeHtml(rootShort)} →</a>`
-        : `<span class="ar-tx" style="color: var(--ink-4);">${escapeHtml(rootShort)}</span>`;
-      return `<div class="attest-row">
-        <span class="ar-time">${escapeHtml(age)}</span>
-        <span class="ar-detail">
-          <div class="ar-line1">cycle <strong>${escapeHtml(cycleId)}</strong> · ${escapeHtml(findingsLabel)}</div>
-          <div class="ar-line2">engine ${escapeHtml((c.engine_sha || '').slice(0, 10))} · Ed25519 signed off-chain</div>
-        </span>
-        ${linkOrSpan}
-      </div>`;
-    }).join('');
-    container.innerHTML = rows;
-
-    // Update panel meta to reflect actual cycle count
-    const metaEl = document.getElementById('attest-meta');
-    if (metaEl) metaEl.textContent = `last ${Math.min(N, cycles.length)} of ${cycles.length} cycles`;
-  }
-
-  // FIX #12: paginate at 50 to prevent unbounded findings feed (100+
-  // findings = 8000px scroll). "Show more" button reveals the rest.
-  const FEED_PAGE_SIZE = 50;
-  let feedExpanded = false;
-
-  function renderFindingsFeed(findings) {
-    const container = document.querySelector('[data-customer-findings]');
-    if (!container) return;
-    // FIX #11: hide the "PREVIEW · NO LIVE DATA" banner once we have live data.
-    const previewBanner = document.getElementById('preview-banner');
-    if (previewBanner && Array.isArray(findings)) previewBanner.style.display = 'none';
-    if (!Array.isArray(findings) || findings.length === 0) {
-      container.innerHTML = `<div style="padding: 32px 18px; text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em;">
-        No findings yet · engine has not produced any confirmed bugs for this protocol.
-      </div>`;
+      setStage(
+        'Cycle complete',
+        `Cycle <span class="accent">${safeStr(state.activeCycle || '—', 28)}</span> finished. <span class="dim">Watching upstream for next commit.</span>`,
+        null
+      );
+      pushEvent('cycle_complete', 'cycle ' + state.activeCycle, ev.ts);
+      scheduleRefetch();
       return;
     }
-    // Sort: by severity desc (Critical → Info), then by updated_at desc
-    const sevRank = { Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4 };
-    const sorted = findings.slice().sort((a, b) => {
-      const ra = sevRank[a.severity] ?? 5;
-      const rb = sevRank[b.severity] ?? 5;
-      if (ra !== rb) return ra - rb;
-      const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
-      const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
-      return tb - ta;
-    });
-    const visible = feedExpanded ? sorted : sorted.slice(0, FEED_PAGE_SIZE);
-    const remaining = sorted.length - visible.length;
-    const moreButton = remaining > 0
-      ? `<button id="feed-show-more" style="display:block;width:100%;padding:14px;margin-top:8px;background:transparent;border:1px solid var(--rule-2);border-radius:4px;color:var(--ink-2);font-family:var(--mono);font-size:12px;letter-spacing:0.06em;cursor:pointer;">show ${remaining} more findings →</button>`
-      : '';
-    container.innerHTML = visible.map(renderFinding).join('') + moreButton;
-    const btn = document.getElementById('feed-show-more');
-    if (btn) btn.addEventListener('click', () => { feedExpanded = true; renderFindingsFeed(findings); });
+
+    if (k === 'recon_summary' || k === 'bundle_drafted' || k === 'bundle_verified' ||
+        k === 'merkle_root_computed' || k === 'p2_finding') {
+      pushEvent(k, JSON.stringify(ev).slice(0, 200), ev.ts);
+      scheduleRefetch();
+      return;
+    }
+
+    // Fallback: surface unknown events for forward-compat
+    pushEvent(k || 'event', JSON.stringify(ev).slice(0, 240), ev.ts);
   }
 
-  async function patchFromManifest() {
-    let data;
+  // ───── Fetchers ─────
+  let _refetchTimer = null;
+  function scheduleRefetch() {
+    if (_refetchTimer) return;
+    _refetchTimer = setTimeout(() => {
+      _refetchTimer = null;
+      refreshAll();
+    }, 1200);
+  }
+
+  async function fetchJson(url) {
     try {
-      const res = await fetch(MANIFEST_URL, { cache: 'no-store' });
-      if (!res.ok) return;  // anonymous / no manifest → static demo stays
-      data = await res.json();
-    } catch (_) { return; }
-    if (!data) return;
-
-    manifestData = data;
-
-    renderFindingsFeed(data.public_findings || []);
-    updateSeverityChips(data.public_findings || []);
-    updateIdentityStrip(data);
-    updateOperationsPanel(data);
-    renderAttestationsPanel();  // safe to call: gates on snapshot internally
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) { return null; }
   }
 
-  // -------------------- orchestration --------------------
-
-  async function refreshAll() {
-    await Promise.allSettled([patchFromSnapshot(), patchFromManifest()]);
-  }
-
-  // Live event stream (SSE). Each engine event triggers a debounced refresh
-  // so snapshot.json + manifest.json get re-fetched within ~600ms of the
-  // event landing on the VPS. Falls back to 60s polling if SSE drops.
-  // Events that bump live counters without needing a full refetch are
-  // handled inline below for instant feedback.
-  let sseSource = null;
-  let sseRefreshTimer = null;
-  let sseRefreshPending = false;
-  let sseReconnectAttempt = 0;
-
-  function scheduleLiveRefresh() {
-    if (sseRefreshTimer) return;
-    sseRefreshPending = true;
-    sseRefreshTimer = setTimeout(() => {
-      sseRefreshTimer = null;
-      if (sseRefreshPending) {
-        sseRefreshPending = false;
-        refreshAll();
+  async function refreshSnapshot() {
+    const d = await fetchJson(SNAPSHOT_URL);
+    if (!d) return;
+    if (d.engine_sha) {
+      const newSha = String(d.engine_sha).slice(0, 10);
+      const wrap = $('engine-sha-wrap');
+      const cur = $('engine-sha');
+      if (cur && cur.textContent !== newSha) {
+        cur.textContent = newSha;
+        wrap.classList.add('sha-flicker');
+        setTimeout(() => wrap.classList.remove('sha-flicker'), 700);
       }
-    }, 600);
-  }
-
-  function setLiveStatus(state) {
-    const el = document.getElementById('jelleo-live-dot');
-    const lbl = document.getElementById('jelleo-live-label');
-    if (el) {
-      el.dataset.state = state;
-      el.style.color = state === 'connected' ? 'var(--ok)'
-                      : state === 'reconnecting' ? 'var(--ink-3)'
-                      : 'var(--ink-4)';
-      el.title = state === 'connected'
-        ? 'Live feed connected — events stream in real time'
-        : state === 'reconnecting'
-          ? 'Reconnecting to live feed…'
-          : 'Live feed offline — polling every 60s';
     }
-    if (lbl) {
-      lbl.textContent = state === 'connected'
-        ? 'Live · streaming'
-        : state === 'reconnecting'
-          ? 'Live · connecting…'
-          : 'Live · 60s poll';
+    if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
+    if (d.services_up) $('services-up').textContent = d.services_up;
+    if (d.uptime_label) $('loop-uptime').textContent = d.uptime_label;
+    if (d.last_cycle_ts) {
+      const t = Date.parse(d.last_cycle_ts);
+      if (!isNaN(t)) {
+        state.lastCycleAt = t;
+        $('last-cycle-rel').textContent = fmtRel(t);
+      }
+    }
+    if (d.daily_cap_usd) setCost(d.daily_spent_usd || 0, d.daily_cap_usd);
+  }
+
+  async function refreshManifest() {
+    const d = await fetchJson(MANIFEST_URL);
+    if (!d) return;
+    const findings = d.findings || [];
+    let crit = 0, high = 0, conf = 0;
+    findings.forEach(f => {
+      if (f.severity === 'Critical') crit++;
+      if (f.severity === 'High') high++;
+      if (f.status === 'confirmed' || f.status === 'disclosed' || f.status === 'fixed' || f.status === 'verified') conf++;
+    });
+    $('ct-crit').textContent = crit;
+    $('ct-high').textContent = high;
+    $('ct-confirmed').textContent = conf;
+    $('findings-count').textContent = findings.length;
+    clearFindingsLoadingMsg();
+    // Pre-populate the waterfall with the last cycle's findings, newest first
+    const stream = $('findings-stream');
+    findings.slice(0, 40).forEach(f => {
+      const fid = f.id != null ? String(f.id) : (f.hypothesis_id + '-' + (f.cycle_id || ''));
+      if (!state.findings.has(fid)) upsertFinding(f);
+    });
+    // Use the manifest's last_cycle hypothesis verdicts to pre-paint the grid
+    const lastCycle = d.last_cycle || {};
+    const verdicts = lastCycle.verdicts || [];
+    if (verdicts.length > 0 && state.hyps.size === 0) {
+      verdicts.forEach(v => {
+        const hid = v.hypothesis_id || v.id;
+        if (!hid) return;
+        if (v.verdict === 'TRUE') setHypTileState(hid, 'fire');
+        else setHypTileState(hid, 'ok');
+      });
     }
   }
 
-  function handleSseEvent(payload) {
-    if (!payload || typeof payload !== 'object') return;
-    const kind = payload.event;
-    // Events that change snapshot.json / manifest.json → debounced refetch
-    const REFETCH_EVENTS = new Set([
-      'recon_summary',
-      'finding_persisted',
-      'p2_finding',
-      'bundle_drafted',
-      'bundle_verified',
-      'merkle_root_computed',
-      'cycle_complete',
-      'hunt_complete',
-    ]);
-    if (REFETCH_EVENTS.has(kind)) scheduleLiveRefresh();
+  async function refreshHeartbeat() {
+    const d = await fetchJson(HEARTBEAT_URL);
+    if (!d) return;
+    if (d.generated_at) {
+      state.heartbeatTs = Date.parse(d.generated_at);
+    }
+    if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
   }
 
+  function refreshAll() { refreshSnapshot(); refreshManifest(); refreshHeartbeat(); }
+
+  // ───── SSE connect ─────
+  let sse = null;
+  let sseRetry = 0;
   function connectSse() {
     try {
-      if (sseSource) { try { sseSource.close(); } catch (_) {} }
-      sseSource = new EventSource(SSE_URL);
-      setLiveStatus('reconnecting');
-      sseSource.onopen = () => {
-        sseReconnectAttempt = 0;
-        setLiveStatus('connected');
+      if (sse) { try { sse.close(); } catch (_) {} }
+      sse = new EventSource(SSE_URL);
+      setTerminalStatus('connecting…');
+      sse.onopen = () => {
+        sseRetry = 0;
+        setHeartStatus('live');
+        setTerminalStatus('connected · live');
       };
-      sseSource.onmessage = (ev) => {
-        try {
-          const payload = JSON.parse(ev.data);
-          handleSseEvent(payload);
-        } catch (_) {}
+      sse.onmessage = (msg) => {
+        try { handleEvent(JSON.parse(msg.data)); } catch (e) {}
       };
-      sseSource.onerror = () => {
-        setLiveStatus('offline');
-        // EventSource auto-reconnects; cap exponential backoff is implicit.
-        sseReconnectAttempt = Math.min(sseReconnectAttempt + 1, 6);
+      sse.onerror = () => {
+        state.sseConnected = false;
+        setHeartStatus('offline');
+        setTerminalStatus('reconnecting… (' + (++sseRetry) + ')');
       };
-    } catch (_) {
-      setLiveStatus('offline');
+    } catch (e) {
+      setHeartStatus('offline');
     }
   }
 
-  // 60s safety-net poll — runs always, in case SSE drops silently.
-  function startSafetyPoll() {
-    setInterval(refreshAll, 60000);
+  // ───── Always-on animation loop (rAF heartbeat) ─────
+  let lastTickMs = 0;
+  let lastSecondMs = 0;
+  function tick(nowMs) {
+    if (!lastTickMs) lastTickMs = nowMs;
+    const dt = nowMs - lastTickMs;
+    lastTickMs = nowMs;
+
+    // Idle-since timer: always counting up
+    if (state.lastCycleAt) {
+      $('idle-since').textContent = fmtDur(Date.now() - state.lastCycleAt);
+    } else if (state.cycleStartedAt) {
+      $('cycle-elapsed').textContent = fmtDur(Date.now() - state.cycleStartedAt);
+    }
+
+    // Heartbeat age display
+    if (state.heartbeatTs) {
+      $('heart-age').textContent = fmtRel(state.heartbeatTs);
+    }
+
+    // Per-second sparklines + countdown
+    if (nowMs - lastSecondMs >= 1000) {
+      lastSecondMs = nowMs;
+      // tokens/sec: sum tokens in last second
+      const cutoff = Date.now() - 1000;
+      const toksSec = state.tokensThisSec
+        .filter(x => x.ts >= cutoff)
+        .reduce((acc, x) => acc + x.tokens, 0);
+      state.tokensThisSec = state.tokensThisSec.filter(x => x.ts >= Date.now() - 60000);
+      pushSpark('tokens', toksSec);
+      setSparkValue('tokens', toksSec, n => n.toLocaleString());
+
+      // hyps/min
+      state.hypsDoneThisMinute = state.hypsDoneThisMinute.filter(t => t >= Date.now() - 60000);
+      const hpm = state.hypsDoneThisMinute.length;
+      pushSpark('hyps', hpm);
+      setSparkValue('hyps', hpm);
+
+      // tools/min
+      state.toolCallsThisMinute = state.toolCallsThisMinute.filter(t => t >= Date.now() - 60000);
+      const tpm = state.toolCallsThisMinute.length;
+      pushSpark('tools', tpm);
+      setSparkValue('tools', tpm);
+      $('toolstream-rate').textContent = tpm + ' / min';
+
+      // Loop Hz (always 1.0 baseline — proves the page itself is alive)
+      // Add slight drift to feel organic without being noisy.
+      const driftHz = 1 + (Math.sin(nowMs / 4000) * 0.02);
+      pushSpark('loop', driftHz);
+      setSparkValue('loop', driftHz, n => n.toFixed(2));
+
+      // Next-poll countdown — watch_on_update fires every ~300s
+      const nextEl = $('next-poll');
+      if (nextEl && !state.activeCycle) {
+        const lastPollMs = state.lastEventAt || Date.now();
+        const remaining = Math.max(0, 300000 - (Date.now() - lastPollMs));
+        nextEl.textContent = fmtDur(remaining);
+      }
+    }
+
+    requestAnimationFrame(tick);
   }
 
+  // ───── Bootstrap ─────
   function start() {
     refreshAll();
     connectSse();
-    startSafetyPoll();
+    setInterval(refreshAll, 60000);
+    requestAnimationFrame(tick);
   }
-
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start);
   } else {
@@ -1744,6 +1666,5 @@ button { font-family: inherit; border: none; background: none; color: inherit; c
 })();
 </script>
 
-</main>
 </body>
 </html>

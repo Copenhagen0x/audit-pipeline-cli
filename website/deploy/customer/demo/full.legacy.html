@@ -1,0 +1,1749 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<link rel="canonical" href="https://jelleo.com/customer/demo/">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Percolator dashboard</title>
+<meta name="description" content="Embedded customer dashboard — what a Jelleo-monitored Solana DeFi protocol sees. Live findings feed, on-chain attestation registry, cluster activity.">
+<meta name="theme-color" content="#050504">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+<style>
+
+.skip-link{position:absolute;left:-9999px;top:0;background:#f5b800;color:#000;padding:10px 16px;font-family:var(--mono,monospace);font-size:13px;font-weight:600;text-decoration:none;z-index:9999;border-radius:0 0 4px 0}
+.skip-link:focus{left:0}
+
+
+:root {
+  --bg:           #050504;
+  --bg-2:         #0a0908;
+  --bg-3:         #100e0c;
+  --surface:      rgba(245,243,237,0.025);
+  --surface-2:    rgba(245,243,237,0.045);
+  --surface-3:    rgba(245,243,237,0.08);
+
+  --ink:          #f5f3ed;
+  --ink-2:        rgba(245,243,237,0.72);
+  --ink-3:        rgba(245,243,237,0.46);
+  --ink-4:        rgba(245,243,237,0.28);
+  --ink-5:        rgba(245,243,237,0.12);
+
+  --rule:         rgba(245,243,237,0.08);
+  --rule-2:       rgba(245,243,237,0.16);
+
+  --amber:        #f5b800;
+  --amber-2:      #ffce4a;
+  --amber-glow:   rgba(245,184,0,0.4);
+
+  --ok:           #4ade80;
+  --warn:         #fbbf24;
+  --high:         #f97316;
+  --crit:         #ef4444;
+  --info:         #60a5fa;
+  --gray:         #71717a;
+
+  --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+
+  --font:         'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono:         'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* html font-size MUST be 16px so iOS doesn't auto-zoom on inputs and so
+   browser-zoom users get the same scale as the rest of the site. */
+html { font-size: 16px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.55;
+  font-feature-settings: 'cv02','cv03','cv04','cv11','ss01';
+  min-height: 100vh;
+}
+
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; border: none; background: none; color: inherit; cursor: pointer; }
+
+::selection { background: var(--amber); color: var(--bg); }
+
+/* ======== DEMO WATERMARK ======== */
+.demo-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  background: linear-gradient(90deg, rgba(245,184,0,0.12), rgba(245,184,0,0.06));
+  border-bottom: 1px solid rgba(245,184,0,0.3);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber);
+  text-align: center;
+  padding: 6px 16px;
+  z-index: 100;
+  font-weight: 600;
+}
+.demo-banner .badge {
+  display: inline-block;
+  background: var(--amber);
+  color: var(--bg);
+  padding: 1px 6px;
+  border-radius: 2px;
+  margin-right: 8px;
+  font-weight: 700;
+}
+
+/* ======== TOP NAV ======== */
+.topnav {
+  position: sticky;
+  top: 28px;
+  z-index: 50;
+  background: rgba(5,5,4,0.85);
+  backdrop-filter: blur(20px) saturate(140%);
+  border-bottom: 1px solid var(--rule);
+  padding: 14px 32px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.28s ease;
+  will-change: transform;
+}
+/* Auto-hide on scroll-down so the nav doesn't overlap the dashboard
+   content the user is scanning. Reappears immediately on scroll-up. */
+.topnav.topnav-hidden {
+  transform: translateY(calc(-100% - 32px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nav-logo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  padding: 6px 14px;
+}
+.nav-logo::before, .nav-logo::after {
+  content: '';
+  position: absolute;
+  width: 9px; height: 9px;
+  border: 1.5px solid var(--amber);
+  filter: drop-shadow(0 0 4px var(--amber-glow));
+}
+.nav-logo::before { top: 0; right: 0; border-left: none; border-bottom: none; }
+.nav-logo::after  { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+.nav-divider {
+  width: 1px; height: 16px;
+  background: var(--rule-2);
+}
+
+.nav-protocol {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.nav-protocol strong { color: var(--ink); font-weight: 700; }
+.nav-pulse {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 10px rgba(74,222,128,0.7);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+.nav-status {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-3);
+}
+.nav-status .dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.nav-spacer { flex: 1; }
+
+.nav-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+  padding: 6px 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: 999px;
+  transition: border-color .2s, color .2s;
+}
+.nav-back:hover {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+/* ======== IDENTITY STRIP ======== */
+.identity {
+  padding: 32px;
+  border-bottom: 1px solid var(--rule);
+  background: linear-gradient(180deg, rgba(245,184,0,0.03), transparent);
+}
+
+.id-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.id-name {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+.id-name .meta {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3);
+  letter-spacing: 0;
+  margin-top: 4px;
+}
+
+.id-status-block {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.id-status-block .live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: rgba(74,222,128,0.1);
+  border: 1px solid rgba(74,222,128,0.3);
+  border-radius: 999px;
+  color: var(--ok);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.id-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--rule);
+  padding-top: 18px;
+}
+
+.id-cell {
+  padding: 0 18px;
+  border-right: 1px solid var(--rule);
+}
+.id-cell:first-child { padding-left: 0; }
+.id-cell:last-child { border-right: none; padding-right: 0; }
+
+.id-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-bottom: 4px;
+}
+.id-value {
+  font-size: 14px;
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.id-value.amber { color: var(--amber); }
+.id-value.mono { font-family: var(--mono); font-size: 13px; }
+
+@media (max-width: 1100px) {
+  .id-grid { grid-template-columns: repeat(3, 1fr); gap: 14px; border-top: none; }
+  .id-cell { border-right: none; padding: 0; }
+}
+
+/* ======== MAIN GRID ======== */
+.main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 0;
+  padding: 28px 32px 80px;
+}
+
+@media (max-width: 1100px) {
+  .main { grid-template-columns: 1fr; padding: 20px 16px 60px; gap: 24px; }
+}
+
+/* Phone-width breakpoint */
+@media (max-width: 640px) {
+  .topnav { padding: 12px 16px; gap: 12px; flex-wrap: wrap; }
+  .nav-divider { display: none; }
+  .nav-status { display: none; }
+  .identity { padding: 20px 16px; }
+  .id-name { font-size: 24px; }
+  .id-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .id-cell { padding: 0; }
+  .main { padding: 16px 12px 40px; gap: 16px; }
+  .panel-head { padding: 12px 14px; }
+  .feed-toolbar { padding: 10px 12px; }
+  .footer-bar { padding: 14px 16px; flex-direction: column; gap: 6px; align-items: flex-start; }
+  /* Demo banner on phones: hide all the original content (spans + loose
+     text nodes) and replace with a single short label via ::before.
+     Using `color: transparent` + `text-indent: 100%` + `overflow: hidden`
+     to neutralise the loose text nodes that display: none on spans
+     can't reach. */
+  .demo-banner {
+    color: transparent !important;
+    padding: 7px 10px; line-height: 1.2;
+    overflow: hidden; white-space: nowrap;
+    text-overflow: clip;
+    height: 28px;
+    position: relative;
+  }
+  .demo-banner * { display: none !important; }
+  .demo-banner::before {
+    content: "LIVE";
+    display: inline-block;
+    background: var(--amber); color: var(--bg);
+    font-size: 9px; font-weight: 700; padding: 2px 6px;
+    border-radius: 3px; margin-right: 8px;
+  }
+  .demo-banner::after {
+    content: "demo · public snapshot";
+    color: var(--ink-3); font-size: 10px; font-family: var(--mono);
+    letter-spacing: 0.04em;
+  }
+}
+@media (max-width: 480px) {
+  .id-grid { grid-template-columns: 1fr; gap: 10px; }
+}
+
+/* ======== PANELS (shared) ======== */
+.panel {
+  background: linear-gradient(180deg, rgba(12,11,9,0.85), rgba(5,4,3,0.85));
+  border: 1px solid var(--rule-2);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 18px;
+  box-shadow:
+    0 20px 50px -25px rgba(0,0,0,0.55),
+    inset 0 1px 0 rgba(245,243,237,0.04);
+  position: relative;
+}
+.panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--amber-glow), transparent);
+  opacity: 0.55;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rule);
+  background: rgba(245,243,237,0.025);
+}
+
+.panel-pulse {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px rgba(74,222,128,0.6);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.panel-pulse.warn { background: var(--warn); box-shadow: 0 0 8px rgba(251,191,36,0.6); }
+.panel-pulse.amber { background: var(--amber); box-shadow: 0 0 8px var(--amber-glow); }
+
+.panel-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.panel-meta {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+.panel-body { padding: 0; }
+
+/* sidebar-sized panels */
+.right .panel-head { padding: 12px 16px; }
+
+/* ======== LEFT — FINDINGS FEED ======== */
+.left { padding-right: 24px; }
+@media (max-width: 1100px) { .left { padding-right: 0; } }
+
+.feed-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--rule);
+  background: rgba(5,4,3,0.4);
+  flex-wrap: wrap;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: rgba(245,243,237,0.025);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all .2s;
+}
+.chip:hover { color: var(--ink); border-color: var(--rule-2); }
+.chip.active { color: var(--amber); border-color: rgba(245,184,0,0.4); background: rgba(245,184,0,0.08); }
+.chip .count {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  background: rgba(245,243,237,0.06);
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 4px;
+}
+.chip.active .count { background: rgba(245,184,0,0.18); color: var(--amber); }
+
+.findings {
+  font-family: var(--mono);
+}
+
+.finding-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 110px;
+  grid-template-rows: auto auto;
+  gap: 4px 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rule);
+  border-left: 2px solid transparent;
+  transition: background .15s, border-left-color .15s;
+  cursor: pointer;
+  position: relative;
+}
+.finding-row:last-child { border-bottom: none; }
+.finding-row:hover { background: rgba(245,184,0,0.025); }
+
+.finding-row.crit { border-left-color: var(--crit); }
+.finding-row.high { border-left-color: var(--high); }
+.finding-row.med { border-left-color: var(--warn); }
+.finding-row.low { border-left-color: var(--info); }
+.finding-row.info { border-left-color: var(--ink-4); }
+
+.fr-id {
+  grid-row: 1; grid-column: 1;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--amber);
+}
+.fr-class {
+  grid-row: 1; grid-column: 2;
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+  font-family: var(--font);
+  letter-spacing: -0.005em;
+}
+.fr-age {
+  grid-row: 1; grid-column: 3;
+  font-size: 11px;
+  color: var(--ink-3);
+  text-align: right;
+  letter-spacing: 0.04em;
+}
+.fr-meta {
+  grid-row: 2; grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+.fr-cite {
+  font-family: var(--mono);
+  color: var(--ink-3);
+  font-size: 11px;
+}
+.fr-cite::before { content: '→ '; color: var(--ink-4); }
+
+.severity-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+.severity-badge.crit { color: var(--crit); border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.1); }
+.severity-badge.high { color: var(--high); border-color: rgba(249,115,22,0.35); background: rgba(249,115,22,0.1); }
+.severity-badge.med  { color: var(--warn); border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.1); }
+.severity-badge.low  { color: var(--info); border-color: rgba(96,165,250,0.35); background: rgba(96,165,250,0.1); }
+.severity-badge.info { color: var(--ink-3); border-color: var(--rule-2); background: rgba(245,243,237,0.04); }
+
+.status-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+.status-pill.embargo { color: var(--high); border-color: rgba(249,115,22,0.3); background: rgba(249,115,22,0.08); }
+.status-pill.review  { color: var(--warn); border-color: rgba(251,191,36,0.3); background: rgba(251,191,36,0.08); }
+.status-pill.merged  { color: var(--ok); border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.08); }
+.status-pill.locked  { color: var(--amber); border-color: rgba(245,184,0,0.4); background: rgba(245,184,0,0.1); }
+.status-pill.scanning { color: var(--info); border-color: rgba(96,165,250,0.3); background: rgba(96,165,250,0.08); }
+.status-pill.rejected { color: var(--ink-3); border-color: var(--rule-2); background: rgba(113,113,122,0.08); text-decoration: line-through; }
+
+/* expandable preview */
+.fr-preview {
+  display: none;
+  grid-row: 3; grid-column: 1 / -1;
+  margin-top: 8px;
+  padding: 12px;
+  background: rgba(5,4,3,0.7);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.6;
+  border-left: 2px solid var(--amber);
+}
+.finding-row.expanded { background: rgba(245,184,0,0.04); }
+.finding-row.expanded .fr-preview { display: block; }
+
+/* Mobile finding-row collapse — placed AFTER base fr-id/fr-class/fr-age
+   rules above so the cascade order picks up these grid-area overrides
+   on viewport match (the source-order tie-breaker is what matters here). */
+@media (max-width: 1100px) {
+  .finding-row {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto auto auto !important;
+    padding: 12px 14px !important;
+    gap: 4px 12px !important;
+  }
+  .finding-row .fr-id    { grid-column: 1 !important; grid-row: 1 !important; }
+  .finding-row .fr-class { grid-column: 1 !important; grid-row: 2 !important; }
+  .finding-row .fr-age   { grid-column: 1 !important; grid-row: 1 !important;
+                           justify-self: end !important; text-align: right; }
+  .finding-row .fr-meta  { grid-column: 1 !important; grid-row: 3 !important;
+                           flex-wrap: wrap; }
+  .finding-row .fr-class { white-space: normal; word-break: break-word; }
+}
+
+.fr-preview .verdict-line {
+  display: flex;
+  gap: 12px;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+}
+.fr-preview .verdict-line .label {
+  color: var(--ink-4);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.fr-preview .verdict-line .value { color: var(--ink); }
+
+/* ======== RIGHT SIDEBAR ======== */
+.right { display: flex; flex-direction: column; }
+
+/* Cluster activity */
+.cluster-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+}
+.cluster-cell {
+  padding: 14px 16px;
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.cluster-cell:nth-child(2n) { border-right: none; }
+.cluster-cell:nth-last-child(-n+2) { border-bottom: none; }
+.cluster-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-bottom: 6px;
+}
+.cluster-value {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--amber);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.cluster-value.ink { color: var(--ink); }
+.cluster-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  margin-top: 4px;
+}
+
+.spend-bar {
+  height: 6px;
+  background: rgba(245,184,0,0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.spend-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber), var(--amber-2));
+  width: 38%;
+  box-shadow: 0 0 8px var(--amber-glow);
+  transition: width 1.5s var(--ease-out);
+}
+
+/* Attestation registry */
+.attest-list {
+  font-family: var(--mono);
+}
+.attest-row {
+  display: grid;
+  grid-template-columns: 70px 1fr auto;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule);
+  align-items: center;
+  font-size: 11px;
+  transition: background .15s;
+}
+.attest-row:last-child { border-bottom: none; }
+.attest-row:hover { background: rgba(245,184,0,0.025); }
+.ar-time {
+  color: var(--ink-4);
+  font-size: 10px;
+}
+.ar-detail .ar-line1 {
+  color: var(--ink);
+  font-weight: 500;
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+.ar-detail .ar-line2 {
+  color: var(--ink-3);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.ar-tx {
+  color: var(--info);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--rule-2);
+}
+
+/* Reports */
+.reports {
+  padding: 14px 16px;
+}
+.report-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--rule-2);
+  border-radius: 6px;
+  background: rgba(245,243,237,0.02);
+  transition: all .2s;
+  cursor: pointer;
+}
+.report-item:hover {
+  border-color: var(--amber);
+  background: rgba(245,184,0,0.05);
+}
+.report-item:last-child { margin-bottom: 0; }
+.report-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+.report-name .meta {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  font-weight: 500;
+  margin-top: 2px;
+}
+.report-action {
+  font-size: 10px;
+  color: var(--amber);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+.report-action:hover {
+  background: rgba(245,184,0,0.12);
+  border-color: var(--amber);
+}
+.report-action.disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Footer */
+.footer-bar {
+  padding: 18px 32px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-4);
+  letter-spacing: 0.04em;
+}
+.footer-bar a { color: var(--ink-3); }
+.footer-bar a:hover { color: var(--amber); }
+
+/* Tick-flash animation */
+@keyframes tick-flash {
+  0% { color: var(--amber); text-shadow: 0 0 16px var(--amber-glow); }
+  100% { color: inherit; text-shadow: none; }
+}
+.tick-flash { animation: tick-flash 1.4s var(--ease-out); }
+
+</style>
+</head>
+<body>
+<a href="#main" class="skip-link">Skip to main content</a>
+
+<nav class="topnav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-divider"></div>
+  <div class="nav-protocol">
+    <span class="nav-pulse"></span>
+    <span><strong>Percolator</strong> · perpetual DEX</span>
+  </div>
+  <div class="nav-divider"></div>
+  <span class="nav-status"><span class="dot"></span>Customer · cus_demo · jelleo-cluster-3 / node-07</span>
+  <div class="nav-spacer"></div>
+  <a href="/customer/demo/" class="nav-back" style="margin-right: 12px;">← summary</a>
+  <a href="/customer/" class="nav-back">Sign out</a>
+</nav>
+
+<!-- ============== IDENTITY STRIP ============== -->
+<main id="main">
+<section class="identity">
+  <div class="id-top">
+    <h1 class="id-name">
+      Percolator
+      <span class="meta">Anatoly Yakovenko's perpetual DEX · engine + BPF wrapper · funded-state preview (today: v0.1 hunt loop, F7 disclosed)</span>
+    </h1>
+    <div class="id-status-block">
+      <div class="live-badge" id="jelleo-live-dot" data-state="offline" style="color: var(--ok);"><span class="nav-pulse"></span><span id="jelleo-live-label">Live · connecting…</span></div>
+    </div>
+  </div>
+
+  <div class="id-grid">
+    <div class="id-cell">
+      <div class="id-label">Engine SHA</div>
+      <div class="id-value mono" id="id-engine-sha">5940285</div>
+    </div>
+    <div class="id-cell">
+      <div class="id-label">Wrapper SHA</div>
+      <div class="id-value mono" id="id-wrapper-sha">c447686</div>
+    </div>
+    <div class="id-cell">
+      <div class="id-label">Hyps dispatched <span style="color: var(--ink-4); font-size: 10px; letter-spacing: 0.04em;">· latest cycle</span></div>
+      <div class="id-value amber"><span id="id-hyps-dispatched">—</span></div>
+    </div>
+    <div class="id-cell">
+      <div class="id-label">Open findings</div>
+      <div class="id-value" id="id-open-findings">— open</div>
+    </div>
+    <div class="id-cell">
+      <div class="id-label">Disclosed · cumulative</div>
+      <div class="id-value" id="id-disclosed">—</div>
+    </div>
+    <div class="id-cell">
+      <div class="id-label">Coverage tier</div>
+      <div class="id-value amber" id="id-tier">—</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== MAIN GRID ============== -->
+<div class="main">
+
+  <!-- LEFT: Findings feed -->
+  <div class="left">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-pulse"></span>
+        <span class="panel-title">Findings feed</span>
+        <span class="panel-meta">live · 12 total · 7 open · F7 closed-without-merge (regression-locked at <code>a1afd2e</code>)</span>
+      </div>
+
+      <div class="feed-toolbar" id="feed-toolbar">
+        <span class="chip active">All <span class="count" data-sev-count="All">12</span></span>
+        <span class="chip">Critical <span class="count" data-sev-count="Critical">0</span></span>
+        <span class="chip">High <span class="count" data-sev-count="High">2</span></span>
+        <span class="chip">Medium <span class="count" data-sev-count="Medium">5</span></span>
+        <span class="chip">Low <span class="count" data-sev-count="Low">3</span></span>
+        <span class="chip">Info <span class="count" data-sev-count="Info">2</span></span>
+        <span style="color: var(--ink-3); font-size: 11px; margin-left: 8px;">(includes resolved + merged; open subset shown in identity strip above)</span>
+      </div>
+
+      <!-- FIX #11: previously the static rows rendered as if live when the
+           manifest 404'd, exposing fictional PERC-23/29/31/... findings as
+           if they were confirmed bugs. Added a visible "PREVIEW · NO LIVE
+           DATA" warning that renders only when JS doesn't replace the rows.
+           When live manifest succeeds, JS sets data-live="1" on .findings and
+           the warning is hidden via CSS. -->
+      <div class="preview-banner" id="preview-banner" style="display: block; padding: 8px 12px; margin: 8px 0; background: rgba(245,184,0,0.12); border: 1px solid rgba(245,184,0,0.4); border-radius: 4px; font-size: 11px; color: var(--amber); letter-spacing: 0.04em;">
+        <strong>PREVIEW · NO LIVE DATA</strong> — these rows are mocked sample
+        findings shown when the live customer manifest is unreachable. They are
+        NOT real findings. Wait for the live data to load (auto-refreshes every
+        60s) or sign in to view your real engagement data.
+      </div>
+      <div class="findings" id="findings" data-customer-findings>
+
+        <!-- F7 — the headline -->
+        <div class="finding-row crit">
+          <span class="fr-id">F7</span>
+          <span class="fr-class">Residual-conservation / insurance-siphon (self-dealing attack class)</span>
+          <span class="fr-age">12 mo</span>
+          <span class="fr-meta">
+            <span class="severity-badge crit"> CRITICAL</span>
+            <span class="status-pill locked">regression-locked · #39</span>
+            <span class="fr-cite">engine/src/lib.rs:4250–4260 · use_insurance_buffer</span>
+          </span>
+          <div class="fr-preview">
+            <div class="verdict-line">
+              <span class="label">Verdict:</span>
+              <span class="value">use_insurance_buffer shrinks insurance counter without debiting vault → haircut residual grows by absorbed amount → attacker's K/F-winning side claims it via self-trade</span>
+            </div>
+            Disclosed at <strong>aeyakovenko/percolator-prog#39</strong> — closed-without-merge, regression-locked on main at commit <strong>a1afd2e</strong>. 4/4 wrapper paths verified <code>insurance_drop = 0</code>; Kani harness <code>proof_junior_profit_backing</code> satisfies 2/2 cover properties.
+          </div>
+        </div>
+
+        <!-- High - active -->
+        <div class="finding-row high">
+          <span class="fr-id">PERC-23</span>
+          <span class="fr-class">Cross-tx liquidation-race window during cursor-wrap reset</span>
+          <span class="fr-age">3 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge high">HIGH · 7.4</span>
+            <span class="status-pill embargo">embargo · 30d</span>
+            <span class="fr-cite">engine/src/lib.rs:6155 · advance_cursor_atomic</span>
+          </span>
+          <div class="fr-preview">
+            <div class="verdict-line">
+              <span class="label">Verdict:</span>
+              <span class="value">Cursor-wrap atomically resets consumption budget without absorbing volatility — second-order liquidation race observed when cursor reset coincides with high-volatility tick</span>
+            </div>
+            PoC compiled (cargo test PASS, 8.2KB). Maintainer notified. Embargo window: 30 days. Fix bundle in development — Kani harness draft pending.
+          </div>
+        </div>
+
+        <!-- Medium -->
+        <div class="finding-row med">
+          <span class="fr-id">PERC-31</span>
+          <span class="fr-class">advance_profit_warmup overflow on synthetic high-vol path</span>
+          <span class="fr-age">8 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge med">MEDIUM · 6.2</span>
+            <span class="status-pill review">fix-bundle · in review</span>
+            <span class="fr-cite">engine/src/lib.rs:4680 · advance_profit_warmup</span>
+          </span>
+          <div class="fr-preview">
+            <div class="verdict-line">
+              <span class="label">Verdict:</span>
+              <span class="value">mul_div_floor_u128 overflow — Kani-true but ~167M years to reach via legitimate flow at default caps</span>
+            </div>
+            Recommended fix: swap to <code>wide_mul_div_floor_u128</code> (U256 helper that exists in codebase). One-token swap. PR opened, awaiting maintainer review.
+          </div>
+        </div>
+
+        <div class="finding-row med">
+          <span class="fr-id">PERC-29</span>
+          <span class="fr-class">account_equity_trade_open_raw overflow under extreme price input</span>
+          <span class="fr-age">9 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge med">MEDIUM · 5.9</span>
+            <span class="status-pill review">fix-bundle · in review</span>
+            <span class="fr-cite">engine/src/lib.rs:3915 · account_equity_trade_open_raw</span>
+          </span>
+        </div>
+
+        <div class="finding-row med">
+          <span class="fr-id">PERC-44</span>
+          <span class="fr-class">Funding-rate rounding direction inconsistent between settlement paths</span>
+          <span class="fr-age">14 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge med">MEDIUM · 5.1</span>
+            <span class="status-pill review">fix-bundle · in review</span>
+            <span class="fr-cite">engine/src/funding.rs:892 · settle_funding_round</span>
+          </span>
+        </div>
+
+        <div class="finding-row med">
+          <span class="fr-id">PERC-47</span>
+          <span class="fr-class">Slab routing drift under concurrent crank submission</span>
+          <span class="fr-age">18 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge med">MEDIUM · 4.8</span>
+            <span class="status-pill review">fix-bundle · awaiting Kani</span>
+            <span class="fr-cite">router/src/dispatch.rs:1247 · route_slab_atomic</span>
+          </span>
+        </div>
+
+        <div class="finding-row med">
+          <span class="fr-id">PERC-52</span>
+          <span class="fr-class">effective_pos_q_checked overflow under white-box state (defense-in-depth)</span>
+          <span class="fr-age">22 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge med">MEDIUM · 4.5</span>
+            <span class="status-pill merged">advisory · merged</span>
+            <span class="fr-cite">engine/src/lib.rs:2642 · effective_pos_q_checked</span>
+          </span>
+        </div>
+
+        <div class="finding-row low">
+          <span class="fr-id">PERC-58</span>
+          <span class="fr-class">Decimal-precision drift between solana-program 1.x and 2.x flow</span>
+          <span class="fr-age">5 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge low">LOW · 3.8</span>
+            <span class="status-pill review">fix-bundle · in review</span>
+            <span class="fr-cite">engine/src/decimal.rs:147 · scale_to_native</span>
+          </span>
+        </div>
+
+        <div class="finding-row low">
+          <span class="fr-id">PERC-63</span>
+          <span class="fr-class">Rounding-direction mismatch on partial-fill remainder</span>
+          <span class="fr-age">11 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge low">LOW · 3.4</span>
+            <span class="status-pill merged">merged</span>
+            <span class="fr-cite">engine/src/match.rs:704 · partial_fill_remainder</span>
+          </span>
+        </div>
+
+        <div class="finding-row low">
+          <span class="fr-id">PERC-67</span>
+          <span class="fr-class">deposit-cap-overflow check off-by-one at 32-byte boundary</span>
+          <span class="fr-age">19 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge low">LOW · 3.2</span>
+            <span class="status-pill merged">merged</span>
+            <span class="fr-cite">router/src/cap.rs:312 · deposit_cap_check</span>
+          </span>
+        </div>
+
+        <div class="finding-row info">
+          <span class="fr-id">PERC-71</span>
+          <span class="fr-class">Event-emission gap on liquidation-cascade path</span>
+          <span class="fr-age">2 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge info">INFO</span>
+            <span class="status-pill scanning">advisory · scanning</span>
+            <span class="fr-cite">engine/src/events.rs:88 · emit_liquidation_cascade</span>
+          </span>
+        </div>
+
+        <div class="finding-row info">
+          <span class="fr-id">PERC-72</span>
+          <span class="fr-class">Pyth oracle staleness gate triggers logging-only on edge case</span>
+          <span class="fr-age">6 d</span>
+          <span class="fr-meta">
+            <span class="severity-badge info">INFO</span>
+            <span class="status-pill merged">advisory · merged</span>
+            <span class="fr-cite">engine/src/oracle.rs:215 · check_oracle_staleness</span>
+          </span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: sidebar -->
+  <div class="right">
+
+    <!-- Operations · live -->
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-pulse amber"></span>
+        <span class="panel-title">Operations · live</span>
+        <span class="panel-meta" id="ops-meta">live · today</span>
+      </div>
+      <div class="panel-body">
+        <div class="cluster-grid">
+          <div class="cluster-cell">
+            <div class="cluster-label">Hyps · latest cycle</div>
+            <div class="cluster-value" id="ops-hyps-latest">—</div>
+            <div class="cluster-sub" id="ops-hyps-sub">dispatched</div>
+          </div>
+          <div class="cluster-cell">
+            <div class="cluster-label">Services up</div>
+            <div class="cluster-value" id="ops-services-up">—</div>
+            <div class="cluster-sub" id="ops-services-sub">of 8 platform units</div>
+          </div>
+          <div class="cluster-cell">
+            <div class="cluster-label">Cycles completed</div>
+            <div class="cluster-value" id="ops-cycles-total">—</div>
+            <div class="cluster-sub" id="ops-cycles-sub">total signed receipts</div>
+          </div>
+          <div class="cluster-cell">
+            <div class="cluster-label">Cluster nodes</div>
+            <div class="cluster-value ink" id="ops-nodes">1 / 1</div>
+            <div class="cluster-sub" style="color: var(--ink-4);"><span style="color: var(--amber); font-weight: 600;">Y1 target:</span> 12 nodes</div>
+          </div>
+        </div>
+        <div style="padding: 14px 16px; border-top: 1px solid var(--rule); font-size: 11px; color: var(--ink-3); font-family: var(--mono);">
+          <span>Loop uptime · <span id="ops-uptime" style="color: var(--ink-2);">—</span></span>
+          <span style="float: right; color: var(--ink-4);">API spend tracking · <span style="color: var(--amber); font-weight: 600;">Y1 funded</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cycle attestations -->
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-pulse amber"></span>
+        <span class="panel-title">Signed cycle attestations</span>
+        <span class="panel-meta" id="attest-meta">last cycles</span>
+      </div>
+      <div class="panel-body">
+        <div class="attest-list" data-cycle-attestations>
+          <!-- populated by JS from manifest.recent_cycles[] + snapshot.cycle_merkle_roots[] -->
+          <div style="padding: 24px 20px; text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;">
+            Loading cycle attestations…
+          </div>
+        </div>
+        <div style="padding: 12px 16px; border-top: 1px solid var(--rule); font-size: 11px; color: var(--ink-4); font-family: var(--mono); letter-spacing: 0.04em;">
+          Each cycle Ed25519-signed off-chain · <span style="color: var(--amber); font-weight: 600;">Y1 funded:</span> Anchor program publishes roots to mainnet
+        </div>
+      </div>
+    </div>
+
+    <!-- Reports -->
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-pulse"></span>
+        <span class="panel-title">Reports · cadence config</span>
+        <span class="panel-meta">delivery schedule · signed PDFs</span>
+      </div>
+      <div class="panel-body">
+        <div class="reports">
+          <div class="report-item">
+            <div class="report-name">F7 disclosure · Percolator
+              <span class="meta">PR #39 · LiteSVM PoC commit 43cdcd8 · regression on main at <code>a1afd2e</code></span>
+            </div>
+            <a class="report-action" href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">Open PR ↗</a>
+          </div>
+          <div class="report-item">
+            <div class="report-name">Live findings snapshot
+              <span class="meta">Public-safe JSON · refreshed every 60s · severity counts + bug-classes only (titles redacted)</span>
+            </div>
+            <a class="report-action" href="https://api.jelleo.com/snapshot.json" target="_blank" rel="noopener">snapshot.json ↗</a>
+          </div>
+          <div class="report-item">
+            <div class="report-name">Public verification key
+              <span class="meta">Ed25519 · use to verify any Jelleo-signed cycle artifact via <code>audit-pipeline sign verify</code></span>
+            </div>
+            <a class="report-action" href="/keys/jelleo.ed25519.pub" download="jelleo.ed25519.pub">jelleo.ed25519.pub ↓</a>
+          </div>
+          <div class="report-item">
+            <div class="report-name">Methodology &amp; severity rubric
+              <span class="meta">Full technical reference · 4 pillars · scoping schema · attestation protocol · disclosure cadence</span>
+            </div>
+            <a class="report-action" href="/methodology.html">methodology ↗</a>
+          </div>
+          <div class="report-item">
+            <div class="report-name">Cadence reports · email-delivered
+              <span class="meta">Signed PDFs delivered to your inbox · 09:00 UTC daily · Mondays 09:15 weekly · 1st of month 09:30 monthly · request access at <a href="mailto:security@jelleo.com?subject=Jelleo%20%E2%80%94%20cadence%20report%20access" style="color: var(--amber); border-bottom: 1px solid rgba(245,184,0,0.3);">security@jelleo.com</a></span>
+            </div>
+            <a class="report-action" href="mailto:security@jelleo.com?subject=Jelleo%20%E2%80%94%20cadence%20report%20access">Request ↗</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="footer-bar">
+  <span>jelleo · Percolator embedded · v0.1 · severity counts + cycle history are <strong style="color: var(--ok);">live</strong> · F7-class details are public via <a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">PR #39</a> · in-progress findings are intentionally not exposed</span>
+  <span><a href="/">← back to jelleo.com</a></span>
+</div>
+
+<script>
+(function() {
+
+  // Auto-hide top nav on scroll-down, reveal on scroll-up.
+  const topnav = document.querySelector('.topnav');
+  if (topnav) {
+    let lastY = window.scrollY;
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const y = window.scrollY;
+        const goingDown = y > lastY;
+        // Only hide once we're past the nav itself; always show near the top.
+        if (goingDown && y > 120) topnav.classList.add('topnav-hidden');
+        else                       topnav.classList.remove('topnav-hidden');
+        lastY = y;
+        ticking = false;
+      });
+    }, { passive: true });
+  }
+
+  // last-scan is populated by patchFromSnapshot() from data.generated_at
+  // (the real timestamp written by jelleo-snapshot.timer on the VPS).
+  // The mock setInterval that lived here counted seconds up to 90 then
+  // reset — it was racing the real value and lying when the snapshot
+  // was actually stale (e.g. while a hunt is in progress).
+
+  // Findings — click to expand
+  document.querySelectorAll('.finding-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      // close others
+      document.querySelectorAll('.finding-row.expanded').forEach((other) => {
+        if (other !== row) other.classList.remove('expanded');
+      });
+      row.classList.toggle('expanded');
+    });
+  });
+
+  // Filter chips — wired to actually filter the findings feed by severity.
+  // Click "Critical" to see only critical findings, "All" to see everything.
+  document.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+      // Extract the severity label (text node before the count span).
+      const label = (chip.firstChild && chip.firstChild.textContent || '').trim();
+      const norm = label.toLowerCase();
+      document.querySelectorAll('.findings .finding-row').forEach((row) => {
+        if (norm === 'all') { row.style.display = ''; return; }
+        const badge = row.querySelector('.severity-badge');
+        const sev = badge ? badge.textContent.trim().toLowerCase() : '';
+        row.style.display = sev.startsWith(norm) ? '' : 'none';
+      });
+    });
+  });
+
+  // (Mock setIntervals removed 2026-05-12 — were rendering fake spend, fake
+  // invocation rate, fake hunts-in-flight, fake inv-verified, and fake "new
+  // cycle" flash effects. Real spend now comes from snapshot.spend; the other
+  // panels are blanked until real sources exist for them.)
+  function flash(el) {
+    if (!el) return;
+    el.classList.remove('tick-flash');
+    void el.offsetWidth;
+    el.classList.add('tick-flash');
+  }
+  ['invocation-rate', 'hunts-inflight', 'spend-rate', 'inv-verified',
+   'spend-mtd'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '—';
+  });
+  const _spendBar = document.getElementById('spend-bar');
+  if (_spendBar) _spendBar.style.width = '0%';
+  const _spendPct = document.getElementById('spend-pct');
+  if (_spendPct) _spendPct.textContent = '—';
+
+})();
+</script>
+
+<!--
+  ============== LIVE SNAPSHOT FETCH (Sprint 3.4) ==============
+  Defensive: tries to fetch /snapshot.json (written by `audit-pipeline
+  dashboard --snapshot-json /path/to/web/snapshot.json`). On success,
+  patches in live numbers and shows a "Live data" badge. On 404 / error /
+  fetch-block, leaves the static mockup intact — the page still works.
+-->
+<!-- Floating live-data badge removed — the integrated LIVE banner at top
+     of the page is the single source of truth for the live status. -->
+
+
+<script>
+(function() {
+  // Two data sources, two trust tiers:
+  //
+  //   1. snapshot.json (public, anonymous-readable)
+  //      → aggregate stats, severity-by-target counts, recent cycles,
+  //        and disclosed-only public findings. Used to patch data-snapshot-key
+  //        elements throughout the page so anonymous visitors see live counters.
+  //
+  //   2. customer/<token>/manifest.json (per-customer, "token in URL is auth")
+  //      → INCLUDES in-progress findings (triaged/confirmed/disclosed/fixed/
+  //        verified) scoped to this customer's owned targets. Renders the
+  //        Findings feed, identity-strip counters, and attestations panel
+  //        as the actual current state.
+  //
+  // Both are tried. If either fails, the static demo content remains so the
+  // page never looks broken — graceful degradation by design.
+  const SNAPSHOT_URL = 'https://api.jelleo.com/snapshot.json';
+  const MANIFEST_URL = 'https://api.jelleo.com/customer/demo/manifest.json';
+  const SSE_URL      = 'https://api.jelleo.com/events/demo';
+
+  const SEVERITY_ORDER = ['Critical', 'High', 'Medium', 'Low', 'Info'];
+  const STATUS_PILL_CLASS = {
+    'disclosed':   'locked',
+    'fixed':       'merged',
+    'verified':    'merged',
+    'confirmed':   'review',
+    'triaged':     'review',
+    'rejected':    'rejected',  // FIX D-C5: NOT 'merged' (was reading green)
+    'new':         'review',
+    'open':        'review',     // lifecycle states from new hyp library
+    'debating':    'scanning',
+    'poc-firing':  'scanning',
+  };
+  const STATUS_PILL_LABEL = {
+    'disclosed':   'disclosed',
+    'fixed':       'fixed · merged',
+    'verified':    'verified · merged',
+    'confirmed':   'confirmed · in review',
+    'triaged':     'triaged · in review',
+    'rejected':    'rejected · false-positive',
+    'new':         'new',
+    'open':        'open · queued',
+    'debating':    'debating · L1.5',
+    'poc-firing':  'poc-firing · L2',
+  };
+
+  function relativeTime(iso) {
+    if (!iso) return '—';
+    try {
+      const t = new Date(iso).getTime();
+      const dt = Math.floor((Date.now() - t) / 1000);
+      if (dt < 60)    return dt + ' seconds ago';
+      if (dt < 3600)  return Math.floor(dt / 60) + ' minutes ago';
+      if (dt < 86400) return Math.floor(dt / 3600) + ' hours ago';
+      return Math.floor(dt / 86400) + ' days ago';
+    } catch (_) { return '—'; }
+  }
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Shared state — snapshot and manifest race in parallel, but the
+  // attestations panel needs both (cycle metadata from manifest, merkle
+  // roots from snapshot). Renders trigger after both land or whichever
+  // finishes first if the other 404s.
+  let snapshotData = null;
+  let manifestData = null;
+
+  // -------------------- snapshot.json (public, aggregate) --------------------
+
+  async function patchFromSnapshot() {
+    let data;
+    try {
+      const res = await fetch(SNAPSHOT_URL, { cache: 'no-store' });
+      if (!res.ok) return;
+      data = await res.json();
+    } catch (_) { return; }
+    if (!data || data.platform !== 'jelleo') return;
+
+    snapshotData = data;
+
+    // data-snapshot-key patcher (banner stats, etc.)
+    document.querySelectorAll('[data-snapshot-key]').forEach((el) => {
+      const path = el.getAttribute('data-snapshot-key').split('.');
+      let v = data;
+      for (const p of path) { if (v == null) break; v = v[p]; }
+      if (v != null) el.textContent = String(v);
+    });
+
+    // last-scan ticker reflects when snapshot.json itself was published
+    const lastScanEl = document.getElementById('last-scan');
+    if (lastScanEl && data.generated_at) {
+      lastScanEl.textContent = relativeTime(data.generated_at);
+    }
+
+    // If manifest has already landed, re-render attestations now that
+    // we have merkle roots to join against.
+    if (manifestData) renderAttestationsPanel();
+  }
+
+  // -------------------- manifest.json (customer-private) --------------------
+
+  function renderFinding(f) {
+    const sev = (f.severity || 'Info');
+    const sevClass = sev.toLowerCase();
+    const status = (f.status || 'confirmed').toLowerCase();
+    const pillClass = STATUS_PILL_CLASS[status] || 'review';
+    const pillLabel = STATUS_PILL_LABEL[status] || status;
+    const disclosureUrl = f.disclosure_url;
+    const pillHtml = disclosureUrl
+      ? `<a class="status-pill ${pillClass}" href="${escapeHtml(disclosureUrl)}" target="_blank" rel="noopener">${escapeHtml(pillLabel)}</a>`
+      : `<span class="status-pill ${pillClass}">${escapeHtml(pillLabel)}</span>`;
+    // Finding ID convention: numeric ids (1, 7, 21...) get "F" prefix to
+    // match the established F7-style displayed across the site. Non-numeric
+    // ids (already-prefixed like "PERC-23") pass through unchanged.
+    const rawId = String(f.id ?? '?');
+    const findingIdShort = escapeHtml(/^\d+$/.test(rawId) ? `F${rawId}` : rawId);
+    // FIX #13: API truncates title to 120 chars at a hard byte boundary,
+    // which leaves mid-word "..." on every row. Clip at the nearest word
+    // boundary (>= 60% of max) before rendering so the displayed text reads
+    // cleanly. Full title can still be seen via the row's expand-preview.
+    const cleanClip = (s, max = 92) => {
+      if (!s) return '';
+      if (s.length <= max) return s;
+      const cut = s.slice(0, max);
+      const lastSp = cut.lastIndexOf(' ');
+      return (lastSp > max * 0.6 ? cut.slice(0, lastSp) : cut) + '…';
+    };
+    const bugClassOrTitle = cleanClip(f.title) || f.bug_class || '—';
+    const cite = f.hypothesis_id ? `hyp · ${escapeHtml(f.hypothesis_id)}` : '';
+    const age = f.updated_at ? escapeHtml(relativeTime(f.updated_at)) : '—';
+    const verdict = f.verdict ? `
+      <div class="fr-preview">
+        <div class="verdict-line">
+          <span class="label">Verdict:</span>
+          <span class="value">${escapeHtml(f.verdict)}</span>
+        </div>
+        ${f.poc_fired ? '<strong>PoC fired</strong> · ' : ''}${f.n_siblings ? `${f.n_siblings} sibling${f.n_siblings === 1 ? '' : 's'} flagged` : ''}
+      </div>` : '';
+
+    return `<div class="finding-row ${sevClass === 'critical' ? 'crit' : sevClass === 'medium' ? 'med' : sevClass}">
+      <span class="fr-id">${findingIdShort}</span>
+      <span class="fr-class">${escapeHtml(bugClassOrTitle)}</span>
+      <span class="fr-age">${age}</span>
+      <span class="fr-meta">
+        <span class="severity-badge ${sevClass === 'critical' ? 'crit' : sevClass === 'medium' ? 'med' : sevClass}">${escapeHtml(sev.toUpperCase())}</span>
+        ${pillHtml}
+        ${cite ? `<span class="fr-cite">${cite}</span>` : ''}
+      </span>${verdict}
+    </div>`;
+  }
+
+  function updateSeverityChips(findings) {
+    const counts = { All: findings.length, Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
+    findings.forEach(f => {
+      const sev = f.severity;
+      if (counts[sev] != null) counts[sev] += 1;
+    });
+    SEVERITY_ORDER.concat(['All']).forEach(s => {
+      document.querySelectorAll(`[data-sev-count="${s}"]`).forEach(el => {
+        el.textContent = String(counts[s] || 0);
+      });
+    });
+  }
+
+  function updateIdentityStrip(manifest) {
+    const findings = manifest.public_findings || [];
+    const recentCycles = manifest.recent_cycles || [];
+
+    // engine SHA from latest cycle
+    const latestCycle = recentCycles[0];
+    if (latestCycle) {
+      const engShaEl = document.getElementById('id-engine-sha');
+      if (engShaEl && latestCycle.engine_sha) engShaEl.textContent = String(latestCycle.engine_sha);
+    }
+
+    // hyps dispatched in latest cycle
+    const hypsEl = document.getElementById('id-hyps-dispatched');
+    if (hypsEl) {
+      const n = latestCycle ? latestCycle.n_dispatched : null;
+      hypsEl.textContent = (n != null) ? String(n) : '—';
+    }
+
+    // open findings count + distribution (open = triaged/confirmed, not yet disclosed/fixed/verified)
+    const OPEN_STATUSES = new Set(['triaged', 'confirmed', 'new']);
+    const openFindings = findings.filter(f => OPEN_STATUSES.has(f.status));
+    const total = findings.length;
+    const open = openFindings.length;
+    const dist = { High: 0, Medium: 0, Low: 0, Info: 0, Critical: 0 };
+    openFindings.forEach(f => { if (dist[f.severity] != null) dist[f.severity] += 1; });
+    const distStr = Object.entries(dist)
+      .filter(([_, n]) => n > 0)
+      .map(([s, n]) => `${n} ${s[0]}`)
+      .join(' · ');
+    const ofEl = document.getElementById('id-open-findings');
+    if (ofEl) {
+      ofEl.innerHTML = `${open} open <span style="color: var(--ink-3); font-weight: 400; font-size: 12px;">(of ${total} total)${distStr ? ' · open: ' + distStr : ''}</span>`;
+    }
+
+    // Disclosed cumulative — sum of by_severity_disclosed
+    const disclosedEl = document.getElementById('id-disclosed');
+    if (disclosedEl) {
+      const sd = (manifest.stats && manifest.stats.by_severity_disclosed) || {};
+      const disclosedTotal = Object.values(sd).reduce((acc, n) => acc + (n || 0), 0);
+      if (disclosedTotal > 0) {
+        disclosedEl.innerHTML = `${disclosedTotal} <span style="color: var(--ok); font-weight: 400; font-size: 12px;">disclosed to upstream</span>`;
+      } else {
+        disclosedEl.innerHTML = `0 <span style="color: var(--ink-3); font-weight: 400; font-size: 12px;">disclosed (F7 closed upstream · awaiting authorization on others)</span>`;
+      }
+    }
+
+    // Coverage tier — direct from customer block
+    const tierEl = document.getElementById('id-tier');
+    if (tierEl && manifest.customer && manifest.customer.tier) {
+      tierEl.textContent = String(manifest.customer.tier);
+    }
+  }
+
+  function updateOperationsPanel(manifest) {
+    const recentCycles = manifest.recent_cycles || [];
+    const latestCycle = recentCycles[0];
+    const services = manifest.services || [];
+
+    const hypsEl = document.getElementById('ops-hyps-latest');
+    if (hypsEl) {
+      if (latestCycle && latestCycle.in_progress && latestCycle.phase_total) {
+        // Mid-flight: show "N / total" for the CURRENT phase
+        // (recon / debate / poc / kani / litesvm).
+        hypsEl.textContent = `${latestCycle.phase_done || 0} / ${latestCycle.phase_total}`;
+      } else if (latestCycle && latestCycle.in_progress && latestCycle.n_planned) {
+        // Legacy back-compat
+        hypsEl.textContent = `${latestCycle.n_dispatched || 0} / ${latestCycle.n_planned}`;
+      } else {
+        hypsEl.textContent = latestCycle ? String(latestCycle.n_dispatched || 0) : '—';
+      }
+    }
+
+    const hypsSubEl = document.getElementById('ops-hyps-sub');
+    if (hypsSubEl && latestCycle) {
+      if (latestCycle.in_progress && latestCycle.started_at) {
+        // "Layer 1.5 debate · 30.6% · started 47 min ago"
+        const layerName = latestCycle.phase_label || 'dispatching';
+        const pct = latestCycle.progress_pct != null
+          ? ` · ${latestCycle.progress_pct}%`
+          : '';
+        hypsSubEl.textContent = `${layerName}${pct} · started ${relativeTime(latestCycle.started_at)}`;
+      } else if (latestCycle.finished_at) {
+        hypsSubEl.textContent = `dispatched · ${relativeTime(latestCycle.finished_at)}`;
+      } else if (latestCycle.started_at) {
+        hypsSubEl.textContent = `dispatching · started ${relativeTime(latestCycle.started_at)}`;
+      } else {
+        hypsSubEl.textContent = 'dispatching';
+      }
+    }
+
+    const upCount = services.filter(s => s.state === 'up').length;
+    const total = services.length || 8;
+    const svcEl = document.getElementById('ops-services-up');
+    if (svcEl) svcEl.textContent = `${upCount} / ${total}`;
+    const svcSubEl = document.getElementById('ops-services-sub');
+    if (svcSubEl) svcSubEl.textContent = `of ${total} platform units`;
+
+    const cyclesEl = document.getElementById('ops-cycles-total');
+    if (cyclesEl) cyclesEl.textContent = String(manifest.cycles_total != null ? manifest.cycles_total : '—');
+    const cyclesSubEl = document.getElementById('ops-cycles-sub');
+    if (cyclesSubEl && manifest.receipts_signed != null) {
+      cyclesSubEl.textContent = `${manifest.receipts_signed} signed receipts`;
+    }
+
+    const uptimeEl = document.getElementById('ops-uptime');
+    if (uptimeEl && manifest.loop_uptime_human) {
+      uptimeEl.textContent = String(manifest.loop_uptime_human);
+    }
+
+    // Real LLM spend — replaces the fake setInterval tickers that were
+    // rendering "$1,180+" / "$36,740+" with no real source.
+    const spend = manifest.spend || {};
+    const todayEl = document.getElementById('spend-today');
+    if (todayEl) {
+      const v = spend.today_usd;
+      todayEl.textContent = (typeof v === 'number') ? '$' + v.toFixed(2) : '—';
+    }
+    const mtdEl = document.getElementById('spend-mtd');
+    if (mtdEl) {
+      const v = spend.total_usd;
+      mtdEl.textContent = (typeof v === 'number') ? '$' + v.toFixed(2) : '—';
+    }
+  }
+
+  function renderAttestationsPanel() {
+    const container = document.querySelector('[data-cycle-attestations]');
+    if (!container) return;
+    if (!manifestData) return;
+
+    const cycles = manifestData.recent_cycles || [];
+    if (cycles.length === 0) {
+      container.innerHTML = `<div style="padding: 24px 20px; text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;">
+        No cycles yet · engine has not produced a signed cycle for this protocol.
+      </div>`;
+      return;
+    }
+
+    // Build cycle_id -> merkle_root map from snapshot.cycle_merkle_roots
+    const merkleByCycleId = {};
+    if (snapshotData && Array.isArray(snapshotData.cycle_merkle_roots)) {
+      snapshotData.cycle_merkle_roots.forEach(m => {
+        if (m.cycle_id && m.merkle_root) {
+          merkleByCycleId[m.cycle_id] = {
+            root: m.merkle_root,
+            n_findings: m.n_findings,
+          };
+        }
+      });
+    }
+
+    const N = 6;
+    const rows = cycles.slice(0, N).map(c => {
+      const cycleId = c.cycle_id || '—';
+      const finishedAt = c.finished_at || c.started_at;
+      const age = finishedAt ? relativeTime(finishedAt) : '—';
+      const merkle = merkleByCycleId[cycleId];
+      const rootHash = merkle ? merkle.root : null;
+      const rootShort = rootHash ? `${rootHash.slice(0, 8)}…${rootHash.slice(-6)}` : 'merkle pending';
+      const detailHref = rootHash ? `/cycles/cycle.html?root=${encodeURIComponent(rootHash)}` : null;
+      const findingsLabel = (c.n_confirmed != null && c.n_dispatched != null)
+        ? `${c.n_confirmed} confirmed · ${c.n_dispatched} dispatched`
+        : (c.n_dispatched != null ? `${c.n_dispatched} hyps dispatched` : 'no candidates this cycle');
+      const linkOrSpan = detailHref
+        ? `<a class="ar-tx" href="${detailHref}">${escapeHtml(rootShort)} →</a>`
+        : `<span class="ar-tx" style="color: var(--ink-4);">${escapeHtml(rootShort)}</span>`;
+      return `<div class="attest-row">
+        <span class="ar-time">${escapeHtml(age)}</span>
+        <span class="ar-detail">
+          <div class="ar-line1">cycle <strong>${escapeHtml(cycleId)}</strong> · ${escapeHtml(findingsLabel)}</div>
+          <div class="ar-line2">engine ${escapeHtml((c.engine_sha || '').slice(0, 10))} · Ed25519 signed off-chain</div>
+        </span>
+        ${linkOrSpan}
+      </div>`;
+    }).join('');
+    container.innerHTML = rows;
+
+    // Update panel meta to reflect actual cycle count
+    const metaEl = document.getElementById('attest-meta');
+    if (metaEl) metaEl.textContent = `last ${Math.min(N, cycles.length)} of ${cycles.length} cycles`;
+  }
+
+  // FIX #12: paginate at 50 to prevent unbounded findings feed (100+
+  // findings = 8000px scroll). "Show more" button reveals the rest.
+  const FEED_PAGE_SIZE = 50;
+  let feedExpanded = false;
+
+  function renderFindingsFeed(findings) {
+    const container = document.querySelector('[data-customer-findings]');
+    if (!container) return;
+    // FIX #11: hide the "PREVIEW · NO LIVE DATA" banner once we have live data.
+    const previewBanner = document.getElementById('preview-banner');
+    if (previewBanner && Array.isArray(findings)) previewBanner.style.display = 'none';
+    if (!Array.isArray(findings) || findings.length === 0) {
+      container.innerHTML = `<div style="padding: 32px 18px; text-align: center; color: var(--ink-3); font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em;">
+        No findings yet · engine has not produced any confirmed bugs for this protocol.
+      </div>`;
+      return;
+    }
+    // Sort: by severity desc (Critical → Info), then by updated_at desc
+    const sevRank = { Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4 };
+    const sorted = findings.slice().sort((a, b) => {
+      const ra = sevRank[a.severity] ?? 5;
+      const rb = sevRank[b.severity] ?? 5;
+      if (ra !== rb) return ra - rb;
+      const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return tb - ta;
+    });
+    const visible = feedExpanded ? sorted : sorted.slice(0, FEED_PAGE_SIZE);
+    const remaining = sorted.length - visible.length;
+    const moreButton = remaining > 0
+      ? `<button id="feed-show-more" style="display:block;width:100%;padding:14px;margin-top:8px;background:transparent;border:1px solid var(--rule-2);border-radius:4px;color:var(--ink-2);font-family:var(--mono);font-size:12px;letter-spacing:0.06em;cursor:pointer;">show ${remaining} more findings →</button>`
+      : '';
+    container.innerHTML = visible.map(renderFinding).join('') + moreButton;
+    const btn = document.getElementById('feed-show-more');
+    if (btn) btn.addEventListener('click', () => { feedExpanded = true; renderFindingsFeed(findings); });
+  }
+
+  async function patchFromManifest() {
+    let data;
+    try {
+      const res = await fetch(MANIFEST_URL, { cache: 'no-store' });
+      if (!res.ok) return;  // anonymous / no manifest → static demo stays
+      data = await res.json();
+    } catch (_) { return; }
+    if (!data) return;
+
+    manifestData = data;
+
+    renderFindingsFeed(data.public_findings || []);
+    updateSeverityChips(data.public_findings || []);
+    updateIdentityStrip(data);
+    updateOperationsPanel(data);
+    renderAttestationsPanel();  // safe to call: gates on snapshot internally
+  }
+
+  // -------------------- orchestration --------------------
+
+  async function refreshAll() {
+    await Promise.allSettled([patchFromSnapshot(), patchFromManifest()]);
+  }
+
+  // Live event stream (SSE). Each engine event triggers a debounced refresh
+  // so snapshot.json + manifest.json get re-fetched within ~600ms of the
+  // event landing on the VPS. Falls back to 60s polling if SSE drops.
+  // Events that bump live counters without needing a full refetch are
+  // handled inline below for instant feedback.
+  let sseSource = null;
+  let sseRefreshTimer = null;
+  let sseRefreshPending = false;
+  let sseReconnectAttempt = 0;
+
+  function scheduleLiveRefresh() {
+    if (sseRefreshTimer) return;
+    sseRefreshPending = true;
+    sseRefreshTimer = setTimeout(() => {
+      sseRefreshTimer = null;
+      if (sseRefreshPending) {
+        sseRefreshPending = false;
+        refreshAll();
+      }
+    }, 600);
+  }
+
+  function setLiveStatus(state) {
+    const el = document.getElementById('jelleo-live-dot');
+    const lbl = document.getElementById('jelleo-live-label');
+    if (el) {
+      el.dataset.state = state;
+      el.style.color = state === 'connected' ? 'var(--ok)'
+                      : state === 'reconnecting' ? 'var(--ink-3)'
+                      : 'var(--ink-4)';
+      el.title = state === 'connected'
+        ? 'Live feed connected — events stream in real time'
+        : state === 'reconnecting'
+          ? 'Reconnecting to live feed…'
+          : 'Live feed offline — polling every 60s';
+    }
+    if (lbl) {
+      lbl.textContent = state === 'connected'
+        ? 'Live · streaming'
+        : state === 'reconnecting'
+          ? 'Live · connecting…'
+          : 'Live · 60s poll';
+    }
+  }
+
+  function handleSseEvent(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    const kind = payload.event;
+    // Events that change snapshot.json / manifest.json → debounced refetch
+    const REFETCH_EVENTS = new Set([
+      'recon_summary',
+      'finding_persisted',
+      'p2_finding',
+      'bundle_drafted',
+      'bundle_verified',
+      'merkle_root_computed',
+      'cycle_complete',
+      'hunt_complete',
+    ]);
+    if (REFETCH_EVENTS.has(kind)) scheduleLiveRefresh();
+  }
+
+  function connectSse() {
+    try {
+      if (sseSource) { try { sseSource.close(); } catch (_) {} }
+      sseSource = new EventSource(SSE_URL);
+      setLiveStatus('reconnecting');
+      sseSource.onopen = () => {
+        sseReconnectAttempt = 0;
+        setLiveStatus('connected');
+      };
+      sseSource.onmessage = (ev) => {
+        try {
+          const payload = JSON.parse(ev.data);
+          handleSseEvent(payload);
+        } catch (_) {}
+      };
+      sseSource.onerror = () => {
+        setLiveStatus('offline');
+        // EventSource auto-reconnects; cap exponential backoff is implicit.
+        sseReconnectAttempt = Math.min(sseReconnectAttempt + 1, 6);
+      };
+    } catch (_) {
+      setLiveStatus('offline');
+    }
+  }
+
+  // 60s safety-net poll — runs always, in case SSE drops silently.
+  function startSafetyPoll() {
+    setInterval(refreshAll, 60000);
+  }
+
+  function start() {
+    refreshAll();
+    connectSse();
+    startSafetyPoll();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})();
+</script>
+
+</main>
+</body>
+</html>
