@@ -51,6 +51,23 @@ console = Console()
          "patterns. Unmatched fires default to SOFT. Useful for $0-cost "
          "retroactive triage.",
 )
+@click.option(
+    "--language",
+    type=click.Choice(
+        ["solana", "c", "solidity", "aptos"], case_sensitive=False,
+    ),
+    default="solana",
+    show_default=True,
+    help="Target language under audit. Selects the language-specific "
+         "fast-path FALSE-pattern set + judge syntax fence. Defaults to "
+         "'solana' to preserve existing Percolator workflows.",
+)
+@click.option(
+    "--framework", default=None,
+    help="Test framework name (cargo / clang+sanitizers / forge / "
+         "aptos-cli). Appears in the judge prompt header for context. "
+         "Optional; defaults to the language's canonical framework.",
+)
 @click.pass_context
 def triage_fires_cmd(
     ctx: click.Context,
@@ -59,6 +76,8 @@ def triage_fires_cmd(
     engine_src_dir: Path | None,
     judge_model: str | None,
     no_llm: bool,
+    language: str,
+    framework: str | None,
 ) -> None:
     """Triage a cycle's PoC fires into STRONG / SOFT / FALSE / LOST.
 
@@ -136,6 +155,8 @@ def triage_fires_cmd(
         engine_src_loader=_engine_loader,
         complete_fn=complete_fn,
         judge_model=judge_model,
+        language=language,
+        framework=framework,
     )
 
     # Print summary table

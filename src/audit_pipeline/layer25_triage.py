@@ -50,7 +50,7 @@ from typing import Any
 # be added with a comment citing the cycle / hypothesis_id where the
 # signature was first observed.
 
-FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+_SOLANA_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         # Cycle 20260511 — 41/45 FALSE fires were this exact panic from
         # a broken `params_for_*()` factory in the PoC scaffolding. The
@@ -63,8 +63,6 @@ FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         # Setup-side `let x = ... .unwrap();` where the constructor returned
         # Err. Match any error-shaped variant after the unwrap-on-Err prefix.
-        # Examples: `EngineInsufficientBalance`, `HyperpTradeNoCpiDisabled`,
-        # `PercolatorError::...`, `InvalidInstructionData`.
         re.compile(
             r"called\s+`Result::unwrap\(\)`\s+on\s+an\s+`Err`\s+value:",
             re.IGNORECASE,
@@ -93,8 +91,6 @@ FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         "out-of-bounds in the test file itself (test bug, not engine bug)",
     ),
     (
-        # Common test-side assertion failures that have nothing to do with
-        # the engine state under test
         re.compile(
             r"assertion `left\s*[!=]=\s*right`\s+failed.*\b(setup|init|construct|build)\w*\b",
             re.IGNORECASE,
@@ -103,6 +99,131 @@ FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         "not the claim being tested)",
     ),
 )
+
+
+# PHASE 1e — fast-path FALSE patterns for C (clang + ASan/UBSan output).
+# Most C false-fires are sanitizer hits in the TEST file itself, not the
+# program under test. The post-cycle gate already filters pseudo-pass
+# stubs; these patterns catch the "ASan caught my own malloc bug in
+# main()" case.
+_C_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        # Sanitizer report whose stack frame is in our test_*.c file —
+        # we caused the violation, not the program under test.
+        re.compile(
+            r"(?=.*AddressSanitizer)(?=.*test_\w+\.c)",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        "AddressSanitizer hit inside the test_*.c file itself "
+        "(witness state setup broke memory safety, not the program)",
+    ),
+    (
+        # Compile error in the PoC — not a fire, just a broken test source.
+        # Note: we shouldn't normally see this through the L2.5 path
+        # because adapter.run_test sets phase=compile and fired=False,
+        # but defense-in-depth.
+        re.compile(
+            r"error:\s+(use of undeclared identifier|expected|"
+            r"redefinition|implicit declaration)",
+            re.IGNORECASE,
+        ),
+        "clang compile error in the PoC source — broken test, not a real fire",
+    ),
+    (
+        # libubsan reporting a runtime error specifically inside test_*.c's
+        # main() function. Same logic as ASan-in-test above.
+        re.compile(
+            r"runtime error:.*\btest_\w+\.c:",
+            re.IGNORECASE,
+        ),
+        "UBSan caught undefined behavior inside the test file itself, "
+        "not the program under test",
+    ),
+)
+
+
+# PHASE 1e — fast-path FALSE patterns for Solidity (Foundry forge output).
+_SOLIDITY_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        # Setup-phase deployment failure — test never reached the claim.
+        re.compile(
+            r"setUp\(\)\s+failed|Error:\s+Setup failed|FAIL:\s+setUp",
+            re.IGNORECASE,
+        ),
+        "Foundry setUp() failed — test never reached the assertion",
+    ),
+    (
+        # Compile error in the .t.sol file.
+        re.compile(
+            r"Error.*Source\s+\"\S+\.t\.sol\"|"
+            r"Compiler run failed:\s*\n.*\.t\.sol",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        "Solidity compile error in the PoC test source — broken test",
+    ),
+    (
+        # OutOfGas in the test body itself (not in the contract under test).
+        re.compile(
+            r"OutOfGas.*in\s+test_\w+",
+            re.IGNORECASE,
+        ),
+        "OutOfGas in the PoC test body, not the contract under test",
+    ),
+)
+
+
+# PHASE 1e — fast-path FALSE patterns for Aptos Move (aptos move test output).
+_APTOS_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        # Compile-time error from the move compiler — broken test source.
+        re.compile(
+            r"error\[\w+\]:|Move\s+compilation\s+failed|"
+            r"could\s+not\s+resolve\s+module",
+            re.IGNORECASE,
+        ),
+        "Move compile error in the PoC test source — broken test",
+    ),
+    (
+        # Abort inside the test's #[test] setup (before the call to the
+        # function under test). aptos move test reports abort codes; if
+        # the abort code matches a setup-phase error, the test never
+        # exercised the claim.
+        re.compile(
+            r"abort\s+code:?\s*\d+.*in.*test_\w+::setup",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        "Move test aborted during setup (test never exercised the claim)",
+    ),
+    (
+        # Aptos framework helper aborted (account::create_account_for_test
+        # etc). Same setup-failure category.
+        re.compile(
+            r"aptos_framework::\w+:?:?\w*\s+aborted",
+            re.IGNORECASE,
+        ),
+        "aptos_framework helper aborted in setup — test never reached the claim",
+    ),
+)
+
+
+# Language → FALSE_PATTERNS dispatch. Unknown languages fall back to the
+# Solana set (engine's original calibration). The CLI rejects unknown
+# languages upstream so this fallback only fires under operator typos.
+_FALSE_PATTERNS_BY_LANGUAGE: dict[str, tuple[tuple[re.Pattern[str], str], ...]] = {
+    "solana":   _SOLANA_FALSE_PATTERNS,
+    "rust":     _SOLANA_FALSE_PATTERNS,
+    "anchor":   _SOLANA_FALSE_PATTERNS,
+    "c":        _C_FALSE_PATTERNS,
+    "solidity": _SOLIDITY_FALSE_PATTERNS,
+    "evm":      _SOLIDITY_FALSE_PATTERNS,
+    "aptos":    _APTOS_FALSE_PATTERNS,
+    "move":     _APTOS_FALSE_PATTERNS,
+}
+
+
+# Back-compat: legacy callers expect a module-level FALSE_PATTERNS pointing
+# at the Solana set. Keep the alias so existing tests + cycles unaffected.
+FALSE_PATTERNS = _SOLANA_FALSE_PATTERNS
 
 
 @dataclass
@@ -125,14 +246,28 @@ class TriageResult:
 # ---------------------------------------------------------------------------
 
 
-def classify_by_pattern(panic_line: str) -> tuple[str, str] | None:
+def classify_by_pattern(
+    panic_line: str,
+    language: str = "solana",
+) -> tuple[str, str] | None:
     """Return (classification, reason) if any FALSE_PATTERN matches, else None.
 
-    Always returns the FIRST match — order in FALSE_PATTERNS is precedence.
+    PHASE 1e: language-aware. Each language has its own set of fast-path
+    FALSE patterns reflecting its toolchain's failure idioms (cargo
+    panics for Rust, ASan reports for C, forge setUp failures for
+    Solidity, Move abort codes for Aptos). Unknown languages fall back
+    to the Solana set.
+
+    Always returns the FIRST match — order in the patterns tuple is
+    precedence.
     """
     if not panic_line:
         return None
-    for pat, reason in FALSE_PATTERNS:
+    patterns = _FALSE_PATTERNS_BY_LANGUAGE.get(
+        language.lower().strip(),
+        _SOLANA_FALSE_PATTERNS,
+    )
+    for pat, reason in patterns:
         if pat.search(panic_line):
             return ("FALSE", reason)
     return None
@@ -188,6 +323,21 @@ Do not add commentary outside the JSON.
 """
 
 
+# Per-language fence tag for code blocks in the judge prompt — keeps
+# the LLM's syntax highlighting + parsing accurate when reading test
+# bodies and engine source. Falls back to "rust" for backward compat.
+_FENCE_TAG_BY_LANGUAGE: dict[str, str] = {
+    "solana":   "rust",
+    "rust":     "rust",
+    "anchor":   "rust",
+    "c":        "c",
+    "solidity": "solidity",
+    "evm":      "solidity",
+    "aptos":    "move",
+    "move":     "move",
+}
+
+
 def build_judge_user_prompt(
     hyp_id: str,
     claim: str,
@@ -196,24 +346,40 @@ def build_judge_user_prompt(
     test_body: str,
     panic_line: str,
     engine_source: str = "",
+    language: str = "solana",
+    framework: str | None = None,
 ) -> str:
+    """Build the user prompt for the L2.5 judge.
+
+    PHASE 1e: language-aware. The fence tag matches the test body's
+    language so the LLM parses it correctly. Optional ``framework``
+    appears in the prompt header so the judge knows what kind of fire
+    signal it's reading (cargo panic vs ASan report vs forge revert
+    vs Move abort).
+    """
+    fence = _FENCE_TAG_BY_LANGUAGE.get(language.lower().strip(), "rust")
     blocks = [
         f"# Hypothesis {hyp_id}",
+        f"Language: {language}",
+    ]
+    if framework:
+        blocks.append(f"Test framework: {framework}")
+    blocks += [
         f"Claim: {claim}",
         f"Bug class: {bug_class}",
         f"Engine function: {engine_function}",
         "",
-        "## Panic line + assertion",
+        "## Fire signal (panic / assertion / sanitizer report)",
         f"```\n{panic_line[:1500]}\n```",
         "",
         "## Test body (the PoC)",
-        f"```rust\n{test_body[:4000]}\n```",
+        f"```{fence}\n{test_body[:4000]}\n```",
     ]
     if engine_source:
         blocks += [
             "",
             "## Engine source for the claimed function",
-            f"```rust\n{engine_source[:3000]}\n```",
+            f"```{fence}\n{engine_source[:3000]}\n```",
         ]
     blocks += [
         "",
@@ -251,11 +417,17 @@ def judge_one(
     *,
     model: str | None = None,
     complete_fn=None,  # injection seam for tests
+    language: str = "solana",
+    framework: str | None = None,
 ) -> tuple[str, str]:
     """LLM judge call. Returns (classification, reason).
 
     ``complete_fn`` is an injection seam so tests can stub the LLM. If
     not provided, uses ``audit_pipeline.utils.complete``.
+
+    PHASE 1e: ``language`` + ``framework`` flow through to the user
+    prompt so the judge reads the test body with the right syntax
+    parser and knows what kind of fire signal it's looking at.
     """
     if complete_fn is None:
         from audit_pipeline.utils import complete as _real_complete
@@ -263,6 +435,7 @@ def judge_one(
     user_prompt = build_judge_user_prompt(
         hyp_id, claim, bug_class, engine_function,
         test_body, panic_line, engine_source,
+        language=language, framework=framework,
     )
     try:
         if model:
@@ -380,6 +553,8 @@ def triage_cycle(
     engine_src_loader=None,
     complete_fn=None,
     judge_model: str | None = None,
+    language: str = "solana",
+    framework: str | None = None,
 ) -> dict[str, Any]:
     """Triage every fired PoC in a cycle.
 
@@ -396,6 +571,11 @@ def triage_cycle(
     that returns the source text for the claimed function. If None, the
     judge prompt is built without the engine-source block (slightly weaker
     judgments but works in offline / test contexts).
+
+    PHASE 1e: ``language`` + ``framework`` drive language-specific
+    FALSE-pattern matching + the LLM judge's syntax fence + framework-
+    aware prompt header. Defaults preserve existing Percolator
+    (Rust/cargo) workflows.
     """
     fired_hyp_ids = sorted([
         hid for hid, pr in poc_results.items() if pr.get("fired")
@@ -436,8 +616,8 @@ def triage_cycle(
 
         panic_line = extract_panic_line(cargo_log)
 
-        # Fast-path FALSE
-        fast = classify_by_pattern(panic_line)
+        # Fast-path FALSE — language-aware pattern set
+        fast = classify_by_pattern(panic_line, language=language)
         if fast is not None:
             cls, reason = fast
             results.append(TriageResult(
@@ -465,6 +645,8 @@ def triage_cycle(
             engine_source=engine_source,
             model=judge_model,
             complete_fn=complete_fn,
+            language=language,
+            framework=framework,
         )
         n_llm_calls += 1
         results.append(TriageResult(
