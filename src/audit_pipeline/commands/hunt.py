@@ -1848,9 +1848,17 @@ def _hunt_run(
                     "duration_s": formal_outcome.duration_s,
                     "verifier": formal_outcome.verifier,
                 }
+                # Log reason + infra/compile markers so a silent-failure
+                # mode never sneaks past the dashboard again. Operator
+                # caught the previous silent-inconclusive bug on cycle
+                # 20260513-191318.
+                _meta = formal_outcome.metadata or {}
                 log("l3_adapter_done", hypothesis_id=hyp_id,
                     language=language, proved=formal_outcome.proved,
-                    counterexample=formal_outcome.counterexample)
+                    counterexample=formal_outcome.counterexample,
+                    reason=formal_outcome.reason[:200],
+                    infra_error=bool(_meta.get("infra_error")),
+                    compile_error=bool(_meta.get("compile_error")))
         # Non-Solana L3 done — skip the Solana Kani section below.
     elif not skip_kani and fired_for_kani and daily_cap.remaining_today() > 0.50:
         console.print()

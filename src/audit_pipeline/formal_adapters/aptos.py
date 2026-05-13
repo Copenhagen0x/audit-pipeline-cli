@@ -83,31 +83,41 @@ Target file: {target_file}
   * "specification failed" or "abort code N" or "counterexample" →
     spec violated; bug constructively proven
 
-# Spec syntax (key forms)
+# Spec file syntax (CRITICAL — Move parser is strict)
 
-  spec module {{
-      // Module-level invariants
-      invariant exists<Vault>(@mutatis) ==> global<Vault>(@mutatis).total >= 0;
+The TOP-LEVEL form for a free-standing spec file is:
+
+  spec <address>::<module_name> {{
+      pragma aborts_if_is_strict;
+
+      spec <function_name> {{
+          requires <precondition>;       // input constraints
+          ensures <postcondition>;       // result + state guarantees
+          aborts_if <abort_condition>;   // when this aborts
+      }}
+
+      spec module {{
+          invariant <module_level_invariant>;
+      }}
   }}
 
-  spec FunctionName {{
-      requires <precondition>;       // input constraints
-      ensures <postcondition>;       // result + state guarantees
-      aborts_if <abort_condition>;   // when this aborts
-  }}
+DO NOT write `spec module <address>::<module_name>` at the top —
+that is INVALID Move syntax and the compiler will reject the file
+with "Unexpected 'module' / Expected an address or an identifier".
+The keyword `module` at the top-level position is only used for a
+REAL Move module declaration, not a spec attachment.
 
-  spec struct StructName {{
-      invariant <inv>;               // invariant on every instance
-  }}
+`spec module {{ ... }}` IS valid INSIDE a `spec <addr>::<mod>` block,
+for module-level invariants — see the inner block above.
 
 # Your task
 
-Write a Move file `spec_<finding_name>.move` that:
+Write a Move spec file that:
 
-1. Declares `spec module <address>::<module_name>` — same address +
-   module name as the target file under test.
-2. Adds `spec <function_name> {{ ... }}` blocks for the engine_function
-   and any helpers in its call chain.
+1. Top-level: `spec <address>::<module_name>` (NO `module` keyword).
+   The address + name MUST match the target module under test exactly.
+2. Inside, add `spec <function_name> {{ ... }}` blocks for the
+   engine_function and any helpers in its call chain.
 3. Express the invariant as the OPPOSITE of the bug:
      * If bug = "function admits invalid input X" → write
        `aborts_if input_is_invalid_X;`
@@ -119,11 +129,14 @@ Write a Move file `spec_<finding_name>.move` that:
 
 # Important
 
-* Move Prover sometimes needs `pragma aborts_if_is_strict;` at the
-  module level to enforce that all abort paths must be declared.
+* `pragma aborts_if_is_strict;` at the top of the spec block makes
+  the prover enforce that ALL abort paths must be declared.
 * Use `global<Resource>(addr)` and `exists<Resource>(addr)` to refer
   to global state.
 * `old(expr)` refers to the pre-execution value.
+* Parameter names in spec blocks MUST match the function signature
+  in the target source (e.g. if `fun transfer_admin(_caller: &signer,
+  new_admin: address)`, your spec uses `_caller` and `new_admin`).
 
 # Output format
 
@@ -131,7 +144,7 @@ Output ONLY a single ```move ... ``` fenced code block. If you can't
 write a real spec:
 
   // CANNOT_VERIFY: <one-line reason>
-  spec module 0x0::noop {{ }}
+  spec 0x0::noop {{ }}
 """
 
     def parse_harness_body(self, llm_response: str) -> str:
@@ -265,6 +278,68 @@ write a real spec:
         else:
             scoped = "\n".join(scoped_lines)
 
+        # Tooling errors come FIRST — these are infra failures, not
+        # verification outcomes. The Aptos CLI buries the actual cause
+        # behind a generic "Move Prover failed: exiting with 1 error
+        # in compilation" message on stdout (JSON-formatted), even
+        # when the real issue is "No boogie executable set" or a
+        # genuine spec-syntax error. Previously the adapter classified
+        # all of these as "inconclusive" — silently masking the bug
+        # from the dashboard + cycle report. Operator caught this on
+        # cycle 20260513-191318: 4 L3 runs reported proved=false /
+        # counterexample=false with no error event in the log.
+        prover_compile_error_re = re.compile(
+            r"Move Prover failed.*?compilation|"
+            r"Move compilation failed|"
+            r"unexpected token|"
+            r"Expected an address or an identifier",
+            re.IGNORECASE | re.DOTALL,
+        )
+        prover_infra_error_re = re.compile(
+            r"No boogie executable set|"
+            r"Z3 not found|"
+            r"BOOGIE_EXE|Z3_EXE|CVC5_EXE|"
+            r"Cannot find the (boogie|z3|cvc5) executable",
+            re.IGNORECASE,
+        )
+        if prover_infra_error_re.search(combined):
+            err = prover_infra_error_re.search(combined).group(0)
+            return FormalOutcome(
+                proved=False,
+                counterexample=False,
+                harness_path=harness_path,
+                stdout=stdout,
+                stderr=stderr,
+                returncode=proc.returncode,
+                duration_s=duration,
+                verifier=self.verifier,
+                reason=(
+                    f"Move Prover infra error: {err}. "
+                    "Run `aptos update prover-dependencies` on the VPS "
+                    "+ ensure BOOGIE_EXE / Z3_EXE / CVC5_EXE are exported "
+                    "in /root/.audit-env."
+                ),
+                metadata={"infra_error": True, "failure_signal": err},
+            )
+        if prover_compile_error_re.search(combined):
+            err = prover_compile_error_re.search(combined).group(0)
+            return FormalOutcome(
+                proved=False,
+                counterexample=False,
+                harness_path=harness_path,
+                stdout=stdout,
+                stderr=stderr,
+                returncode=proc.returncode,
+                duration_s=duration,
+                verifier=self.verifier,
+                reason=(
+                    f"Move Prover spec did not compile: {err}. "
+                    "The auto-authored spec has a syntax error — "
+                    "L2 PoC fire remains the authoritative bug signal."
+                ),
+                metadata={"compile_error": True, "failure_signal": err},
+            )
+
         failure_match = re.search(
             r"(specification failed|abort code\s*\d+|counterexample|"
             r"verification error|did not verify)",
@@ -288,7 +363,13 @@ write a real spec:
                 },
             )
 
-        if "verification successful" in combined.lower():
+        # Newer aptos move prove prints `"Result": "Success"` (JSON) on
+        # stdout when the spec verifies. Older versions printed the
+        # human-readable "verification successful" line. Detect either.
+        if (
+            '"Result": "Success"' in combined
+            or "verification successful" in combined.lower()
+        ):
             return FormalOutcome(
                 proved=True,
                 counterexample=False,
@@ -310,5 +391,8 @@ write a real spec:
             returncode=proc.returncode,
             duration_s=duration,
             verifier=self.verifier,
-            reason="Move Prover inconclusive (likely timeout or compile error in spec module)",
+            reason=(
+                "Move Prover output had no success / failure / infra "
+                "marker — investigate stdout+stderr captures above."
+            ),
         )
