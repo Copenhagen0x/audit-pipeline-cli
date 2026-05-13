@@ -166,12 +166,28 @@ def retract_cmd(
         "schema":        "jelleo-retraction-v1",
     }
     sidecar = cycle_dir / "retraction.json"
-    sidecar.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    sidecar_bytes = json.dumps(payload, indent=2, sort_keys=True)
+    sidecar.write_text(sidecar_bytes, encoding="utf-8")
     console.print(f"  [green]wrote[/green] {sidecar}")
+
+    # Also mirror to the public cycle dir if it exists (regen_cycles_index
+    # reads from there, not from the workspace hunts/ tree). Without this
+    # the badge stays hidden on the public archive even though the
+    # workspace knows the cycle is retracted.
+    from audit_pipeline.utils.vps_paths import public_cycles_dir
+    public_dir = public_cycles_dir() / cycle_id
+    if public_dir.is_dir():
+        try:
+            published_sidecar = public_dir / "retraction.json"
+            published_sidecar.write_text(sidecar_bytes, encoding="utf-8")
+            console.print(f"  [green]wrote[/green] {published_sidecar}")
+        except OSError as e:
+            console.print(f"  [yellow]could not write public sidecar:[/yellow] {e}")
+
     console.print(
         f"[bold green]Cycle {cycle_id} retracted.[/bold green] "
         f"Run [cyan]regen_cycles_index.py[/cyan] on the VPS to refresh "
-        f"the public archive page."
+        f"the public archive page (or wait for the next snapshot tick)."
     )
 
 
