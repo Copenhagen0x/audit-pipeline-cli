@@ -63,14 +63,43 @@ CRLF = b"\r\n"
 
 
 def _latest_cycle_in(workspace: Path) -> Path | None:
+    """Return the most-recent cycle directory under ``workspace/hunts/``.
+
+    Filtering — only consider cycles that:
+      1. Are directories (skip stray files).
+      2. Have a ``hunt.log.jsonl`` (the orchestrator creates the
+         cycle dir before Layer 1 starts, but ``hunt.log.jsonl``
+         doesn't appear until the first event lands). Without this
+         filter, a freshly-mkdir'd cycle dir is returned, the tailer
+         busy-loops waiting for the log to appear, and dashboards
+         can see a phantom ``cycle_active`` for a half-set-up cycle.
+      3. Are NOT retracted (a ``retraction.json`` sidecar means the
+         cycle is dead — never return it as the "active" cycle).
+
+    Sort key — `mtime` of `hunt.log.jsonl` itself (NOT the cycle dir),
+    so that an actively-being-written cycle out-ranks a stale empty
+    cycle dir that happens to have a recent dir-mtime from `mkdir`.
+    """
     hunts = workspace / "hunts"
     if not hunts.exists():
         return None
-    cycles = [p for p in hunts.iterdir() if p.is_dir()]
-    if not cycles:
+    candidates: list[tuple[float, Path]] = []
+    for p in hunts.iterdir():
+        if not p.is_dir():
+            continue
+        if (p / "retraction.json").is_file():
+            continue
+        log_path = p / "hunt.log.jsonl"
+        if not log_path.is_file():
+            continue
+        try:
+            candidates.append((log_path.stat().st_mtime, p))
+        except OSError:
+            continue
+    if not candidates:
         return None
-    cycles.sort(key=lambda p: p.stat().st_mtime)
-    return cycles[-1]
+    candidates.sort(key=lambda x: x[0])
+    return candidates[-1][1]
 
 
 def _latest_cycle() -> Path | None:
@@ -86,9 +115,24 @@ async def _tail_one_workspace(customer_id: str, workspace: Path) -> None:
     they appear under workspace/hunts/. Events are stamped with the
     given customer_id so _broadcast routes them to the right
     subscribers (NOT every customer's subscribers).
+
+    Robustness:
+      * Partial-line buffer. ``readline()`` on a live-tailed file can
+        return mid-line bytes if the orchestrator's writer flushed
+        before its trailing ``\\n``. We accumulate into ``buf`` until
+        we see ``\\n`` and only parse JSON once the line is complete.
+        Without this, the JSON decoder swallows partial events and
+        the dashboard loses entire batches under heavy concurrent
+        writes.
+      * Inode-rotation detection. If the log is truncated or unlinked
+        (cycle dir wiped + recreated), we re-stat the path each loop
+        iteration; if size shrank below our position, we reopen.
+      * Bounded inter-cycle retry. On OSError opening a new cycle we
+        back off rather than busy-loop.
     """
     current_path: Path | None = None
     fh = None
+    buf = ""
     while True:
         cycle = _latest_cycle_in(workspace)
         if cycle is None:
@@ -99,11 +143,27 @@ async def _tail_one_workspace(customer_id: str, workspace: Path) -> None:
             await asyncio.sleep(1)
             continue
 
-        if log_path != current_path:
-            if fh is not None:
-                fh.close()
+        # Inode-rotation / truncation detection — if the file shrank
+        # below our current read position, reopen.
+        needs_reopen = log_path != current_path
+        if not needs_reopen and fh is not None:
             try:
-                fh = open(log_path, "r")
+                pos = fh.tell()
+                sz = log_path.stat().st_size
+                if sz < pos:
+                    needs_reopen = True
+            except (OSError, ValueError):
+                needs_reopen = True
+
+        if needs_reopen:
+            if fh is not None:
+                try:
+                    fh.close()
+                except OSError:
+                    pass
+            buf = ""  # any half-read line from the old file is invalid
+            try:
+                fh = open(log_path, encoding="utf-8", errors="replace")
                 fh.seek(0, 2)
                 current_path = log_path
                 await _broadcast({
@@ -119,22 +179,29 @@ async def _tail_one_workspace(customer_id: str, workspace: Path) -> None:
                 await asyncio.sleep(1)
                 continue
 
-        line = fh.readline()
-        if not line:
-            # Live tail — short sleep so events propagate sub-second
+        # Read whatever bytes are available. read() with no arg on a
+        # tailed file returns "" when no new data; we accumulate into
+        # buf and emit only complete lines.
+        chunk = fh.read()
+        if not chunk:
             await asyncio.sleep(0.1)
             continue
-
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        event["_cycle"] = cycle.name
-        event["customer_id"] = customer_id  # FORCE override per-workspace
-        await _broadcast(event)
+        buf += chunk
+        while True:
+            nl = buf.find("\n")
+            if nl < 0:
+                break  # incomplete trailing line — wait for more bytes
+            line = buf[:nl].strip()
+            buf = buf[nl + 1:]
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            event["_cycle"] = cycle.name
+            event["customer_id"] = customer_id  # FORCE override per-workspace
+            await _broadcast(event)
 
 
 async def _tail_active_log() -> None:
@@ -151,6 +218,9 @@ async def _tail_active_log() -> None:
     await asyncio.gather(*tasks)
 
 
+_dropped_event_count: dict[str, int] = defaultdict(int)
+
+
 async def _broadcast(event: dict) -> None:
     customer = event.get("customer_id", "demo")
     queues = set(_subscribers[customer]) | set(_subscribers["*"])
@@ -158,12 +228,31 @@ async def _broadcast(event: dict) -> None:
         try:
             q.put_nowait(event)
         except asyncio.QueueFull:
-            pass
+            # Slow client. Drop the OLDEST event from the queue and
+            # retry the new one — newer events are usually more
+            # relevant for a live dashboard. Also stamp a sentinel
+            # so the operator sees drops happened on this client.
+            try:
+                q.get_nowait()
+                q.put_nowait(event)
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
+            _dropped_event_count[customer] += 1
+            # Surface to stderr every 100 drops so a flood is visible
+            # in journalctl without spamming it.
+            n = _dropped_event_count[customer]
+            if n % 100 == 1:
+                print(
+                    f"sse: queue overflow for customer={customer!r}, "
+                    f"dropped {n} events so far",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
 
 async def _write_sse(writer: asyncio.StreamWriter, event: dict) -> None:
     payload = json.dumps(event, default=str)
-    writer.write(f"data: {payload}\n\n".encode("utf-8"))
+    writer.write(f"data: {payload}\n\n".encode())
     await writer.drain()
 
 
@@ -226,15 +315,49 @@ async def _handle_sse(writer, customer_id) -> None:
     # "after L2 was done all waterfall items fired as done and now it
     # shows that L1 is running and all of the others are in queue".
     customer_workspaces = WATCHED_WORKSPACES.get(customer_id, [])
+    # Multi-cell on-connect cycle pick: for OSec (12 cells), if any
+    # cell has an in-progress cycle we MUST pick that one — even if
+    # another cell has a more-recently-touched-but-finished cycle.
+    # Otherwise the dashboard sees a `cycle_complete` for cell A
+    # while cell B is actively running and paints "complete" while
+    # events still stream in for B.
+    #
+    # Two-pass selection:
+    #   pass 1: in-progress cells (no hunt_summary.json, no publish-blocked,
+    #           no retraction). Among these, pick newest log mtime.
+    #   pass 2: if no in-progress found, fall back to the newest
+    #           finished cell so the dashboard at least shows the
+    #           most recent completion.
+    def _cycle_is_done(p: Path) -> bool:
+        return (
+            (p / "hunt_summary.json").is_file()
+            or (p / ".publish-blocked").is_file()
+            or (p / "retraction.json").is_file()
+        )
     latest_cycle_path: Path | None = None
     latest_mtime: float = 0.0
     for ws in customer_workspaces:
         c = _latest_cycle_in(ws)
-        if c:
-            mt = c.stat().st_mtime
+        if c and not _cycle_is_done(c):
+            try:
+                mt = (c / "hunt.log.jsonl").stat().st_mtime
+            except OSError:
+                mt = c.stat().st_mtime
             if mt > latest_mtime:
                 latest_mtime = mt
                 latest_cycle_path = c
+    if latest_cycle_path is None:
+        # No in-progress cell — fall back to most-recent finished one.
+        for ws in customer_workspaces:
+            c = _latest_cycle_in(ws)
+            if c:
+                try:
+                    mt = (c / "hunt.log.jsonl").stat().st_mtime
+                except OSError:
+                    mt = c.stat().st_mtime
+                if mt > latest_mtime:
+                    latest_mtime = mt
+                    latest_cycle_path = c
     if latest_cycle_path:
         # Cycle is "in progress" if hunt_summary.json does NOT exist
         # in its dir (the orchestrator writes that file ONLY at end of
