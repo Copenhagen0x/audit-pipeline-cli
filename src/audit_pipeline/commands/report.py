@@ -343,7 +343,11 @@ def _findings_table(findings: list[dict]) -> str:
     </table>"""
 
 
-def _table_of_contents(findings: list[dict]) -> str:
+def _table_of_contents(
+    findings: list[dict],
+    *,
+    workspace: Path | None = None,
+) -> str:
     """Print-style TOC linking every finding by anchor id.
 
     Sort is identical to _findings_writeup so the TOC numbering matches
@@ -362,6 +366,11 @@ def _table_of_contents(findings: list[dict]) -> str:
         real_findings,
         key=lambda x: sev_order.get(x.get("severity", "Info"), 99),
     )
+    # Match _findings_writeup's heading derivation so TOC reads the same
+    # short descriptive title (e.g. "Missing auth check on transfer_admin")
+    # rather than the truncated claim prose.
+    hyp_library = _load_hypothesis_library(workspace) if workspace else {}
+
     lis = []
     for idx, f in enumerate(sorted_findings, 1):
         try:
@@ -369,23 +378,24 @@ def _table_of_contents(findings: list[dict]) -> str:
         except ValueError:
             sev = Severity.INFO
         sev_cls = sev.value.lower()
-        title = (f.get("title") or f.get("hypothesis_id") or "?").strip()
+        hyp_id = f.get("hypothesis_id") or ""
         bug_class = f.get("bug_class") or "—"
-        # Word-boundary cap at ~90 chars so the TOC row doesn't break
-        # mid-word ("gated by an auth", "limits the amount to a sane fract").
-        if len(title) > 90:
-            cut = title[:87]
-            last_space = cut.rfind(" ")
-            if last_space >= 60:
-                cut = cut[:last_space]
-            display_title = cut.rstrip(" ,;:-") + "…"
-        else:
-            display_title = title
+        hyp_yaml = hyp_library.get(hyp_id, {}) if hyp_id else {}
+        engine_function = (hyp_yaml.get("engine_function") or "").strip()
+        display_title = _short_finding_title(
+            bug_class=bug_class,
+            engine_function=engine_function,
+            hypothesis_id=hyp_id,
+            hyp_yaml=hyp_yaml,
+        )
+        # Strip backticks from TOC entries (no nested <code> inside <a>);
+        # the function name stays inline.
+        toc_text = display_title.replace("`", "")
         lis.append(
             f'<li>'
             f'<span class="toc-num">{idx:02d}</span>'
             f'<span class="toc-sev"><span class="sev {sev_cls}">{sev.value}</span></span>'
-            f'<a href="#finding-{idx:02d}">{html.escape(display_title)}</a>'
+            f'<a href="#finding-{idx:02d}">{html.escape(toc_text)}</a>'
             f'<span class="toc-class">{html.escape(bug_class)}</span>'
             f'</li>'
         )
@@ -805,6 +815,129 @@ def _cycle_hypothesis_library_size(
         if seen:
             return len(seen)
     return None
+
+
+# Bug-class → short descriptive title template. The `{fn}` placeholder
+# is replaced with the engine_function (in backticks for code styling).
+# Falls back to a title-cased bug_class when no template matches.
+#
+# These render as the per-finding section heading (h3), replacing the
+# previous truncated-claim heading that ended with "…". Each title is a
+# complete thought of 5–9 words so the reader can name the finding at a
+# glance without reading the full invariant block.
+_BUG_CLASS_TITLES: dict[str, str] = {
+    # Authorization / access-control family
+    "borrow-global-no-auth":   "Missing auth check on `{fn}`",
+    "acl-bypass-entry":        "ACL bypass via direct `{fn}` entry",
+    "missing-signer-check":    "Missing signer check on `{fn}`",
+    "signer-not-bound-to-resource": "Signer not bound to resource in `{fn}`",
+    "treasury-drain":          "Permissionless `{fn}` drains the vault",
+    "cap-leak":                "Privileged capability leak via `{fn}`",
+    "friend-module-trust":     "Friend-module trust assumption violated in `{fn}`",
+    "resource-double-move":    "Resource double-move in `{fn}`",
+    "module-publisher-confusion": "Publisher / `init_module` confusion in `{fn}`",
+    "fee-receiver-unauthorized": "Unauthorized fee-receiver mutation in `{fn}`",
+
+    # Arithmetic / accounting family
+    "u64-overflow-arith":      "Unchecked u64 arithmetic overflow in `{fn}`",
+    "u64-underflow-dos":       "u64 underflow → DoS in `{fn}`",
+    "fixed-point-precision-drop": "Fixed-point precision drop in `{fn}`",
+    "cast-truncation":         "Cast truncation loses bits in `{fn}`",
+    "divide-by-zero":          "Division-by-zero in `{fn}`",
+    "rounding-direction":      "Rounding direction favors attacker in `{fn}`",
+    "liquidation-bonus-overflow": "Liquidation bonus overflow in `{fn}`",
+    "lending-interest-accrual-overflow": "Interest accrual overflow in `{fn}`",
+    "fee-percent-bound":       "Fee percent exceeds safe bound in `{fn}`",
+    "total-supply-divergence": "Total-supply accounting divergence in `{fn}`",
+
+    # State / reentrancy / lifecycle family
+    "stake-double-claim":      "Stake reward double-claim in `{fn}` (no cursor advance)",
+    "missing-pause-check":     "Missing pause-check on `{fn}`",
+    "asymmetric-pause":        "Asymmetric pause enforcement in `{fn}`",
+    "share-inflation-first-depositor": "First-depositor share inflation in `{fn}`",
+    "share-donation-inflation": "Share-donation inflation attack on `{fn}`",
+    "missing-slippage":        "Missing slippage parameter on `{fn}`",
+    "no-deadline-on-permit":   "Permit has no deadline in `{fn}`",
+    "withdraw-delay-bypass":   "Withdraw-delay bypass in `{fn}`",
+    "auction-bid-after-end":   "Auction bid accepted after end in `{fn}`",
+    "auction-settle-no-winner": "Auction settles with no winner in `{fn}`",
+    "type-argument-confusion": "Type-argument confusion in `{fn}`",
+    "resource-leak":           "Resource leak in `{fn}`",
+    "governance-flashloan-vote": "Flash-loan vote in governance `{fn}`",
+    "proposal-replay":         "Proposal replay in `{fn}`",
+    "liquidation-no-min-amount": "Liquidation has no min-amount guard in `{fn}`",
+
+    # Oracle family
+    "oracle-staleness":        "Oracle staleness accepted by `{fn}`",
+    "oracle-zero-price":       "Oracle zero-price accepted by `{fn}`",
+    "oracle-decimals-mismatch": "Oracle decimals mismatch in `{fn}`",
+
+    # Auditability
+    "event-emit-missing":      "Silent state mutation in `{fn}` (no event)",
+
+    # F7 / Percolator legacy classes (kept for Solana reports)
+    "insurance-counter-vault-divergence": "Insurance / vault accounting divergence in `{fn}`",
+    "implicit_invariant":      "Implicit invariant violated in `{fn}`",
+    "invariant_property":      "Invariant property violated in `{fn}`",
+}
+
+
+def _render_inline_backticks(text: str) -> str:
+    """Markdown-style backticks → <code>…</code>, with the rest escaped.
+
+    Used to render the descriptive finding title where backtick-wrapped
+    function names should typeset as inline code. Single-pass: split on
+    backtick boundaries, escape each segment, wrap odd-indexed segments
+    in <code>.
+    """
+    parts = text.split("`")
+    out = []
+    for i, seg in enumerate(parts):
+        if i % 2 == 1:
+            out.append(f"<code>{html.escape(seg)}</code>")
+        else:
+            out.append(html.escape(seg))
+    return "".join(out)
+
+
+def _short_finding_title(
+    *,
+    bug_class: str,
+    engine_function: str,
+    hypothesis_id: str,
+    hyp_yaml: dict | None = None,
+) -> str:
+    """Build a 5-9 word descriptive heading for a finding.
+
+    Resolution order:
+      1. ``hyp_yaml["title"]`` — if the hypothesis library author wrote
+         an explicit short title (currently unused; reserved for future
+         per-hyp overrides).
+      2. ``_BUG_CLASS_TITLES[bug_class].format(fn=engine_function)`` —
+         the curated template table above.
+      3. Title-cased ``bug_class`` + " in `<engine_function>`" — generic
+         fallback for unknown bug classes.
+      4. The bare hypothesis_id — last resort when no metadata is available.
+    """
+    yaml_title = (hyp_yaml or {}).get("title") if hyp_yaml else None
+    if yaml_title:
+        return str(yaml_title).strip()
+    bc = (bug_class or "").strip().lower()
+    fn = (engine_function or "").strip()
+    template = _BUG_CLASS_TITLES.get(bc)
+    if template and fn:
+        return template.format(fn=fn)
+    if template:
+        # template uses {fn} but we have no engine_function — strip the placeholder
+        return template.replace(" on `{fn}`", "").replace(" in `{fn}`", "").replace("`{fn}`", "").strip()
+    if bc:
+        humanized = bc.replace("-", " ").replace("_", " ").strip()
+        # Capitalize the first letter only — lower-case the rest for natural prose
+        humanized = humanized[:1].upper() + humanized[1:] if humanized else ""
+        if fn:
+            return f"{humanized} in `{fn}`"
+        return humanized
+    return hypothesis_id or "Finding"
 
 
 # Bug-class → (impact, recommendation) prose. Keyed by the slug used in
@@ -1308,30 +1441,35 @@ def _findings_writeup(
         except ValueError:
             sev = Severity.INFO
         sev_cls = sev.value.lower()
-        # Prefer the YAML's untruncated `claim:` for the finding heading
-        # + invariant block; fall back to the DB title when the cycle ran
-        # against a hypothesis library that's no longer on disk.
+        # Prefer the YAML's untruncated `claim:` for the invariant block;
+        # fall back to the DB title when the cycle ran against a
+        # hypothesis library that's no longer on disk.
         hyp_yaml = hyp_library.get(hyp_id, {})
         full_claim = (
             (hyp_yaml.get("claim") or "").strip()
             or (f.get("title") or hyp_id).strip()
         )
         # Collapse internal whitespace (YAML folded-style block keeps
-        # single-space joins, but residual newlines confuse the line cap).
+        # single-space joins, but residual newlines confuse downstream
+        # consumers).
         full_claim = re.sub(r"\s+", " ", full_claim)
-        first_sentence = re.split(r"(?<=[.!?])\s+", full_claim, maxsplit=1)[0]
-        if len(first_sentence) <= 110:
-            title = first_sentence
-        else:
-            cut = full_claim[:107]
-            # Break on the last whitespace so we don't truncate mid-word.
-            last_space = cut.rfind(" ")
-            if last_space >= 80:
-                cut = cut[:last_space]
-            title = cut.rstrip(" ,;:") + "…"
+
         bug_class = f.get("bug_class") or "unknown"
         finding_id = f.get("id")
         cluster_members = triage_clusters.get(hyp_id, [])
+
+        # Heading title: a short, descriptive, COMPLETE phrase derived
+        # from bug_class + engine_function via the curated template
+        # table. No longer the truncated-with-ellipsis first sentence of
+        # the claim — that was redundant with the Invariant block below
+        # and read as a broken thought.
+        engine_function = (hyp_yaml.get("engine_function") or "").strip()
+        title = _short_finding_title(
+            bug_class=bug_class,
+            engine_function=engine_function,
+            hypothesis_id=hyp_id,
+            hyp_yaml=hyp_yaml,
+        )
 
         # ── L2 PoC excerpt (language-dependent file extension + body shape) ──
         l2_excerpt = ""
@@ -1653,7 +1791,7 @@ def _findings_writeup(
               <code class="finding-class">{html.escape(bug_class)}</code>
             </div>
           </div>
-          <h3 class="finding-title">{html.escape(title)}</h3>
+          <h3 class="finding-title">{_render_inline_backticks(title)}</h3>
           {description_para}
           {cluster_chip}
 
@@ -2375,7 +2513,7 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
 
   {_scope_section(workspace, target_name, cycle, language, protocol_label)}
 
-  {_table_of_contents(findings)}
+  {_table_of_contents(findings, workspace=workspace)}
 
   {_findings_writeup(findings, workspace, cycle_id) if workspace else ""}
 
