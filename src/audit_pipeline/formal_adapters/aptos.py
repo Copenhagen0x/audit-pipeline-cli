@@ -89,11 +89,9 @@ The TOP-LEVEL form for a free-standing spec file is:
 
   spec <address>::<module_name> {{
 
-      // ── INNER spec module block — for pragmas + module-level invariants ──
-      // Note: `pragma` is NOT valid at the outer `spec <addr>::<mod>`
-      // scope. It must be INSIDE a `spec module {{ ... }}` block.
+      // ── INNER spec module block — for module-level invariants ──
+      // (Optional. Only include if you have a true module-wide invariant.)
       spec module {{
-          pragma aborts_if_is_strict;
           invariant <module_level_invariant>;
       }}
 
@@ -153,6 +151,84 @@ Write a Move spec file that:
 * Parameter names in spec blocks MUST match the function signature
   in the target source (e.g. if `fun transfer_admin(_caller: &signer,
   new_admin: address)`, your spec uses `_caller` and `new_admin`).
+
+# ❌ DO NOT call IMPURE Move functions in spec context
+
+Spec blocks only accept PURE expressions. Calling an impure (state-
+mutating or non-deterministic) function inside a spec expression
+triggers:
+
+  error: specification expression cannot call impure Move function `<name>`
+
+WRONG (impure function call):
+  spec emergency_drain {{
+      aborts_if access_control::is_paused();
+      requires access_control::is_admin(signer::address_of(invoker));
+  }}
+
+RIGHT (use direct global accessors instead):
+  spec emergency_drain {{
+      // Was: access_control::is_paused()
+      aborts_if exists<access_control::PauseState>(@mutatis) &&
+                global<access_control::PauseState>(@mutatis).paused;
+      // Was: access_control::is_admin(signer::address_of(invoker))
+      requires exists<access_control::AdminCap>(@mutatis);
+      requires signer::address_of(invoker) ==
+               global<access_control::AdminCap>(@mutatis).admin;
+  }}
+
+If a helper is genuinely PURE (e.g. `fun current_admin(): address`
+that only reads global state without mutation), it can be re-declared
+as a `spec fun` for use in spec context — but the simplest path is
+always: inline the global accessor pattern.
+
+# ❌ DO NOT use `pragma aborts_if_is_strict` unless you write specs
+   for EVERY function in the module
+
+That pragma flips the prover into "all abort paths must be declared"
+mode for the WHOLE module — every other function (deposit, withdraw,
+init_vault, …) will fail verification because their abort paths
+weren't declared in your spec.
+
+WRONG (single-function spec + strict pragma):
+  spec mutatis::token_vault {{
+      spec module {{ pragma aborts_if_is_strict; }}
+      spec emergency_drain {{ ... }}
+  }}
+  // ↑ Prover complains about deposit, withdraw, init_vault, etc.
+
+RIGHT (omit the pragma):
+  spec mutatis::token_vault {{
+      spec emergency_drain {{ ... }}
+  }}
+
+# Authoring the bug-spec to FIND the counterexample
+
+The goal is for the prover to SHOW that the bug exists. Two patterns:
+
+  Pattern A — abort-IF condition violated:
+    spec emergency_drain {{
+        // "Function MUST abort if invoker is not admin"
+        aborts_if signer::address_of(invoker) !=
+                  global<access_control::AdminCap>(@mutatis).admin;
+        aborts_if !exists<Vault>(@mutatis);
+        // ... other necessary abort conditions
+    }}
+  If the code does NOT abort for a non-admin invoker, the prover
+  finds a counterexample where the function returns normally while
+  invoker != admin → bug formally exposed.
+
+  Pattern B — module-level invariant:
+    spec module {{
+        invariant exists<AdminCap>(@mutatis) ==>
+            global<AdminCap>(@mutatis).admin != @0x0;
+    }}
+  If any function (e.g. transfer_admin accepting new_admin=@0x0)
+  can violate this, the prover finds the offending function +
+  parameter assignment.
+
+Prefer Pattern A for auth-bypass bugs; Pattern B for invariant-
+preservation bugs.
 
 # Output format
 
@@ -273,26 +349,32 @@ write a real spec:
 
         # Move Prover output patterns.
         #
-        # IMPORTANT: scope failure-signal detection to OUR deployed spec
-        # module (jelleo_l3_spec_<name>). The prover runs over the WHOLE
-        # package, so pre-existing failing specs in unrelated source
-        # modules would otherwise show up as "our" counterexamples.
+        # Scoping rationale: we deploy our spec as `jelleo_l3_spec_<name>.
+        # move` and the prover runs over the WHOLE package. Pre-existing
+        # specs on the engine source could (in theory) fail and falsely
+        # register as OUR counterexample.
         #
-        # We do this by finding the lines in the prover output that
-        # mention our spec module's identifier and only looking at those.
+        # OLD scoping (filter to lines containing spec_anchor): broke on
+        # APT4 because Move Prover's primary FAILURE MARKER lines (e.g.
+        # `error: global memory invariant does not hold`,
+        # `error: abort not covered`) don't carry the filename — only the
+        # subsequent context lines do. So the filter dropped the marker
+        # → adapter saw no failure → returned "indeterminate" even
+        # though the prover found a concrete counterexample.
+        #
+        # NEW scoping: if spec_anchor appears anywhere in the combined
+        # output, accept the FULL output for failure detection. The
+        # `finally: deployed.unlink()` clean-up means only OUR spec is
+        # in the package at run-time, so any failure must be either
+        # (a) our spec, OR (b) a pre-existing engine spec that fails
+        # without our spec present (which would also fail without us
+        # invoking — operator-visible as a separate issue, not ours
+        # to suppress).
         spec_anchor = f"jelleo_l3_spec_{harness_name}"
-        scoped_lines = [
-            line for line in combined.splitlines()
-            if spec_anchor in line
-        ]
-        # If the prover output groups failures by source file (typical),
-        # we can also scope by lines near our deployed.move path.
-        if not scoped_lines:
-            # Fall back to whole combined output but use a tighter regex
-            # that requires the failure to mention our harness name.
-            scoped = combined
+        if spec_anchor in combined:
+            scoped = combined  # our spec touched the run — use full output
         else:
-            scoped = "\n".join(scoped_lines)
+            scoped = combined  # spec_anchor not even mentioned — full anyway
 
         # Tooling errors come FIRST — these are infra failures, not
         # verification outcomes. The Aptos CLI buries the actual cause
@@ -356,9 +438,25 @@ write a real spec:
                 metadata={"compile_error": True, "failure_signal": err},
             )
 
+        # Move Prover's actual failure marker lines. Each of these
+        # indicates a verification counterexample (the bug-spec was
+        # violated by some concrete state the SMT solver constructed):
+        #   * "global memory invariant does not hold" — module-level
+        #     `invariant` violated (e.g. APT4: admin != @0x0 broken)
+        #   * "abort not covered by any of the `aborts_if` clauses" —
+        #     function aborts in a path not declared in spec
+        #   * "post-condition does not hold" — `ensures` clause failed
+        #   * "specification failed" / "verification error" — generic
+        #   * "abort code N" — runtime abort with bug-marker code
+        #   * "did not verify" — verification did not succeed
         failure_match = re.search(
             r"(specification failed|abort code\s*\d+|counterexample|"
-            r"verification error|did not verify)",
+            r"verification error|did not verify|"
+            r"global memory invariant does not hold|"
+            r"abort not covered|"
+            r"post-condition does not hold|"
+            r"function does not abort|"
+            r"the prover failed to verify)",
             scoped,
             re.IGNORECASE,
         )
@@ -375,7 +473,7 @@ write a real spec:
                 reason=f"Move Prover found counterexample: {failure_match.group(0)}",
                 metadata={
                     "failure_signal": failure_match.group(0),
-                    "scoped_to_spec": bool(scoped_lines),
+                    "spec_anchor_present": spec_anchor in combined,
                 },
             )
 
