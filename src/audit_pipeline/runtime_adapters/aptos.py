@@ -271,12 +271,23 @@ If unable: `// CANNOT_FUZZ: <reason>` stub.
         # compile errors as "ran clean with no signal" — operator
         # caught this on cycle 20260513-191318 APT4 fuzz which had
         # an invalid hex literal (`@0xATTACK`) the LLM produced.
+        # Move error codes:
+        #   E00xxx-E10xxx, E12xxx+ → compile / context-checking errors
+        #   E11xxx              → TEST FAILURE (runtime test abort)
+        # The compile-error fast-path must NOT match E11xxx — that's the
+        # signal of a real test failure (the harness's assert fired) and
+        # MUST fall through to the [FAIL]/[PASS] inner-test marker detector
+        # below so the adapter reports crash_found=true with the abort
+        # code, not compile_error=true. Operator caught this on cycle
+        # 20260513-191318 APT5: harness aborted at runtime (MISSING_DATA
+        # in timestamp setup) → error[E11001]: test failure → adapter
+        # falsely classified as compile_error.
         compile_error_re = re.compile(
             r"error: unexpected token|"
             r"error: parsing|"
             r"Move compilation failed|"
             r"Failed to run tests: exiting with context checking errors|"
-            r"error\[E\d{5}\]:|"
+            r"error\[E(?:0\d{4}|10\d{3}|1[2-9]\d{3}|[2-9]\d{4})\]:|"
             r"error: unbound module|"
             r"error: unbound function",
             re.IGNORECASE,

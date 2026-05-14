@@ -1953,6 +1953,60 @@ def _hunt_run(
                 hyp_id = v["hypothesis_id"]
                 meta = hyp_meta.get(hyp_id, {})
                 harness_name = _slugify(hyp_id)
+
+                # RESUME-SKIP: if a harness for this hyp already exists
+                # at workspace/fuzz/aptos/property_<slug>.move from a
+                # prior run AND has non-trivial content, skip re-authoring
+                # via the LLM and just re-run the existing harness. Lets
+                # operator delete a single broken harness + re-fire to
+                # retry only that one (cost ~$0.10 per delete instead of
+                # ~$0.40 to re-author all 4).
+                existing = (
+                    workspace / "fuzz" / "aptos"
+                    / f"property_{harness_name}.move"
+                )
+                if (
+                    resume_cycle and existing.is_file()
+                    and existing.stat().st_size > 100
+                ):
+                    log("l4_resumed_from_existing", hypothesis_id=hyp_id,
+                        harness_path=str(existing))
+                    # Still need to run_fuzzer to get fresh outcome
+                    try:
+                        runtime_outcome = _l4_adapter.run_fuzzer(
+                            workspace, harness_name, engine_dir_for_cargo,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        log("l4_adapter_error", hypothesis_id=hyp_id,
+                            error=str(e))
+                        litesvm_results[hyp_id] = {
+                            "returncode": -1,
+                            "scaffold_dir": str(fuzz_out),
+                            "error": f"{type(e).__name__}: {e}",
+                        }
+                        continue
+                    litesvm_results[hyp_id] = {
+                        "returncode": runtime_outcome.returncode,
+                        "scaffold_dir": str(fuzz_out),
+                        "crash_found": runtime_outcome.crash_found,
+                        "ran_clean": runtime_outcome.ran_clean,
+                        "fuzzer": runtime_outcome.fuzzer,
+                        "reason": runtime_outcome.reason,
+                        "duration_s": runtime_outcome.duration_s,
+                        "resumed": True,
+                    }
+                    _l4_meta = runtime_outcome.metadata or {}
+                    log("l4_adapter_done", hypothesis_id=hyp_id,
+                        language=language,
+                        crash_found=runtime_outcome.crash_found,
+                        ran_clean=runtime_outcome.ran_clean,
+                        reason=(runtime_outcome.reason or "")[:200],
+                        compile_error=bool(_l4_meta.get("compile_error")),
+                        abort_code=_l4_meta.get("abort_code"),
+                        n_pass=len(_l4_meta.get("pass_lines") or []),
+                        n_fail=len(_l4_meta.get("fail_lines") or []),
+                        resumed=True)
+                    continue
                 # Inject the slug into meta so the L4 adapter's prompt
                 # can tell the LLM the EXACT module + test function
                 # name to use. The adapter dispatches via
