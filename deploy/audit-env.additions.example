@@ -1,3 +1,27 @@
+# =====================================================================
+# CRITICAL FORMAT RULES (enforced by deploy/audit-env-check.sh)
+# =====================================================================
+#   * Bare KEY=value per line. NO `export ` prefix.
+#     Reason: systemd's EnvironmentFile= parser REJECTS lines with
+#     `export` AND logs the entire offending line — INCLUDING THE
+#     SECRET VALUE — to the journal under "Ignoring invalid environment
+#     assignment". A single rotation session where the file was written
+#     with `export` prefix dumped 3 fresh API keys into journalctl
+#     (root-readable, persistent for weeks until log rotation purged).
+#   * Values with spaces or shell metachars (<, >, |, &, ;, parens)
+#     MUST be wrapped in DOUBLE QUOTES, e.g.:
+#       JELLEO_SMTP_FROM="Jelleo Security <security@jelleo.com>"
+#     Without quotes, bash's `source /root/.audit-env` interprets `<`
+#     as a redirection and parse-errors on the line.
+#   * File mode MUST be 600 (root-only). chmod 600 /root/.audit-env.
+#
+# These rules are auto-checked at service start via the validator
+# `deploy/audit-env-check.sh`, which is wired as ExecStartPre on every
+# systemd service that sources the file. A bad write blocks the
+# service from starting — so a future format mistake can't silently
+# re-leak.
+# =====================================================================
+
 # Append these lines to /root/.audit-env on the VPS to enable Sprint 3
 # features (signing, notifier, scheduler).
 #

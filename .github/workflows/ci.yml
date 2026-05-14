@@ -52,6 +52,42 @@ jobs:
         run: |
           ruff check src/ tests/
 
+      - name: Secret scan
+        # Catch credentials, API keys, OAuth tokens committed to the
+        # tree before they hit main. Added after a session where
+        # /root/.audit-env values leaked into the chat transcript +
+        # journalctl. Patterns: Anthropic, Telegram bot, Google App
+        # Password (16-char lowercase), AWS access, generic high-
+        # entropy hex/base64 over 32 chars in code files (excluding
+        # tests and lockfiles).
+        run: |
+          set -e
+          # Anthropic API keys
+          if grep -rEn '\bsk-ant-api03-[A-Za-z0-9_-]{40,}' \
+              --include='*.py' --include='*.sh' --include='*.yaml' \
+              --include='*.yml' --include='*.toml' --include='*.md' \
+              --include='*.html' --include='*.js' . ; then
+              echo "SECRET LEAK: Anthropic API key found"; exit 1
+          fi
+          # Telegram bot tokens (12345:ABCDEFGHIJKL... pattern)
+          if grep -rEn '\b[0-9]{8,12}:[A-Za-z0-9_-]{30,}' \
+              --include='*.py' --include='*.sh' --include='*.yaml' \
+              --include='*.yml' --include='*.toml' --include='*.html' \
+              --include='*.js' . ; then
+              echo "SECRET LEAK: Telegram bot token found"; exit 1
+          fi
+          # Google App Passwords (16 lowercase letters in a value context).
+          # Skip docs/markdown to keep false positives down; require it
+          # to appear in a quoted-string context next to "password".
+          if grep -rEn -B1 -A0 \
+              'password[^A-Za-z0-9]*[\"=]\s*[\"\x27]?[a-z]{16}[\"\x27]?' \
+              --include='*.py' --include='*.sh' --include='*.yaml' \
+              --include='*.toml' --include='*.js' --include='*.html' \
+              src/ deploy/ ; then
+              echo "SECRET LEAK: looks like an app password"; exit 1
+          fi
+          echo "secret-scan: clean"
+
       - name: CLI smoke-import
         # The module's __init__ wires up every command on every import. If
         # any command file has a syntax error / bad import, this fails
