@@ -95,13 +95,29 @@ def _auto_sign(workspace: Path, report_path: Path, sign_enabled: bool) -> None:
     Failures are warnings, not errors — a missing key should not block
     report generation. Customers without keys still get the HTML; the
     .sig file appears next to the report only when a key is configured.
+
+    Key resolution walks UP from the workspace:
+      1. ``<workspace>/keys/jelleo.ed25519``       (workspace-local)
+      2. ``<workspace>/../keys/jelleo.ed25519``    (eval-suite level)
+      3. ``<workspace>/../../keys/jelleo.ed25519`` (audit-runs root)
+
+    The audit-suite organizes workspaces as
+    ``audit_runs/<suite>/workspaces/<target>/`` so the suite-level key
+    is two parents up. This lets one key sign every workspace under a
+    given eval suite without per-workspace duplication.
     """
     if not sign_enabled:
         return
-    key_path = default_key_path(workspace)
-    if not key_path.exists():
+    candidates = [
+        default_key_path(workspace),
+        workspace.parent / "keys" / "jelleo.ed25519",
+        workspace.parent.parent / "keys" / "jelleo.ed25519",
+    ]
+    key_path = next((p for p in candidates if p.exists()), None)
+    if key_path is None:
         console.print(
-            f"[yellow]auto-sign skipped:[/yellow] no key at {key_path}. "
+            f"[yellow]auto-sign skipped:[/yellow] no key at any of "
+            f"{', '.join(str(p) for p in candidates)}. "
             f"Run [cyan]audit-pipeline sign keygen[/cyan] to enable signed receipts."
         )
         return
@@ -110,7 +126,7 @@ def _auto_sign(workspace: Path, report_path: Path, sign_enabled: bool) -> None:
     except SignError as e:
         console.print(f"[yellow]auto-sign failed:[/yellow] {e}")
         return
-    console.print(f"[green]signed[/green]    {sig_path}")
+    console.print(f"[green]signed[/green]    {sig_path} (key: {key_path})")
 
 
 @click.group(name="report")
