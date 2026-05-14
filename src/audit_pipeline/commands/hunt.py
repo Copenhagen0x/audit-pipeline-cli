@@ -1488,6 +1488,24 @@ def _hunt_run(
                 body = None
                 _attempt_err = None
                 _author_error = None
+                # Cycle 20260514-151541 dashboard visibility: emit a
+                # synthetic tool_call for the L2 author start so the
+                # "Source-grounding tool calls (live)" tablet shows
+                # activity during L2 (otherwise it goes dark because
+                # the LLM author is single-shot and doesn't tool-call).
+                from audit_pipeline.utils.event_log import emit_event as _emit_l2
+                _emit_l2(
+                    "tool_call",
+                    tool="l2_author_llm",
+                    path=meta.get("target_file", "(unknown)"),
+                    pattern="",
+                    name="",
+                    hyp_id=hyp_id,
+                    _phase="L2",
+                    start_line=None,
+                    end_line=None,
+                    turn=0,
+                )
                 for _attempt in range(MAX_AUTHOR_ATTEMPTS):
                     prompt = base_prompt
                     if _attempt_err:
@@ -1575,6 +1593,21 @@ def _hunt_run(
                 try:
                     test_path = _l2_adapter.write_test_file(
                         workspace, finding_name, body,
+                    )
+                    # Cycle 20260514-151541: synthetic tool_call for
+                    # the compile+run step so the dashboard tablet
+                    # shows L2 progress.
+                    _emit_l2(
+                        "tool_call",
+                        tool="aptos_move_test",
+                        path=str(test_path.name),
+                        pattern="",
+                        name="",
+                        hyp_id=hyp_id,
+                        _phase="L2",
+                        start_line=None,
+                        end_line=None,
+                        turn=0,
                     )
                     outcome_obj = _l2_adapter.run_test(
                         workspace, finding_name, engine_dir,
