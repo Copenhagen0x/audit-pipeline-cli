@@ -351,9 +351,15 @@ def _table_of_contents(findings: list[dict]) -> str:
     """
     if not findings:
         return ""
+    # TOC must mirror what _findings_writeup actually renders — i.e.
+    # only REAL_STATUSES findings (the same filter applied there).
+    # Otherwise we'd link to anchors that the body never emits.
+    real_findings = [f for f in findings if (f.get("status") or "") in REAL_STATUSES]
+    if not real_findings:
+        return ""
     sev_order = {s.value: i for i, s in enumerate(Severity)}
     sorted_findings = sorted(
-        findings,
+        real_findings,
         key=lambda x: sev_order.get(x.get("severity", "Info"), 99),
     )
     lis = []
@@ -385,6 +391,66 @@ def _table_of_contents(findings: list[dict]) -> str:
     )
 
 
+def _detect_language(workspace: Path, cycle_id: str) -> str:
+    """Return ``"aptos"`` if this workspace ran the Move stack, else ``"solana"``.
+
+    Detection order (cheap → expensive):
+      1. ``workspace/formal/aptos/*`` or ``workspace/fuzz/aptos/*`` exists
+      2. ``hunts/<cycle>/hunt.log.jsonl`` contains an event with ``language: "aptos"``
+      3. Default to ``"solana"`` (back-compat for the existing renderer)
+    """
+    if (workspace / "formal" / "aptos").is_dir():
+        return "aptos"
+    if (workspace / "fuzz" / "aptos").is_dir():
+        return "aptos"
+    if (workspace / "tests" / "aptos").is_dir():
+        return "aptos"
+    log = workspace / "hunts" / cycle_id / "hunt.log.jsonl"
+    if log.is_file():
+        try:
+            for line in log.read_text(encoding="utf-8", errors="replace").splitlines()[:500]:
+                if '"language": "aptos"' in line or '"language":"aptos"' in line:
+                    return "aptos"
+        except OSError:
+            pass
+    return "solana"
+
+
+def _aptos_layer_results_from_log(
+    workspace: Path, cycle_id: str,
+) -> dict[str, dict[str, dict]]:
+    """Walk hunt.log.jsonl and collect the LATEST L3/L4 adapter result per hyp.
+
+    Returns ``{ "l3": { hyp_id: {...} }, "l4": { hyp_id: {...} } }``.
+    Later events overwrite earlier ones, so a hyp that was re-fired keeps
+    its newest verdict. Used by the Aptos branch of ``_findings_writeup``.
+    """
+    import json as _json
+    out: dict[str, dict[str, dict]] = {"l3": {}, "l4": {}}
+    log = workspace / "hunts" / cycle_id / "hunt.log.jsonl"
+    if not log.is_file():
+        return out
+    try:
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            try:
+                ev = _json.loads(line)
+            except Exception:
+                continue
+            event = ev.get("event") or ""
+            hyp = ev.get("hypothesis_id") or ""
+            if not hyp:
+                continue
+            if event == "l3_adapter_done":
+                out["l3"][hyp] = ev
+            elif event == "l4_adapter_done":
+                out["l4"][hyp] = ev
+    except OSError:
+        pass
+    return out
+
+
 def _findings_writeup(
     findings: list[dict],
     workspace: Path | None,
@@ -392,21 +458,43 @@ def _findings_writeup(
 ) -> str:
     """OtterSec-style per-finding analysis. For each finding renders a
     full section with description, impact, root cause, code excerpts from
-    the L2 PoC, L3 Kani status, L4 BPF reproduction status with witness,
-    P3 patch diff (first 40 lines), and verification gate results.
+    the L2 PoC, L3 (Kani / Move Prover) status, L4 (BPF / aptos-move-test)
+    reproduction status with witness, P3 patch diff, and verification
+    gates.
+
+    Branches on protocol language:
+      * ``solana`` — original Kani / LiteSVM paths
+      * ``aptos``  — Move Prover spec + property-fuzz + Move PoC paths
     """
     if not findings or not workspace:
         return ""
     import json as _json
 
+    language = _detect_language(workspace, cycle_id)
     cycle_dir = workspace / "hunts" / cycle_id
     poc_dir = cycle_dir / "poc"
     litesvm_dir = cycle_dir / "litesvm"
     bundles_dir = workspace / "recon" / "bundles"
+    # Aptos workspaces keep the PoC source under workspace/tests/aptos/
+    # (not the per-cycle poc/ dir, which only stores runlogs). Resolve once.
+    aptos_tests_dir = workspace / "tests" / "aptos"
+    aptos_specs_dir = workspace / "formal" / "aptos"
+    aptos_fuzz_dir = workspace / "fuzz" / "aptos"
+    aptos_layer_results = (
+        _aptos_layer_results_from_log(workspace, cycle_id)
+        if language == "aptos" else {"l3": {}, "l4": {}}
+    )
 
+    # Per-finding analysis is reserved for findings that have material
+    # signal (confirmed PoC, or already moved through the disclosure
+    # pipeline). `new` / `triaged` findings are unreviewed LLM verdicts
+    # that should not appear in a customer-facing per-finding writeup
+    # — they'd dilute the report with hallucinations that the cycle's
+    # confirmation step didn't promote. Statuses kept: REAL_STATUSES.
+    real_findings = [f for f in findings if (f.get("status") or "") in REAL_STATUSES]
     sev_order = {s.value: i for i, s in enumerate(Severity)}
     sorted_findings = sorted(
-        findings,
+        real_findings,
         key=lambda x: sev_order.get(x.get("severity", "Info"), 99),
     )
 
@@ -423,69 +511,126 @@ def _findings_writeup(
         bug_class = f.get("bug_class") or "unknown"
         finding_id = f.get("id")
 
-        # L2 PoC excerpt
+        # ── L2 PoC excerpt (language-dependent file extension + body shape) ──
         l2_excerpt = ""
-        poc_path = poc_dir / f"test_{hyp_slug}.rs"
-        if poc_path.is_file():
-            try:
-                poc_text = poc_path.read_text(encoding="utf-8", errors="replace")
-                # Pull the fires function body — start at `#[test]\nfn ..._fires`
-                m = re.search(
-                    r"(#\[test\][^\n]*\nfn[^\n]+_fires[^\{]*\{.*?\n\})",
-                    poc_text, re.DOTALL,
-                )
-                # Cap at ~24 lines so L2 + P3 patch both fit on the
-                # second-half page without splitting. Code-tight font
-                # is 10.5px × 1.4 line-height; combined L2(24)+P3(16)
-                # lands at ~750px, well under the 870px usable budget.
-                def _cap_lines(s: str, n: int = 24) -> str:
-                    parts = s.splitlines()
-                    if len(parts) <= n:
-                        return s
-                    return "\n".join(parts[:n]) + "\n    // …truncated for brevity"
-                if m:
-                    l2_excerpt = _cap_lines(m.group(1))
-                else:
-                    l2_excerpt = _cap_lines(poc_text)
-            except OSError:
-                pass
+        l2_lang = "rust"
 
-        # L3 Kani status
+        def _cap_lines(s: str, n: int = 24) -> str:
+            # Cap at ~24 lines so L2 + P3 patch both fit on the
+            # second-half page without splitting. Code-tight font
+            # is 10.5px × 1.4 line-height; combined L2(24)+P3(16)
+            # lands at ~750px, well under the 870px usable budget.
+            parts = s.splitlines()
+            if len(parts) <= n:
+                return s
+            return "\n".join(parts[:n]) + "\n    // …truncated for brevity"
+
+        if language == "aptos":
+            # Move PoCs live at workspace/tests/aptos/test_<slug>.move
+            move_poc = aptos_tests_dir / f"test_{hyp_slug}.move"
+            if move_poc.is_file():
+                try:
+                    pt = move_poc.read_text(encoding="utf-8", errors="replace")
+                    # Pull the `fun test_<slug>` body. Move tests use `#[test(...)]`
+                    # then `fun <name>(<args>) { ... }` — the same shape works.
+                    m = re.search(
+                        r"(#\[test[^\]]*\]\s*\n\s*fun\s+[A-Za-z0-9_]+\s*[^\{]*\{.*?\n\s*\})",
+                        pt, re.DOTALL,
+                    )
+                    l2_excerpt = _cap_lines(m.group(1) if m else pt)
+                except OSError:
+                    pass
+            l2_lang = "rust"  # Prism doesn't ship `move`; rust highlight is closest
+        else:
+            poc_path = poc_dir / f"test_{hyp_slug}.rs"
+            if poc_path.is_file():
+                try:
+                    poc_text = poc_path.read_text(encoding="utf-8", errors="replace")
+                    # Pull the fires function body — start at `#[test]\nfn ..._fires`
+                    m = re.search(
+                        r"(#\[test\][^\n]*\nfn[^\n]+_fires[^\{]*\{.*?\n\})",
+                        poc_text, re.DOTALL,
+                    )
+                    if m:
+                        l2_excerpt = _cap_lines(m.group(1))
+                    else:
+                        l2_excerpt = _cap_lines(poc_text)
+                except OSError:
+                    pass
+
+        # ── L3 verification status (Kani for Solana / Move Prover for Aptos) ──
         l3_status = "—"
-        kani_log = cycle_dir / "kani" / f"cargo_kani_{hyp_slug}_invariant.log"
-        if kani_log.is_file():
-            try:
-                kt = kani_log.read_text(encoding="utf-8", errors="replace")
-                if "Verification:- FAILED" in kt or "VERIFICATION:- FAILED" in kt:
-                    l3_status = "✓ Counterexample found (bug confirmed by symbolic execution)"
-                elif "Verification:- SUCCESSFUL" in kt or "VERIFICATION:- SUCCESSFUL" in kt:
-                    l3_status = "Proved safe under small-model bounds (no counterexample within those constraints)"
+        if language == "aptos":
+            ev = aptos_layer_results.get("l3", {}).get(hyp_id)
+            if ev:
+                if ev.get("counterexample") is True:
+                    l3_status = "✓ Move Prover found a counterexample (bug confirmed by symbolic execution)"
+                elif ev.get("proved") is True:
+                    l3_status = "Move Prover proved the invariant holds (no counterexample within the spec)"
+                elif ev.get("compile_error"):
+                    l3_status = "Spec inconclusive (Move Prover failed to compile the LLM-authored spec)"
                 else:
-                    l3_status = "Inconclusive (timeout / out of memory)"
-            except OSError:
-                pass
+                    l3_status = "Inconclusive (Move Prover infra error or unparseable verdict)"
+        else:
+            kani_log = cycle_dir / "kani" / f"cargo_kani_{hyp_slug}_invariant.log"
+            if kani_log.is_file():
+                try:
+                    kt = kani_log.read_text(encoding="utf-8", errors="replace")
+                    if "Verification:- FAILED" in kt or "VERIFICATION:- FAILED" in kt:
+                        l3_status = "✓ Counterexample found (bug confirmed by symbolic execution)"
+                    elif "Verification:- SUCCESSFUL" in kt or "VERIFICATION:- SUCCESSFUL" in kt:
+                        l3_status = "Proved safe under small-model bounds (no counterexample within those constraints)"
+                    else:
+                        l3_status = "Inconclusive (timeout / out of memory)"
+                except OSError:
+                    pass
 
-        # L4 LiteSVM status + witness
+        # ── L4 reproduction (LiteSVM/BPF for Solana, aptos-move-test for Aptos) ──
         l4_status = "—"
         l4_witness = ""
-        for litesvm_log in litesvm_dir.glob(f"cargo_litesvm_{hyp_slug}*.log"):
-            try:
-                lt = litesvm_log.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            if (f"panicked at tests/litesvm_{hyp_slug[:40]}" in lt
-                    or "BUG" in lt and "CONFIRMED" in lt):
-                l4_status = "✓ Reproduced through deployed BPF instructions"
-                # Extract the BUG ... CONFIRMED line as witness
-                for line in lt.splitlines():
-                    if "BUG" in line and ("CONFIRMED" in line or "FIRES" in line or "DETECTED" in line):
-                        l4_witness = line.strip()[:500]
-                        break
-            elif "test result: ok" in lt:
-                l4_status = "Not reproduced (wrapper-side defenses caught it OR test setup didn't reach buggy state)"
-            else:
-                l4_status = "Inconclusive"
-            break
+        if language == "aptos":
+            ev = aptos_layer_results.get("l4", {}).get(hyp_id)
+            if ev:
+                if ev.get("crash_found") is True and ev.get("n_fail", 0) > 0:
+                    l4_status = (
+                        "✓ Property fuzz aborted — inverted-assertion fired "
+                        "(bug demonstrably reachable from a Move property test)"
+                    )
+                    l4_witness = (ev.get("reason") or "")[:500]
+                elif ev.get("crash_found") is True and ev.get("n_pass", 0) > 0:
+                    l4_status = (
+                        "✓ Property fuzz ran the attacker scenario end-to-end without abort "
+                        "— bug-exploit reproduces cleanly, attacker's predicted gain confirmed"
+                    )
+                    l4_witness = (ev.get("reason") or "")[:500]
+                elif ev.get("compile_error"):
+                    l4_status = (
+                        "Inconclusive (LLM-authored property test failed to compile; "
+                        "L2 PoC + L3 Move Prover remain the authoritative bug signals)"
+                    )
+                elif ev.get("ran_clean"):
+                    l4_status = "Property fuzz ran clean — no PASS/FAIL markers (no signal)"
+                else:
+                    l4_status = "Inconclusive (Move test runner did not report a parseable verdict)"
+        else:
+            for litesvm_log in litesvm_dir.glob(f"cargo_litesvm_{hyp_slug}*.log"):
+                try:
+                    lt = litesvm_log.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if (f"panicked at tests/litesvm_{hyp_slug[:40]}" in lt
+                        or "BUG" in lt and "CONFIRMED" in lt):
+                    l4_status = "✓ Reproduced through deployed BPF instructions"
+                    # Extract the BUG ... CONFIRMED line as witness
+                    for line in lt.splitlines():
+                        if "BUG" in line and ("CONFIRMED" in line or "FIRES" in line or "DETECTED" in line):
+                            l4_witness = line.strip()[:500]
+                            break
+                elif "test result: ok" in lt:
+                    l4_status = "Not reproduced (wrapper-side defenses caught it OR test setup didn't reach buggy state)"
+                else:
+                    l4_status = "Inconclusive"
+                break
 
         # P3 patch + verification
         p3_patch = ""
@@ -527,14 +672,19 @@ def _findings_writeup(
         # are the "executive summary" half (page A) with bumped font.
         l2_section = (
             f'<h4 class="page-break-before">Layer 2 — Concrete proof of concept (engine-direct)</h4>'
-            f'<pre class="code-block code-tight"><code class="language-rust">{html.escape(l2_excerpt)}</code></pre>'
+            f'<pre class="code-block code-tight"><code class="language-{l2_lang}">{html.escape(l2_excerpt)}</code></pre>'
         ) if l2_excerpt else (
             '<h4 class="page-break-before">Layer 2 — Concrete proof of concept</h4>'
             '<p style="color:var(--text-3)">No PoC source on file</p>'
         )
 
+        l4_label = (
+            "Layer 4 — Property fuzz (aptos move test)"
+            if language == "aptos"
+            else "Layer 4 — On-chain BPF reproduction"
+        )
         l4_section = (
-            f'<h4>Layer 4 — On-chain BPF reproduction</h4>'
+            f'<h4>{l4_label}</h4>'
             f'<p class="finding-prose">{html.escape(l4_status)}</p>'
             + (f'<pre class="code-block witness"><code>{html.escape(l4_witness)}</code></pre>' if l4_witness else "")
         )
@@ -566,6 +716,11 @@ def _findings_writeup(
                '<p style="color:var(--text-3)">No patch authored yet</p>')
         )
 
+        l3_label = (
+            "Layer 3 — Symbolic verification (Move Prover)"
+            if language == "aptos"
+            else "Layer 3 — Symbolic verification (Kani)"
+        )
         sections.append(f"""
         <section class="finding" id="finding-{idx:02d}">
           <div class="finding-banner">
@@ -578,7 +733,7 @@ def _findings_writeup(
           </div>
           <h3 class="finding-title">{html.escape(title)}</h3>
 
-          <h4>Layer 3 — Symbolic verification (Kani)</h4>
+          <h4>{l3_label}</h4>
           <p class="finding-prose">{html.escape(l3_status)}</p>
 
           {l4_section}
