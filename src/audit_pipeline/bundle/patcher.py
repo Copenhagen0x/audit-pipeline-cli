@@ -189,7 +189,17 @@ def author_patch(
 
 
 def _parse_response(raw: str, bug_class: str) -> PatchDraft:
-    """Split the LLM output into rationale + diff."""
+    """Split the LLM output into rationale + diff.
+
+    When the LLM produces multiple `--- a/...` headers in one response
+    (e.g. emits a first draft, second-guesses itself, then emits a
+    corrected version), the previous parser greedily captured the FIRST
+    `--- a/` to the end of the response — gluing both drafts + the LLM's
+    "wait, let me re-read..." commentary into a single malformed patch.
+    Now we extract each candidate diff block separately, pick the LAST
+    one (LLM's final answer), and reject responses that contain prose
+    between the headers and the first `@@`.
+    """
     text = raw.strip()
     rationale = ""
     m = re.search(r"^RATIONALE:\s*(.+?)$", text, re.MULTILINE)
@@ -202,9 +212,39 @@ def _parse_response(raw: str, bug_class: str) -> PatchDraft:
     text = re.sub(r"^```(?:diff|patch)?\s*\n", "", text, flags=re.MULTILINE)
     text = re.sub(r"\n```\s*$", "", text)
 
-    # Diff must start with --- a/ to be valid
-    diff_match = re.search(r"(^--- a/.+?)(?=\Z)", text, re.MULTILINE | re.DOTALL)
-    diff = diff_match.group(1).rstrip() if diff_match else ""
+    # Find every diff block: from each `--- a/` header through its hunks
+    # until either the next `--- a/` header (multi-file or multi-draft)
+    # or the end of text. A well-formed block is `--- a/...\n+++ b/...\n@@`
+    # followed by hunk lines; reject blocks that have prose between the
+    # `+++ b/` and `@@` markers (that's LLM commentary, not a diff).
+    diff_candidates: list[str] = []
+    for m in re.finditer(
+        r"(^--- a/.+?)(?=^--- a/|\Z)", text, re.MULTILINE | re.DOTALL,
+    ):
+        block = m.group(1).rstrip()
+        # Quick validity probe: must contain both `+++ b/` and `@@`
+        if "+++ b/" not in block or "@@" not in block:
+            continue
+        # Reject blocks where the LLM injected commentary between the
+        # `+++ b/...` header and the first `@@` (or after the diff body).
+        # A valid unified diff has no narrative prose inside it. Trim
+        # everything after the LAST hunk line so trailing commentary
+        # gets dropped.
+        lines = block.splitlines()
+        last_hunk_idx = -1
+        for i, ln in enumerate(lines):
+            if (
+                ln.startswith(("+", "-", " ", "@@", "\\"))
+                and not ln.startswith(("--- ", "+++ "))
+            ):
+                last_hunk_idx = i
+        if last_hunk_idx > 0:
+            block = "\n".join(lines[: last_hunk_idx + 1])
+        diff_candidates.append(block)
+
+    # Prefer the LAST block — when the LLM emits a draft + correction,
+    # the correction is the final intended answer.
+    diff = diff_candidates[-1].rstrip() if diff_candidates else ""
     # git apply REQUIRES a trailing newline on the patch text. .strip()
     # would also remove leading whitespace (which is meaningful in diff
     # context lines), so we use .rstrip() then add exactly one newline.

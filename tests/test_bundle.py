@@ -366,6 +366,46 @@ def test_is_unified_diff_smoke() -> None:
     assert is_unified_diff("not a diff") is False
 
 
+def test_patcher_keeps_last_block_when_llm_self_corrects() -> None:
+    """When the LLM emits a flawed first draft + a corrected second draft,
+    the parser must keep ONLY the corrected (last) `--- a/` block and
+    drop any narrative commentary in between. Previously the greedy
+    `(--- a/.+?)(?=\\Z)` swept up both drafts + the LLM's commentary
+    into one malformed patch (e.g. APT4 cycle 20260513-191318).
+    """
+    from audit_pipeline.bundle.patcher import _parse_response
+    raw = (
+        "RATIONALE: First draft.\n\n"
+        "--- a/x.move\n+++ b/x.move\n@@ -1,1 +1,1 @@\n-old\n+old\n\n"
+        "Wait, that's a no-op. Let me re-read the PoC...\n\n"
+        "RATIONALE: The parameter is underscore-prefixed.\n\n"
+        "--- a/x.move\n+++ b/x.move\n@@ -1,1 +1,1 @@\n-old\n+new\n"
+    )
+    r = _parse_response(raw, "test")
+    # Final answer kept; first draft + commentary dropped.
+    assert "Wait" not in r.diff
+    assert r.diff.count("--- a/x.move") == 1
+    assert "+new" in r.diff
+    assert "+old" not in r.diff
+
+
+def test_patcher_drops_trailing_commentary_after_diff() -> None:
+    """LLM sometimes appends 'Note: I also considered...' after the diff.
+    Anything past the last hunk line must be dropped — otherwise the
+    diff fails `is_unified_diff` and the bundle becomes invalid.
+    """
+    from audit_pipeline.bundle.patcher import _parse_response, is_unified_diff
+    raw = (
+        "RATIONALE: Test.\n\n"
+        "--- a/x.move\n+++ b/x.move\n@@ -1,1 +1,1 @@\n-old\n+new\n\n"
+        "Note: I also considered renaming the helper but rejected it.\n"
+    )
+    r = _parse_response(raw, "test")
+    assert is_unified_diff(r.diff), r.diff
+    assert "Note:" not in r.diff
+    assert "considered renaming" not in r.diff
+
+
 def test_files_touched_extracts_b_side() -> None:
     from audit_pipeline.bundle.patcher import files_touched
     diff = "--- a/foo.rs\n+++ b/foo.rs\n--- a/bar.rs\n+++ b/bar.rs\n"
