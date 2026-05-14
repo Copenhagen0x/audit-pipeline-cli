@@ -741,13 +741,26 @@ def _findings_writeup(
         # reader still gets the invariant statement in context.
         description_para = ""
         if full_title != title:
+            # The DB stores `title = claim[:120]` so the invariant prose
+            # may have been chopped mid-word at insert time. Add a soft
+            # ellipsis only when the stored value hit exactly 120 chars
+            # (i.e. probable truncation) AND doesn't already end on a
+            # terminal punctuation mark.
+            display_title = full_title
+            if len(full_title) == 120 and not full_title.rstrip().endswith((".", "!", "?")):
+                # Trim any trailing partial word so the ellipsis lands clean
+                trimmed = full_title.rstrip()
+                last_space = trimmed.rfind(" ")
+                if last_space >= 100:
+                    trimmed = trimmed[:last_space]
+                display_title = trimmed.rstrip(" ,;:-") + " …"
             description_para = (
                 f'<p class="finding-prose" style="color:var(--text-2);'
                 f'margin:-4px 0 14px;font-size:12.5px;">'
                 f'<strong style="color:var(--text-3);'
                 f'font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;'
                 f'font-family:var(--mono);margin-right:8px">Invariant</strong>'
-                f'{html.escape(full_title)}</p>'
+                f'{html.escape(display_title)}</p>'
             )
         sections.append(f"""
         <section class="finding" id="finding-{idx:02d}">
