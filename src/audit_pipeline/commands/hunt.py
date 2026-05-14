@@ -1283,6 +1283,59 @@ def _hunt_run(
                 daily_cap.record_spend(0.05)
                 total_cost += 0.05
 
+    # ---------- Cold-verify pre-gate (cycle 20260514-151541) ----------
+    #
+    # If the operator ran `audit-pipeline cold-verify --approve` for
+    # this cycle, an l2_candidates.json sits next to recon_summary.json
+    # with the verified candidate set (phantom hyps dropped, code-site
+    # duplicates collapsed, false-negative demotes rescued). Use that
+    # list as the authoritative L2 candidate set, overriding hunt's
+    # naive in-memory L1.5 promotion/demotion. The cold-verify gate
+    # was added because cycle 20260514-151541 caught:
+    #   - APT29 phantom hyp (no auction module in target codebase)
+    #     entering L2 via a verdict-parser hallucination
+    #   - 4 TRUE proposers wrongly demoted because challenger said
+    #     "DISAGREE" while actually AMPLIFYING the bug
+    #   - Several code-site duplicates that L2.5 dedup would collapse
+    #     anyway, after spending the L2 PoC dollars
+    _l2_candidates_path = cycle_dir / "l2_candidates.json"
+    if _l2_candidates_path.is_file():
+        import json as _json_cv
+        try:
+            _cv = _json_cv.loads(_l2_candidates_path.read_text(encoding="utf-8"))
+        except (OSError, _json_cv.JSONDecodeError):
+            _cv = {}
+        if _cv.get("approved_at") and isinstance(_cv.get("keep"), list):
+            _keep_set = set(_cv["keep"])
+            _existing_ids = {v.get("hypothesis_id") for v in candidates}
+            # Drop hyps not in the approved keep set
+            candidates[:] = [
+                c for c in candidates if c.get("hypothesis_id") in _keep_set
+            ]
+            # Add any keep-set members that hunt's demote logic dropped.
+            # Look them up from recon_summary.json.
+            _missing = _keep_set - {v.get("hypothesis_id") for v in candidates}
+            if _missing:
+                _recon = _json_cv.loads(
+                    (cycle_dir / "recon" / "recon_summary.json").read_text(encoding="utf-8")
+                )
+                _recon_by_id = {v["hypothesis_id"]: v for v in _recon["verdicts"]}
+                for _hid in _missing:
+                    _v = _recon_by_id.get(_hid)
+                    if _v:
+                        candidates.append(_v)
+            log(
+                "l2_candidates_overridden_by_cold_verify",
+                approved_at=_cv.get("approved_at"),
+                n_keep=len(_keep_set),
+                n_candidates_after=len(candidates),
+                source=str(_l2_candidates_path),
+            )
+            console.print(
+                f"[cyan]cold-verify approved: using {len(candidates)} "
+                f"candidates from l2_candidates.json[/cyan]"
+            )
+
     # ---------- Layer 2: PoC scaffold + run ----------
     #
     # PHASE 1h: dispatch by `language`. Solana keeps the existing
