@@ -507,7 +507,14 @@ def _findings_writeup(
         except ValueError:
             sev = Severity.INFO
         sev_cls = sev.value.lower()
-        title = (f.get("title") or hyp_id).strip()
+        # The DB stores the full hypothesis "claim" prose as title — useful
+        # as a finding-description paragraph but too long for the section
+        # heading. Truncate the heading at the end of the first sentence
+        # (or 110 chars) so the banner reads cleanly; keep the full text
+        # available below as a description paragraph.
+        full_title = (f.get("title") or hyp_id).strip()
+        first_sentence = re.split(r"(?<=[.!?])\s+", full_title, maxsplit=1)[0]
+        title = first_sentence if len(first_sentence) <= 110 else full_title[:107].rstrip() + "…"
         bug_class = f.get("bug_class") or "unknown"
         finding_id = f.get("id")
 
@@ -721,6 +728,19 @@ def _findings_writeup(
             if language == "aptos"
             else "Layer 3 — Symbolic verification (Kani)"
         )
+        # If the full claim was truncated for the heading, surface the
+        # full text as a finding-description paragraph below so the
+        # reader still gets the invariant statement in context.
+        description_para = ""
+        if full_title != title:
+            description_para = (
+                f'<p class="finding-prose" style="color:var(--text-2);'
+                f'margin:-4px 0 14px;font-size:12.5px;">'
+                f'<strong style="color:var(--text-3);'
+                f'font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;'
+                f'font-family:var(--mono);margin-right:8px">Invariant</strong>'
+                f'{html.escape(full_title)}</p>'
+            )
         sections.append(f"""
         <section class="finding" id="finding-{idx:02d}">
           <div class="finding-banner">
@@ -732,6 +752,7 @@ def _findings_writeup(
             </div>
           </div>
           <h3 class="finding-title">{html.escape(title)}</h3>
+          {description_para}
 
           <h4>{l3_label}</h4>
           <p class="finding-prose">{html.escape(l3_status)}</p>
@@ -1019,6 +1040,13 @@ def _render_cycle_html(
     wrapper_sha = html.escape((cycle.get("wrapper_sha") or "?")[:10] if cycle else "?")
     started = html.escape(cycle.get("started_at", "?") if cycle else "?")
 
+    # Detect the workspace's protocol language so cover + footer can use
+    # the right tagline ("Solana" vs "Aptos"). Reuses the same heuristic
+    # as `_findings_writeup` — keeps the report self-consistent.
+    cycle_id_raw = cycle.get("cycle_id", "") if cycle else ""
+    language = _detect_language(workspace, cycle_id_raw) if workspace else "solana"
+    protocol_label = "Aptos" if language == "aptos" else "Solana"
+
     counts = _sev_counts(findings)              # full counts (all statuses)
     real_counts = _real_severity_counts(findings)  # confirmed/disclosed/fixed/verified only
     sb = _status_breakdown(findings)
@@ -1062,6 +1090,7 @@ def _render_cycle_html(
         status_breakdown=sb,                # full pipeline state context
         pubkey_fingerprint=pubkey_fingerprint,
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        protocol_label=protocol_label,
     )
 
     return f"""<!doctype html>
@@ -1338,7 +1367,7 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
     Inaugural disclosure: <a href="https://github.com/aeyakovenko/percolator-prog/pull/39">aeyakovenko/percolator-prog#39</a> (F7, 2026-04)
   </p>
 
-  {footer_html(extra=f"Cycle {cycle_id}")}
+  {footer_html(extra=f"Cycle {cycle_id}", protocol_label=protocol_label)}
 
 </div>
 </body></html>"""

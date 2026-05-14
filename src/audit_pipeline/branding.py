@@ -28,7 +28,8 @@ from __future__ import annotations
 from pathlib import Path
 
 PRODUCT_NAME = "JELLEO"
-TAGLINE = "Autonomous Solana audit"
+TAGLINE = "Autonomous Solana audit"  # default; cover_page_html accepts override
+TAGLINE_TEMPLATE = "Autonomous {protocol} audit"
 PUBLIC_KEY_URL = "https://jelleo.com/keys/jelleo.ed25519.pub"
 
 
@@ -656,10 +657,10 @@ def topbar_html(status_label: str = "Active", status_class: str = "ok") -> str:
     """
 
 
-def footer_html(extra: str = "") -> str:
+def footer_html(extra: str = "", protocol_label: str = "Solana") -> str:
     return f"""
     <div class="footer">
-      <span>{PRODUCT_NAME} · The underwriting layer for Solana DeFi · <a href="https://jelleo.com">jelleo.com</a></span>
+      <span>{PRODUCT_NAME} · The underwriting layer for {protocol_label} DeFi · <a href="https://jelleo.com">jelleo.com</a></span>
       <span class="muted">{extra}</span>
     </div>
     """
@@ -752,6 +753,7 @@ def cover_page_html(
     generated_at: str = "",
     auditor_name: str = "Kirill Sakharuk",
     auditor_email: str = "kirill@jelleo.com",
+    protocol_label: str = "Solana",
 ) -> str:
     """Render a customer-facing PDF cover page.
 
@@ -771,6 +773,12 @@ def cover_page_html(
       └───────────────────────────────────┘
     """
     sc = severity_counts or {}
+    # Per-protocol tagline: "Autonomous Solana audit" / "Autonomous Aptos audit".
+    # Falls back to the module-level default if a caller passes an empty string.
+    tagline_display = (
+        TAGLINE_TEMPLATE.format(protocol=protocol_label)
+        if protocol_label else TAGLINE
+    )
     # Truncate the pubkey for display while keeping enough to be recognizable.
     pk = (pubkey_fingerprint or "").strip()
     if len(pk) > 96:
@@ -795,7 +803,7 @@ def cover_page_html(
     <section class="cover">
       <div class="cover-logo">
         <span class="cover-wordmark">{PRODUCT_NAME}</span>
-        <span class="cover-tagline">{TAGLINE}</span>
+        <span class="cover-tagline">{tagline_display}</span>
       </div>
 
       <div class="cover-hero">
@@ -837,7 +845,7 @@ def cover_page_html(
         <div class="cover-info">
           <div class="header">Platform · v0.1</div>
           <div class="body">
-            <strong>{PRODUCT_NAME}</strong> · The underwriting layer for Solana DeFi.
+            <strong>{PRODUCT_NAME}</strong> · The underwriting layer for {protocol_label} DeFi.
             <div class="row"><span class="key">Methodology</span><a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a></div>
             <div class="row"><span class="key">Disclosure</span><a href="https://jelleo.com/security.html">jelleo.com/security.html</a></div>
             <div class="row"><span class="key">Source</span><a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a></div>
