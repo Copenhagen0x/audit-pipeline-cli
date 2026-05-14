@@ -854,7 +854,6 @@ def cluster_strong_fires(
     strong: list[dict[str, Any]],
     *,
     similarity_threshold: float = 0.25,
-    poc_body_threshold: float = 0.5,
 ) -> dict[str, list[str]]:
     """Cluster STRONG fires by root cause.
 
@@ -863,27 +862,35 @@ def cluster_strong_fires(
 
     Membership rule (in priority order):
 
-      1. **Strong match — same engine_function + same bug_class**: if
-         two STRONG fires hit the SAME engine_function with the SAME
-         bug_class, they're the same root cause by definition. The LLM
-         judge already confirmed both are STRONG (real bugs); two real
-         bugs in the same function under the same bug class is one
-         root cause expressed twice. Cluster regardless of claim wording.
+      1. **Strong match — same engine_function + same bug_class**: two
+         STRONG fires hitting the SAME engine_function under the SAME
+         bug_class are the same root cause by definition.
 
-      2. **Strong match — same engine_function + similar PoC body**:
-         even when bug_class labels differ, two PoCs that exploit the
-         same engine_function with the same call sequence are the same
-         attack. The bug-class label drift comes from hypothesis-library
-         framing (one hyp says "missing auth", another says "missing
-         event emit", a third says "capability leak"), but all three
-         PoCs end up calling ``transfer_admin`` from a non-admin signer
-         and asserting the admin changed. PoC body 4-token shingle
-         Jaccard ≥ ``poc_body_threshold`` against any prior cluster
-         member triggers a merge.
+      2. **Strong match — same engine_function + same target_file**:
+         even when bug_class labels differ, two STRONG fires that both
+         exploit the SAME function in the SAME source file are the
+         same code-site issue. The LLM judge already verified each
+         independently as STRONG (real PoC fire in target module); if
+         the hypothesis library framed the same code site under
+         different bug_class labels — e.g. APT1 ("borrow-global-no-auth"),
+         APT4 ("cap-leak"), APT5 ("acl-bypass-entry"), APT9 ("event-
+         emit-missing") all hitting ``access_control::transfer_admin``
+         in ``sources/access_control.move`` — clustering by (function,
+         file) collapses the label-drift case.
 
-         Caught on cycle 20260513-191318 osec-aptos-small: APT1, APT4,
-         APT5, APT9 all hit ``access_control::transfer_admin`` with
-         the same attack flow but four different bug_class labels.
+         Caught on cycle 20260513-191318 osec-aptos-small: the four
+         hypotheses above each generated their own STRONG fire with the
+         same attack (non-admin calls transfer_admin, admin changes),
+         producing four separate "Critical" findings for one bug.
+
+         False-merge risk: a single function with two GENUINELY
+         distinct bugs would also merge. Mitigated by (a) the LLM
+         judge's STRONG verdict gates entry (junk fires never reach
+         clustering), (b) inverted-assertion PoCs for genuinely
+         different invariants tend to be classified SOFT for at least
+         one of them (auth-bypass PoC asserts admin changed; event-emit
+         PoC would assert event count — the assertion mismatch is what
+         SOFT detects).
 
       3. **Weak match — claim similarity**: if one of bug_class /
          engine_function is missing, fall back to comparing claim
@@ -903,11 +910,11 @@ def cluster_strong_fires(
         hyp_id = fire["hyp_id"]
         bc = (fire.get("bug_class") or "").strip().lower()
         ef = (fire.get("engine_function") or "").strip().lower()
+        tf = (fire.get("target_file") or "").strip().lower()
         sh = _claim_shingles(fire.get("claim") or "")
-        poc_sh = _poc_body_shingles(fire.get("poc_body") or "")
         meta = {
-            "bug_class": bc, "engine_function": ef,
-            "shingles": sh, "poc_shingles": poc_sh,
+            "bug_class": bc, "engine_function": ef, "target_file": tf,
+            "shingles": sh,
         }
 
         matched: str | None = None
@@ -920,17 +927,13 @@ def cluster_strong_fires(
                        for m in members):
                     matched = cid
                     break
-            # Rule 2 (NEW): same engine_function + PoC body similarity ≥
-            # poc_body_threshold. Catches the cross-bug-class duplicate
-            # case where the hypothesis library framed the same attack
-            # under multiple bug_class labels. Skipped when engine_function
-            # is empty on either side (can't say "same function" when we
-            # don't know either function).
-            if ef and poc_sh:
+            # Rule 2: same engine_function + same target_file. Catches
+            # label-drift case where the hypothesis library framed the
+            # same code site under different bug_class labels. STRONG
+            # gate upstream is the safety net against junk merges.
+            if ef and tf:
                 if any(
-                    m["engine_function"] == ef
-                    and m["poc_shingles"]
-                    and _jaccard(poc_sh, m["poc_shingles"]) >= poc_body_threshold
+                    m["engine_function"] == ef and m["target_file"] == tf
                     for m in members
                 ):
                     matched = cid
@@ -1075,24 +1078,16 @@ def triage_cycle(
             hyp_id=hyp_id, classification=cls, reason=reason, used_llm=True,
         ))
 
-    # Cluster STRONG fires. Read each PoC body so the clustering rule
-    # can compare attack-flow similarity, not just claim wording.
-    def _read_poc_body(hyp_id: str) -> str:
-        scaffold_path = poc_results.get(hyp_id, {}).get("scaffold_path")
-        if not scaffold_path:
-            return ""
-        try:
-            return Path(scaffold_path).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return ""
-
+    # Cluster STRONG fires. ``target_file`` is included so the
+    # function-+-file clustering rule (Rule 2) can collapse label-drift
+    # duplicates (same code site, different bug_class labels).
     strong_dicts = [
         {
             "hyp_id": r.hyp_id,
             "bug_class": hyp_meta.get(r.hyp_id, {}).get("bug_class"),
             "engine_function": hyp_meta.get(r.hyp_id, {}).get("engine_function"),
+            "target_file": hyp_meta.get(r.hyp_id, {}).get("target_file"),
             "claim": hyp_meta.get(r.hyp_id, {}).get("claim"),
-            "poc_body": _read_poc_body(r.hyp_id),
         }
         for r in results if r.classification == "STRONG"
     ]
