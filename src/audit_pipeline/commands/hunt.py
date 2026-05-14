@@ -1988,10 +1988,21 @@ def _hunt_run(
                     "duration_s": runtime_outcome.duration_s,
                     "n_witnesses": len(runtime_outcome.witness_inputs or []),
                 }
+                # Log the runtime adapter's classification reason + the
+                # compile_error / abort_code flags so a downstream
+                # dashboard / report can distinguish "harness compile
+                # error" from "bug-exploit demonstrated" from "ran
+                # cleanly with no signal".
+                _l4_meta = runtime_outcome.metadata or {}
                 log("l4_adapter_done", hypothesis_id=hyp_id,
                     language=language,
                     crash_found=runtime_outcome.crash_found,
-                    ran_clean=runtime_outcome.ran_clean)
+                    ran_clean=runtime_outcome.ran_clean,
+                    reason=(runtime_outcome.reason or "")[:200],
+                    compile_error=bool(_l4_meta.get("compile_error")),
+                    abort_code=_l4_meta.get("abort_code"),
+                    n_pass=len(_l4_meta.get("pass_lines") or []),
+                    n_fail=len(_l4_meta.get("fail_lines") or []))
         # Non-Solana L4 done — skip the Solana LiteSVM section below.
     elif not skip_litesvm and fired_for_litesvm:
         console.print()

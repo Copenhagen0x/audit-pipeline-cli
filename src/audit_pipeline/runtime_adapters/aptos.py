@@ -56,7 +56,48 @@ Function under test: {engine_function}
 
   aptos move test --filter property_<name> --package-dir {target_repo_root}
 
-A failing test = bug confirmed.
+The harness is run as a Move unit test. A test that ABORTS = the
+inverted-assertion fired = bug confirmed. A test that PASSES =
+the bug-exploit ran end-to-end successfully without aborting.
+EITHER is meaningful evidence the bug is reachable.
+
+# Address literals — STRICT hex format
+
+Aptos Move addresses are HEX literals: `@0x` followed by 1-64 digits
+chosen ONLY from `0-9` and `A-F` (case-insensitive). Any other
+character is a parser error:
+
+  error: unexpected token. Expected ')'
+
+  ❌ `@0xATTACK`   (T, K are not hex digits)
+  ❌ `@0xUSER`     (U, S, R are not hex digits)
+  ❌ `@0xBADGUY`   (G, U, Y are not hex digits)
+  ✓  `@0xDEAD`    (4 hex digits)
+  ✓  `@0xBEEF`    (4 hex digits)
+  ✓  `@0xBAD`     (3 hex digits)
+  ✓  `@0xCAFE`    (4 hex digits)
+  ✓  `@0xC0FFEE`  (6 hex digits)
+  ✓  `@0xDEADBEEF`(8 hex digits)
+  ✓  `@0xABCDEF`  (6 hex digits)
+  ✓  `@0x1234`    (digits-only also valid)
+
+When you need an "attacker" address, pick one of: 0xDEAD, 0xBEEF,
+0xBAD, 0xCAFE, 0xC0FFEE, 0xDEADBEEF. Use the same address consistently
+within the test (the test attribute `#[test(attacker = @0xDEAD)]`
+binds it for the function).
+
+# Doc comments rule
+
+Move's `///` is a DOC comment that the parser only accepts on
+module-level / function-level / struct-level items. Putting `///`
+inside a function body produces:
+
+  warning: invalid documentation comment ... cannot be matched to
+  a language item
+
+Use REGULAR `//` comments inside function bodies. Reserve `///` for
+the module description + function description (line directly above
+the `fun` keyword).
 
 # Harness pattern
 
@@ -66,18 +107,36 @@ module <addr>::property_<name> {{
     use aptos_framework::account;
     use <addr>::<module_under_test>;
 
-    /// Property-based test — runs the function under test against a
-    /// range of inputs derived from the test seed.
-    #[test(s = @0xCAFE)]
-    fun property_test(s: signer) {{
-        account::create_account_for_test(@0xCAFE);
-        // Iterate over a range of values
+    /// Property-based test that demonstrates the bug exists.
+    /// Setup: legitimate state. Attack: invoke with hostile inputs.
+    /// Assert: either (a) the bug-exploit succeeded silently (test
+    /// PASSES — invariant violation reachable without abort), or
+    /// (b) an assertion fires confirming the predicted attacker gain.
+    #[test(
+        aptos_framework = @aptos_framework,
+        admin = @<target_addr>,
+        attacker = @0xDEAD
+    )]
+    fun property_<name>(
+        aptos_framework: signer,
+        admin: signer,
+        attacker: signer,
+    ) {{
+        // Use only `//` for comments inside the function body.
+        account::create_account_for_test(@aptos_framework);
+        account::create_account_for_test(@<target_addr>);
+        account::create_account_for_test(@0xDEAD);
+
+        // <setup>: legitimate initialization
+
+        // <attack loop>: iterate over witness inputs, each iteration
+        // invokes the buggy function with an attacker signer and
+        // asserts the expected attacker-gain happens.
         let i = 0u64;
         while (i < 64) {{
-            // Construct witness state from i
-            <module>::function_under_test(&s, i);
-            // Assert invariant after each step
-            assert!(invariant_holds(&s), 1);
+            <module>::buggy_function(&attacker, i);
+            // Assert the attacker observed the predicted gain.
+            assert!(<attacker observed predicted gain>, 100 + (i as u64));
             i = i + 1;
         }};
     }}
@@ -88,11 +147,12 @@ module <addr>::property_<name> {{
 
 Write `property_<finding_name>.move` that:
 
-1. Declares a property-based test module.
-2. Iterates over a range of attacker-controlled inputs.
-3. After each iteration, asserts the conservation/correctness
-   invariant the hypothesis claims should hold.
-4. assert!() with a unique abort code per failure scenario.
+1. Declares a Move test module under `<target_addr>::property_<name>`.
+2. Uses VALID HEX addresses only (see above — 0-9 and A-F only).
+3. Uses `//` comments inside function bodies (NEVER `///`).
+4. Sets up legitimate state, then runs the bug-exploit in a loop.
+5. assert!() with a unique abort code per failure scenario so the
+   abort-code in the output identifies the failure point.
 
 # Output format
 
@@ -186,18 +246,96 @@ If unable: `// CANNOT_FUZZ: <reason>` stub.
         duration = time.time() - t0
         stdout = proc.stdout[:8000]
         stderr = proc.stderr[:4000]
+        combined = stdout + "\n" + stderr
 
+        # Detect Move compile / parse errors FIRST. The `aptos move
+        # test` CLI bundles compile-step errors and runtime test
+        # results both in stdout; if compilation fails the test step
+        # is skipped. Without this branch the adapter mis-reported
+        # compile errors as "ran clean with no signal" — operator
+        # caught this on cycle 20260513-191318 APT4 fuzz which had
+        # an invalid hex literal (`@0xATTACK`) the LLM produced.
+        compile_error_re = re.compile(
+            r"error: unexpected token|"
+            r"error: parsing|"
+            r"Move compilation failed|"
+            r"Failed to run tests: exiting with context checking errors|"
+            r"error\[E\d{5}\]:|"
+            r"error: unbound module|"
+            r"error: unbound function",
+            re.IGNORECASE,
+        )
+        compile_error_match = compile_error_re.search(combined)
+        if compile_error_match:
+            return RuntimeOutcome(
+                crash_found=False, ran_clean=False, harness_path=harness_path,
+                stdout=stdout, stderr=stderr,
+                returncode=proc.returncode, duration_s=duration,
+                fuzzer=self.fuzzer,
+                reason=(
+                    f"property-test harness did not compile: "
+                    f"{compile_error_match.group(0)[:120]}. The auto-"
+                    "authored harness has a syntax / type / hex-address "
+                    "error — L2 PoC fire + L3 Move Prover counterexample "
+                    "remain the authoritative bug signals."
+                ),
+                metadata={"compile_error": True,
+                          "failure_signal": compile_error_match.group(0)},
+            )
+
+        # Count [PASS] and [FAIL] inner-test lines. The aptos move
+        # test runner emits one line per `#[test]` function:
+        #   [ PASS    ] <addr>::<module>::<fn>   = test ran end-to-end
+        #                                          without abort
+        #   [ FAIL    ] <addr>::<module>::<fn>   = test aborted somewhere
         fail_lines = re.findall(r"^\s*\[\s*FAIL\s*\]\s*(.+)$", stdout, re.MULTILINE)
+        pass_lines = re.findall(r"^\s*\[\s*PASS\s*\]\s*(.+)$", stdout, re.MULTILINE)
+
         if fail_lines:
-            abort_match = re.search(r"abort code:?\s*(\d+)", stdout + stderr)
+            # Test aborted — for our inverted-assertion harness, this
+            # is bug-confirmation evidence. The abort code in the
+            # output identifies which assertion fired.
+            abort_match = re.search(
+                r"abort(?:ed)? (?:with )?code:?\s*(\d+)", combined,
+            )
             return RuntimeOutcome(
                 crash_found=True, ran_clean=False, harness_path=harness_path,
                 stdout=stdout, stderr=stderr,
                 returncode=proc.returncode, duration_s=duration,
                 fuzzer=self.fuzzer,
-                reason=f"property test failed: {fail_lines[0][:120]}",
-                witness_inputs=[{"abort_code": abort_match.group(1) if abort_match else None}],
-                metadata={"fail_lines": fail_lines[:5]},
+                reason=(
+                    f"property test aborted ({len(fail_lines)} FAIL, "
+                    f"{len(pass_lines)} PASS): {fail_lines[0][:120]}"
+                    + (f" — abort code {abort_match.group(1)}"
+                       if abort_match else "")
+                ),
+                witness_inputs=[
+                    {"abort_code": abort_match.group(1) if abort_match else None}
+                ],
+                metadata={
+                    "fail_lines": fail_lines[:5],
+                    "pass_lines": pass_lines[:5],
+                    "abort_code": abort_match.group(1) if abort_match else None,
+                },
+            )
+
+        if pass_lines:
+            # All inner tests PASSED — for an inverted-assertion
+            # harness this means the bug-exploit ran end-to-end
+            # without abort. The attacker SUCCEEDED at the predicted
+            # gain. Mark as crash_found=True (the property-fuzz
+            # constructively demonstrated the bug).
+            return RuntimeOutcome(
+                crash_found=True, ran_clean=True, harness_path=harness_path,
+                stdout=stdout, stderr=stderr,
+                returncode=proc.returncode, duration_s=duration,
+                fuzzer=self.fuzzer,
+                reason=(
+                    f"property test passed ({len(pass_lines)} PASS) — "
+                    "bug-exploit ran end-to-end without abort, "
+                    "demonstrating the attacker's predicted gain"
+                ),
+                metadata={"pass_lines": pass_lines[:5]},
             )
 
         if proc.returncode != 0:
@@ -206,8 +344,12 @@ If unable: `// CANNOT_FUZZ: <reason>` stub.
                 stdout=stdout, stderr=stderr,
                 returncode=proc.returncode, duration_s=duration,
                 fuzzer=self.fuzzer,
-                reason="aptos move test failed without parseable FAIL (compile error?)",
-                metadata={"phase": "compile"},
+                reason=(
+                    "aptos move test exited non-zero without parseable "
+                    "[FAIL]/[PASS] markers — likely no tests matched the "
+                    "filter, or runner infra error"
+                ),
+                metadata={"phase": "no_tests_matched"},
             )
 
         return RuntimeOutcome(
@@ -215,5 +357,5 @@ If unable: `// CANNOT_FUZZ: <reason>` stub.
             stdout=stdout, stderr=stderr,
             returncode=0, duration_s=duration,
             fuzzer=self.fuzzer,
-            reason="property test ran clean — no invariant violations",
+            reason="property test ran clean — no FAIL/PASS markers seen",
         )
