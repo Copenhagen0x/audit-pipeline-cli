@@ -180,6 +180,92 @@ def test_validator_rejects_bare_source_paste() -> None:
 # ───────────────────── real legit test passes ─────────────────────
 
 
+def test_validator_rejects_nonexistent_function(tmp_path: Path) -> None:
+    """APT12 reproduction: test calls vault::total_shares but only
+    a `total_assets` field exists (no public getter named total_shares)."""
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    (sources / "vault.move").write_text(
+        "module mutatis::vault {\n"
+        "    struct Vault has key { total_assets: u64, total_shares: u64 }\n"
+        "    public fun initialize(host: &signer, fee_bps: u64, addr: address) {}\n"
+        "    public fun deposit(user: &signer, host: address, amount: u64) {}\n"
+        "    public fun total_assets(host: address): u64 { 0 }\n"
+        "    // NOTE: no public fun total_shares — only the FIELD exists\n"
+        "}\n"
+    )
+
+    body = (
+        "module mutatis::test_x {\n"
+        "    use mutatis::vault;\n"
+        "    #[test(host = @0x42)]\n"
+        "    fun test_x(host: &signer) {\n"
+        "        vault::initialize(host, 0, @0x42);\n"
+        "        let shares = vault::total_shares(@0x42);\n"
+        "        assert!(shares == 0, 1);\n"
+        "    }\n"
+        "}\n"
+    )
+    ok, err = AptosAdapter().validate_test_body(body, engine_repo_root=tmp_path)
+    assert not ok
+    assert err is not None
+    assert "vault::total_shares" in err
+    assert "vault::*" in err  # should hint at available functions
+
+
+def test_validator_accepts_real_function_calls(tmp_path: Path) -> None:
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    (sources / "vault.move").write_text(
+        "module mutatis::vault {\n"
+        "    public fun initialize(host: &signer, fee_bps: u64, addr: address) {}\n"
+        "    public fun deposit(user: &signer, host: address, amount: u64) {}\n"
+        "    public fun total_assets(host: address): u64 { 0 }\n"
+        "}\n"
+    )
+
+    body = (
+        "module mutatis::test_x {\n"
+        "    use mutatis::vault;\n"
+        "    #[test(host = @0x42)]\n"
+        "    fun test_x(host: &signer) {\n"
+        "        vault::initialize(host, 0, @0x42);\n"
+        "        let assets = vault::total_assets(@0x42);\n"
+        "        assert!(assets == 0, 1);\n"
+        "    }\n"
+        "}\n"
+    )
+    ok, err = AptosAdapter().validate_test_body(body, engine_repo_root=tmp_path)
+    assert ok, f"valid function calls rejected: {err}"
+
+
+def test_validator_ignores_framework_function_calls(tmp_path: Path) -> None:
+    """account::create_account_for_test is a framework call — don't flag."""
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    (sources / "vault.move").write_text(
+        "module mutatis::vault {\n"
+        "    public fun initialize(host: &signer) {}\n"
+        "}\n"
+    )
+
+    body = (
+        "module mutatis::test_x {\n"
+        "    use mutatis::vault;\n"
+        "    use aptos_framework::account;\n"
+        "    use std::signer;\n"
+        "    #[test(host = @0x42)]\n"
+        "    fun test_x(host: &signer) {\n"
+        "        account::create_account_for_test(@0x42);\n"
+        "        let _addr = signer::address_of(host);\n"
+        "        vault::initialize(host);\n"
+        "    }\n"
+        "}\n"
+    )
+    ok, err = AptosAdapter().validate_test_body(body, engine_repo_root=tmp_path)
+    assert ok, f"framework calls incorrectly rejected: {err}"
+
+
 def test_validator_accepts_legit_drain_test(tmp_path: Path) -> None:
     sources = tmp_path / "sources"
     sources.mkdir()

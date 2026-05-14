@@ -1525,8 +1525,28 @@ def _hunt_run(
                     except Exception as e:  # noqa: BLE001
                         _author_error = str(e)
                         break
-                    daily_cap.record_spend(0.05)
-                    total_cost += 0.05
+                    # Cycle 20260514-151541: emit token-bearing event so
+                    # the heartbeat writer's session_total_spend_usd
+                    # ticker compounds during L2 (it scans hunt.log.jsonl
+                    # for input_tokens/output_tokens). Without this the
+                    # dashboard "this cycle" + "session" counters froze
+                    # the moment L1.5 finished.
+                    _in_tok = int(getattr(resp, "input_tokens", 0) or 0)
+                    _out_tok = int(getattr(resp, "output_tokens", 0) or 0)
+                    # Sonnet 4.6 pricing: $3/M in, $15/M out
+                    _author_cost = (_in_tok / 1_000_000) * 3.0 + (_out_tok / 1_000_000) * 15.0
+                    _emit_l2(
+                        "poc_llm_authored",
+                        hypothesis_id=hyp_id,
+                        hyp_id=hyp_id,
+                        attempt=_attempt + 1,
+                        input_tokens=_in_tok,
+                        output_tokens=_out_tok,
+                        cost_usd=round(_author_cost, 4),
+                        _phase="L2",
+                    )
+                    daily_cap.record_spend(_author_cost if _author_cost > 0 else 0.05)
+                    total_cost += _author_cost if _author_cost > 0 else 0.05
 
                     # Validate the authored body BEFORE compile
                     _valid = True

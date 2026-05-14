@@ -461,6 +461,75 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
                     f"are always OK.)"
                 )
 
+            # 4) function existence — call sites must reference real
+            # public/entry funs in the imported modules. Catches APT12-
+            # style `vault::total_shares` where the module exists but
+            # the function the test wants doesn't (only a field of the
+            # same name exists, no public getter).
+            module_funs: dict[str, set[str]] = {}
+            for src in (engine_repo_root / "sources").glob("*.move"):
+                try:
+                    txt = src.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                mm = re.search(
+                    r"^\s*module\s+\w+::(\w+)\s*\{", txt, re.MULTILINE
+                )
+                if not mm:
+                    continue
+                mod = mm.group(1)
+                funs: set[str] = set()
+                for fm in re.finditer(
+                    r"^\s*(?:public(?:\([^)]+\))?\s+)?(?:entry\s+)?fun\s+(\w+)",
+                    txt,
+                    re.MULTILINE,
+                ):
+                    funs.add(fm.group(1))
+                module_funs[mod] = funs
+
+            # Find all <module>::<function>(...) call sites in the test
+            # body. Skip framework prefixes + ignore <module>::<Type>
+            # references (struct types start uppercase by convention —
+            # we only flag lowercase identifiers as function calls).
+            ALLOWED_FRAMEWORK_PREFIXES = (
+                "aptos_framework",
+                "aptos_std",
+                "aptos_token",
+                "std",
+            )
+            bad_calls: list[str] = []
+            for cm in re.finditer(
+                r"\b(\w+)::(\w+)\s*\(", body
+            ):
+                mod = cm.group(1)
+                fn = cm.group(2)
+                if mod in ALLOWED_FRAMEWORK_PREFIXES:
+                    continue
+                if mod not in module_funs:
+                    continue  # module-not-found already flagged above
+                if not fn[0].islower():
+                    continue  # type / struct constructor, not a function
+                # Common Move literals/keywords that aren't fn calls
+                if fn in ("borrow_global", "borrow_global_mut", "exists",
+                          "move_from", "move_to"):
+                    continue
+                if fn not in module_funs[mod]:
+                    bad_calls.append(f"{mod}::{fn}")
+            if bad_calls:
+                uniq = sorted(set(bad_calls))[:5]
+                # Show the agent which functions actually exist in those
+                # modules so the retry can call a real one.
+                hints = []
+                for bc in uniq:
+                    mod = bc.split("::", 1)[0]
+                    funs = sorted(module_funs.get(mod, set()))[:10]
+                    hints.append(f"{mod}::* available: {', '.join(funs)}")
+                return False, (
+                    f"Test calls functions that don't exist: "
+                    f"{', '.join(uniq)}. "
+                    + " | ".join(hints)
+                )
+
         return True, None
 
     def detect_weak_test(self, body: str) -> tuple[bool, str | None]:
