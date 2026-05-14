@@ -1797,7 +1797,15 @@ main.bridge {
     const bar = row.querySelector('.bar > div');
     if (bar) {
       if (cls === 'active' && progressPct != null) {
-        row.style.setProperty('--p', Math.min(100, Math.max(0, progressPct)) + '%');
+        // Was: row.style.setProperty('--p', ...) — wrote a CSS custom
+        // property that nothing else reads, so the active-phase
+        // progress bar never advanced visually. Set the actual width
+        // on the inner div like the done/skipped branches do.
+        bar.style.width = Math.min(100, Math.max(0, progressPct)) + '%';
+      } else if (cls === 'active') {
+        // active with no percent → use indeterminate marker (10%)
+        // so the bar at least animates rather than reading 0%.
+        bar.style.width = '10%';
       } else if (cls === 'done') {
         bar.style.width = '100%';
       } else if (cls === 'skipped') {
@@ -2073,8 +2081,99 @@ main.bridge {
     }
 
     if (k === 'triage_done') {
+      // PHASE 2 — also commit the totals into state.triage so the
+      // triage bar stays accurate against the engine's authoritative
+      // counts (the per-fire triage_one events should already match,
+      // but this fixes any drift from missed events).
+      if (typeof ev.strong === 'number') {
+        state.triage = {
+          strong: ev.strong || 0,
+          soft:   ev.soft   || 0,
+          false_: ev.false  || 0,
+          lost:   ev.lost   || 0,
+        };
+        renderTriage();
+      }
       setLayer('L2.5', 'done', '✓');
       pushEvent('triage_done', `STRONG=${ev.strong} SOFT=${ev.soft} FALSE=${ev.false} LOST=${ev.lost}`, ev.ts);
+      return;
+    }
+
+    // ───── L1.5 / L2 / L3 / L4 / bundle / narrative SSE handlers ─────
+    //
+    // Previously these events fell through to the generic fallback at
+    // the bottom of this dispatcher → waterfall waited ~5s for the
+    // next manifest tick to repaint. Operator saw "L1 running" on
+    // screen while the engine had already advanced to L3 / L4.
+    // Now each event drives the waterfall directly so the layer rows
+    // flip the moment the engine emits the event.
+
+    if (k === 'debate_one' || k === 'debate_done') {
+      // Debate batch — mark L1 done (recon must have completed) and
+      // L1.5 active. The triage_done event later flips L1.5 → done.
+      setLayer('L1', 'done', '✓');
+      setLayer('L1.5', 'active', 'running');
+      if (k === 'debate_done') {
+        setLayer('L1.5', 'done', '✓');
+      }
+      pushEvent(k, ev.hypothesis_id || ev.hyp_id || '?', ev.ts);
+      return;
+    }
+
+    if (k === 'poc_test_run' || k === 'poc_adapter_done' ||
+        k === 'poc_adapter_resumed_from_existing' || k === 'poc_llm_authored') {
+      // L2 PoC dispatch — push L1.5 done if still queued, light up L2.
+      const r15 = document.querySelector('.layer-row[data-layer="L1.5"]');
+      if (r15 && !r15.classList.contains('done')) setLayer('L1.5', 'done', '✓');
+      setLayer('L2', 'active', 'running');
+      const fired = (ev.fired === true);
+      pushEvent('L2 ' + k, (ev.hypothesis_id || ev.hyp_id || '?') + (fired ? ' 🔥' : ''), ev.ts);
+      return;
+    }
+
+    if (k === 'l3_adapter_done' || k === 'kani_one' || k === 'kani_resumed_from_existing') {
+      // L3 formal verification result. The l3_adapter_done event now
+      // carries `infra_error` / `compile_error` / `reason` markers
+      // (see formal_adapters/aptos.py recent commit) so an operator
+      // can tell a real "indeterminate" outcome from a tooling
+      // failure without having to ssh into the cycle dir.
+      const r25 = document.querySelector('.layer-row[data-layer="L2.5"]');
+      if (r25 && !r25.classList.contains('done')) setLayer('L2.5', 'done', '✓');
+      setLayer('L3', 'active', 'running');
+      let label = ev.hypothesis_id || ev.hyp_id || '?';
+      if (ev.infra_error) label += ' ⚠ infra-error';
+      else if (ev.compile_error) label += ' ⚠ spec-compile-error';
+      else if (ev.proved === true) label += ' ✓ proved';
+      else if (ev.counterexample === true) label += ' ✗ counterexample';
+      else if (ev.proved === false && ev.counterexample === false) label += ' ? indeterminate';
+      pushEvent('L3', label, ev.ts);
+      return;
+    }
+
+    if (k === 'l4_adapter_done' || k === 'litesvm_authored' ||
+        k === 'litesvm_dispatched' || k === 'litesvm_resumed_from_existing') {
+      // L4 runtime fuzz / LiteSVM result. crash_found=true means the
+      // fuzz tripped a new crash (real bug signal). ran_clean=true
+      // means the fuzz session executed without infra failure.
+      const r3 = document.querySelector('.layer-row[data-layer="L3"]');
+      if (r3 && !r3.classList.contains('done')) setLayer('L3', 'done', '✓');
+      setLayer('L4', 'active', 'running');
+      let label = ev.hypothesis_id || ev.hyp_id || '?';
+      if (ev.crash_found === true) label += ' 🔥 crash';
+      else if (ev.ran_clean === true) label += ' ✓ clean';
+      else if (ev.ran_clean === false) label += ' ⚠ unclean';
+      pushEvent('L4', label, ev.ts);
+      return;
+    }
+
+    if (k === 'narrative_generated') {
+      pushEvent('narrative', (ev.hypothesis_id || '?') + ' rc=' + (ev.returncode ?? '?'), ev.ts);
+      return;
+    }
+
+    if (k === 'bundle_done') {
+      pushEvent('bundle', '#' + (ev.finding_id ?? '?') + ' draft=' + (ev.draft_rc ?? '?') +
+        ' verify=' + (ev.verify_rc ?? '?'), ev.ts);
       return;
     }
 
@@ -2089,8 +2188,24 @@ main.bridge {
       state.lastCycleAt = Date.now();
       // Cache the cycle as finished so subsequent stale cycle_active
       // events on this cycle id don't paint "L1 running" again.
+      //
+      // Use ev.ts (the actual event timestamp, set by the engine) —
+      // NOT new Date() (page-local clock). On --resume-cycle, the
+      // resume's cycle_active event arrives with the SAME cycle id
+      // that was previously stamped finished here. If we used
+      // new Date() we'd then re-stamp it with NOW, but the engine's
+      // resume cycle_active event has an EARLIER ts, so a string
+      // compare on those would say "still finished" even though the
+      // resume cleared finished_at server-side. Use ev.ts so we
+      // can compare apples to apples against subsequent ev.ts values.
       if (ev.cycle) {
-        state.cycleFinishedAt[ev.cycle] = new Date().toISOString();
+        let finTs = ev.ts;
+        if (typeof finTs === 'number') {
+          // Unix-second timestamp → ISO so the value type matches the
+          // manifest's finished_at string format.
+          finTs = new Date(finTs * 1000).toISOString();
+        }
+        state.cycleFinishedAt[ev.cycle] = finTs || new Date().toISOString();
       }
       const completedCycle = state.activeCycle;
       // Only paint layers that we KNOW ran on every cycle (L0..L2.5).
@@ -2173,24 +2288,50 @@ main.bridge {
   // We only have n_dispatched + n_true_layer1 (not per-hyp IDs), so
   // tiles are anonymous. Still gives the customer the "look how many
   // hyps got audited" visual.
+  //
+  // PHASE 2 — fixes:
+  //   * Old guard ``state.hyps.size > 0`` prevented repaint, so the
+  //     fire-tile count never advanced as new TRUE verdicts landed
+  //     mid-cycle. Now: ONLY skip-if-populated when we're looking at
+  //     the SAME cycle and the cached counts are unchanged.
+  //   * Old comment said "last nC of those as confirmed" but the
+  //     loop marked the FIRST nC. The actual semantic is "of the nT
+  //     fire tiles, nC are confirmed" — first-nC-of-nT is a fine
+  //     stable choice as long as the code MATCHES the comment.
+  //   * setHypTileState() removed the 'confirmed' class before adding
+  //     'fire', which then got immediately overridden by adding
+  //     'confirmed' back. Now: paint fire first, then add confirmed
+  //     in a single classList op so 'confirmed' isn't dropped.
   function paintGridFromCycle(cycle) {
-    if (!cycle || state.hyps.size > 0) return; // don't repaint if already populated
+    if (!cycle) return;
     const n  = cycle.n_dispatched | 0;
     const nT = cycle.n_true_layer1 | 0;
     const nC = cycle.n_confirmed | 0;
     if (n <= 0) return;
+    // Cache the last-painted (cycle_id, n, nT, nC) tuple — repaint
+    // ONLY when one of those changed. Lets the grid track live
+    // mid-cycle progress without flickering on every refresh tick.
+    const sig = (cycle.cycle_id || 'C') + ':' + n + ':' + nT + ':' + nC;
+    if (state._lastGridSig === sig) return;
+    state._lastGridSig = sig;
     for (let i = 0; i < n; i++) {
       const hid = `${cycle.cycle_id || 'C'}#${i + 1}`;
       ensureHypTile(hid);
     }
-    // Mark first nT tiles as fire, last nC of those as confirmed.
     const ids = state.hypsOrder;
+    // Pass 1: clear-then-paint every tile to its baseline (fire vs ok).
     for (let i = 0; i < Math.min(nT, ids.length); i++) {
       setHypTileState(ids[i], 'fire');
-      if (i < nC) state.hyps.get(ids[i]).classList.add('confirmed');
     }
     for (let i = nT; i < ids.length; i++) {
       setHypTileState(ids[i], 'ok');
+    }
+    // Pass 2: of the fire tiles, mark the first nC as confirmed.
+    // Doing this AFTER setHypTileState ensures the 'confirmed' class
+    // isn't wiped by the state setter.
+    for (let i = 0; i < Math.min(nC, nT, ids.length); i++) {
+      const tile = state.hyps.get(ids[i]);
+      if (tile) tile.classList.add('confirmed');
     }
   }
 
@@ -2383,14 +2524,30 @@ main.bridge {
         // the panel on every manifest tick so a page refresh on a
         // finished cycle still shows STRONG/SOFT/FALSE/LOST instead
         // of resetting to zeros.
+        //
+        // PHASE 2 — ONLY clobber state.triage when the live counts
+        // are zero OR less than the manifest's. Live SSE triage_one
+        // events maintain higher-resolution counts than the manifest
+        // (which lags by ~5s); if the manifest tick comes in with
+        // an OLDER snapshot we'd roll the live counts back. So
+        // accept the manifest only when it's strictly fresher
+        // (sum strictly greater) OR live counts are empty.
         if (latest.triage_counts && typeof latest.triage_counts === 'object') {
-          state.triage = {
-            strong: latest.triage_counts.STRONG || 0,
-            soft:   latest.triage_counts.SOFT   || 0,
-            false_: latest.triage_counts.FALSE  || 0,
-            lost:   latest.triage_counts.LOST   || 0,
-          };
-          if (typeof renderTriage === 'function') renderTriage();
+          const tc = latest.triage_counts;
+          const manifestTotal =
+            (tc.STRONG || 0) + (tc.SOFT || 0) + (tc.FALSE || 0) + (tc.LOST || 0);
+          const liveTotal =
+            (state.triage.strong || 0) + (state.triage.soft || 0)
+            + (state.triage.false_ || 0) + (state.triage.lost || 0);
+          if (manifestTotal > liveTotal) {
+            state.triage = {
+              strong: tc.STRONG || 0,
+              soft:   tc.SOFT   || 0,
+              false_: tc.FALSE  || 0,
+              lost:   tc.LOST   || 0,
+            };
+            if (typeof renderTriage === 'function') renderTriage();
+          }
         }
         if (latest.in_progress) {
           state.activeCycle = latest.cycle_id;
