@@ -544,3 +544,77 @@ class TestL3L4CountersAreLanguageAgnostic:
         prog = dashboard._in_progress_cycle_progress(ws, cid)
         assert prog["n_kani_harnesses"] == 4, prog
         assert prog["n_litesvm"] == 4, prog
+
+    def test_pre_resume_fallback_for_n_candidates(self, tmp_path):
+        """During --resume-cycle, hunt.py moves hunt_summary.json aside
+        to hunt_summary.json.pre-resume so the orchestrator can write
+        a fresh summary at re-finish. While the resume is mid-flight,
+        the dashboard's n_candidates reader must fall back to the
+        .pre-resume backup — otherwise L2 phase_total drops from the
+        authoritative orchestrator count (e.g. 24) down to the L2
+        queue size from recon (14), and the dashboard shows 14/14
+        until the resume completes.
+
+        Regression for cycle 20260513-191318: manifest reported
+        phase_total=14 with no hunt running and hunt_summary.json
+        moved aside. After this fix, phase_total reads from
+        hunt_summary.json.pre-resume and returns 24.
+        """
+        import json as _json
+        ws, cid, cycle = self._setup_cycle_with_recon(tmp_path)
+        # recon_summary.json — required for the phase detector to
+        # advance past 'recon' to consider later phases.
+        (cycle / "recon" / "recon_summary.json").write_text(_json.dumps({
+            "verdicts": [
+                {"hypothesis_id": f"H{i}", "verdict": "TRUE", "confidence": "HIGH"}
+                for i in range(14)
+            ]
+        }))
+        # poc/ dir with some logs so phase detector lands on "poc"
+        poc = cycle / "poc"
+        poc.mkdir()
+        (poc / "runlog_h1.log").write_text("")
+        # Only .pre-resume exists — live hunt_summary.json absent.
+        (cycle / "hunt_summary.json.pre-resume").write_text(_json.dumps({
+            "n_candidates": 24,
+            "n_kani_runs": 4,
+            "n_litesvm_runs": 4,
+        }))
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        assert prog["phase"] == "poc", prog
+        # The .pre-resume fallback supplies 24 → phase_total = 24
+        assert prog["phase_total"] == 24, prog
+        # And the kani/litesvm counts also propagate from .pre-resume
+        assert prog["n_kani_harnesses"] == 4, prog
+        assert prog["n_litesvm"] == 4, prog
+
+    def test_live_hunt_summary_preferred_over_pre_resume(self, tmp_path):
+        """When BOTH hunt_summary.json and .pre-resume exist (race
+        between resume + cycle completion), the live one is the source
+        of truth, NOT the backup. Note: hunt_summary.json existing
+        flips the phase to 'publishing' regardless of n_candidates,
+        but the underlying summary_candidates read must still resolve
+        from the live file (not the backup) — we verify via the
+        n_kani_harnesses override since it uses the same fallback."""
+        import json as _json
+        ws, cid, cycle = self._setup_cycle_with_recon(tmp_path)
+        (cycle / "recon" / "recon_summary.json").write_text(_json.dumps({
+            "verdicts": []
+        }))
+        poc = cycle / "poc"
+        poc.mkdir()
+        (poc / "runlog_h1.log").write_text("")
+        (cycle / "hunt_summary.json").write_text(_json.dumps({
+            "n_candidates": 30,
+            "n_kani_runs": 7,  # live override value
+        }))
+        (cycle / "hunt_summary.json.pre-resume").write_text(_json.dumps({
+            "n_candidates": 24,
+            "n_kani_runs": 3,  # backup value should be ignored
+        }))
+        prog = dashboard._in_progress_cycle_progress(ws, cid)
+        # Live hunt_summary.json present → phase = publishing
+        assert prog["phase"] == "publishing", prog
+        # n_kani_harnesses uses the LIVE file's value (7), not the
+        # backup's (3) — proves live-file precedence in the fallback.
+        assert prog["n_kani_harnesses"] == 7, prog

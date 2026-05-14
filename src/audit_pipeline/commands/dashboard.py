@@ -1366,18 +1366,31 @@ def _in_progress_cycle_progress(
 
         # Authoritative L2 denominator: hunt_summary.json's n_candidates
         # is the orchestrator's own count of hyps it dispatched to L2.
-        # Beats both file-count and event-count heuristics. Available
-        # only AFTER the cycle finishes — during in-progress we fall
-        # back to the L2 queue size from recon.
+        # Beats both file-count and event-count heuristics.
+        #
+        # Fallback chain (in priority order):
+        #   1. hunt_summary.json (cycle finished + summary fresh)
+        #   2. hunt_summary.json.pre-resume (cycle was resumed; the
+        #      reopen-cycle code in hunt.py moves the live summary
+        #      aside so the orchestrator can re-write it at re-finish.
+        #      During the live resume the .pre-resume backup has the
+        #      previous run's n_candidates — still authoritative for
+        #      "how many hyps the orchestrator dispatched to L2".)
+        #   3. L2 queue size from recon (TRUE + NEEDS_LAYER_2) — only
+        #      a lower bound; misses debate-promoted FALSE hyps.
         summary_candidates: int | None = None
-        if hunt_summary.is_file():
-            try:
-                _summary = json.loads(hunt_summary.read_text(encoding="utf-8"))
-                if isinstance(_summary.get("n_candidates"), int):
-                    summary_candidates = _summary["n_candidates"]
-            except (OSError, json.JSONDecodeError):
-                pass
-
+        for hs_candidate in (
+            hunt_summary,
+            cycle_dir / "hunt_summary.json.pre-resume",
+        ):
+            if hs_candidate.is_file():
+                try:
+                    _summary = json.loads(hs_candidate.read_text(encoding="utf-8"))
+                    if isinstance(_summary.get("n_candidates"), int):
+                        summary_candidates = _summary["n_candidates"]
+                        break
+                except (OSError, json.JSONDecodeError):
+                    pass
         if summary_candidates is not None:
             n_total = max(summary_candidates, 1)
         elif l2_queue_ids:
@@ -1420,15 +1433,27 @@ def _in_progress_cycle_progress(
     # non-Solana artifact layouts even with the formal/fuzz dir fix
     # above). hunt_summary records `n_kani_runs` and `n_litesvm_runs`
     # at cycle end — the orchestrator's own count of executions.
-    if hunt_summary.is_file():
-        try:
-            _hs = json.loads(hunt_summary.read_text(encoding="utf-8"))
-            if isinstance(_hs.get("n_kani_runs"), int):
-                n_kani_harnesses = max(n_kani_harnesses, _hs["n_kani_runs"])
-            if isinstance(_hs.get("n_litesvm_runs"), int):
-                n_litesvm = max(n_litesvm, _hs["n_litesvm_runs"])
-        except (OSError, json.JSONDecodeError):
-            pass
+    #
+    # Same .pre-resume fallback as for n_candidates above: when
+    # --resume-cycle moves the live hunt_summary aside, the .pre-
+    # resume backup still has the previous run's authoritative
+    # counts. Without this fallback the dashboard reports
+    # n_kani_harnesses=0 / n_litesvm=0 during a live resume of a
+    # previously-finished cycle.
+    for hs_candidate in (
+        hunt_summary,
+        cycle_dir / "hunt_summary.json.pre-resume",
+    ):
+        if hs_candidate.is_file():
+            try:
+                _hs = json.loads(hs_candidate.read_text(encoding="utf-8"))
+                if isinstance(_hs.get("n_kani_runs"), int):
+                    n_kani_harnesses = max(n_kani_harnesses, _hs["n_kani_runs"])
+                if isinstance(_hs.get("n_litesvm_runs"), int):
+                    n_litesvm = max(n_litesvm, _hs["n_litesvm_runs"])
+                break
+            except (OSError, json.JSONDecodeError):
+                pass
     return {
         # Legacy fields kept for back-compat with previous dashboard.py callers
         "n_prompts": n_prompts,

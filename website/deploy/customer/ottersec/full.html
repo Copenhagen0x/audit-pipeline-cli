@@ -1988,6 +1988,28 @@ main.bridge {
         return;
       }
 
+      // PHASE 2 (2026-05-14) — track session-start timestamp for
+      // history-event filtering. Every SSE handler that PAINTS a layer
+      // state (L3 done, L4 done, etc.) must check the event's ts
+      // against state.sessionStartedAt. Events older than the current
+      // session are from prior runs against this same cycle id —
+      // they're already reflected in the manifest's n_kani_runs /
+      // n_litesvm_runs counters; the SSE handler must not double-paint
+      // them or override the manifest's authoritative state.
+      //
+      // ev.ts is the SSE service's broadcast time (time.time() Unix
+      // seconds). Normalise to milliseconds for comparison with
+      // Date.now() / new Date().getTime() elsewhere.
+      let _sessTs = ev.ts;
+      if (typeof _sessTs === 'number') {
+        _sessTs = _sessTs * 1000;
+      } else if (typeof _sessTs === 'string') {
+        _sessTs = Date.parse(_sessTs);
+      } else {
+        _sessTs = Date.now();
+      }
+      state.sessionStartedAt = _sessTs || Date.now();
+
       // POST-AUDIT FIX (2026-05-12 re-audit catch): reset per-cycle state
       // before populating. Without this, state.hyps + state.hypsOrder
       // accumulated entries across every cycle the browser tab observed.
@@ -2105,8 +2127,26 @@ main.bridge {
     // the bottom of this dispatcher → waterfall waited ~5s for the
     // next manifest tick to repaint. Operator saw "L1 running" on
     // screen while the engine had already advanced to L3 / L4.
-    // Now each event drives the waterfall directly so the layer rows
-    // flip the moment the engine emits the event.
+    // Now each handler drives the waterfall directly so the layer
+    // rows flip the moment the engine emits the event.
+    //
+    // Helper: return true if the event is from THIS session (newer
+    // than the most recent cycle_active we observed). Events older
+    // than state.sessionStartedAt are stale — from prior runs against
+    // the same cycle id. They're already reflected in the manifest's
+    // counters; the SSE handler must not double-paint them.
+    function _eventInCurrentSession(ev) {
+      const sess = state.sessionStartedAt || 0;
+      if (!sess) return true; // no session anchor yet — accept
+      let ts = ev.ts;
+      if (typeof ts === 'number') ts = ts * 1000;
+      else if (typeof ts === 'string') ts = Date.parse(ts);
+      else return true; // no ts — can't compare, accept defensively
+      if (isNaN(ts)) return true;
+      // 5s slack: allow events slightly older than the session anchor,
+      // covers SSE service ordering jitter vs cycle_active emission.
+      return ts >= (sess - 5000);
+    }
 
     if (k === 'debate_one' || k === 'debate_done') {
       // Debate batch — mark L1 done (recon must have completed) and
@@ -2137,6 +2177,13 @@ main.bridge {
       // (see formal_adapters/aptos.py recent commit) so an operator
       // can tell a real "indeterminate" outcome from a tooling
       // failure without having to ssh into the cycle dir.
+      if (!_eventInCurrentSession(ev)) {
+        // Stale event from a prior run on this cycle id. Already
+        // counted in the manifest's n_kani_harnesses / n_kani_runs.
+        // Don't double-paint.
+        pushEvent('L3 (history)', (ev.hypothesis_id || ev.hyp_id || '?'), ev.ts);
+        return;
+      }
       const r25 = document.querySelector('.layer-row[data-layer="L2.5"]');
       if (r25 && !r25.classList.contains('done')) setLayer('L2.5', 'done', '✓');
       setLayer('L3', 'active', 'running');
@@ -2155,6 +2202,10 @@ main.bridge {
       // L4 runtime fuzz / LiteSVM result. crash_found=true means the
       // fuzz tripped a new crash (real bug signal). ran_clean=true
       // means the fuzz session executed without infra failure.
+      if (!_eventInCurrentSession(ev)) {
+        pushEvent('L4 (history)', (ev.hypothesis_id || ev.hyp_id || '?'), ev.ts);
+        return;
+      }
       const r3 = document.querySelector('.layer-row[data-layer="L3"]');
       if (r3 && !r3.classList.contains('done')) setLayer('L3', 'done', '✓');
       setLayer('L4', 'active', 'running');
@@ -2167,6 +2218,10 @@ main.bridge {
     }
 
     if (k === 'narrative_generated') {
+      if (!_eventInCurrentSession(ev)) {
+        pushEvent('narrative (history)', (ev.hypothesis_id || '?'), ev.ts);
+        return;
+      }
       pushEvent('narrative', (ev.hypothesis_id || '?') + ' rc=' + (ev.returncode ?? '?'), ev.ts);
       return;
     }
@@ -2423,6 +2478,23 @@ main.bridge {
     }
 
     // ── IN-PROGRESS PATH ──
+    //
+    // Manifest is the SOURCE OF TRUTH for layer state here. The old
+    // reset loop preserved any layer the SSE handler had previously
+    // painted "done" or "skipped" — which meant L3/L4 paints from
+    // stale events (from a previous run on the same cycle id) stuck
+    // forever even after the hunt was killed. Operator caught this
+    // on cycle 20260513-191318: L3/L4 showed "completed" with no
+    // hunt running.
+    //
+    // New rule: every manifest tick fully reconciles the waterfall
+    // against authoritative manifest data. Later layers get force-
+    // reset to queued regardless of what SSE may have painted —
+    // except when manifest's own counters back them up:
+    //   * L3 stays done if cycle.n_kani_harnesses > 0
+    //   * L4 stays done if cycle.n_litesvm > 0
+    // (Live SSE events still update these in real time during a
+    // hunt — the manifest tick that follows just confirms.)
     setLayer('L0', 'done', '✓');
     const activeIdx = ALL_LAYERS.indexOf(activeLayer);
     for (let i = 1; i < activeIdx; i++) {
@@ -2432,12 +2504,23 @@ main.bridge {
       ? (done + '/' + total)
       : 'running';
     setLayer(activeLayer, 'active', label, pct != null ? pct : 5);
-    // Explicitly reset later layers to queued so they don't carry over
-    // from a previous cycle (e.g. when resuming with --resume-cycle).
+    const l3Done = (cycle.n_kani_harnesses || 0) > 0;
+    const l4Done = (cycle.n_litesvm || 0) > 0;
     for (let i = activeIdx + 1; i < ALL_LAYERS.length; i++) {
-      const row = document.querySelector('.layer-row[data-layer="' + ALL_LAYERS[i] + '"]');
-      if (row && !row.classList.contains('done') && !row.classList.contains('skipped')) {
-        row.classList.remove('active');
+      const L = ALL_LAYERS[i];
+      if (L === 'L3' && l3Done) {
+        setLayer('L3', 'done', '✓');
+        continue;
+      }
+      if (L === 'L4' && l4Done) {
+        setLayer('L4', 'done', '✓');
+        continue;
+      }
+      // Force-reset (no `if !done && !skipped` guard) — stale SSE
+      // paints from prior runs lose to authoritative manifest data.
+      const row = document.querySelector('.layer-row[data-layer="' + L + '"]');
+      if (row) {
+        row.classList.remove('active', 'done', 'skipped');
         const s = row.querySelector('.status');
         if (s) s.textContent = 'queued';
         const b = row.querySelector('.bar > div');
