@@ -263,11 +263,11 @@ small, .small { font-size: 12px; color: var(--ink-3); }
     <div data-reveal>
       <div class="hero-eyebrow">Methodology · technical reference</div>
       <h1 class="hero-title">How Jelleo finds bugs <span class="accent">before they become exploits.</span></h1>
-      <p class="hero-lede">A four-pillar autonomous audit platform for Solana programs. This page is the public technical reference: architecture, hypothesis scoping, propagation, severity, attestation, reporting, and lifecycle. The same loop that produced F7 against Percolator (April 2026) — written down so reviewers, auditors, and customers can read exactly how it works.</p>
+      <p class="hero-lede">A four-pillar autonomous audit platform for on-chain smart contracts &mdash; <strong>Solana</strong> (BPF / Rust) and <strong>Aptos</strong> (Move) today, with the same loop architecture extending to Solidity and C. This page is the public technical reference: architecture, hypothesis scoping, propagation, severity, attestation, reporting, and lifecycle. The same loop that produced F7 against Percolator (April 2026, Solana) also confirmed 2 Critical findings against the Mutatis Aptos benchmark (May 2026, Move).</p>
       <div class="hero-meta">
         <span><strong>v0.1</strong> deployed</span>
-        <span><strong>F7</strong> disclosed · PR #39</span>
-        <span><strong>471</strong> hypotheses (Percolator-applicable)</span>
+        <span><strong>F7</strong> disclosed · Percolator PR #39</span>
+        <span><strong>Solana</strong> + <strong>Aptos</strong> live</span>
         <span><strong>Apache-2.0</strong> licensed</span>
       </div>
     </div>
@@ -284,7 +284,8 @@ small, .small { font-size: 12px; color: var(--ink-3); }
         <li><span class="toc-num">07</span><a href="#attestation">Cryptographic attestation</a></li>
         <li><span class="toc-num">08</span><a href="#reporting">Reporting &amp; notifications</a></li>
         <li><span class="toc-num">09</span><a href="#f7">F7 — worked example</a></li>
-        <li><span class="toc-num">10</span><a href="#tiers">Engagement tiers</a></li>
+        <li><span class="toc-num">10</span><a href="#languages">Language adapters (Aptos / Move)</a></li>
+        <li><span class="toc-num">11</span><a href="#tiers">Engagement tiers</a></li>
       </ol>
     </div>
   </div>
@@ -800,11 +801,81 @@ Signed-Bytes: 142853
   </div>
 </section>
 
-<!-- ============== 10 · TIERS ============== -->
+<!-- ============== 10 · LANGUAGE ADAPTERS ============== -->
+<section class="doc" id="languages">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">10 · Language adapters</div>
+      <h2 class="section-title">Same four pillars · <span class="accent">multiple smart-contract languages.</span></h2>
+      <p class="section-lede">The four-pillar architecture (Detection · Propagation · Fix Bundle · Attestation) is language-agnostic. What changes per language is the <strong>adapter layer</strong>: which symbolic verifier runs at Layer 3, which fuzz harness runs at Layer 4, and which test runner produces the Layer 2 abort signal. Today: Solana / BPF and Aptos / Move are live. Solidity (Foundry / forge) and C (clang+sanitizers) ride the same plumbing — the dispatch layer routes by language.</p>
+    </div>
+
+    <div data-reveal data-delay="1">
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Layer</th>
+              <th>Solana adapter</th>
+              <th>Aptos adapter</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Layer 2</code> · PoC runtime</td>
+              <td><code>cargo test --features test</code> in the engine repo; aborts on <code>panic!</code> with a custom error code</td>
+              <td><code>aptos move test --filter &lt;slug&gt;</code>; aborts with a custom <code>E_BUG_HIT</code> code originating in the target module (stdlib aborts are filtered out by Layer 2.5)</td>
+            </tr>
+            <tr>
+              <td><code>Layer 2.5</code> · triage</td>
+              <td>LLM judge on cargo panic + test body; STRONG / SOFT / FALSE / LOST</td>
+              <td>Same judge, language-aware FALSE-pattern set (matches Move VM abort signatures + framework setup aborts that aren't real bugs)</td>
+            </tr>
+            <tr>
+              <td><code>Layer 3</code> · symbolic</td>
+              <td><strong>Kani</strong> bounded model checker; assertion-based spec authored by the engine; counterexample = bug confirmed</td>
+              <td><strong>Move Prover</strong> with Boogie + Z3 / CVC5 backends; spec authored as <code>spec module { ... }</code> blocks with pragmas and direct global accessors; counterexample = bug confirmed</td>
+            </tr>
+            <tr>
+              <td><code>Layer 4</code> · property fuzz</td>
+              <td>LiteSVM deploy + replay of LLM-authored harness; on-chain BPF instructions; abort or PASS pattern</td>
+              <td><code>aptos move test</code> with property harness; FAIL pattern (inverted assertion fires) or PASS pattern (attacker scenario completes end-to-end). Either is bug-confirmation signal.</td>
+            </tr>
+            <tr>
+              <td><code>Layer P3</code> · fix bundle</td>
+              <td>LLM-authored unified diff against Rust source; verifier applies + runs <code>cargo test</code> + checks well-formedness</td>
+              <td>LLM-authored unified diff against Move source; same 5-gate verifier (well-formedness, single-function scope, no new deps; <code>aptos move test</code> backend is on the funded-tier roadmap)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div data-reveal data-delay="2" style="margin-top:32px">
+      <h3>Worked example · Aptos cycle 20260513-191318 (osec-aptos-small)</h3>
+      <p>The Mutatis Aptos benchmark (OSec eval suite, small tier) ran end-to-end through the four pillars:</p>
+      <ul style="color:var(--ink-2); line-height:1.7; font-size:14px">
+        <li><strong>40 hypotheses</strong> dispatched from the OSec Aptos hypothesis class library (authorization, arithmetic, accounting, capability handling, event auditability, oracle freshness).</li>
+        <li><strong>7 PoC fires</strong> at Layer 2 (test aborted in target module with custom error code).</li>
+        <li><strong>4 STRONG</strong> after Layer 2.5 triage filtered 1 SOFT (wrong invariant) and 2 FALSE (stdlib / setup abort, not target).</li>
+        <li><strong>2 root causes</strong> after the clustering rule collapsed 3 STRONG fires hitting <code>transfer_admin</code> in <code>access_control.move</code> into one finding.</li>
+        <li><strong>2 Critical findings</strong> published:
+          <ul>
+            <li><a href="/cycles/20260513-191318/hunt_report.pdf">Missing auth check on <code>transfer_admin</code></a> — covers APT1 / APT4 / APT5 hypotheses.</li>
+            <li><a href="/cycles/20260513-191318/hunt_report.pdf">Permissionless <code>emergency_drain</code> drains the vault</a> — APT38.</li>
+          </ul>
+        </li>
+        <li><strong>$11.62 total LLM spend, 2m 16s wall-clock.</strong></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============== 11 · TIERS ============== -->
 <section class="doc" id="tiers">
   <div class="container">
     <div data-reveal>
-      <div class="section-label">10 · Engagement tiers</div>
+      <div class="section-label">11 · Engagement tiers</div>
       <h2 class="section-title">Foundation · Production · <span class="accent">Ceiling.</span></h2>
       <p class="section-lede">Three depth tiers, three customer profiles. Pricing is <strong>2.4× our raw API cost</strong> (58% gross margin). Customers move between tiers month over month; engagement length is open-ended.</p>
     </div>

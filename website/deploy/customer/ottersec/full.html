@@ -1259,9 +1259,10 @@ main.bridge {
     <!-- LEFT: findings waterfall + counters -->
     <aside class="bridge-side">
       <div class="bridge-section-label">Findings <span class="count" id="findings-count">0</span></div>
-      <div class="side-stat"><span>Critical · open</span><span class="val crit" id="ct-crit">0</span></div>
-      <div class="side-stat"><span>High · open</span><span class="val amber" id="ct-high">0</span></div>
+      <div class="side-stat"><span>Critical · confirmed</span><span class="val crit" id="ct-crit">0</span></div>
+      <div class="side-stat"><span>High · confirmed</span><span class="val amber" id="ct-high">0</span></div>
       <div class="side-stat"><span>Confirmed total</span><span class="val" id="ct-confirmed">0</span></div>
+      <div class="side-stat"><span>Targets scanned</span><span class="val" id="ct-targets-scanned">0 / 12</span></div>
       <div class="side-stat"><span>Cycles signed</span><span class="val" id="ct-cycles">0</span></div>
       <div class="side-divider"></div>
       <div class="findings-stream" id="findings-stream">
@@ -2714,18 +2715,43 @@ main.bridge {
     const findings = activeId == null
       ? allFindings
       : allFindings.filter(f => f.target_id === activeId);
+    // Count Critical / High only when the finding has REACHED A PUBLIC
+    // STATUS (confirmed / disclosed / fixed / verified). A "triaged"
+    // STRONG-duplicate or SOFT-classified fire is NOT an independent
+    // Critical — it's a copy of one. This keeps the lobby's headline
+    // counts in sync with the per-cycle PDF's cover page.
+    const REAL_STATUSES = new Set([
+      'confirmed', 'disclosed', 'fixed', 'verified',
+    ]);
     let crit = 0, high = 0, conf = 0;
     findings.forEach(f => {
       const sev = f.severity || f.sev || '';
-      if (sev === 'Critical') crit++;
-      if (sev === 'High') high++;
       const st = f.status || '';
-      if (st === 'confirmed' || st === 'disclosed' || st === 'fixed' || st === 'verified') conf++;
+      const real = REAL_STATUSES.has(st);
+      if (sev === 'Critical' && real) crit++;
+      if (sev === 'High' && real) high++;
+      if (real) conf++;
     });
     $('ct-crit').textContent = crit;
     $('ct-high').textContent = high;
     $('ct-confirmed').textContent = conf;
     $('findings-count').textContent = findings.length;
+
+    // Targets-scanned counter: of the 12 OSec eval tabs, how many have
+    // produced at least one confirmed/disclosed/fixed/verified finding?
+    // That's the right denominator — a target hasn't been "scanned to
+    // a result" until the pipeline produces real signal on it.
+    try {
+      const scannedTargetIds = new Set();
+      allFindings.forEach(f => {
+        if (REAL_STATUSES.has(f.status || '') && f.target_id != null) {
+          scannedTargetIds.add(f.target_id);
+        }
+      });
+      const totalTargets = Array.isArray(d.targets) ? d.targets.length : 12;
+      const tsEl = document.getElementById('ct-targets-scanned');
+      if (tsEl) tsEl.textContent = scannedTargetIds.size + ' / ' + totalTargets;
+    } catch (_e) { /* non-fatal */ }
     clearFindingsLoadingMsg();
     if (findings.length === 0) {
       const stream = $('findings-stream');
@@ -2733,8 +2759,8 @@ main.bridge {
         const empty = document.createElement('div');
         empty.style.cssText = 'color: var(--ink-4); font-family: var(--mono); font-size: 10px; padding: 20px 0; text-align: center; letter-spacing: 0.18em; text-transform: uppercase;';
         empty.textContent = activeId == null
-          ? 'no open findings · last cycle clean'
-          : 'no open findings on ' + safeStr(window.JELLEO_ACTIVE_TARGET, 40);
+          ? 'no findings yet · awaiting first cycle'
+          : 'no findings on ' + safeStr(window.JELLEO_ACTIVE_TARGET, 40) + ' yet';
         stream.appendChild(empty);
       }
     } else {

@@ -344,7 +344,7 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
           <div class="protocol-name"><a href="/protocols/percolator/">Percolator</a></div>
           <span class="protocol-status live">Active</span>
         </div>
-        <div class="protocol-class">Perpetual DEX · F7 origin</div>
+        <div class="protocol-class">Solana · Perpetual DEX · F7 origin</div>
         <p class="protocol-desc">Anatoly Yakovenko's perpetual-futures protocol. First protocol on the Jelleo loop. Layer-1–6 audit cycle running continuously since April 2026.</p>
         <div class="protocol-meta">
           <div class="meta-cell">
@@ -363,6 +363,33 @@ section.doc p.lede { font-size: 18px; color: var(--ink); margin-bottom: 32px; ma
         <div class="protocol-foot">
           <a href="/protocols/percolator/">Protocol page →</a>
           <a href="https://github.com/aeyakovenko/percolator-prog/pull/39" target="_blank" rel="noopener">F7 disclosure ↗</a>
+        </div>
+      </article>
+
+      <article class="protocol-card live">
+        <div class="protocol-head">
+          <div class="protocol-name">OSec Aptos eval suite</div>
+          <span class="protocol-status live">Active</span>
+        </div>
+        <div class="protocol-class">Aptos · Move · OtterSec vendor evaluation</div>
+        <p class="protocol-desc">Mutatis benchmark (small / medium / large tiers) — synthetic Move codebases with planted bugs that OtterSec uses to evaluate audit tooling. Jelleo ran the small tier end-to-end on May 13, 2026: 40 hypotheses → 2 Critical findings (auth bypass on <code>transfer_admin</code>, permissionless <code>emergency_drain</code>) in 2m 16s for $11.62.</p>
+        <div class="protocol-meta">
+          <div class="meta-cell">
+            <div class="meta-label">Hypotheses</div>
+            <div class="meta-value">40</div>
+          </div>
+          <div class="meta-cell">
+            <div class="meta-label">Findings</div>
+            <div class="meta-value amber">2 Critical</div>
+          </div>
+          <div class="meta-cell">
+            <div class="meta-label">Cadence</div>
+            <div class="meta-value ok">Cycle complete</div>
+          </div>
+        </div>
+        <div class="protocol-foot">
+          <a href="/cycles/20260513-191318/hunt_report.pdf">Signed PDF report ↗</a>
+          <a href="/cycles/20260513-191318/hunt_report.html">HTML report →</a>
         </div>
       </article>
 

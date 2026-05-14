@@ -1,17 +1,47 @@
 {
   "customer_id": "ottersec",
-  "generated_at": "2026-05-13T17:00:00+00:00",
-  "engine_sha": "",
-  "cycles_total": 0,
-  "last_cycle_ts": null,
+  "generated_at": "2026-05-14T05:12:17.781536+00:00",
+  "engine_sha": "e926fabc95",
+  "cycles_total": 1,
+  "last_cycle_id": "20260513-191318",
+  "last_cycle_ts": "2026-05-13T19:13:18+00:00",
+  "n_findings_total": 40,
+  "active_cycle_spend_usd": 74.631,
+  "active_cycle_hyps_done": 40,
+  "session_total_spend_usd": 74.631,
+  "n_cycle_logs_scanned": 1,
   "service_summary": {
     "hunt_loop": "active",
+    "shadow": "active",
+    "sse": "active",
+    "token_auth": "active",
     "snapshot_writer": "active",
     "heartbeat": "active"
   },
   "services": [
-    {"name": "hunt_loop", "state": "up"},
-    {"name": "snapshot_writer", "state": "up"},
-    {"name": "heartbeat", "state": "up"}
+    {
+      "name": "hunt_loop",
+      "state": "up"
+    },
+    {
+      "name": "shadow",
+      "state": "up"
+    },
+    {
+      "name": "sse",
+      "state": "up"
+    },
+    {
+      "name": "token_auth",
+      "state": "up"
+    },
+    {
+      "name": "snapshot_writer",
+      "state": "up"
+    },
+    {
+      "name": "heartbeat",
+      "state": "up"
+    }
   ]
 }

@@ -1,0 +1,1179 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JELLEO · osec-aptos-small · cycle 20260513-191318</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script>
+  window.addEventListener('DOMContentLoaded', function () {
+    if (window.Prism && Prism.plugins && Prism.plugins.autoloader) {
+      Prism.plugins.autoloader.languages_path =
+        'https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/';
+    }
+  });
+</script>
+<style>
+:root {
+  --bg:           #050504;
+  --bg-2:         #0a0908;
+  --bg-3:         #100e0c;
+  --surface:      rgba(245,243,237,0.025);
+  --surface-2:    rgba(245,243,237,0.045);
+  --surface-3:    rgba(245,243,237,0.08);
+
+  --ink:          #f5f3ed;
+  --ink-2:        rgba(245,243,237,0.72);
+  --ink-3:        rgba(245,243,237,0.46);
+  --ink-4:        rgba(245,243,237,0.28);
+  --ink-5:        rgba(245,243,237,0.12);
+
+  --rule:         rgba(245,243,237,0.08);
+  --rule-2:       rgba(245,243,237,0.16);
+
+  --amber:        #f5b800;
+  --amber-2:      #ffce4a;
+  --amber-glow:   rgba(245,184,0,0.4);
+
+  --text:         #f5f3ed;       /* legacy alias */
+  --text-2:       rgba(245,243,237,0.72);
+  --text-3:       rgba(245,243,237,0.46);
+  --border:       rgba(245,243,237,0.08);
+  --border-2:     rgba(245,243,237,0.16);
+  --accent:       #f5b800;
+
+  --ok:           #4ade80;
+  --warn:         #fbbf24;
+  --critical:     #ef4444;
+  --high:         #f97316;
+  --medium:       #eab308;
+  --low:          #60a5fa;
+  --info:         #71717a;
+
+  --font:         'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono:         'JetBrains Mono', 'SF Mono', 'Cascadia Code', Menlo, Monaco, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv02','cv03','cv04','cv11','ss01';
+}
+
+a { color: var(--amber); text-decoration: none; border-bottom: 1px solid rgba(245,184,0,0.3); }
+a:hover { border-bottom-color: var(--amber); }
+
+code, pre, .mono {
+  font-family: var(--mono);
+  font-size: .92em;
+}
+code {
+  background: var(--surface);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+}
+pre {
+  background: var(--bg-2); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 18px 20px; overflow-x: auto;
+  line-height: 1.55; color: var(--ink-2); font-size: 12.5px;
+  margin: 18px 0;
+}
+pre code { background: none; border: none; padding: 0; color: inherit; }
+
+::selection { background: var(--amber); color: var(--bg); }
+
+/* ============================== LAYOUT ============================== */
+
+.shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 40px 80px;
+}
+
+/* ============================== TOPBAR ============================== */
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 40px;
+  border-bottom: 1px solid var(--rule);
+  background: rgba(5,5,4,.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  display: flex; align-items: center; gap: 14px;
+}
+.brand .mark {
+  position: relative; width: 28px; height: 28px;
+  display: inline-block;
+}
+.brand .mark::before, .brand .mark::after {
+  content: ''; position: absolute;
+  width: 12px; height: 12px;
+  border: 2px solid var(--amber);
+  filter: drop-shadow(0 0 6px var(--amber-glow));
+}
+.brand .mark::before { top: 0; right: 0; border-left: none; border-bottom: none; }
+.brand .mark::after  { bottom: 0; left: 0; border-right: none; border-top: none; }
+.brand .wordmark { font-weight: 800; letter-spacing: .04em; font-size: 18px; color: var(--ink); }
+.brand .tagline {
+  color: var(--ink-3); font-size: 11px; letter-spacing: .14em; margin-left: 10px;
+  border-left: 1px solid var(--rule-2); padding-left: 12px; text-transform: uppercase;
+  font-family: var(--mono);
+}
+
+.status {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .14em;
+  font-family: var(--mono);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot.ok       { background: var(--ok);       box-shadow: 0 0 12px rgba(74,222,128,.6); }
+.dot.warn     { background: var(--warn);     box-shadow: 0 0 12px rgba(251,191,36,.6); }
+.dot.critical { background: var(--critical); box-shadow: 0 0 12px rgba(239,68,68,.6); }
+
+/* ============================== TYPOGRAPHY ============================== */
+
+h1 {
+  font-size: 32px; font-weight: 700; letter-spacing: -0.02em;
+  margin: 0 0 6px; color: var(--ink);
+}
+h2 {
+  font-size: 12px; font-weight: 500; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--amber);
+  margin: 44px 0 16px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 12px;
+}
+h2::before {
+  content: ''; width: 24px; height: 1px;
+  background: var(--amber); box-shadow: 0 0 6px var(--amber-glow);
+}
+h3 {
+  font-size: 16px; font-weight: 600; margin: 0 0 6px; color: var(--ink);
+}
+.subhead {
+  color: var(--ink-2);
+  font-size: 14px;
+  margin: 0 0 32px;
+  font-family: var(--mono);
+}
+.subhead code { font-size: 12.5px; color: var(--amber); border-color: rgba(245,184,0,0.2); }
+
+/* ============================== KPI GRID ============================== */
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin: 0 0 12px;
+}
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 8px;
+  transition: border-color .15s ease;
+}
+.kpi:hover { border-color: var(--rule-2); }
+.kpi .label {
+  font-size: 10px; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .18em; font-weight: 500;
+  font-family: var(--mono);
+}
+.kpi .value {
+  font-size: 32px; font-weight: 700; line-height: 1;
+  letter-spacing: -0.02em; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.kpi.danger { border-color: rgba(239,68,68,.4); background: linear-gradient(180deg, rgba(239,68,68,.05), transparent); }
+.kpi.danger .value { color: var(--critical); }
+.kpi.warn   { border-color: rgba(249,115,22,.4); }
+.kpi.warn   .value { color: var(--high); }
+.kpi.ok     .value { color: var(--ok); }
+.kpi .delta { font-size: 11px; color: var(--ink-3); font-family: var(--mono); }
+
+/* ============================== TABLES ============================== */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13px;
+}
+th, td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+tbody tr:last-child td { border-bottom: none; }
+th {
+  background: var(--surface-2);
+  font-weight: 500;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: .14em;
+  font-family: var(--mono);
+}
+tr:hover td { background: rgba(245,243,237,.012); }
+td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; font-family: var(--mono); }
+td strong { color: var(--ink); }
+
+/* ============================== SEVERITY ============================== */
+
+.sev {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+.sev.critical { background: rgba(239,68,68,.14); color: var(--critical); border-color: rgba(239,68,68,.3); }
+.sev.high     { background: rgba(249,115,22,.14); color: var(--high);    border-color: rgba(249,115,22,.3); }
+.sev.medium   { background: rgba(234,179,8,.14); color: var(--medium);   border-color: rgba(234,179,8,.3); }
+.sev.low      { background: rgba(96,165,250,.12); color: var(--low);     border-color: rgba(96,165,250,.25); }
+.sev.info     { background: rgba(113,113,122,.14); color: var(--info);   border-color: rgba(113,113,122,.3); }
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  background: var(--surface-2); color: var(--ink-2);
+  border: 1px solid var(--rule);
+}
+.status-pill.confirmed { background: rgba(239,68,68,.1);  color: var(--critical); border-color: rgba(239,68,68,.3); }
+.status-pill.disclosed { background: rgba(96,165,250,.1); color: var(--low);      border-color: rgba(96,165,250,.25); }
+.status-pill.fixed     { background: rgba(74,222,128,.1); color: var(--ok);       border-color: rgba(74,222,128,.3); }
+.status-pill.verified  { background: rgba(74,222,128,.18); color: var(--ok);      border-color: rgba(74,222,128,.4); }
+.status-pill.rejected  { background: var(--surface-2); color: var(--ink-3); }
+
+/* Severity bar */
+.sev-bar {
+  display: flex; height: 8px; border-radius: 4px; overflow: hidden;
+  background: var(--surface-2); border: 1px solid var(--rule);
+  margin: 14px 0 8px;
+}
+.sev-bar > span { display: block; height: 100%; }
+.sev-bar .b-critical { background: var(--critical); }
+.sev-bar .b-high     { background: var(--high); }
+.sev-bar .b-medium   { background: var(--medium); }
+.sev-bar .b-low      { background: var(--low); }
+.sev-bar .b-info     { background: var(--info); }
+.sev-bar-legend {
+  display: flex; gap: 18px; font-size: 11px; color: var(--ink-3);
+  flex-wrap: wrap; font-family: var(--mono); letter-spacing: .04em;
+}
+.sev-bar-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sev-bar-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+
+/* Empty state */
+.empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--ink-3);
+  background: var(--surface);
+  border: 1px dashed var(--rule-2);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+/* ============================== FOOTER ============================== */
+
+.footer {
+  margin-top: 60px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+  display: flex; justify-content: space-between; align-items: center;
+  color: var(--ink-3); font-size: 11px;
+  letter-spacing: .04em;
+  font-family: var(--mono);
+  flex-wrap: wrap; gap: 12px;
+}
+.footer .muted { color: var(--ink-4); }
+.footer a { color: var(--ink-3); }
+.footer a:hover { color: var(--amber); }
+
+/* ============================== COVER PAGE ============================== */
+/* 3-row grid: logo / hero (centered) / footer. No page-level decorative
+   brackets — the logo carries the bracket motif. Tight, structured spacing. */
+
+.cover {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 56px;
+  padding: 72px 64px 56px;
+  position: relative;
+  page-break-after: always;
+  break-after: page;
+}
+
+/* Logo: brackets wrap AROUND the JELLEO wordmark (matches nav-logo pattern
+   from index.html). Wordmark + tagline are inline; tagline is divided by
+   a thin rule. Width is just-enough for the word + tagline. */
+.cover-logo {
+  display: inline-flex; align-items: center;
+  position: relative;
+  height: 48px;
+  padding: 0 24px;
+  align-self: start;
+  justify-self: start;
+}
+.cover-logo::before, .cover-logo::after {
+  content: ''; position: absolute;
+  width: 22px; height: 22px;
+  border: 2.5px solid var(--amber);
+  filter: drop-shadow(0 0 8px var(--amber-glow));
+  pointer-events: none;
+}
+.cover-logo::before { top: 0; right: 0; border-left: none; border-bottom: none; }
+.cover-logo::after  { bottom: 0; left: 0; border-right: none; border-top: none; }
+
+.cover-wordmark {
+  font-size: 28px; font-weight: 800; letter-spacing: .03em; color: var(--ink);
+  line-height: 1;
+}
+.cover-tagline {
+  margin-left: 18px; padding-left: 18px;
+  border-left: 1px solid var(--rule-2);
+  font-family: var(--mono); font-size: 12px;
+  letter-spacing: .22em; text-transform: uppercase;
+  color: var(--ink-3); line-height: 1.4;
+}
+
+/* Hero: vertically-centered block holding eyebrow / title / meta / severity */
+.cover-hero {
+  display: flex; flex-direction: column;
+  justify-content: center;
+  align-self: center;
+  width: 100%;
+  max-width: 920px;
+}
+
+.cover-eyebrow {
+  font-family: var(--mono); font-size: 12px;
+  letter-spacing: .28em; text-transform: uppercase; color: var(--amber);
+  margin-bottom: 14px; display: flex; align-items: center; gap: 14px;
+  font-weight: 500;
+}
+.cover-eyebrow::before {
+  content: ''; width: 32px; height: 1.5px;
+  background: var(--amber); box-shadow: 0 0 8px var(--amber-glow);
+}
+
+.cover-title {
+  font-size: clamp(36px, 4.4vw, 54px); font-weight: 700; letter-spacing: -0.025em;
+  line-height: 1.04; color: var(--ink); margin-bottom: 22px; max-width: 22ch;
+}
+.cover-title .accent {
+  background: linear-gradient(135deg, var(--amber), var(--amber-2));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.cover-meta-grid {
+  display: grid; grid-template-columns: 150px 1fr; gap: 6px 28px;
+  font-size: 13px; line-height: 1.4;
+  margin-bottom: 22px;
+}
+.cover-meta-grid .label {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--ink-3); padding-top: 2px;
+  font-weight: 500;
+}
+.cover-meta-grid .value { color: var(--ink); font-weight: 500; font-size: 13px; }
+.cover-meta-grid .value code {
+  font-size: 12px; padding: 2px 8px; color: var(--amber);
+  border-color: rgba(245,184,0,0.2);
+}
+
+.cover-summary {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  border: 1px solid var(--rule); border-radius: 8px;
+  background: var(--surface); overflow: hidden;
+}
+.cover-summary-cell {
+  padding: 14px 12px; text-align: center;
+  border-right: 1px solid var(--rule);
+}
+.cover-summary-cell:last-child { border-right: none; }
+.cover-summary-cell .num {
+  font-size: 28px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+  letter-spacing: -0.02em;
+}
+.cover-summary-cell .label {
+  display: block; margin-top: 8px;
+  font-size: 10.5px; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--ink-3); font-family: var(--mono); font-weight: 500;
+}
+.cover-summary-cell.crit .num { color: var(--critical); }
+.cover-summary-cell.high .num { color: var(--high); }
+.cover-summary-cell.med .num  { color: var(--medium); }
+.cover-summary-cell.low .num  { color: var(--low); }
+
+/* Caption + status breakdown — shown directly under the severity strip
+   to explain that the headline counts are CONFIRMED findings only, with
+   the rest of the lifecycle pipeline visible underneath. */
+.cover-summary-caption {
+  margin-top: 10px; margin-bottom: 0;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: .18em; text-transform: uppercase;
+  color: var(--ink-3); text-align: center;
+}
+.cover-status-breakdown {
+  margin-top: 22px;
+  display: flex; gap: 0;
+  border-top: 1px solid var(--rule);
+  padding-top: 18px;
+  flex-wrap: wrap;
+  font-family: var(--mono); font-size: 13px;
+  color: var(--ink-2);
+  justify-content: space-between;
+  row-gap: 8px;
+}
+.cover-status-breakdown .pipe-stage {
+  display: inline-flex; align-items: baseline; gap: 8px;
+}
+.cover-status-breakdown .pipe-num {
+  font-size: 18px; font-weight: 700; color: var(--ink);
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+.cover-status-breakdown .pipe-label {
+  font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.cover-status-breakdown .pipe-stage.confirmed .pipe-num { color: var(--ok); }
+.cover-status-breakdown .pipe-stage.disclosed .pipe-num { color: var(--low); }
+.cover-status-breakdown .pipe-stage.new       .pipe-num { color: var(--medium); }
+.cover-status-breakdown .pipe-stage.rejected  .pipe-num { color: var(--ink-3); }
+
+/* Footer: receipt + meta side-by-side */
+.cover-bottom {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
+  border-top: 1px solid var(--rule); padding-top: 18px;
+  margin-top: 22px;
+  align-self: end;
+  font-size: 11px;
+}
+.cover-receipt {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber); border-radius: 0 6px 6px 0;
+  padding: 12px 16px;
+}
+.cover-receipt .header {
+  font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 8px; font-family: var(--mono);
+  font-weight: 500;
+}
+.cover-receipt .pubkey {
+  font-size: 10.5px; color: var(--ink-2); font-family: var(--mono);
+  word-break: break-all; line-height: 1.45;
+}
+.cover-receipt .verify {
+  margin-top: 10px; padding-top: 8px;
+  border-top: 1px dashed var(--rule);
+  font-size: 10px; color: var(--ink-3); font-family: var(--mono);
+  line-height: 1.5;
+}
+.cover-receipt .verify code {
+  font-size: 9.5px; padding: 1px 4px; color: var(--ink-2);
+  border-color: var(--rule);
+}
+
+/* Right-column platform card — mirrors .cover-receipt styling exactly */
+.cover-info {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--amber);
+  border-radius: 0 6px 6px 0;
+  padding: 12px 16px;
+}
+.cover-info .header {
+  font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 8px; font-family: var(--mono);
+  font-weight: 500;
+}
+.cover-info .body {
+  font-size: 10.5px; line-height: 1.55; color: var(--ink-2);
+  font-family: var(--mono);
+}
+.cover-info .body strong { color: var(--ink); font-weight: 700; }
+.cover-info .body a { color: var(--amber); }
+.cover-info .body .row {
+  display: flex; gap: 8px; align-items: baseline;
+  padding-top: 2px;
+}
+.cover-info .body .row .key {
+  color: var(--ink-3); min-width: 86px;
+  font-size: 9.5px; letter-spacing: .04em;
+}
+.cover-info .body .footer-row {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px dashed var(--rule);
+  font-size: 10px; color: var(--ink-3);
+}
+
+/* ============================== PRINT RULES ============================== */
+/* Rendered by Chrome --print-to-pdf, weasyprint, wkhtmltopdf, etc.
+   Hides sticky topbar, forces dark background to render, controls
+   page breaks for tables and sections, repeats table headers per page. */
+
+@page {
+  size: letter;
+  margin: 0.75in;
+  background: #050504;
+}
+
+@media print {
+  html, body {
+    background: #050504 !important;
+    color: var(--ink) !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+  .topbar { display: none !important; }    /* sticky chrome doesn't print */
+
+  .shell { padding: 0 !important; max-width: 100% !important; }
+
+  /* Cover layout — switch from grid to block for print.
+     Chromium headless --print-to-pdf doesn't reliably support 100vh in print,
+     which makes grid-template-rows: auto 1fr auto collapse to zero on the
+     1fr row. With align-self: start/center/end on the three children, that
+     collapse stacks all three sections at the same y-coordinate (the bug
+     where logo + hero + bottom render on top of each other).
+     Solution: drop grid in print, use natural flow with explicit gaps,
+     keep page-break-after so the rest of the report starts on page 2. */
+  .cover {
+    display: block !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0.35in 0.5in 0.4in;
+    page-break-after: always;
+    break-after: page;
+  }
+  .cover > .cover-logo {
+    display: inline-flex !important;
+    align-self: auto !important;
+    justify-self: auto !important;
+    margin-bottom: 22px;
+  }
+  .cover > .cover-hero {
+    align-self: auto !important;
+    margin-bottom: 22px;
+  }
+  .cover > .cover-bottom {
+    align-self: auto !important;
+    margin-bottom: 0;
+  }
+  .cover-title { font-size: 46px !important; }
+
+  /* Avoid breaking inside cards, KPIs, and table rows */
+  .kpi, .card, .empty, .cover-receipt, .cover-summary { page-break-inside: avoid; break-inside: avoid; }
+  table { page-break-inside: auto; }
+  tr    { page-break-inside: avoid; break-inside: avoid; }
+  thead { display: table-header-group; }   /* repeat headers on each page */
+  tfoot { display: table-footer-group; }
+
+  /* Section headings travel with their first child */
+  h1, h2, h3 { page-break-after: avoid; break-after: avoid; }
+
+  /* Hyperlinks render as text + URL in print */
+  a { color: var(--amber) !important; border-bottom: none !important; }
+
+  /* Hide elements explicitly tagged no-print */
+  .no-print { display: none !important; }
+}
+
+/* jelleo.com nav parity — print stylesheet hides this so PDF output stays clean */
+.jelleo-topnav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 32px;
+  border-bottom: 1px solid rgba(245,243,237,0.08);
+  background: rgba(5,5,4,0.85);
+  backdrop-filter: blur(10px);
+  font-family: 'Inter', -apple-system, sans-serif;
+  position: sticky; top: 0; z-index: 50;
+}
+.jelleo-topnav a { text-decoration: none; }
+.jelleo-topnav .logo {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600; font-size: 14px; letter-spacing: 0.04em;
+  color: #f5f3ed; text-transform: lowercase;
+}
+.jelleo-topnav .logo:hover { color: #f5b800; }
+.jelleo-topnav .links { display: flex; gap: 24px; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.jelleo-topnav .links a { color: rgba(245,243,237,0.46); }
+.jelleo-topnav .links a:hover { color: #f5f3ed; }
+@media (max-width: 640px) { .jelleo-topnav .links { display: none; } }
+@media print { .jelleo-topnav { display: none !important; } }
+
+/* ============================== FINDING SECTIONS ============================== */
+section.finding {
+  margin: 56px 0 0;
+  padding: 0 0 36px;
+  border-bottom: 1px solid var(--rule);
+}
+.finding-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  background: linear-gradient(90deg, rgba(245,184,0,0.10), rgba(245,184,0,0.02) 50%, transparent);
+  border-left: 4px solid var(--amber);
+  padding: 16px 22px;
+  margin: 0 0 18px -4px;
+  border-radius: 0 6px 6px 0;
+}
+.finding-banner-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.18em;
+  color: var(--amber);
+  text-shadow: 0 0 12px rgba(245,184,0,0.35);
+}
+.finding-banner-num .muted { color: rgba(245,184,0,0.45); font-weight: 500; font-size: 18px; }
+.finding-banner-meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.finding-hyp { color: var(--amber) !important; border-color: rgba(245,184,0,0.3) !important; font-weight: 600; }
+.finding-class { color: var(--ink-3) !important; font-size: 11px !important; }
+.finding-title {
+  font-size: 19px;
+  line-height: 1.4;
+  margin: 12px 0 24px;
+  color: var(--ink);
+  font-weight: 600;
+}
+section.finding h4 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin: 18px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--rule);
+}
+/* "Page A" prose under L3 / L4: bump readability so this half of the
+   finding looks complete and intentional, not an afterthought. */
+section.finding p.finding-prose {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 6px 0 4px;
+  color: var(--ink);
+}
+/* Hard page break — Layer 2 PoC always begins page B */
+section.finding h4.page-break-before {
+  page-break-before: always;
+  break-before: page;
+}
+/* Code blocks: keep the second-half pages dense */
+pre.code-block.code-tight {
+  font-size: 10.5px;
+  line-height: 1.45;
+  padding: 10px 14px;
+}
+
+/* Code blocks: prevent splitting across pages, give a card feel */
+pre.code-block {
+  background: #0d0c0a;
+  border: 1px solid rgba(245,184,0,0.18);
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin: 12px 0 18px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+pre.code-block.witness {
+  background: rgba(74,222,128,0.06);
+  border-color: rgba(74,222,128,0.32);
+  color: #a5e8b8;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: hidden;
+}
+
+/* Diff syntax (line-prefix coloring) */
+pre code.language-diff { color: var(--ink-2); }
+pre code.language-diff .token.inserted, pre code.language-diff .inserted { color: #4ade80; background: rgba(74,222,128,0.09); }
+pre code.language-diff .token.deleted, pre code.language-diff .deleted { color: #ef4444; background: rgba(239,68,68,0.09); }
+
+/* Rust syntax tokens — Prism.js will inject these classes */
+pre code.language-rust .token.keyword { color: #f5b800; font-weight: 600; }
+pre code.language-rust .token.string  { color: #4ade80; }
+pre code.language-rust .token.comment { color: rgba(245,243,237,0.42); font-style: italic; }
+pre code.language-rust .token.function { color: #ffce4a; }
+pre code.language-rust .token.number { color: #60a5fa; }
+pre code.language-rust .token.macro, pre code.language-rust .token.attribute { color: #c084fc; }
+
+/* ============================== TABLE OF CONTENTS ============================== */
+.toc {
+  margin: 32px 0 48px;
+  padding: 24px 28px;
+  background: rgba(245,184,0,0.04);
+  border: 1px solid rgba(245,184,0,0.18);
+  border-radius: 8px;
+}
+@media print { .toc { page-break-before: always; break-before: page; } }
+/* Verification gates: dense, top-of-page friendly */
+.gates-table { font-size: 11.5px; }
+.gates-table td { padding: 5px 10px; vertical-align: top; }
+.toc h2 { margin-top: 0 !important; border-bottom: none !important; padding-bottom: 0 !important; }
+.toc ol { counter-reset: toc; padding-left: 0; list-style: none; column-count: 1; margin: 0; }
+.toc li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px dotted rgba(245,243,237,0.10);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.toc li .toc-num { color: var(--amber); font-weight: 600; min-width: 28px; }
+.toc li .toc-sev { min-width: 64px; }
+.toc li .toc-sev .sev { font-size: 9px !important; padding: 1px 6px !important; }
+.toc li a { color: var(--ink); border: none; flex: 1; }
+.toc li .toc-class { color: var(--ink-3); font-size: 9.5px; max-width: 200px; text-align: right; }
+
+/* ============================== PRINT / PAGE LAYOUT ============================== */
+@page {
+  size: Letter;
+  margin: 0.6in 0.55in;
+  @bottom-center {
+    content: "Page " counter(page) " of " counter(pages);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(245,243,237,0.42);
+  }
+  @bottom-right {
+    content: "JELLEO · cycle 20260513-191318";
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(245,184,0,0.55);
+  }
+}
+@media print {
+  /* Each finding starts on a fresh page — but only between siblings so the
+     first finding doesn't collide with the TOC's natural page break and
+     produce an empty page in between. */
+  section.finding + section.finding { page-break-before: always; break-before: page; }
+  /* The FIRST finding still wants a fresh page (after TOC card) */
+  .toc + section.finding,
+  .toc ~ section.finding:first-of-type {
+    page-break-before: always; break-before: page;
+  }
+  /* Banners and TOC rows must never split. Code blocks may split if they
+     exceed a single page — page-break-inside:avoid on a 60-line diff would
+     push it forward and leave the prior page mostly empty. */
+  .finding-banner, .toc li, .gates-table tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  pre.code-block.witness { page-break-inside: avoid; break-inside: avoid; }
+  /* page-break-inside: auto so a too-tall block can still split rather
+     than be pushed to its own page (which produces a 3rd orphan finding
+     page). With caps at 24/16 the combined L2+P3 block normally fits. */
+  pre.code-block { page-break-inside: auto; break-inside: auto; }
+  h2, h3, h4 { page-break-after: avoid; break-after: avoid-page; }
+  /* Cover always its own page */
+  .cover-page { page-break-after: always; break-after: page; }
+}
+</style>
+</head><body>
+
+<nav class="jelleo-topnav">
+  <a href="https://jelleo.com" class="logo">jelleo</a>
+  <div class="links">
+    <a href="https://jelleo.com/protocols/">Protocols</a>
+    <a href="https://jelleo.com/methodology.html">Methodology</a>
+    <a href="https://jelleo.com/cycles/">Cycles</a>
+    <a href="https://jelleo.com/status/">Status</a>
+    <a href="https://jelleo.com/security.html">Security</a>
+  </div>
+</nav>
+
+
+    <div class="topbar no-print">
+      <div class="brand">
+        <span class="mark"></span>
+        <span class="wordmark">JELLEO</span>
+        <span class="tagline">Autonomous Solana audit</span>
+      </div>
+      <div class="status">
+        <span class="dot critical"></span>
+        <span>2 Critical confirmed · disclosure pending</span>
+      </div>
+    </div>
+    
+
+
+    <section class="cover">
+      
+      <div class="cover-logo">
+        <span class="cover-wordmark">JELLEO</span>
+        <span class="cover-tagline">Autonomous Aptos audit</span>
+      </div>
+
+      <div class="cover-hero">
+        <div class="cover-eyebrow">Audit cycle &middot; May 13, 2026</div>
+        <h1 class="cover-title"><span class="accent">osec-aptos-small</span></h1>
+
+        <div class="cover-meta-grid">
+          <div class="label">Auditor</div><div class="value">Kirill Sakharuk &middot; <a href="mailto:kirill@jelleo.com">kirill@jelleo.com</a></div>
+          <div class="label">Target</div><div class="value">osec-aptos-small</div>
+          <div class="label">Audit date</div><div class="value">May 13, 2026</div>
+          <div class="label">Cycle</div><div class="value"><code>20260513-191318</code></div>
+          <div class="label">Engine SHA</div><div class="value"><code>e926fabc95</code></div>
+          
+          <div class="label">Generated</div><div class="value"><code>2026-05-14T04:52:58+00:00</code></div>
+        </div>
+
+        <div class="cover-summary">
+          <div class="cover-summary-cell crit"><div class="num">2</div><span class="label">Critical</span></div>
+          <div class="cover-summary-cell high"><div class="num">0</div><span class="label">High</span></div>
+          <div class="cover-summary-cell med"><div class="num">0</div><span class="label">Medium</span></div>
+          <div class="cover-summary-cell low"><div class="num">0</div><span class="label">Low</span></div>
+          <div class="cover-summary-cell"><div class="num">0</div><span class="label">Info</span></div>
+        </div>
+
+        <div class="cover-summary-caption">
+          Confirmed &middot; disclosed &middot; fixed &middot; verified
+        </div>
+      </div>
+
+      <div class="cover-bottom">
+        <div class="cover-receipt">
+          <div class="header">Signed · Ed25519</div>
+          <div class="pubkey">MCowBQYDK2VwAyEAvCFSLBecPuNClei48PWjHuelHlBX9uYZo4wELbQ7b+k=</div>
+          <div class="verify">
+            verify with <code>audit-pipeline sign verify &lt;file&gt; &lt;file&gt;.sig --pubkey jelleo.ed25519.pub</code><br>
+            public key at <a href="https://jelleo.com/keys/jelleo.ed25519.pub">https://jelleo.com/keys/jelleo.ed25519.pub</a>
+          </div>
+        </div>
+        <div class="cover-info">
+          <div class="header">Platform · v0.1</div>
+          <div class="body">
+            <strong>JELLEO</strong> · The underwriting layer for Aptos DeFi.
+            <div class="row"><span class="key">Methodology</span><a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a></div>
+            <div class="row"><span class="key">Disclosure</span><a href="https://jelleo.com/security.html">jelleo.com/security.html</a></div>
+            <div class="row"><span class="key">Source</span><a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a></div>
+            <div class="footer-row">
+              Apache-2.0 · contact <a href="mailto:security@jelleo.com">security@jelleo.com</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    
+
+<div class="shell">
+
+  <section style="margin:32px 0 24px;padding:20px 22px;background:var(--surface);border:1px solid var(--rule);border-radius:6px;border-left:3px solid var(--amber)"><h2 style="margin:0 0 12px;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);border:none;padding:0">00 &mdash; Executive summary</h2><p style="margin:0;color:var(--text);font-size:13px;line-height:1.7">This report documents the results of an autonomous Aptos audit cycle run by Jelleo against the <code>osec-aptos-small</code> workspace on May 13, 2026. The cycle identified 2 Critical findings after Layer 2.5 triage and root-cause clustering. The findings document: (a) Missing auth check on <code>transfer_admin</code>; (b) Permissionless <code>emergency_drain</code> drains the vault. Each finding includes a Move-VM-executed proof-of-concept, a Move Prover counterexample where the formal layer ran, a property-based <code>aptos move test</code> reproduction, and an LLM-authored structural fix patch.</p></section>
+
+  
+  <h2>00.1 &mdash; Scope</h2>
+  <table>
+    <thead><tr><th colspan="2">In-scope source set</th></tr></thead>
+    <tbody>
+      <tr><td style="width:160px;color:var(--text-3)">Target workspace</td>
+          <td><code>osec-aptos-small</code></td></tr>
+      <tr><td style="color:var(--text-3)">Protocol</td>
+          <td>Aptos (Move smart-contract framework)</td></tr>
+      <tr><td style="color:var(--text-3)">Engine commit</td>
+          <td><code>e926fabc95</code> <span style="color:var(--text-3);font-size:11px">(e926fabc9582c029c34fbe23c217ef115ef8ed24)</span></td></tr>
+      <tr><td style="color:var(--text-3)">Source files</td>
+          <td><table style="border:none;margin:0;background:none"><tbody><tr><td><code>sources/access_control.move</code></td></tr><tr><td><code>sources/auction.move</code></td></tr><tr><td><code>sources/staking_pool.move</code></td></tr><tr><td><code>sources/token_vault.move</code></td></tr></tbody></table></td></tr>
+      <tr><td style="color:var(--text-3)">Hypothesis library</td>
+          <td>40 invariant claim(s) covering authorization, arithmetic safety, accounting consistency, capability handling, event auditability, and oracle / time freshness</td></tr>
+      <tr><td style="color:var(--text-3)">Out of scope</td>
+          <td style="color:var(--text-2)">Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>Move.toml</code> / <code>Cargo.toml</code> beyond their declared interfaces.</td></tr>
+    </tbody>
+  </table>
+
+
+  <div class="toc"><h2 style="margin-bottom:14px">01 &mdash; Per-finding analysis &middot; contents</h2><p style="color:var(--text-3);font-size:11px;margin:0 0 14px">Each finding below begins on its own page. Numbering matches the <code>FINDING NN / NN</code> banner in the body. Click any row to jump.</p><ol><li><span class="toc-num">01</span><span class="toc-sev"><span class="sev critical">Critical</span></span><a href="#finding-01">Missing auth check on transfer_admin</a><span class="toc-class">borrow-global-no-auth</span></li><li><span class="toc-num">02</span><span class="toc-sev"><span class="sev critical">Critical</span></span><a href="#finding-02">Permissionless emergency_drain drains the vault</a><span class="toc-class">treasury-drain</span></li></ol></div>
+
+  
+        <section class="finding" id="finding-01">
+          <div class="finding-banner">
+            <div class="finding-banner-num">FINDING 01 <span class="muted">/ 2</span></div>
+            <div class="finding-banner-meta">
+              <span class="sev critical">Critical</span>
+              <code class="finding-hyp">APT1-borrow-global-no-auth</code>
+              <code class="finding-class">borrow-global-no-auth</code>
+            </div>
+          </div>
+          <h3 class="finding-title">Missing auth check on <code>transfer_admin</code></h3>
+          <p class="finding-prose" style="color:var(--text-2);margin:-4px 0 14px;font-size:12.5px;line-height:1.55"><strong style="color:var(--text-3);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;font-family:var(--mono);margin-right:8px">Invariant</strong>Every `borrow_global_mut&lt;T&gt;(addr)` operation on a privileged resource is gated by an auth check that the caller is the owner of `addr` (or holds the right capability). Permissionlessly borrowing a privileged resource (admin config, treasury) lets anyone mutate it.</p>
+          <p class="finding-prose" style="color:var(--text-2);margin:-2px 0 14px;font-size:12px;line-height:1.55;padding:8px 12px;background:var(--surface);border:1px solid var(--rule);border-radius:4px"><strong style="color:var(--text-3);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;font-family:var(--mono);margin-right:8px">Cluster</strong>This finding represents 3 hypotheses that converged on the same code-site root cause. The cluster representative is <code>APT1-borrow-global-no-auth</code>; co-occurring duplicates: <code>APT4-capability-stored-not-consumed, APT5-acl-bypass-via-direct-entry</code>. Each duplicate produced an independent STRONG-classified PoC fire against the same engine function — see §B for the clustering rule.</p>
+
+          <h4>Impact</h4><p class="finding-prose">Any signer can call the privileged function and overwrite the resource without proving they are the current admin or capability holder. For a treasury / admin-cap module this is full protocol takeover: an attacker becomes admin in one transaction with zero preconditions beyond holding an Aptos account.</p>
+
+          <h4>Layer 3 — Symbolic verification (Move Prover)</h4>
+          <p class="finding-prose">✓ Move Prover found a counterexample (bug confirmed by symbolic execution)</p>
+          
+
+          <h4>Layer 4 — Property fuzz (aptos move test)</h4><p class="finding-prose">✓ Property fuzz ran the attacker scenario end-to-end without abort — bug-exploit reproduces cleanly, attacker&#x27;s predicted gain confirmed</p><pre class="code-block witness"><code>property test passed (1 PASS) — bug-exploit ran end-to-end without abort, demonstrating the attacker&#x27;s predicted gain</code></pre>
+
+          <h4>Recommendation</h4><p class="finding-prose">Gate every entry that performs `borrow_global_mut&lt;T&gt;(addr)` on a privileged resource through `access_control::assert_admin(...)` (or the equivalent capability check) BEFORE the mutation. Pass the actual signer&#x27;s address into the check — `signer::address_of(caller)` — so an attacker calling with a non-admin signer aborts before the borrow.</p>
+
+          
+
+          <h4 class="page-break-before">Layer 2 — Concrete proof of concept (engine-direct)</h4><pre class="code-block code-tight"><code class="language-rust">#[test(mutatis_signer = @mutatis)]
+    fun test_borrow_global_no_auth(mutatis_signer: &amp;signer) {
+        // Step 1: Create the @mutatis account and initialize AdminCap
+        account::create_account_for_test(@mutatis);
+        access_control::initialize(mutatis_signer);
+
+        // Verify initial state: admin is @mutatis
+        let initial_admin = access_control::current_admin();
+        assert!(initial_admin == @mutatis, 1);
+
+        // Step 2: Create an attacker account (not @mutatis)
+        let attacker_addr = @0xDEAD;
+        let attacker = account::create_account_for_test(attacker_addr);
+
+        // Step 3: Attacker calls transfer_admin without any auth check
+        // This should require the caller to be the current admin, but it doesn&#x27;t
+        // …setup truncated for brevity…
+        // The invariant &quot;only the current admin can transfer admin rights&quot; is broken
+        let new_admin = access_control::current_admin();
+
+        // If new_admin == attacker_addr, the bug fired: an unauthorized party
+        // successfully took over admin privileges
+        assert!(new_admin == attacker_addr, E_BUG_HIT);
+        // The above assert PASSES (test fires as a confirmed bug) because
+        // the unauthorized transfer succeeded. We want the test to FIRE,
+        // so we additionally assert the invariant that SHOULD hold but DOESN&#x27;T:
+        // &quot;admin should still be @mutatis since attacker had no rights&quot;
+        assert!(new_admin == @mutatis, E_BUG_HIT);
+    }</code></pre>
+
+          <h4>Layer P3 — Proposed structural fix (patch diff)</h4><pre class="code-block"><code class="language-diff">--- a/sources/access_control.move
++++ b/sources/access_control.move
+@@ -38,6 +38,7 @@
+     public entry fun transfer_admin(_caller: &amp;signer, new_admin: address) acquires AdminCap {
++        assert_admin(signer::address_of(_caller));
+         let handle = borrow_global_mut&lt;AdminCap&gt;(@mutatis);
+         handle.admin = new_admin;
+     }
+</code></pre>
+        </section>
+        
+        <section class="finding" id="finding-02">
+          <div class="finding-banner">
+            <div class="finding-banner-num">FINDING 02 <span class="muted">/ 2</span></div>
+            <div class="finding-banner-meta">
+              <span class="sev critical">Critical</span>
+              <code class="finding-hyp">APT38-treasury-drain</code>
+              <code class="finding-class">treasury-drain</code>
+            </div>
+          </div>
+          <h3 class="finding-title">Permissionless <code>emergency_drain</code> drains the vault</h3>
+          <p class="finding-prose" style="color:var(--text-2);margin:-4px 0 14px;font-size:12.5px;line-height:1.55"><strong style="color:var(--text-3);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;font-family:var(--mono);margin-right:8px">Invariant</strong>Every treasury-withdrawal function checks admin auth AND limits the amount to a sane fraction or via a time-lock. Unbounded admin withdrawal is a treasury rug-pull.</p>
+          
+
+          <h4>Impact</h4><p class="finding-prose">An unprivileged signer can withdraw arbitrary amounts from the protocol&#x27;s vault. No admin check, no rate limit, no time-lock: the attacker passes the desired amount and receives the funds. The vault&#x27;s internal accounting (`total_deposits`) is also not updated, so on-chain dashboards continue to show the pre-drain balance until the next deposit/withdraw rebalance.</p>
+
+          <h4>Layer 3 — Symbolic verification (Move Prover)</h4>
+          <p class="finding-prose">✓ Move Prover found a counterexample (bug confirmed by symbolic execution)</p>
+          
+
+          <h4>Layer 4 — Property fuzz (aptos move test)</h4><p class="finding-prose">✓ Property fuzz ran the attacker scenario end-to-end without abort — bug-exploit reproduces cleanly, attacker&#x27;s predicted gain confirmed</p><pre class="code-block witness"><code>property test passed (1 PASS) — bug-exploit ran end-to-end without abort, demonstrating the attacker&#x27;s predicted gain</code></pre>
+
+          <h4>Recommendation</h4><p class="finding-prose">Add `access_control::assert_admin(signer::address_of(invoker))` at the top of every treasury-withdrawal entry, and update the vault&#x27;s `total_deposits` counter in the same transaction as the coin extraction. For higher assurance, require a time-lock or multisig signer for emergency drains rather than a single-step admin call.</p>
+
+          
+
+          <h4 class="page-break-before">Layer 2 — Concrete proof of concept (engine-direct)</h4><pre class="code-block code-tight"><code class="language-rust">#[test(
+        framework = @aptos_framework,
+        admin_signer = @mutatis
+    )]
+    fun test_treasury_drain(
+        framework: &amp;signer,
+        admin_signer: &amp;signer,
+    ) {
+        // ── 1. Bootstrap Aptos framework (coin + timestamp) ──────────────
+        let framework_addr = @aptos_framework;
+        account::create_account_for_test(framework_addr);
+        let (burn_cap, mint_cap) = aptos_framework::aptos_coin::initialize_for_test(framework);
+
+        // ── 2. Create the mutatis admin account and initialise AC + vault ─
+        let admin_addr = @mutatis;
+        account::create_account_for_test(admin_addr);
+        // …setup truncated for brevity…
+        let attacker_balance = coin::balance&lt;AptosCoin&gt;(attacker_addr);
+        // If the attacker holds the drained funds, the bug is confirmed.
+        // We assert the vault should still hold its funds (invariant).
+        // This assert FAILS, firing the bug witness.
+        let vault_after = token_vault::total_deposits();
+        // vault_after is still deposit_amount (not updated by emergency_drain
+        // since it bypasses the accounting), but attacker has the coins.
+        assert!(
+            attacker_balance == 0,
+            E_BUG_HIT  // attacker stole funds → assert fires → bug confirmed
+        );
+</code></pre>
+
+          <h4>Layer P3 — Proposed structural fix (patch diff)</h4><pre class="code-block"><code class="language-diff">--- a/sources/token_vault.move
++++ b/sources/token_vault.move
+@@ -71,5 +71,7 @@
+     public entry fun emergency_drain(invoker: &amp;signer, amount: u64) acquires Vault {
++        access_control::assert_admin(signer::address_of(invoker));
+         let v = borrow_global_mut&lt;Vault&gt;(@mutatis);
+         let funds = coin::extract(&amp;mut v.reserve, amount);
+         coin::deposit&lt;AptosCoin&gt;(signer::address_of(invoker), funds);
++        v.total_deposits = v.total_deposits - amount;
+     }
+</code></pre>
+        </section>
+        
+
+  
+  
+  <h2>03 &mdash; Fix-bundle activity</h2>
+  <p style="color:var(--text-2)">
+    Per-finding fix-bundle pipeline state. Engine drafts + verifies; operator
+    authorizes via long-form typed phrase; PR opens only against a valid
+    authorization marker. The table includes bundles for confirmed findings
+    AND for triaged duplicates / SOFT / FALSE fires — the latter are retained
+    as audit-trail evidence of every PoC the hunt loop landed against the
+    target, NOT as published findings (see Layer 2.5 gating in §B).
+  </p>
+  <div class="kpi-grid"><div class="kpi"><div class="label">Confirmed-finding bundles</div><div class="value">2</div></div><div class="kpi"><div class="label">Advisory bundles</div><div class="value">5</div><div class="delta">duplicates + SOFT + FALSE retained for audit trail</div></div><div class="kpi"><div class="label">Verified</div><div class="value">0</div></div><div class="kpi"><div class="label">Authorized</div><div class="value">0</div></div><div class="kpi"><div class="label">Merged</div><div class="value">0</div></div></div>
+  <table><thead><tr><th>id</th><th>hypothesis</th><th>title</th><th>role</th><th>bundle status</th><th style="text-align:right">gates</th><th style="text-align:center">authz</th></tr></thead><tbody><tr><td><code>41</code></td><td><code>APT1-borrow-global-no-auth</code></td><td style="color:var(--text-2)">Missing auth check on transfer_admin</td><td style="color:var(--critical);font-family:var(--mono);font-size:11.5px">cluster rep (3 hyps)</td><td><code>drafted</code></td><td style="text-align:right"></td><td style="text-align:center">&middot;</td></tr><tr><td><code>72</code></td><td><code>APT38-treasury-drain</code></td><td style="color:var(--text-2)">Permissionless emergency_drain drains the vault</td><td style="color:var(--critical);font-family:var(--mono);font-size:11.5px">confirmed</td><td><code>drafted</code></td><td style="text-align:right"></td><td style="text-align:center">&middot;</td></tr><tr><td><code>74</code></td><td><code>APT4-capability-stored-not-consumed</code></td><td style="color:var(--text-2)">Privileged capability leak via transfer_admin</td><td style="color:var(--text-3);font-family:var(--mono);font-size:11.5px">duplicate of APT1-borrow-global-no-auth</td><td><code>drafted</code></td><td style="text-align:right"></td><td style="text-align:center">&middot;</td></tr><tr><td><code>76</code></td><td><code>APT5-acl-bypass-via-direct-entry</code></td><td style="color:var(--text-2)">ACL bypass via direct transfer_admin entry</td><td style="color:var(--text-3);font-family:var(--mono);font-size:11.5px">duplicate of APT1-borrow-global-no-auth</td><td><code>drafted</code></td><td style="text-align:right"></td><td style="text-align:center">&middot;</td></tr><tr><td><code>42</code></td><td><code>APT10-u64-overflow-arith</code></td><td style="color:var(--text-2)">Unchecked u64 arithmetic overflow in deposit</td><td style="color:var(--text-3);font-family:var(--mono);font-size:11.5px">FALSE — artifactual fire</td><td><code>drafted</code></td><td style="text-align:right"></td><td style="text-align:center">&middot;</td></tr><tr><td><code>60</code></td><td><code>APT27-stake-double-claim</code></td><td style="color:var(--text-2)">Stake reward double-claim in claim_rewards (no cursor advance)</td><td style="color:var(--text-3);font-family:var(--mono);font-size:11.5px">FALSE — artifactual fire</td><td><code>drafted</code></td><td style="text-align:right"></td><td style="text-align:center">&middot;</td></tr><tr><td><code>80</code></td><td><code>APT9-event-emit-missing</code></td><td style="color:var(--text-2)">Silent state mutation in transfer_admin (no event)</td><td style="color:var(--text-3);font-family:var(--mono);font-size:11.5px">SOFT — wrong invariant</td><td><code>drafted</code></td><td style="text-align:right"></td><td style="text-align:center">&middot;</td></tr></tbody></table>
+
+
+  <h2>A &mdash; Severity rubric</h2>
+  <table style="page-break-inside:avoid; break-inside:avoid;">
+    <thead><tr><th style="width:120px">Tier</th><th>Definition</th></tr></thead>
+    <tbody><tr><td><span class="sev critical">Critical</span></td><td style="color:var(--text-2)">Direct loss of user funds or full protocol takeover with no meaningful preconditions. Reachable from a permissionless instruction by any signer. Must be patched immediately.</td></tr><tr><td><span class="sev high">High</span></td><td style="color:var(--text-2)">Significant loss of user funds or protocol invariant violation under realistic preconditions (specific market state, signer with limited but obtainable role). Patch should ship in next release.</td></tr><tr><td><span class="sev medium">Medium</span></td><td style="color:var(--text-2)">Hardening issue, partial loss possible, or invariant violation requiring privileged signer or improbable state. Worth fixing in normal cadence.</td></tr><tr><td><span class="sev low">Low</span></td><td style="color:var(--text-2)">Minor issue with no plausible path to fund loss. Code-quality or defense-in-depth concern.</td></tr><tr><td><span class="sev info">Info</span></td><td style="color:var(--text-2)">Informational. No security impact. Documentation or style suggestion.</td></tr></tbody>
+  </table>
+
+  <h2>B &mdash; Methodology</h2>
+
+  <h3 style="font-size:13px;margin:18px 0 6px;color:var(--text-2)">Layer overview</h3>
+  <table>
+    <thead><tr><th style="width:130px">Layer</th><th>Function</th></tr></thead>
+    <tbody>
+      <tr><td><code>Layer 1</code></td>
+          <td style="color:var(--text-2)">Multi-agent recon. For each hypothesis, parallel LLM agents read the engine source and return a TRUE / FALSE / NEEDS_LAYER_2_TO_DECIDE verdict with confidence + per-agent grounding.</td></tr>
+      <tr><td><code>Layer 1.5</code></td>
+          <td style="color:var(--text-2)">Adversarial debate. Contested verdicts (NEEDS_L2 or split verdicts) are promoted through a single-round attacker / defender debate, with a separate judge resolving the final verdict.</td></tr>
+      <tr><td><code>Layer 2</code></td>
+          <td style="color:var(--text-2)">Concrete proof-of-concept. An inverted-assertion test is authored in Move and run via <code>aptos move test</code>. The test &quot;fires&quot; iff an abort with a custom error code originates in the target module (not stdlib / setup).</td></tr>
+      <tr><td><code>Layer 2.5</code></td>
+          <td style="color:var(--text-2)">Triage. An LLM judge classifies each fire as <code>STRONG</code> (real bug), <code>SOFT</code> (wrong invariant), <code>FALSE</code> (artifactual abort), or <code>LOST</code> (signal missing). STRONG fires are clustered by (engine_function, target_file) so the same code-site bug under multiple hypothesis IDs collapses to one root cause.</td></tr>
+      <tr><td><code>Layer 3</code></td>
+          <td style="color:var(--text-2)">Symbolic verification. Move Prover with Boogie + Z3 / CVC5 backends. The spec asserts the violated invariant; the prover either finds a counterexample (bug confirmed by SMT) or proves the invariant holds within the spec's bounded model.</td></tr>
+      <tr><td><code>Layer 4</code></td>
+          <td style="color:var(--text-2)">Property-based fuzzing via <code>aptos move test</code>. An LLM-authored property harness samples inputs and either aborts on the inverted assertion (FAIL pattern — bug reachable) or completes the attack scenario end-to-end (PASS pattern — exploit reproduces).</td></tr>
+      <tr><td><code>Layer P3</code></td>
+          <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 5-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass). Operator authorization is required before any upstream PR is opened.</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size:13px;margin:24px 0 6px;color:var(--text-2)">Cycle execution</h3>
+  <p style="color:var(--text-2)">
+    This cycle was produced by Jelleo's continuous, hypothesis-driven Aptos audit loop.
+    Every finding originates as a falsifiable invariant claim from a per-protocol
+    hypothesis library, dispatched to Layer 1 multi-agent recon, promoted on
+    contested verdicts via Layer 1.5 adversarial debate, and confirmed empirically
+    through a Layer 2 <code>aptos move test</code> proof-of-concept.
+    Layer 2.5 triage classifies each fire as
+    <code>STRONG</code> / <code>SOFT</code> / <code>FALSE</code> / <code>LOST</code>;
+    only STRONG cluster representatives advance to <code>confirmed</code> and
+    appear in §01 above. SOFT and STRONG duplicates land in <code>triaged</code>;
+    FALSE fires return to <code>new</code>. Lifecycle:
+    <code>new &rarr; triaged &rarr; confirmed &rarr; disclosed &rarr; fixed &rarr; verified</code>.
+    Every cycle is signed Ed25519 against the platform key — see the cover-page receipt.
+  </p>
+  <div style="display:flex;gap:0;margin:20px 0 12px;align-items:stretch"><div style="flex:1 1 0;text-align:center;padding:14px 10px;border:1px solid var(--rule);border-radius:6px;background:var(--surface)"><div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.18em;font-family:var(--mono)">Hypotheses</div><div style="font-size:26px;font-weight:700;color:var(--ink);margin-top:6px;font-variant-numeric:tabular-nums">40</div><div style="font-size:10px;color:var(--text-3);margin-top:4px;font-family:var(--mono);letter-spacing:.06em">from class library</div></div><div style="display:flex;align-items:center;justify-content:center;padding:0 4px;color:var(--ink-3);font-size:18px;font-family:var(--mono)">&rarr;</div><div style="flex:1 1 0;text-align:center;padding:14px 10px;border:1px solid var(--rule);border-radius:6px;background:var(--surface)"><div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.18em;font-family:var(--mono)">PoC fires</div><div style="font-size:26px;font-weight:700;color:var(--ink);margin-top:6px;font-variant-numeric:tabular-nums">7</div><div style="font-size:10px;color:var(--text-3);margin-top:4px;font-family:var(--mono);letter-spacing:.06em">7 fires triaged</div></div><div style="display:flex;align-items:center;justify-content:center;padding:0 4px;color:var(--ink-3);font-size:18px;font-family:var(--mono)">&rarr;</div><div style="flex:1 1 0;text-align:center;padding:14px 10px;border:1px solid var(--rule);border-radius:6px;background:var(--surface)"><div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.18em;font-family:var(--mono)">STRONG</div><div style="font-size:26px;font-weight:700;color:var(--ink);margin-top:6px;font-variant-numeric:tabular-nums">4</div><div style="font-size:10px;color:var(--text-3);margin-top:4px;font-family:var(--mono);letter-spacing:.06em">STRONG 4 · SOFT 1 · FALSE 2 · LOST 0</div></div><div style="display:flex;align-items:center;justify-content:center;padding:0 4px;color:var(--ink-3);font-size:18px;font-family:var(--mono)">&rarr;</div><div style="flex:1 1 0;text-align:center;padding:14px 10px;border:1px solid var(--rule);border-radius:6px;background:var(--surface)"><div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.18em;font-family:var(--mono)">Root causes</div><div style="font-size:26px;font-weight:700;color:var(--ink);margin-top:6px;font-variant-numeric:tabular-nums">2</div><div style="font-size:10px;color:var(--text-3);margin-top:4px;font-family:var(--mono);letter-spacing:.06em">4 STRONG → 2 cluster(s)</div></div><div style="display:flex;align-items:center;justify-content:center;padding:0 4px;color:var(--ink-3);font-size:18px;font-family:var(--mono)">&rarr;</div><div style="flex:1 1 0;text-align:center;padding:14px 10px;border:1px solid var(--rule);border-radius:6px;background:var(--surface)"><div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.18em;font-family:var(--mono)">Confirmed</div><div style="font-size:26px;font-weight:700;color:var(--ink);margin-top:6px;font-variant-numeric:tabular-nums">2</div><div style="font-size:10px;color:var(--text-3);margin-top:4px;font-family:var(--mono);letter-spacing:.06em">reach this report</div></div></div><p style="color:var(--text-3);font-size:11.5px;margin:6px 0 14px;line-height:1.55"><strong style="color:var(--text-3);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;font-family:var(--mono);margin-right:8px">Non-fire accounting</strong>33 hypotheses tested but PoC did not fire — 26× <code>rejected</code>, 7× <code>new</code>. These are hypotheses where Layer 1 / Layer 1.5 returned a verdict but the Layer 2 PoC author either declined to produce a test (no plausible attack) or the test ran without an abort in the target module.</p><p style="color:var(--text-3);font-size:11.5px;margin:6px 0 14px;font-family:var(--mono);letter-spacing:.06em"><strong style="color:var(--text-3);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;margin-right:8px">Cycle economics</strong>LLM spend: <code>$11.62</code> &middot; wall-clock: <code>2m 16s</code> &middot; per-hypothesis amortized: <code>$0.290</code><p style="color:var(--text-3);font-size:11px;margin:4px 0 18px;font-family:var(--mono);letter-spacing:.04em">&sect; B.1 &mdash; Cycle funnel. Hypotheses tested &rarr; PoC fires &rarr; Layer 2.5 judge filters out artifactual / mis-invariant fires &rarr; surviving STRONG fires cluster by code site &rarr; cluster representatives become published findings.</p>
+
+  <h2>C &mdash; Audit artifacts</h2>
+  <p style="color:var(--text-2)">
+    All cycle artifacts are persisted on disk and verifiable independently of
+    this report. The table below lists the canonical paths under the cycle workspace
+    so a reviewer can re-execute every layer or recompute the cycle Merkle root.
+  </p>
+  <table style="margin-top:8px"><thead><tr><th style="width:50%">Artifact</th><th>Path (relative to workspace)</th></tr></thead><tbody><tr ><td>Cycle summary (manifest of every step)</td><td><code>hunts/&lt;cycle&gt;/hunt_summary.json</code></td></tr><tr ><td>Per-step event log</td><td><code>hunts/&lt;cycle&gt;/hunt.log.jsonl</code></td></tr><tr ><td>Layer 2.5 triage verdicts</td><td><code>hunts/&lt;cycle&gt;/triage.jsonl</code></td></tr><tr ><td>Layer 2 PoC sources (Move)</td><td><code>tests/aptos/test_&lt;slug&gt;.move</code></td></tr><tr ><td>Layer 2 PoC run logs</td><td><code>hunts/&lt;cycle&gt;/poc/runlog_&lt;slug&gt;.log</code></td></tr><tr ><td>Layer 3 Move Prover specs</td><td><code>formal/aptos/spec_&lt;slug&gt;_invariant.move</code></td></tr><tr ><td>Layer 4 property-fuzz harnesses</td><td><code>fuzz/aptos/property_&lt;slug&gt;.move</code></td></tr><tr ><td>Layer P3 fix bundles (patch.diff + writeup.md + meta.json)</td><td><code>recon/bundles/&lt;finding_id&gt;/</code></td></tr><tr ><td>Narrative writeups (per finding)</td><td><code>hunts/&lt;cycle&gt;/narratives/&lt;hyp_id&gt;.md</code></td></tr><tr ><td>Cycle Merkle root (tamper-evidence)</td><td><code>hunts/&lt;cycle&gt;/merkle.json</code></td></tr><tr ><td>Findings DB (SQLite)</td><td><code>findings.db</code></td></tr><tr ><td>Ed25519 public key for receipt verification</td><td><code>https://jelleo.com/keys/jelleo.ed25519.pub</code></td></tr></tbody></table>
+
+  <h2>D &mdash; Disclaimers</h2>
+  <p style="color:var(--text-2)">
+    Findings in this report reflect the state of the engine source at the commit
+    hash on the cover page. Subsequent changes to the codebase are not analyzed.
+    The report is not a guarantee of code correctness or security: it documents
+    invariants that fired (or held) under the hypothesis library applied during
+    this cycle. Out-of-scope items are listed in §00.1 (Scope). Findings flagged
+    by Layer 2.5 as <code>SOFT</code> / <code>FALSE</code> / <code>LOST</code>
+    are retained in the audit trail (§03) but are not published findings; readers
+    should not interpret a bundle in §03 as a confirmed vulnerability unless its
+    finding row is also present in §01.
+  </p>
+  <p style="color:var(--text-2)">
+    Communication channel: <a href="mailto:security@jelleo.com">security@jelleo.com</a>
+    (PGP key on <a href="https://jelleo.com/security.html">jelleo.com/security.html</a>).
+    Coordinated disclosure follows the timeline published in our security policy;
+    pre-disclosure leak protections are enforced at the report level (the
+    <code>--public</code> renderer suppresses confirmed-but-not-disclosed findings).
+  </p>
+
+  <p style="color:var(--text-3);font-size:11.5px;margin-top:24px">
+    Methodology spec: <a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology">docs/methodology/</a>
+    &middot;
+    Live reference: <a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a>
+    &middot;
+    Source: <a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a>
+  </p>
+
+  
+    <div class="footer">
+      <span>JELLEO · The underwriting layer for Aptos DeFi · <a href="https://jelleo.com">jelleo.com</a></span>
+      <span class="muted">Cycle 20260513-191318</span>
+    </div>
+    
+
+</div>
+</body></html>

@@ -1,0 +1,1111 @@
+{
+  "schema": "audit-pipeline.hunt.v1",
+  "cycle_id": "20260513-191318",
+  "target": "osec-aptos-small",
+  "workspace": "/root/audit_runs/ottersec-eval/workspaces/aptos-small",
+  "source_mode": "local",
+  "source_repo": null,
+  "engine_sha": "e926fabc9582c029c34fbe23c217ef115ef8ed24",
+  "wrapper_sha": "e926fabc9582c029c34fbe23c217ef115ef8ed24",
+  "started_at": "2026-05-14T02:32:30+00:00",
+  "elapsed_seconds": 136.9,
+  "total_cost_usd": 11.6169,
+  "daily_spent_usd": 9.0,
+  "daily_cap_usd": 0.0,
+  "n_hypotheses": 40,
+  "n_candidates": 24,
+  "n_debate_runs": 40,
+  "n_poc_scaffolded": 24,
+  "n_poc_fired": 7,
+  "n_kani_runs": 0,
+  "n_litesvm_runs": 4,
+  "n_narratives": 0,
+  "n_confirmed": 7,
+  "confirmed": [
+    {
+      "hypothesis_id": "APT1-borrow-global-no-auth",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt1_borrow_global_no_auth.move",
+        "scaffold_rc": 0,
+        "compile_test_rc": null,
+        "fired": true,
+        "outcome": "test_failed_bug_reproduced",
+        "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt1_borrow_global_no_auth.log",
+        "authoring_mode": "adapter:aptos",
+        "framework": null,
+        "reason": "aptos move test failed: 0x42::test_borrow_global_no_auth::test_borrow_global_no_auth",
+        "duration_s": 0,
+        "resumed": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "APT10-u64-overflow-arith",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt10_u64_overflow_arith.move",
+        "scaffold_rc": 0,
+        "compile_test_rc": null,
+        "fired": true,
+        "outcome": "test_failed_bug_reproduced",
+        "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt10_u64_overflow_arith.log",
+        "authoring_mode": "adapter:aptos",
+        "framework": null,
+        "reason": "aptos move test failed: 0x42::test_apt10_u64_overflow_arith::test_apt10_u64_overflow_arith",
+        "duration_s": 0,
+        "resumed": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "APT27-stake-double-claim",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt27_stake_double_claim.move",
+        "scaffold_rc": 0,
+        "compile_test_rc": null,
+        "fired": true,
+        "outcome": "test_failed_bug_reproduced",
+        "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt27_stake_double_claim.log",
+        "authoring_mode": "adapter:aptos",
+        "framework": null,
+        "reason": "aptos move test failed: 0x42::test_apt27_stake_double_claim::test_apt27_stake_double_claim",
+        "duration_s": 0,
+        "resumed": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "APT38-treasury-drain",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt38_treasury_drain.move",
+        "scaffold_rc": 0,
+        "compile_test_rc": null,
+        "fired": true,
+        "outcome": "test_failed_bug_reproduced",
+        "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt38_treasury_drain.log",
+        "authoring_mode": "adapter:aptos",
+        "framework": null,
+        "reason": "aptos move test failed: 0x42::test_treasury_drain::test_treasury_drain",
+        "duration_s": 0,
+        "resumed": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "APT4-capability-stored-not-consumed",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt4_capability_stored_not_consumed.move",
+        "scaffold_rc": 0,
+        "compile_test_rc": null,
+        "fired": true,
+        "outcome": "test_failed_bug_reproduced",
+        "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt4_capability_stored_not_consumed.log",
+        "authoring_mode": "adapter:aptos",
+        "framework": null,
+        "reason": "aptos move test failed: 0x42::test_capability_stored_not_consumed::test_capability_stored_not_consumed",
+        "duration_s": 0,
+        "resumed": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "APT5-acl-bypass-via-direct-entry",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt5_acl_bypass_via_direct_entry.move",
+        "scaffold_rc": 0,
+        "compile_test_rc": null,
+        "fired": true,
+        "outcome": "test_failed_bug_reproduced",
+        "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt5_acl_bypass_via_direct_entry.log",
+        "authoring_mode": "adapter:aptos",
+        "framework": null,
+        "reason": "aptos move test failed: 0x42::test_acl_bypass_via_direct_entry::test_acl_bypass_via_direct_entry",
+        "duration_s": 0,
+        "resumed": true
+      },
+      "kani": null
+    },
+    {
+      "hypothesis_id": "APT9-event-emit-missing",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "poc": {
+        "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt9_event_emit_missing.move",
+        "scaffold_rc": 0,
+        "compile_test_rc": null,
+        "fired": true,
+        "outcome": "test_failed_bug_reproduced",
+        "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt9_event_emit_missing.log",
+        "authoring_mode": "adapter:aptos",
+        "framework": null,
+        "reason": "aptos move test failed: 0x42::test_event_emit_missing::test_event_emit_missing",
+        "duration_s": 0,
+        "resumed": true
+      },
+      "kani": null
+    }
+  ],
+  "verdicts": [
+    {
+      "hypothesis_id": "APT1-borrow-global-no-auth",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 24350,
+      "output_tokens": 2573
+    },
+    {
+      "hypothesis_id": "APT10-u64-overflow-arith",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 63773,
+      "output_tokens": 3676
+    },
+    {
+      "hypothesis_id": "APT11-u64-underflow-DoS",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 53267,
+      "output_tokens": 3539
+    },
+    {
+      "hypothesis_id": "APT12-fixed-point-precision-drop",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 133227,
+      "output_tokens": 3416
+    },
+    {
+      "hypothesis_id": "APT13-cast-truncation",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 144128,
+      "output_tokens": 3662
+    },
+    {
+      "hypothesis_id": "APT14-divide-by-zero",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 143407,
+      "output_tokens": 3116
+    },
+    {
+      "hypothesis_id": "APT15-rounding-direction",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 122591,
+      "output_tokens": 2745
+    },
+    {
+      "hypothesis_id": "APT16-oracle-staleness",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 91012,
+      "output_tokens": 2633
+    },
+    {
+      "hypothesis_id": "APT17-oracle-zero-price",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 53281,
+      "output_tokens": 2248
+    },
+    {
+      "hypothesis_id": "APT18-oracle-decimals-mismatch",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 150804,
+      "output_tokens": 3023
+    },
+    {
+      "hypothesis_id": "APT19-missing-pause-check",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 44643,
+      "output_tokens": 2944
+    },
+    {
+      "hypothesis_id": "APT2-missing-signer-check",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 24341,
+      "output_tokens": 2539
+    },
+    {
+      "hypothesis_id": "APT20-asymmetric-pause",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 22001,
+      "output_tokens": 1622
+    },
+    {
+      "hypothesis_id": "APT21-share-inflation-first-depositor",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 78218,
+      "output_tokens": 2851
+    },
+    {
+      "hypothesis_id": "APT22-share-donation-inflation",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 99329,
+      "output_tokens": 3545
+    },
+    {
+      "hypothesis_id": "APT23-total-supply-divergence",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 66060,
+      "output_tokens": 3157
+    },
+    {
+      "hypothesis_id": "APT24-missing-slippage",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 175697,
+      "output_tokens": 3261
+    },
+    {
+      "hypothesis_id": "APT25-no-deadline-on-permit",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 64766,
+      "output_tokens": 2790
+    },
+    {
+      "hypothesis_id": "APT26-withdraw-delay-bypass",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 141956,
+      "output_tokens": 2810
+    },
+    {
+      "hypothesis_id": "APT27-stake-double-claim",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 38068,
+      "output_tokens": 1910
+    },
+    {
+      "hypothesis_id": "APT28-auction-bid-after-end",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 73860,
+      "output_tokens": 2812
+    },
+    {
+      "hypothesis_id": "APT29-auction-settle-no-winner",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 35686,
+      "output_tokens": 2406
+    },
+    {
+      "hypothesis_id": "APT3-signer-address-of-not-checked",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 25089,
+      "output_tokens": 2699
+    },
+    {
+      "hypothesis_id": "APT30-module-publisher-confusion",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 130834,
+      "output_tokens": 3871
+    },
+    {
+      "hypothesis_id": "APT31-type-argument-confusion",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 80006,
+      "output_tokens": 2786
+    },
+    {
+      "hypothesis_id": "APT32-phantom-type-trust",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 71333,
+      "output_tokens": 2322
+    },
+    {
+      "hypothesis_id": "APT33-liquidation-no-min-amount",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 122340,
+      "output_tokens": 2768
+    },
+    {
+      "hypothesis_id": "APT34-liquidation-bonus-overflow",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 97083,
+      "output_tokens": 2990
+    },
+    {
+      "hypothesis_id": "APT35-lending-interest-accrual-overflow",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 84586,
+      "output_tokens": 4150
+    },
+    {
+      "hypothesis_id": "APT36-fee-receiver-unauthorized",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 199442,
+      "output_tokens": 3754
+    },
+    {
+      "hypothesis_id": "APT37-fee-percent-bound",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 75820,
+      "output_tokens": 2409
+    },
+    {
+      "hypothesis_id": "APT38-treasury-drain",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 33130,
+      "output_tokens": 2111
+    },
+    {
+      "hypothesis_id": "APT39-governance-flashloan-vote",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 84011,
+      "output_tokens": 2378
+    },
+    {
+      "hypothesis_id": "APT4-capability-stored-not-consumed",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 73600,
+      "output_tokens": 2910
+    },
+    {
+      "hypothesis_id": "APT40-proposal-replay",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 68123,
+      "output_tokens": 2285
+    },
+    {
+      "hypothesis_id": "APT5-acl-bypass-via-direct-entry",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 24346,
+      "output_tokens": 2061
+    },
+    {
+      "hypothesis_id": "APT6-friend-module-trust",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 86374,
+      "output_tokens": 3309
+    },
+    {
+      "hypothesis_id": "APT7-resource-double-move",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 111518,
+      "output_tokens": 5609
+    },
+    {
+      "hypothesis_id": "APT8-resource-leak",
+      "status": "OK",
+      "verdict": "FALSE",
+      "confidence": "HIGH",
+      "input_tokens": 23105,
+      "output_tokens": 2797
+    },
+    {
+      "hypothesis_id": "APT9-event-emit-missing",
+      "status": "OK",
+      "verdict": "TRUE",
+      "confidence": "HIGH",
+      "input_tokens": 48391,
+      "output_tokens": 3251
+    }
+  ],
+  "debate": {
+    "APT1-borrow-global-no-auth": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT1-borrow-global-no-auth_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT10-u64-overflow-arith": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT10-u64-overflow-arith_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT11-u64-underflow-DoS": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT11-u64-underflow-DoS_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT12-fixed-point-precision-drop": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT12-fixed-point-precision-drop_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT13-cast-truncation": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT13-cast-truncation_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT14-divide-by-zero": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT14-divide-by-zero_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT15-rounding-direction": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT15-rounding-direction_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT16-oracle-staleness": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT16-oracle-staleness_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT17-oracle-zero-price": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT17-oracle-zero-price_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT18-oracle-decimals-mismatch": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT18-oracle-decimals-mismatch_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT19-missing-pause-check": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT19-missing-pause-check_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": true
+    },
+    "APT2-missing-signer-check": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT2-missing-signer-check_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT20-asymmetric-pause": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT20-asymmetric-pause_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT21-share-inflation-first-depositor": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT21-share-inflation-first-depositor_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT22-share-donation-inflation": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT22-share-donation-inflation_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT23-total-supply-divergence": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT23-total-supply-divergence_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": true
+    },
+    "APT24-missing-slippage": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT24-missing-slippage_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT25-no-deadline-on-permit": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT25-no-deadline-on-permit_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT26-withdraw-delay-bypass": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT26-withdraw-delay-bypass_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT27-stake-double-claim": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT27-stake-double-claim_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT28-auction-bid-after-end": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT28-auction-bid-after-end_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT29-auction-settle-no-winner": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT29-auction-settle-no-winner_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT3-signer-address-of-not-checked": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT3-signer-address-of-not-checked_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT30-module-publisher-confusion": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT30-module-publisher-confusion_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT31-type-argument-confusion": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT31-type-argument-confusion_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT32-phantom-type-trust": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT32-phantom-type-trust_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT33-liquidation-no-min-amount": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT33-liquidation-no-min-amount_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT34-liquidation-bonus-overflow": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT34-liquidation-bonus-overflow_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT35-lending-interest-accrual-overflow": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT35-lending-interest-accrual-overflow_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT36-fee-receiver-unauthorized": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT36-fee-receiver-unauthorized_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT37-fee-percent-bound": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT37-fee-percent-bound_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT38-treasury-drain": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT38-treasury-drain_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT39-governance-flashloan-vote": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT39-governance-flashloan-vote_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT4-capability-stored-not-consumed": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT4-capability-stored-not-consumed_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT40-proposal-replay": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT40-proposal-replay_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT5-acl-bypass-via-direct-entry": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT5-acl-bypass-via-direct-entry_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT6-friend-module-trust": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT6-friend-module-trust_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    },
+    "APT7-resource-double-move": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT7-resource-double-move_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT8-resource-leak": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT8-resource-leak_challenger_response.md",
+      "promoted_to_layer2": true,
+      "demoted_by_debate": false
+    },
+    "APT9-event-emit-missing": {
+      "returncode": 0,
+      "challenger_response_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/debate/APT9-event-emit-missing_challenger_response.md",
+      "promoted_to_layer2": false,
+      "demoted_by_debate": false
+    }
+  },
+  "poc": {
+    "APT1-borrow-global-no-auth": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt1_borrow_global_no_auth.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": true,
+      "outcome": "test_failed_bug_reproduced",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt1_borrow_global_no_auth.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test failed: 0x42::test_borrow_global_no_auth::test_borrow_global_no_auth",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT10-u64-overflow-arith": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt10_u64_overflow_arith.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": true,
+      "outcome": "test_failed_bug_reproduced",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt10_u64_overflow_arith.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test failed: 0x42::test_apt10_u64_overflow_arith::test_apt10_u64_overflow_arith",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT2-missing-signer-check": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt2_missing_signer_check.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt2_missing_signer_check.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test exited non-zero without parseable PASS/FAIL (likely compile error)",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT20-asymmetric-pause": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt20_asymmetric_pause.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt20_asymmetric_pause.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test exited non-zero without parseable PASS/FAIL (likely compile error)",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT27-stake-double-claim": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt27_stake_double_claim.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": true,
+      "outcome": "test_failed_bug_reproduced",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt27_stake_double_claim.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test failed: 0x42::test_apt27_stake_double_claim::test_apt27_stake_double_claim",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT3-signer-address-of-not-checked": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt3_signer_address_of_not_checked.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt3_signer_address_of_not_checked.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test exited non-zero without parseable PASS/FAIL (likely compile error)",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT33-liquidation-no-min-amount": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt33_liquidation_no_min_amount.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt33_liquidation_no_min_amount.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT35-lending-interest-accrual-overflow": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt35_lending_interest_accrual_overflow.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt35_lending_interest_accrual_overflow.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT38-treasury-drain": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt38_treasury_drain.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": true,
+      "outcome": "test_failed_bug_reproduced",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt38_treasury_drain.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test failed: 0x42::test_treasury_drain::test_treasury_drain",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT4-capability-stored-not-consumed": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt4_capability_stored_not_consumed.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": true,
+      "outcome": "test_failed_bug_reproduced",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt4_capability_stored_not_consumed.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test failed: 0x42::test_capability_stored_not_consumed::test_capability_stored_not_consumed",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT5-acl-bypass-via-direct-entry": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt5_acl_bypass_via_direct_entry.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": true,
+      "outcome": "test_failed_bug_reproduced",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt5_acl_bypass_via_direct_entry.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test failed: 0x42::test_acl_bypass_via_direct_entry::test_acl_bypass_via_direct_entry",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT9-event-emit-missing": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt9_event_emit_missing.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": true,
+      "outcome": "test_failed_bug_reproduced",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt9_event_emit_missing.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test failed: 0x42::test_event_emit_missing::test_event_emit_missing",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT12-fixed-point-precision-drop": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt12_fixed_point_precision_drop.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt12_fixed_point_precision_drop.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT13-cast-truncation": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt13_cast_truncation.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt13_cast_truncation.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT17-oracle-zero-price": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt17_oracle_zero_price.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt17_oracle_zero_price.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT22-share-donation-inflation": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt22_share_donation_inflation.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt22_share_donation_inflation.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT25-no-deadline-on-permit": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt25_no_deadline_on_permit.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt25_no_deadline_on_permit.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT26-withdraw-delay-bypass": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt26_withdraw_delay_bypass.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt26_withdraw_delay_bypass.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT28-auction-bid-after-end": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt28_auction_bid_after_end.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt28_auction_bid_after_end.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "all tests passed (0 PASS) \u2014 bug not reachable from witness state",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT36-fee-receiver-unauthorized": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt36_fee_receiver_unauthorized.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt36_fee_receiver_unauthorized.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT39-governance-flashloan-vote": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt39_governance_flashloan_vote.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt39_governance_flashloan_vote.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT40-proposal-replay": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt40_proposal_replay.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt40_proposal_replay.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT7-resource-double-move": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt7_resource_double_move.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt7_resource_double_move.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "pseudo-pass: contains 'CANNOT_TEST'",
+      "duration_s": 0,
+      "resumed": true
+    },
+    "APT8-resource-leak": {
+      "scaffold_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/tests/aptos/test_apt8_resource_leak.move",
+      "scaffold_rc": 0,
+      "compile_test_rc": null,
+      "fired": false,
+      "outcome": "test_passed_no_bug",
+      "cargo_log_path": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/poc/runlog_apt8_resource_leak.log",
+      "authoring_mode": "adapter:aptos",
+      "framework": null,
+      "reason": "aptos move test exited non-zero without parseable PASS/FAIL (likely compile error)",
+      "duration_s": 0,
+      "resumed": true
+    }
+  },
+  "triage": {
+    "counts": {
+      "STRONG": 4,
+      "SOFT": 1,
+      "FALSE": 2,
+      "LOST": 0
+    },
+    "n_clusters": 4,
+    "n_llm_calls": 7,
+    "layer3_dispatch_set": [
+      "APT1-borrow-global-no-auth",
+      "APT38-treasury-drain",
+      "APT4-capability-stored-not-consumed",
+      "APT5-acl-bypass-via-direct-entry"
+    ],
+    "clusters": {
+      "APT1-borrow-global-no-auth": [
+        "APT1-borrow-global-no-auth"
+      ],
+      "APT38-treasury-drain": [
+        "APT38-treasury-drain"
+      ],
+      "APT4-capability-stored-not-consumed": [
+        "APT4-capability-stored-not-consumed"
+      ],
+      "APT5-acl-bypass-via-direct-entry": [
+        "APT5-acl-bypass-via-direct-entry"
+      ]
+    }
+  },
+  "kani": {},
+  "litesvm": {
+    "APT1-borrow-global-no-auth": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/fuzz",
+      "crash_found": true,
+      "ran_clean": true,
+      "fuzzer": "aptos-move-test",
+      "reason": "property test passed (1 PASS) \u2014 bug-exploit ran end-to-end without abort, demonstrating the attacker's predicted gain",
+      "duration_s": 30.548879623413086,
+      "resumed": true
+    },
+    "APT38-treasury-drain": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/fuzz",
+      "crash_found": true,
+      "ran_clean": true,
+      "fuzzer": "aptos-move-test",
+      "reason": "property test passed (1 PASS) \u2014 bug-exploit ran end-to-end without abort, demonstrating the attacker's predicted gain",
+      "duration_s": 27.97243309020996,
+      "resumed": true
+    },
+    "APT4-capability-stored-not-consumed": {
+      "returncode": 0,
+      "scaffold_dir": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/fuzz",
+      "crash_found": true,
+      "ran_clean": true,
+      "fuzzer": "aptos-move-test",
+      "reason": "property test passed (1 PASS) \u2014 bug-exploit ran end-to-end without abort, demonstrating the attacker's predicted gain",
+      "duration_s": 26.48077702522278,
+      "resumed": true
+    },
+    "APT5-acl-bypass-via-direct-entry": {
+      "returncode": 1,
+      "scaffold_dir": "/root/audit_runs/ottersec-eval/workspaces/aptos-small/hunts/20260513-191318/fuzz",
+      "crash_found": true,
+      "ran_clean": false,
+      "fuzzer": "aptos-move-test",
+      "reason": "property test aborted (1 FAIL, 0 PASS): 0x42::property_apt5_acl_bypass_via_direct_entry::property_apt5_acl_bypass_via_direct_entry",
+      "duration_s": 25.51035189628601,
+      "resumed": true
+    }
+  },
+  "narrative": {}
+}

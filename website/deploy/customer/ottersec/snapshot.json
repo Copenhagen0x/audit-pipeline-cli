@@ -1,0 +1,312 @@
+{
+  "cycle_merkle_roots": [],
+  "cycles_total": 1,
+  "fix_bundle_stats": {
+    "bundles_authorized": 0,
+    "bundles_drafted": 0,
+    "bundles_verified": 0,
+    "by_status": {},
+    "prs_merged": 0,
+    "prs_opened": 0
+  },
+  "generated_at": "2026-05-14T05:07:42+00:00",
+  "generated_at_ms": 1778735262475,
+  "loop_uptime_human": "4h 3m",
+  "loop_uptime_source": "jelleo-shadow.service",
+  "platform": "jelleo",
+  "propagation_stats": {
+    "bug_classes_declared": 687,
+    "bug_classes_with_signatures": 48,
+    "dispatches_pending": 0,
+    "dispatches_queued": 0,
+    "findings_with_bug_class": 7,
+    "propagation_reports": 0,
+    "sibling_files": 0
+  },
+  "public_findings": [],
+  "receipts_signed": 17,
+  "recent_cycles": [
+    {
+      "cycle_id": "20260513-191318",
+      "engine_sha": "e926fabc95",
+      "finished_at": "2026-05-14T02:39:32+00:00",
+      "n_confirmed": 7,
+      "n_contested": 14,
+      "n_debate_done": 40,
+      "n_dispatched": 40,
+      "n_kani_harnesses": 0,
+      "n_litesvm": 4,
+      "n_poc_logs": 39,
+      "n_true_layer1": 14,
+      "receipt_fingerprint": null,
+      "started_at": "2026-05-13T19:13:18+00:00",
+      "target_id": 10,
+      "triage_counts": {
+        "FALSE": 2,
+        "LOST": 0,
+        "SOFT": 1,
+        "STRONG": 4
+      }
+    }
+  ],
+  "services": [
+    {
+      "key": "shadow",
+      "last_tick_ms": 1778720625000,
+      "state": "up",
+      "unit": "jelleo-shadow.service"
+    },
+    {
+      "key": "watch",
+      "last_tick_ms": 1778720625000,
+      "state": "up",
+      "unit": "jelleo-watch.service"
+    },
+    {
+      "key": "scheduler-24h",
+      "last_tick_ms": 1778662903000,
+      "state": "up",
+      "unit": "jelleo-scheduler-24h.timer"
+    },
+    {
+      "key": "scheduler-weekly",
+      "last_tick_ms": 1778490944000,
+      "state": "stale",
+      "unit": "jelleo-scheduler-weekly.timer"
+    },
+    {
+      "key": "scheduler-monthly",
+      "last_tick_ms": 1778175216000,
+      "state": "stale",
+      "unit": "jelleo-scheduler-monthly.timer"
+    },
+    {
+      "key": "snapshot",
+      "last_tick_ms": 1778735253000,
+      "state": "up",
+      "unit": "jelleo-snapshot.timer"
+    },
+    {
+      "key": "backup",
+      "last_tick_ms": 1778733065000,
+      "state": "up",
+      "unit": "jelleo-backup.timer"
+    },
+    {
+      "key": "health",
+      "last_tick_ms": 1778735228000,
+      "state": "up",
+      "unit": "jelleo-health.timer"
+    },
+    {
+      "key": "heartbeat",
+      "last_tick_ms": 1778731921000,
+      "state": "up",
+      "unit": "jelleo-heartbeat.timer"
+    }
+  ],
+  "spend": {
+    "last_24h_usd": 5.7,
+    "last_call_at": "2026-05-14T03:50:13+00:00",
+    "n_calls_total": 516,
+    "source": "/root/.audit_api_calls.jsonl",
+    "today_usd": 1.94,
+    "total_usd": 284.15
+  },
+  "stats": {
+    "by_severity_disclosed": {
+      "Critical": 0,
+      "High": 0,
+      "Info": 0,
+      "Low": 0,
+      "Medium": 0
+    },
+    "n_cycles": 1,
+    "n_findings_disclosed": 0,
+    "n_findings_total": 40,
+    "n_targets": 12
+  },
+  "targets": [
+    {
+      "engine_repo": "sahuang-osec/aptos-large",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-aptos-large",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/aptos-medium",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-aptos-medium",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/aptos-small",
+      "last_cycle_at": "2026-05-13T19:13:18+00:00",
+      "last_cycle_id": "20260513-191318",
+      "n_findings": 40,
+      "n_findings_disclosed": 0,
+      "name": "osec-aptos-small",
+      "severity_counts": {
+        "Critical": 3,
+        "High": 3,
+        "Info": 26,
+        "Low": 1,
+        "Medium": 7
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/c-large",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-c-large",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/c-medium",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-c-medium",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/c-small",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-c-small",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/solana-large",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-solana-large",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/solana-medium",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-solana-medium",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/solana-small",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-solana-small",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/solidity-large",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-solidity-large",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/solidity-medium",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-solidity-medium",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    },
+    {
+      "engine_repo": "sahuang-osec/solidity-small",
+      "last_cycle_at": null,
+      "last_cycle_id": null,
+      "n_findings": 0,
+      "n_findings_disclosed": 0,
+      "name": "osec-solidity-small",
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Info": 0,
+        "Low": 0,
+        "Medium": 0
+      }
+    }
+  ],
+  "version": "v0.1"
+}

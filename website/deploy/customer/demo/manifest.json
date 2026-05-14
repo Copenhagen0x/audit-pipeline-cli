@@ -1,0 +1,104 @@
+{
+  "customer": {
+    "id": "demo",
+    "name": "Demo customer \u00b7 Percolator team view",
+    "protocol_name": "Percolator",
+    "since": "2026-04-22",
+    "tier": "Production",
+    "view_kind": "customer-private"
+  },
+  "cycles_total": 0,
+  "generated_at": "2026-05-14T05:12:38+00:00",
+  "generated_at_ms": 1778735558398,
+  "loop_uptime_human": "4h 8m",
+  "loop_uptime_source": "jelleo-shadow.service",
+  "platform": "jelleo",
+  "propagation_stats": {
+    "bug_classes_seen": 0,
+    "chain_links": [],
+    "findings_with_bug_class": 0,
+    "fix_bundle_counts": {},
+    "fix_bundles": [],
+    "propagation_reports": 0,
+    "sibling_files": 0
+  },
+  "public_findings": [],
+  "receipts_signed": 17,
+  "recent_cycles": [],
+  "services": [
+    {
+      "key": "shadow",
+      "last_tick_ms": 1778720625000,
+      "state": "up",
+      "unit": "jelleo-shadow.service"
+    },
+    {
+      "key": "watch",
+      "last_tick_ms": 1778720625000,
+      "state": "up",
+      "unit": "jelleo-watch.service"
+    },
+    {
+      "key": "scheduler-24h",
+      "last_tick_ms": 1778662903000,
+      "state": "up",
+      "unit": "jelleo-scheduler-24h.timer"
+    },
+    {
+      "key": "scheduler-weekly",
+      "last_tick_ms": 1778490944000,
+      "state": "stale",
+      "unit": "jelleo-scheduler-weekly.timer"
+    },
+    {
+      "key": "scheduler-monthly",
+      "last_tick_ms": 1778175216000,
+      "state": "stale",
+      "unit": "jelleo-scheduler-monthly.timer"
+    },
+    {
+      "key": "snapshot",
+      "last_tick_ms": 1778735507000,
+      "state": "up",
+      "unit": "jelleo-snapshot.timer"
+    },
+    {
+      "key": "backup",
+      "last_tick_ms": 1778733065000,
+      "state": "up",
+      "unit": "jelleo-backup.timer"
+    },
+    {
+      "key": "health",
+      "last_tick_ms": 1778735528000,
+      "state": "up",
+      "unit": "jelleo-health.timer"
+    },
+    {
+      "key": "heartbeat",
+      "last_tick_ms": 1778735521000,
+      "state": "up",
+      "unit": "jelleo-heartbeat.timer"
+    }
+  ],
+  "stats": {
+    "by_severity_disclosed": {
+      "Critical": 0,
+      "High": 0,
+      "Info": 0,
+      "Low": 0,
+      "Medium": 0
+    },
+    "by_severity_in_progress": {
+      "Critical": 0,
+      "High": 0,
+      "Info": 0,
+      "Low": 0,
+      "Medium": 0
+    },
+    "n_cycles": 0,
+    "n_findings_total": 0
+  },
+  "targets": [],
+  "version": "v0.1"
+}

@@ -1,0 +1,38 @@
+{
+  "cycle_id": "20260513-191318",
+  "engine_sha": "e926fabc9582c029c34fbe23c217ef115ef8ed24",
+  "fields": {
+    "cycle": [
+      "cycle_id",
+      "cycle_html_sha256",
+      "cycle_pdf_sha256",
+      "engine_sha",
+      "finished_at",
+      "n_confirmed",
+      "n_dispatched",
+      "started_at",
+      "target_id",
+      "wrapper_sha"
+    ],
+    "finding": [
+      "bug_class",
+      "bundle_digest",
+      "confidence",
+      "cycle_id",
+      "details_digest",
+      "engine_sha",
+      "hypothesis_id",
+      "id",
+      "poc_fired",
+      "severity",
+      "status",
+      "title",
+      "verdict",
+      "wrapper_sha"
+    ]
+  },
+  "merkle_root": "7b566237438fb0a522e49f5b4fca99133dd46568126ebea3410e4e576b0754de",
+  "n_findings": 40,
+  "n_leaves": 41,
+  "schema": "jelleo-cycle-merkle-v4"
+}

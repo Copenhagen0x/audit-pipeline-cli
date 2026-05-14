@@ -402,13 +402,20 @@ section { padding: 140px 0; position: relative; }
 /* Compact hero for utility / dashboard pages — title + lede only,
    no full-viewport reveal. Use on Status, Cycles, and similar pages
    where the real content sits below the fold and shouldn't be hidden
-   behind a screen of empty hero. */
+   behind a screen of empty hero.
+   Top padding must clear the FIXED nav at its UNSCROLLED height
+   (22px + 42px + 22px = 86px) plus visual breathing room. 130px was
+   too tight — the eyebrow "Cycle archive · signed receipts" overlapped
+   the nav-logo on narrow viewports and when system fonts loaded late.
+   160px gives a clear margin even on the first paint. */
 .hero.compact {
   min-height: 0;
-  padding: 130px 0 60px;
+  padding: 160px 0 60px;
+  position: relative;
+  z-index: 1;
 }
 @media (max-width: 768px) {
-  .hero.compact { padding: 96px 0 40px; }
+  .hero.compact { padding: 110px 0 40px; }
 }
 .hero-bracket {
   position: absolute; width: 120px; height: 120px;
