@@ -136,7 +136,26 @@ abort.
 ID: {hyp_id}
 Claim: {claim}
 Target file: {target_file}
-Engine function: {engine_function}
+
+**Engine function placeholder (DO NOT trust as a real function name):**
+`{engine_function}`
+
+⚠️  CRITICAL — read carefully. The `engine_function` value above is a
+generic placeholder from a CLASS hypothesis library (e.g. the value
+"transfer_admin" or "share_value" is a TEMPLATE name describing the
+bug class, NOT a guarantee that a function with that exact name
+exists in this codebase). On cycle 20260514-151541 the L2 author
+wrote tests calling `vault::share_value(...)` and
+`treasury::emergency_drain(...)` based on placeholder names — neither
+function exists in the actual source, every test failed to compile,
+~$10 of L2 spend was wasted.
+
+**Rule:** before writing the test, scan the Grounded source below
+and IDENTIFY the real function in the relevant module that matches
+the hypothesis claim. Call THAT function, not the placeholder. If no
+real function matches the claim, use the `CANNOT_TEST:` escape hatch
+at the bottom of this prompt.
+
 Relevant instructions: {relevant}
 
 # Move-language semantics
@@ -148,6 +167,19 @@ Relevant instructions: {relevant}
 * `assert!(cond, code)` aborts with `code` if `cond` is false.
 * Integer arithmetic ABORTS on overflow (not wraps). Reachable abort
   on attacker-supplied input = severity High.
+
+* **`acquires` is module-local only.** You CANNOT write
+  `acquires <other_module>::<Resource>` in your test module's
+  function signature — the Move bytecode verifier rejects it as
+  "acquires a resource from another module". Just call the target
+  module's `public entry fun` (e.g. `treasury::deposit`,
+  `vault::withdraw`) — the framework handles `acquires` internally
+  when the call crosses the module boundary. Cycle 20260514-151541
+  saw L2 tests fail to compile on this exact mistake — don't repeat it.
+
+* **Only import modules that exist in `sources/`.** Verify each
+  `use <addr>::<module>;` you write against the Grounded source
+  block below. If the module isn't there, you can't import it.
 
 # Grounded source
 
