@@ -835,7 +835,7 @@ def cover_page_html(
       </div>
 
       <div class="cover-hero">
-        <div class="cover-eyebrow">{protocol_label} audit &middot; {window_label}</div>
+        <div class="cover-eyebrow">{("Audit cycle &middot; " + audit_date_label) if audit_date_label else window_label}</div>
         <h1 class="cover-title"><span class="accent">{target_name}</span></h1>
 
         <div class="cover-meta-grid">
@@ -857,7 +857,7 @@ def cover_page_html(
         </div>
 
         <div class="cover-summary-caption">
-          Findings counted across lifecycle states: confirmed &middot; disclosed &middot; fixed &middot; verified
+          Confirmed &middot; disclosed &middot; fixed &middot; verified
         </div>
       </div>
 

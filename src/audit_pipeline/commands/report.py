@@ -448,54 +448,78 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
     Prover specs, fuzz harnesses, bundles, merkle root, signed reports
     — relative to the workspace root. Existence-checked so absent
     artifacts render dimmed with a "(missing)" marker.
+
+    Entry: ``(label, displayed_path, abs_path, fallback_note)`` —
+    fallback_note replaces the "(absent in this cycle)" marker when
+    the artifact lives outside the workspace by design (e.g. the
+    Ed25519 public key is platform-wide, served from jelleo.com/keys/).
     """
     cycle_dir = workspace / "hunts" / cycle_id
-    entries: list[tuple[str, str, Path]] = [
+    entries: list[tuple[str, str, Path, str]] = [
         ("Cycle summary (manifest of every step)",
          "hunts/<cycle>/hunt_summary.json",
-         cycle_dir / "hunt_summary.json"),
+         cycle_dir / "hunt_summary.json", ""),
         ("Per-step event log",
          "hunts/<cycle>/hunt.log.jsonl",
-         cycle_dir / "hunt.log.jsonl"),
+         cycle_dir / "hunt.log.jsonl", ""),
         ("Layer 2.5 triage verdicts",
          "hunts/<cycle>/triage.jsonl",
-         cycle_dir / "triage.jsonl"),
+         cycle_dir / "triage.jsonl", ""),
         ("Layer 2 PoC sources (Move)",
          "tests/aptos/test_<slug>.move",
-         workspace / "tests" / "aptos"),
+         workspace / "tests" / "aptos", ""),
         ("Layer 2 PoC run logs",
          "hunts/<cycle>/poc/runlog_<slug>.log",
-         cycle_dir / "poc"),
+         cycle_dir / "poc", ""),
         ("Layer 3 Move Prover specs",
          "formal/aptos/spec_<slug>_invariant.move",
-         workspace / "formal" / "aptos"),
+         workspace / "formal" / "aptos", ""),
         ("Layer 4 property-fuzz harnesses",
          "fuzz/aptos/property_<slug>.move",
-         workspace / "fuzz" / "aptos"),
+         workspace / "fuzz" / "aptos", ""),
         ("Layer P3 fix bundles (patch.diff + writeup.md + meta.json)",
          "recon/bundles/<finding_id>/",
-         workspace / "recon" / "bundles"),
+         workspace / "recon" / "bundles", ""),
         ("Narrative writeups (per finding)",
          "hunts/<cycle>/narratives/<hyp_id>.md",
-         cycle_dir / "narratives"),
+         cycle_dir / "narratives", ""),
         ("Cycle Merkle root (tamper-evidence)",
          "hunts/<cycle>/merkle.json",
-         cycle_dir / "merkle.json"),
+         cycle_dir / "merkle.json", ""),
         ("Findings DB (SQLite)",
          "findings.db",
-         workspace / "findings.db"),
+         workspace / "findings.db", ""),
         ("Ed25519 public key for receipt verification",
-         "keys/jelleo.ed25519.pub",
-         workspace / "keys" / "jelleo.ed25519.pub"),
+         "https://jelleo.com/keys/jelleo.ed25519.pub",
+         # Resolve to the first existing location: workspace → eval-suite
+         # → percolator-live → bundled. Caller only needs the file to
+         # exist somewhere; the cover already prints the canonical URL.
+         next(
+             (p for p in (
+                 workspace / "keys" / "jelleo.ed25519.pub",
+                 workspace.parent / "keys" / "jelleo.ed25519.pub",
+                 workspace.parent.parent / "keys" / "jelleo.ed25519.pub",
+             ) if p.is_file()),
+             workspace / "keys" / "jelleo.ed25519.pub",
+         ),
+         "(platform-wide key &mdash; served from jelleo.com/keys/)"),
     ]
     rows = []
-    for label, rel, abs_path in entries:
-        exists = abs_path.exists()
+    for label, rel, abs_path, fallback_note in entries:
+        exists = abs_path.exists() or bool(fallback_note)
         cell_style = "" if exists else 'style="color:var(--text-3)"'
-        suffix = "" if exists else (
-            ' <span style="color:var(--text-3);font-size:10.5px">'
-            '(absent in this cycle)</span>'
-        )
+        suffix = ""
+        if not abs_path.exists():
+            if fallback_note:
+                suffix = (
+                    ' <span style="color:var(--text-3);font-size:10.5px">'
+                    + fallback_note + '</span>'
+                )
+            else:
+                suffix = (
+                    ' <span style="color:var(--text-3);font-size:10.5px">'
+                    '(absent in this cycle)</span>'
+                )
         rows.append(
             f'<tr {cell_style}>'
             f'<td>{html.escape(label)}</td>'
@@ -573,42 +597,36 @@ def _executive_summary_section(
     else:
         sev_phrase = "no confirmed findings"
 
-    # Short summary of what each finding documents. Use the YAML's full
-    # claim (not the DB-truncated title) so the exec summary sentence
-    # doesn't end mid-word ("gated b", "limits the amount to a ").
+    # Short descriptive titles for each finding. Use the same generator
+    # as the per-finding heading + TOC so all three places read the same
+    # short, professional phrase ("Missing auth check on transfer_admin"
+    # / "Permissionless emergency_drain drains the vault"). Sidesteps
+    # the mid-word truncation problem that the YAML-claim-based version
+    # had, and avoids html-escape issues with type-parameter syntax in
+    # backtick-quoted code (`borrow_global_mut<T>(addr)`).
     hyp_library = _load_hypothesis_library(workspace) if workspace else {}
     titles = []
     for f in real_findings:
         hid = f.get("hypothesis_id") or ""
-        claim = ""
-        if hid and hyp_library.get(hid):
-            claim = (hyp_library[hid].get("claim") or "").strip()
-        if not claim:
-            claim = (f.get("title") or "").strip()
-        claim = re.sub(r"\s+", " ", claim)
-        if not claim:
-            continue
-        # Take the first sentence; if still too long, word-boundary cap.
-        first_sentence = re.split(r"(?<=[.!?])\s+", claim, maxsplit=1)[0]
-        if len(first_sentence) <= 120:
-            short = first_sentence
-        else:
-            cut = first_sentence[:117]
-            last_space = cut.rfind(" ")
-            if last_space >= 80:
-                cut = cut[:last_space]
-            short = cut.rstrip(" ,;:-") + "…"
-        # Strip trailing terminal punctuation so the joined list doesn't
-        # produce double periods ("time-lock..") when the joiner adds one.
-        short = short.rstrip(" .!?")
+        bc = f.get("bug_class") or ""
+        hyp_yaml = hyp_library.get(hid, {}) if hid else {}
+        ef = (hyp_yaml.get("engine_function") or "").strip()
+        short = _short_finding_title(
+            bug_class=bc, engine_function=ef,
+            hypothesis_id=hid, hyp_yaml=hyp_yaml,
+        )
         titles.append(short)
     findings_summary = ""
     if titles:
+        # Render titles with backticks as <code>. Joins with semicolons
+        # and prefixes with "(a) / (b) / (c)" so the inline list reads
+        # cleanly even on long lines.
+        rendered_titles = [_render_inline_backticks(t) for t in titles]
         if len(titles) == 1:
-            findings_summary = f" The finding documents: {titles[0]}."
-        elif len(titles) <= 3:
+            findings_summary = f" The finding documents: {rendered_titles[0]}."
+        elif len(titles) <= 4:
             findings_summary = " The findings document: " + "; ".join(
-                f"({chr(ord('a') + i)}) {t}" for i, t in enumerate(titles)
+                f"({chr(ord('a') + i)}) {t}" for i, t in enumerate(rendered_titles)
             ) + "."
 
     formal_phrase = (
@@ -1845,6 +1863,12 @@ def _fix_bundle_section(
     if not bdir.is_dir():
         return ""
 
+    # Use the same short-title generator as the per-finding heading + TOC
+    # so the §03 table reads "Missing auth check on transfer_admin" rather
+    # than the DB-truncated claim "Every privileged capability with `store`
+    # ability is given out under a finite, intentional".
+    hyp_library_for_bundles = _load_hypothesis_library(workspace)
+
     rows: list[dict] = []
     counts: dict[str, int] = {}
     for f in findings:
@@ -1871,10 +1895,20 @@ def _fix_bundle_section(
             except Exception:
                 pass
         ap = bdir / str(fid) / "authorization.json"
+        hid = f.get("hypothesis_id") or ""
+        bc = f.get("bug_class") or ""
+        hyp_yaml_row = hyp_library_for_bundles.get(hid, {}) if hid else {}
+        ef = (hyp_yaml_row.get("engine_function") or "").strip()
+        short = _short_finding_title(
+            bug_class=bc, engine_function=ef,
+            hypothesis_id=hid, hyp_yaml=hyp_yaml_row,
+        )
+        # Strip backticks for plain-text cell rendering; the function
+        # name still reads inline ("Missing auth check on transfer_admin").
         rows.append({
             "id":       fid,
-            "title":    (f.get("title") or "")[:90],
-            "hyp":      f.get("hypothesis_id") or "",
+            "title":    short.replace("`", ""),
+            "hyp":      hid,
             "status":   status,
             "gates":    gates_passed,
             "authorized": ap.is_file(),
@@ -2532,7 +2566,7 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
   {_fix_bundle_section(workspace, findings, public) if workspace else ""}
 
   <h2>A &mdash; Severity rubric</h2>
-  <table>
+  <table style="page-break-inside:avoid; break-inside:avoid;">
     <thead><tr><th style="width:120px">Tier</th><th>Definition</th></tr></thead>
     <tbody>{''.join(
         f'<tr><td><span class="sev {s.value.lower()}">{s.value}</span></td>'

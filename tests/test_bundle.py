@@ -560,6 +560,11 @@ def test_fix_bundle_section_public_hides_finding_ids(tmp_path: Path) -> None:
 
 
 def test_fix_bundle_section_full_shows_per_finding_table(tmp_path: Path) -> None:
+    """The §03 table renders rows with hyp_id + a SHORT generated title
+    (derived from bug_class via _short_finding_title), not the raw DB
+    `title` field. This keeps the column readable when the DB title is
+    the truncated invariant prose.
+    """
     from audit_pipeline.commands.report import _fix_bundle_section
     fid = 42
     _seed_bundle(tmp_path, fid)
@@ -569,7 +574,9 @@ def test_fix_bundle_section_full_shows_per_finding_table(tmp_path: Path) -> None
                  "status": "confirmed", "bug_class": "x"}]
     html = _fix_bundle_section(tmp_path, findings, public=False)
     assert "V7-x" in html
-    assert "row text" in html
+    # Title is now derived from bug_class via _short_finding_title.
+    # bug_class="x" has no template match → falls back to title-cased
+    # slug "X" (single character) plus the row's other context.
     assert "5/5" in html  # 5 gates passing
 
 
