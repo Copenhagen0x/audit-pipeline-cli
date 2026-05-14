@@ -509,12 +509,20 @@ def _findings_writeup(
         sev_cls = sev.value.lower()
         # The DB stores the full hypothesis "claim" prose as title — useful
         # as a finding-description paragraph but too long for the section
-        # heading. Truncate the heading at the end of the first sentence
-        # (or 110 chars) so the banner reads cleanly; keep the full text
-        # available below as a description paragraph.
+        # heading. Truncate at the end of the first sentence (or at a word
+        # boundary near 110 chars) so the banner reads cleanly; keep the
+        # full text available below as the Invariant description paragraph.
         full_title = (f.get("title") or hyp_id).strip()
         first_sentence = re.split(r"(?<=[.!?])\s+", full_title, maxsplit=1)[0]
-        title = first_sentence if len(first_sentence) <= 110 else full_title[:107].rstrip() + "…"
+        if len(first_sentence) <= 110:
+            title = first_sentence
+        else:
+            cut = full_title[:107]
+            # Break on the last whitespace so we don't truncate mid-word.
+            last_space = cut.rfind(" ")
+            if last_space >= 80:
+                cut = cut[:last_space]
+            title = cut.rstrip(" ,;:") + "…"
         bug_class = f.get("bug_class") or "unknown"
         finding_id = f.get("id")
 
