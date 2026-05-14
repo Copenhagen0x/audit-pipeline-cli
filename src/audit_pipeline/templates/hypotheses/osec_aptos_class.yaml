@@ -151,7 +151,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: u64-overflow-arith
-    engine_function: emergency_drain
+    engine_function: deposit
     target_file: sources/token_vault.move
     claim: >
       Every arithmetic op on a u64 balance / counter that COULD
