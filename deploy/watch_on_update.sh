@@ -25,9 +25,15 @@ mkdir -p "$(dirname "$LOG")"
     # Budget cap removed 2026-05-13 per operator request — hunt now runs
     # with hunt.py's default (effectively unlimited). Scope is constrained
     # by --skip-* flags instead.
+    # Cycle 20260514-151541 fix: --auto-publish is now passed explicitly
+    # to preserve the percolator-live auto-publish workflow after the
+    # hunt-default flag was flipped to --no-auto-publish. Without this
+    # explicit pass, every percolator-live commit-triggered cycle would
+    # stop publishing to jelleo.com/cycles/.
     audit-pipeline --workspace "$WORKSPACE" hunt \
         --skip-poc --skip-debate --skip-narrative \
         --skip-kani --skip-propagate --skip-bundle \
+        --auto-publish \
         "$@"
     echo "=== watch_on_update done $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 } 2>&1 | tee -a "$LOG"

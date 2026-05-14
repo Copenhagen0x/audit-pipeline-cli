@@ -1674,6 +1674,48 @@ main.bridge {
     }
   }
 
+  // ───── Multi-layer activity tracker (cycle 20260514-151541 fix) ─────
+  //
+  // Before this helper, the top-row sparkline counters (tokens/s,
+  // hyps/min) were ONLY fed from recon_hyp_done (L1) and the hyp
+  // grid tile states ONLY updated from L1 verdicts. Result: after
+  // L1 finished, every metric on the dashboard froze even while
+  // L1.5 / L2 / L2.5 / L3 / L4 were actively running. Operator quote:
+  //   "top row - tokens, hyps, tools - they all dead after L1"
+  //
+  // _trackLayerEvent unifies the bookkeeping. Every per-layer
+  // completion event passes through here so:
+  //   * spark-tokens reflects token use from EVERY layer, not just L1
+  //   * spark-hyps reflects completions across all layers
+  //   * hyp grid tile colors update as a hyp progresses L1 → L1.5 → L2 → L2.5
+  //
+  // tileState is layer-specific:
+  //   L1 done:      'fire' | 'ok'        (set from verdict)
+  //   L1.5 done:    null (no color change — debate is judgement, not state)
+  //   L2 fired:     'fire' (overrides L1, empirical)
+  //   L2 not fired: 'ok'   (overrides L1, empirical)
+  //   L2.5 STRONG:  'confirmed'
+  //   L3 proved:    'confirmed'
+  //   L4 crash:     'confirmed'
+  function _trackLayerEvent(ev, tileState) {
+    state.hypsDoneThisMinute.push(Date.now());
+    if (typeof ev.input_tokens === 'number') {
+      state.tokensThisSec.push({
+        ts: Date.now(),
+        tokens: ev.input_tokens + (ev.output_tokens || 0),
+      });
+    } else if (ev.token_usage && typeof ev.token_usage.input_tokens === 'number') {
+      state.tokensThisSec.push({
+        ts: Date.now(),
+        tokens: ev.token_usage.input_tokens + (ev.token_usage.output_tokens || 0),
+      });
+    }
+    const hid = ev.hyp_id || ev.hypothesis_id;
+    if (hid && tileState !== undefined) {
+      setHypTileState(hid, tileState);
+    }
+  }
+
   // ───── Findings waterfall ─────
   function upsertFinding(f) {
     const fid = f.id != null ? String(f.id) : (f.hypothesis_id + '-' + (f.cycle_id || ''));
@@ -1734,9 +1776,28 @@ main.bridge {
     } else {
       argStr = ev.path || ev.pattern || ev.name || '';
     }
+    // Multi-layer tablet (2026-05-14): tag each tool-call row with the
+    // emitting layer so the tablet doesn't look L1-only. Derive layer
+    // from the event's `_phase` field when present (cycle_log_writer
+    // tags it), otherwise from the currently-active layer in
+    // state.layerState as a fallback. Defaults to L? if neither.
+    let phaseLabel = ev._phase || ev.phase || null;
+    if (!phaseLabel && state.layerState) {
+      const active = Object.entries(state.layerState).find(([_, v]) => v === 'active');
+      if (active) phaseLabel = active[0];
+    }
+    const PHASE_TO_TAG = {
+      'recon': 'L1', 'L1': 'L1',
+      'debate': 'L1.5', 'L1.5': 'L1.5',
+      'poc': 'L2', 'L2': 'L2',
+      'l25_triage': 'L2.5', 'triage': 'L2.5', 'L2.5': 'L2.5',
+      'kani': 'L3', 'formal': 'L3', 'L3': 'L3',
+      'litesvm': 'L4', 'fuzz': 'L4', 'L4': 'L4',
+    };
+    const layerTag = PHASE_TO_TAG[phaseLabel] || phaseLabel || 'L?';
     row.innerHTML =
       '<span class="ts">' + ts.toTimeString().slice(0, 8) + '</span>' +
-      '<span class="hid">' + safeStr(ev.hyp_id || '—', 16) + '</span>' +
+      '<span class="hid">[' + safeStr(layerTag, 5) + '] ' + safeStr(ev.hyp_id || '—', 16) + '</span>' +
       '<span class="args"><span class="tool">' + safeStr(ev.tool || 'tool', 14) + '</span> ' + safeStr(argStr, 200) + '</span>';
     body.prepend(row);
     setTimeout(() => row.classList.remove('fresh'), 800);
@@ -2030,17 +2091,36 @@ main.bridge {
       const gridTotal = $('grid-total');
       if (gridTotal) gridTotal.textContent = '0';
 
+      // Bug fix (cycle 20260514-151541): differentiate "genuinely new
+      // cycle" from "SSE reconnect replay of in-progress cycle". The
+      // SSE service emits cycle_active on every connect, so a page
+      // refresh during a paused/layer-by-layer run triggers this
+      // handler with the SAME ev.cycle as state.activeCycle. Without
+      // this guard we (a) zeroed the cost display until the next 30s
+      // heartbeat overwrote it, and (b) forced L1 back to "running"
+      // even when L1 already finished, fighting with the manifest's
+      // paintLayerWaterfallFromCycle output and flickering the
+      // waterfall on every refresh.
+      const isNewCycle = state.activeCycle !== ev.cycle;
       state.activeCycle = ev.cycle;
-      state.cycleStartedAt = Date.now();
-      // Reset cycle-cost accumulator — every new cycle starts at $0
-      state.cycleSpendUsd = 0;
-      setCost(0);
       $('active-cycle').textContent = safeStr(ev.cycle, 28);
-      $('cycle-started').textContent = fmtTime(Date.now());
-      setStage('Cycle active', `Cycle <span class="accent">${safeStr(ev.cycle, 28)}</span> is running`);
       pushEvent('cycle_active', 'cycle ' + ev.cycle, ev.ts);
-      setLayer('L0', 'done', '✓');
-      setLayer('L1', 'active', 'running', 5);
+      if (isNewCycle) {
+        state.cycleStartedAt = Date.now();
+        // Reset cycle-cost accumulator — every new cycle starts at $0
+        state.cycleSpendUsd = 0;
+        setCost(0);
+        $('cycle-started').textContent = fmtTime(Date.now());
+        setStage('Cycle active', `Cycle <span class="accent">${safeStr(ev.cycle, 28)}</span> is running`);
+        setLayer('L0', 'done', '✓');
+        setLayer('L1', 'active', 'running', 5);
+      } else {
+        // Reconnect/replay: leave cost + layer state alone — heartbeat
+        // poll + manifest preload already painted authoritative values,
+        // and forcing L1=active here would clobber a layer that may
+        // already be done in a paused layer-by-layer run.
+        pushEvent('cycle_active', 'reconnect replay ' + ev.cycle + ' (no reset)', ev.ts);
+      }
       return;
     }
 
@@ -2099,6 +2179,8 @@ main.bridge {
       else if (cls === 'FALSE')  state.triage.false_++;
       else if (cls === 'LOST')   state.triage.lost++;
       renderTriage();
+      // Multi-layer wiring (2026-05-14): feed counters + tile state
+      _trackLayerEvent(ev, cls === 'STRONG' ? 'confirmed' : (cls === 'FALSE' ? 'ok' : undefined));
       pushEvent('triage', ev.hyp_id + ' → ' + cls, ev.ts);
       return;
     }
@@ -2149,6 +2231,17 @@ main.bridge {
       return ts >= (sess - 5000);
     }
 
+    if (k === 'debate_progress') {
+      // Per-debate token + completion event (emitted by debate.py
+      // after each challenger LLM call). Carries input_tokens and
+      // output_tokens so the top-row sparklines stay alive during
+      // L1.5. Cycle 20260514-151541 fix: hunt.py's debate_one event
+      // has no token info, so we couldn't feed spark-tokens from
+      // L1.5 without this companion event.
+      _trackLayerEvent(ev, undefined);
+      return;
+    }
+
     if (k === 'debate_one' || k === 'debate_done') {
       // Debate batch — mark L1 done (recon must have completed) and
       // L1.5 active. The triage_done event later flips L1.5 → done.
@@ -2156,6 +2249,12 @@ main.bridge {
       setLayer('L1.5', 'active', 'running');
       if (k === 'debate_done') {
         setLayer('L1.5', 'done', '✓');
+      }
+      // Multi-layer wiring (2026-05-14): feed sparkline counters from
+      // debate completions too. Tile state unchanged — challenger
+      // verdict is opinion, not empirical state transition.
+      if (k === 'debate_one') {
+        _trackLayerEvent(ev, undefined);
       }
       pushEvent(k, ev.hypothesis_id || ev.hyp_id || '?', ev.ts);
       return;
@@ -2168,6 +2267,9 @@ main.bridge {
       if (r15 && !r15.classList.contains('done')) setLayer('L1.5', 'done', '✓');
       setLayer('L2', 'active', 'running');
       const fired = (ev.fired === true);
+      // Multi-layer wiring (2026-05-14): L2 PoC is empirical so it
+      // overrides L1's tile color. fired=true → 'fire', else 'ok'.
+      _trackLayerEvent(ev, fired ? 'fire' : 'ok');
       pushEvent('L2 ' + k, (ev.hypothesis_id || ev.hyp_id || '?') + (fired ? ' 🔥' : ''), ev.ts);
       return;
     }
@@ -2194,6 +2296,9 @@ main.bridge {
       else if (ev.proved === true) label += ' ✓ proved';
       else if (ev.counterexample === true) label += ' ✗ counterexample';
       else if (ev.proved === false && ev.counterexample === false) label += ' ? indeterminate';
+      // Multi-layer wiring (2026-05-14): L3 formal verification result
+      // promotes tile to 'confirmed' on proved-true.
+      _trackLayerEvent(ev, ev.proved === true ? 'confirmed' : undefined);
       pushEvent('L3', label, ev.ts);
       return;
     }
@@ -2214,6 +2319,9 @@ main.bridge {
       if (ev.crash_found === true) label += ' 🔥 crash';
       else if (ev.ran_clean === true) label += ' ✓ clean';
       else if (ev.ran_clean === false) label += ' ⚠ unclean';
+      // Multi-layer wiring (2026-05-14): L4 fuzz crash promotes tile
+      // to 'confirmed' (empirical exploit reproduction).
+      _trackLayerEvent(ev, ev.crash_found === true ? 'confirmed' : undefined);
       pushEvent('L4', label, ev.ts);
       return;
     }
@@ -2360,6 +2468,13 @@ main.bridge {
   //     in a single classList op so 'confirmed' isn't dropped.
   function paintGridFromCycle(cycle) {
     if (!cycle) return;
+    // Bug fix (cycle 20260514-151541): skip painting anonymous
+    // placeholder tiles when the cycle is in-progress. SSE will
+    // deliver real hyp_ids via recon_hyp_start — painting both
+    // creates phantom-tile inflation (e.g. 41 anonymous tiles
+    // named "<cycle>#1..#41" + N real tiles named "APT1..." =
+    // operator sees 67 in a 61-hyp cycle).
+    if (cycle.in_progress) return;
     const n  = cycle.n_dispatched | 0;
     const nT = cycle.n_true_layer1 | 0;
     const nC = cycle.n_confirmed | 0;
@@ -2463,7 +2578,26 @@ main.bridge {
       || phase === 'publishing'
     );
     if (isFinished) {
-      ['L0', 'L1', 'L1.5', 'L2', 'L2.5'].forEach(L => setLayer(L, 'done', '✓'));
+      // L0 (prompt build) and L1 (recon) ran on every cycle that
+      // reached the publish stage. Mark unconditionally done.
+      setLayer('L0', 'done', '✓');
+      setLayer('L1', 'done', '✓');
+      // Bug fix (cycle 20260514-151541): L1.5 / L2 / L2.5 / L3 / L4
+      // can ALL be skipped per the operator's --skip-* flags. Mark
+      // each based on whether the manifest has positive evidence
+      // they ran. n_confirmed > 0 implies L2 + L2.5 + L1.5 ran (a
+      // bug confirmed for the customer only after passing each).
+      // Standalone signals: n_debate_runs / n_poc_fired / n_triage.
+      // None of these have manifest fields today, so we fall back
+      // on the n_confirmed implication. Without it we mark
+      // "skipped" so the operator sees the partial-cycle truth
+      // rather than reading false "completed" greens.
+      const ran125 = (cycle.n_confirmed || 0) > 0
+                   || (cycle.n_debate_runs || 0) > 0
+                   || (cycle.n_poc_fired || 0) > 0;
+      setLayer('L1.5', ran125 ? 'done' : 'skipped', ran125 ? '✓' : 'n/a');
+      setLayer('L2',   ran125 ? 'done' : 'skipped', ran125 ? '✓' : 'n/a');
+      setLayer('L2.5', ran125 ? 'done' : 'skipped', ran125 ? '✓' : 'n/a');
       const l3Ran = (cycle.n_kani_harnesses || 0) > 0;
       const l4Ran = (cycle.n_litesvm || 0) > 0;
       setLayer('L3', l3Ran ? 'done' : 'skipped', l3Ran ? '✓' : 'n/a');

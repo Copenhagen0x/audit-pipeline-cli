@@ -54,6 +54,16 @@ Target file: {TARGET_FILE}
 
 {PROPOSER_EVIDENCE}
 
+## Engine source (inlined — do NOT call tools, the full source is below)
+
+The complete engine source for the target file pattern is included below.
+You have everything you need to make line-cited counter-arguments without
+tool calls. Tool calls that fail were the failure mode on cycle 20260514-
+151541 — sources are now inlined to guarantee the challenger can produce
+real evidence-based refutation.
+
+{ENGINE_SOURCE}
+
 {LANGUAGE_CONTEXT}
 
 ## Your task

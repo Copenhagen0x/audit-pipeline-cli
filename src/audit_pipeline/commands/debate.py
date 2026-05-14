@@ -164,6 +164,80 @@ def _challenger_language_context(language: str) -> str:
 SUPPORTED_LANGUAGES = sorted(_CHALLENGER_LANGUAGE_FRAMES.keys())
 
 
+def _resolve_engine_source_for_debate(
+    workspace: Path,
+    target_file: str | None,
+    max_bytes: int = 80_000,
+) -> str:
+    """Inline the engine source for the hypothesis under debate.
+
+    Bug fix (cycle 20260514-151541): the L1.5 challenger ran without
+    source access — its tool-call attempts hit the same Solana-system-
+    prompt path-resolution failures that plagued 4 of 61 recon agents
+    in L1. Without source, challengers can only make structural
+    arguments ("I cannot verify the proposer's evidence — escalate to
+    L2"), which adds no audit signal because the cycle then escalates
+    every TRUE/HIGH anyway.
+
+    Resolution: load workspace.json's ``engine.local`` and concatenate
+    matching ``target_file`` source files (glob-aware) into a single
+    inline blob the prompt template can drop straight into the
+    challenger's context. Tool-callability becomes irrelevant.
+
+    Returns a "(source not resolvable)" string when the workspace is
+    missing the engine pin OR the target_file path can't be found.
+    Defensive — never let a missing engine.local crash the L1.5
+    dispatch loop.
+    """
+    import json as _json
+    if not target_file:
+        return "(target file not specified — challenger has no source to inline)"
+    try:
+        ws_json = workspace / "workspace.json"
+        if not ws_json.is_file():
+            return "(workspace.json missing — challenger has no source to inline)"
+        cfg = _json.loads(ws_json.read_text(encoding="utf-8"))
+        engine_local = cfg.get("engine", {}).get("local")
+        if not engine_local:
+            return "(workspace.json has no engine.local — challenger has no source to inline)"
+        engine_dir = (workspace / engine_local).resolve()
+        if not engine_dir.is_dir():
+            return f"(engine.local resolved to {engine_dir} but it's not a directory)"
+
+        # Glob-aware: target_file may be 'sources/*.move' or 'src/lib.rs'
+        paths: list[Path] = []
+        if "*" in target_file or "?" in target_file:
+            paths = sorted(engine_dir.glob(target_file))
+        else:
+            candidate = engine_dir / target_file
+            if candidate.is_file():
+                paths = [candidate]
+        if not paths:
+            return f"(no source files matched {target_file!r} under {engine_dir})"
+
+        chunks: list[str] = []
+        used = 0
+        for p in paths:
+            try:
+                body = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            try:
+                rel = str(p.relative_to(engine_dir))
+            except (ValueError, AttributeError):
+                rel = p.name
+            header = f"\n// ===== {rel} =====\n"
+            budget = max_bytes - used - len(header)
+            if budget <= 0:
+                break
+            block = header + body[:budget]
+            chunks.append(block)
+            used += len(block)
+        return "```\n" + "\n".join(chunks) + "\n```"
+    except (OSError, _json.JSONDecodeError, KeyError) as exc:
+        return f"(could not resolve engine source: {exc})"
+
+
 @click.command(name="debate")
 @click.option(
     "--hypothesis-id",
@@ -414,6 +488,14 @@ def _debate_body(
     else:
         proposer_evidence_for_challenger = proposer_text
 
+    # Bug fix (cycle 20260514-151541): inline the engine source into the
+    # challenger prompt. Without source, the challenger has nothing to
+    # verify the proposer's evidence against — it produces structural
+    # arguments ("I can't verify, so NEEDS_LAYER_2") that add no audit
+    # signal. With source inlined the challenger can write line-cited
+    # refutations and the L1.5 layer recovers its purpose.
+    engine_source = _resolve_engine_source_for_debate(workspace, target_file)
+
     rendered = render_placeholders(
         template,
         HYPOTHESIS_ID=hypothesis_id,
@@ -425,6 +507,7 @@ def _debate_body(
         # the verdict block and leak evidence through this placeholder.
         PROPOSER_VERDICT=_extract_verdict_section(proposer_text, redacted=redact_proposer_evidence),
         PROPOSER_EVIDENCE=proposer_evidence_for_challenger,
+        ENGINE_SOURCE=engine_source,
         # PHASE 1c: language-specific failure-mode block. Steers the
         # challenger to bug classes relevant to the language under test
         # (Solidity reentrancy / Move borrow_global / C UAF / etc) on
@@ -474,6 +557,29 @@ def _debate_body(
 
     response_path = output / f"{hypothesis_id}_challenger_response.md"
     response_path.write_text(response.text, encoding="utf-8")
+
+    # Multi-layer dashboard wiring (cycle 20260514-151541): emit a
+    # progress event the dashboard's _trackLayerEvent helper can read
+    # so the top-row sparklines (tokens/s, hyps/min) keep ticking
+    # while L1.5 is in flight. Without this, the dashboard's "tokens"
+    # row froze at zero the moment L1 finished — debate_one (emitted
+    # by hunt.py) carries no token counts because they're only
+    # available inside this debate subprocess. emit_event is a no-op
+    # when JELLEO_CYCLE_LOG_PATH isn't set (e.g. dev runs), so this
+    # never crashes.
+    try:
+        from audit_pipeline.utils.event_log import emit_event
+        emit_event(
+            "debate_progress",
+            hypothesis_id=hypothesis_id,
+            hyp_id=hypothesis_id,  # alias for dashboard handlers keyed on hyp_id
+            input_tokens=int(response.input_tokens or 0),
+            output_tokens=int(response.output_tokens or 0),
+            _phase="L1.5",
+        )
+    except Exception:
+        # Event emission must never crash the cycle.
+        pass
 
     challenger_verdict = _extract_challenger_verdict(response.text)
     proposer_verdict_text = _extract_verdict_section(proposer_text).strip()

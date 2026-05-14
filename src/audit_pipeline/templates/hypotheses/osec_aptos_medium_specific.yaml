@@ -1,0 +1,345 @@
+# OSec eval — Aptos · medium
+#
+# Targeted hypothesis library for the `sahuang-osec/aptos-medium`
+# engine, derived from manual source-read of the 13 modules:
+#   acl, errors, events, fee_manager, governance, lending_pool,
+#   liquidation, math, oracle, rewards, staking, treasury, vault
+#
+# Pair this file with `osec_aptos_class.yaml` (the generic class library)
+# at hunt time — the class library catches bugs that generalize across
+# eval tiers; this file catches the specific code-site bugs that the
+# medium codebase has.
+#
+# Severity tagged by manual eyeball read against the engine source.
+# Layer 1 recon agents will re-validate each invariant against the
+# actual source before any L2 PoC fires.
+
+hypotheses:
+
+  # ─────────────────── CRITICAL (6) ───────────────────
+
+  - id: APTM1-vault-fee-recipient-confused-deputy
+    class: authorization
+    severity: Critical
+    bug_class: fee-receiver-unauthorized
+    engine_function: set_fee_recipient
+    target_file: sources/vault.move
+    claim: >
+      Every privileged setter on the Vault module uses
+      `signer::address_of(caller)` as the auth subject. The current
+      `set_fee_recipient(caller, host, claimed_admin, new_recipient)`
+      reads `claimed_admin` as the auth subject for the admin check,
+      where `claimed_admin` is an attacker-controlled parameter. Any
+      caller can pass a known admin address as `claimed_admin`, pass
+      the admin check, and overwrite `fee_recipient` to themselves.
+
+  - id: APTM2-treasury-emergency-withdraw-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: treasury-drain
+    engine_function: emergency_withdraw
+    target_file: sources/treasury.move
+    claim: >
+      Every treasury withdrawal function checks admin auth on the
+      signer. `emergency_withdraw(_caller, host, amount)` discards
+      `_caller` (underscore-prefixed) and performs no auth check. Any
+      signer can call it and drain `Treasury.balance` down to zero.
+
+  - id: APTM3-oracle-update-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: update_price
+    target_file: sources/oracle.move
+    claim: >
+      Every privileged setter on the Oracle module checks that the
+      caller is an admin. `update_price(_caller, host, token, price)`
+      discards `_caller` and writes `entry_ref.price = price` for any
+      token. Any signer can set any token's price to any value,
+      enabling oracle manipulation that downstream consumers
+      (`lending_pool`, `liquidation`) trust without validation.
+
+  - id: APTM4-lending-borrow-oracle-driven-solvency-bypass
+    class: authorization
+    severity: Critical
+    bug_class: oracle-driven-solvency-bypass
+    engine_function: borrow
+    target_file: sources/lending_pool.move
+    claim: >
+      Every solvency check on `borrow` reads collateral/debt prices
+      from an oracle that is authenticated and rate-limited.
+      `borrow` calls `oracle::get_price` for both collateral and
+      debt tokens; the oracle's `update_price` is permissionless
+      (see APTM3), so an attacker can set `debt_token` price to 0
+      before calling `borrow`, making `debt_val = 0` regardless of
+      `debt`, passing the LTV check, and borrowing without
+      meaningful collateralization.
+
+  - id: APTM5-staking-fund-rewards-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: reward-pool-inflation
+    engine_function: fund_rewards
+    target_file: sources/staking.move
+    claim: >
+      Every modification to the staking pool's reward balance is
+      gated by admin auth (or by accounting tied to actual deposits).
+      `fund_rewards(funder, host, amount)` takes `funder` but
+      discards it (`let _ = signer::address_of(funder)`), then writes
+      `bucket.reward_pool = amount + bucket.reward_pool`. Any signer
+      can inflate `reward_pool` to `u64::MAX` and then claim from it.
+
+  - id: APTM6-fee-manager-distribute-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: distribute
+    target_file: sources/fee_manager.move
+    claim: >
+      Every accrual of recipient-claimable fees on the FeeManager
+      module is gated by admin auth or driven by realized protocol
+      revenue. `distribute(_account, host, amount)` discards
+      `_account` and accrues `amount` proportionally to every
+      configured recipient, also inflating `balance`. Any signer can
+      call `distribute(u64::MAX)` and inflate every recipient's
+      `accrued` field to a number they can then claim against the
+      inflated `balance`.
+
+  # ─────────────────── HIGH (5) ───────────────────
+
+  - id: APTM7-governance-vote-replay
+    class: state_transition
+    severity: High
+    bug_class: proposal-replay
+    engine_function: vote
+    target_file: sources/governance.move
+    claim: >
+      Every governance vote is counted once per voter per proposal.
+      `vote(voter, host, proposal_id, support)` calls
+      `vector::push_back(&mut prop_ref.votes, Vote {voter, weight,
+      ...})` without checking whether `voter` has already voted on
+      this proposal. A voter can call `vote` N times for the same
+      proposal — each call appends a Vote with `weight =
+      staking::stake_amount(voter)`, so the voter's effective weight
+      is multiplied by N at tally time.
+
+  - id: APTM8-staking-unstake-delay-bypass-via-restake
+    class: state_transition
+    severity: High
+    bug_class: withdraw-delay-bypass
+    engine_function: unstake
+    target_file: sources/staking.move
+    claim: >
+      Every staked principal sits behind `unstake_delay` from the
+      time it was added to the pool. `stake` only sets `start_ts` on
+      first stake creation; subsequent stake additions update
+      `amount` but NOT `start_ts`. After the original delay has
+      lapsed, a user can stake a fresh much-larger amount and
+      immediately unstake the entire balance — because
+      `current_ts >= entry.start_ts + delay` is evaluated against the
+      stale (original) `start_ts`, not the time of the latest
+      deposit.
+
+  - id: APTM9-staking-reward-drift-on-amount-change
+    class: state_transition
+    severity: High
+    bug_class: stake-reward-accounting-drift
+    engine_function: stake
+    target_file: sources/staking.move
+    claim: >
+      Every stake addition or removal settles outstanding rewards
+      against the user's pre-change amount before mutating `amount`.
+      `stake` and `unstake` modify `entry.amount` without updating
+      `entry.last_claim_ts` or settling `entry.accumulated_rewards`,
+      so the next `claim()` computes `accrued = mul_div(rate * delta,
+      CURRENT_amount, total_staked)` — using the latest amount for
+      the entire window since the original `last_claim_ts`. A user
+      who stakes 1 wei at t=0 and stakes 1B at t=100 receives reward
+      as if they held 1B for 100 seconds.
+
+  - id: APTM10-lending-borrow-no-collateral-escrow
+    class: invariant_property
+    severity: High
+    bug_class: signer-not-bound-to-resource
+    engine_function: borrow
+    target_file: sources/lending_pool.move
+    claim: >
+      Every borrow on the lending pool requires the borrower to
+      first deposit `collateral` worth of asset into an escrow that
+      the protocol can seize on liquidation. `borrow(user, host,
+      collateral_token, collateral, debt)` takes `collateral` as an
+      attacker-controlled `u64` parameter and persists it directly
+      into `Loan.collateral` with no token transfer, escrow, or
+      ownership check. The borrower can claim arbitrary collateral
+      they don't actually hold, borrow against it, and never face
+      real consequences on default.
+
+  - id: APTM11-lending-interest-never-accrues
+    class: invariant_property
+    severity: High
+    bug_class: lending-interest-accrual-overflow
+    engine_function: borrow
+    target_file: sources/lending_pool.move
+    claim: >
+      Every open loan on the lending pool accrues interest over time
+      based on its stored `rate_bps` and the delta since
+      `last_accrual_ts`. Loans store `rate_bps` and `last_accrual_ts`
+      at creation but no function reads `last_accrual_ts` or
+      compounds `Loan.debt`. Debt remains constant after origination,
+      so borrowers owe the principal indefinitely with no interest
+      cost.
+
+  # ─────────────────── MEDIUM (6) ───────────────────
+
+  - id: APTM12-vault-share-inflation-first-depositor
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: share-inflation-first-depositor
+    engine_function: deposit
+    target_file: sources/vault.move
+    claim: >
+      Every vault deposit mints shares that maintain a stable
+      per-share asset price even for the first depositor (using a
+      dead-share or minimum-deposit gate). `deposit` issues
+      `minted = amount` when `total_shares == 0`, then on subsequent
+      deposits issues `minted = mul_div(amount, total_shares,
+      total_assets)`. A first depositor of 1 wei followed by a
+      pre-arranged inflation of `total_assets` (any path that
+      increases `total_assets` without minting shares) lets the
+      attacker cause subsequent depositors' `minted` to truncate to
+      zero.
+
+  - id: APTM13-events-empty-stubs
+    class: state_transition
+    severity: Medium
+    bug_class: event-emit-missing
+    engine_function: emit_proposal
+    target_file: sources/events.move
+    claim: >
+      Every state-mutating entry on the protocol emits a typed event
+      capturing the actor, the resource affected, and the relevant
+      before/after fields. Every `emit_*` function in `events.move`
+      is an empty stub (`public fun emit_proposal(_proposer: address,
+      _id: u64) {}` and similar). Every governance vote, borrow,
+      repay, liquidation, stake, and unstake mutation across the
+      protocol is silent at the event layer — observers cannot
+      reconstruct activity from on-chain logs.
+
+  - id: APTM14-liquidation-oracle-driven
+    class: invariant_property
+    severity: Medium
+    bug_class: oracle-driven-solvency-bypass
+    engine_function: liquidate
+    target_file: sources/liquidation.move
+    claim: >
+      Every liquidation requires the liquidatee's position to be
+      genuinely unhealthy as determined by a trusted, signed,
+      rate-limited oracle. `is_liquidatable` reads
+      `lending_pool::loan_health` which reads `oracle::get_price`;
+      the oracle's `update_price` is permissionless (APTM3). An
+      attacker can set `debt_token` price to `u64::MAX` just before
+      calling `liquidate`, force any healthy position into the
+      liquidatable range, and seize collateral.
+
+  - id: APTM15-lending-close-loan-collateral-lost
+    class: invariant_property
+    severity: Medium
+    bug_class: resource-leak
+    engine_function: close_loan
+    target_file: sources/lending_pool.move
+    claim: >
+      Every loan closure returns the borrower's remaining collateral.
+      `close_loan` removes the `Loan` from the loans vector without
+      crediting the borrower's collateral back. A loan with `debt=0`
+      and `collateral>0` closes silently and the collateral is
+      discarded from the protocol's accounting.
+
+  - id: APTM16-lending-remove-collateral-no-accrual
+    class: state_transition
+    severity: Medium
+    bug_class: stake-double-claim
+    engine_function: remove_collateral
+    target_file: sources/lending_pool.move
+    claim: >
+      Every collateral withdrawal first accrues outstanding interest
+      on the loan so the post-withdrawal solvency check reflects
+      true debt. `remove_collateral` reads `entry.debt` directly for
+      the LTV check without first compounding interest from
+      `last_accrual_ts`. Combined with APTM11 (interest never
+      accrues), withdraws don't see the real debt — but the
+      structural defect is the missing accrual call regardless of
+      whether downstream accrual is broken.
+
+  - id: APTM17-rewards-fund-permissionless
+    class: authorization
+    severity: Medium
+    bug_class: reward-pool-inflation
+    engine_function: fund
+    target_file: sources/rewards.move
+    claim: >
+      Every modification to the Rewards module's `epoch_pool`
+      balance is gated by admin auth (or by realized protocol
+      revenue). `fund(_account, host, amount)` discards `_account`
+      and writes `state.epoch_pool = amount + state.epoch_pool`. Any
+      signer can inflate `epoch_pool` to `u64::MAX`. Grants are
+      admin-gated so the inflation alone doesn't pay an attacker,
+      but it removes the natural rate limit on legitimate claims.
+
+  # ─────────────────── LOW / INFO (4) ───────────────────
+
+  - id: APTM18-governance-execute-no-payload
+    class: state_transition
+    severity: Low
+    bug_class: proposal-replay
+    engine_function: execute
+    target_file: sources/governance.move
+    claim: >
+      Every executed governance proposal triggers the action that
+      proposers and voters voted on. `execute` performs the quorum
+      math, then sets `prop_ref.executed = true` and exits — no
+      function dispatch, no parameter routing, no state mutation
+      beyond the `executed` flag. Passed proposals have no effect.
+
+  - id: APTM19-oracle-staleness-broken
+    class: invariant_property
+    severity: Low
+    bug_class: oracle-staleness
+    engine_function: update_price
+    target_file: sources/oracle.move
+    claim: >
+      Every oracle price write timestamps the entry so consumers
+      can reject stale readings. `update_price` sets
+      `entry_ref.updated_ts = 0` on every call (creation and
+      update), and `get_price` does not consult `updated_ts` at all.
+      Staleness detection is structurally impossible regardless of
+      what consumers might want to do.
+
+  - id: APTM20-staking-emergency-unstake-principal-lost
+    class: invariant_property
+    severity: Low
+    bug_class: resource-leak
+    engine_function: emergency_unstake
+    target_file: sources/staking.move
+    claim: >
+      Every emergency-unstake exit returns the user's principal
+      minus the configured penalty. `emergency_unstake` sets
+      `entry.amount = 0`, sends the penalty portion to
+      `bucket.reward_pool`, but DOES NOT credit the user with the
+      payout (principal minus penalty). The user's stake is wiped;
+      they receive nothing.
+
+  - id: APTM21-acl-mint-cap-permissionless
+    class: authorization
+    severity: Low
+    bug_class: cap-leak
+    engine_function: mint_admin_cap
+    target_file: sources/acl.move
+    claim: >
+      Every privileged capability mint is gated by an existing admin
+      check. `acl::mint_admin_cap(host)` is `public` with no
+      `signer` parameter and no auth — any caller can mint an
+      `AdminCap { authority: host }`. The current cap consumers
+      (`consume_admin_cap`, `cap_authority`) read the authority
+      address but don't grant powers on its own; the mint is a
+      latent risk surface for any future consumer that trusts cap
+      presence as evidence of admin.

@@ -233,7 +233,18 @@ console = Console()
 )
 @click.option(
     "--auto-publish/--no-auto-publish",
-    default=True,
+    # Cycle 20260514-151541 fix: flipped True -> False. The default-on
+    # behavior auto-published a STUB report (n_confirmed=0) to
+    # jelleo.com/cycles/ the moment an L1-only or L1.5-only hunt
+    # invocation finished — because the --skip-* flags only short-
+    # circuit LAYER execution, NOT the cycle-wrap-up publish hook.
+    # The operator was running layer-by-layer with explicit pauses
+    # between layers and expected each hunt invocation to STOP cleanly
+    # at the boundary, not push a partial deliverable to the public
+    # site. Default is now safe (no publish) — pass --auto-publish
+    # explicitly when you want the percolator-live-style end-to-end
+    # auto-publish behavior (watch_on_update.sh does pass it).
+    default=False,
     show_default=True,
     help=(
         "When the cycle finishes, run deploy/publish_cycle.sh: copies "
@@ -296,7 +307,15 @@ console = Console()
 )
 @click.option(
     "--redact-proposer-evidence/--full-proposer-evidence",
-    default=True, show_default=True,
+    # Cycle 20260514-151541 fix: flipped True->False. The CLI's default
+    # bound the challenger's prompt to redacted-evidence mode in EVERY
+    # hunt invocation (the inner function default was already flipped,
+    # but this Click option overrides it). Combined with no source
+    # inline (also fixed same cycle), L1.5 produced "I can't verify,
+    # escalate" verdicts that added no signal. Default now full so
+    # adversarial review is meaningful. Pass --redact-proposer-evidence
+    # for the legacy independence-by-redaction mode.
+    default=False, show_default=True,
     help=(
         "L1.5 debate independence: pass only the proposer's verdict "
         "line (not the line citations + code) to the challenger. Forces "
@@ -740,11 +759,24 @@ def _hunt_run(
     resolved_sha: str,
     engine_dir_for_cargo: Path,
     resume_cycle: str | None = None,
-    auto_publish: bool = True,
+    # Cycle 20260514-151541 fix: inner default flipped True->False to
+    # match the Click option default (see comment above). Click passes
+    # the option value through, so this default only matters in
+    # programmatic test callers — but keeping them in sync prevents
+    # the "test passes, prod publishes" surprise.
+    auto_publish: bool = False,
     use_tools: bool = True,
     tool_max_turns: int = 12,
     challenger_model: str | None = None,
-    redact_proposer_evidence: bool = True,
+    # Cycle 20260514-151541 fix: default flipped from True to False.
+    # When True, the challenger gets only the verdict line — combined
+    # with no inline source (also fixed in debate.py same cycle), the
+    # challenger had nothing to verify and produced structural
+    # "NEEDS_LAYER_2" verdicts on every hyp. Now: proposer evidence
+    # PLUS inline source go to challenger, restoring the layer's
+    # adversarial signal. Pass --redact-proposer-evidence on the
+    # command line for the legacy redacted-debate mode.
+    redact_proposer_evidence: bool = False,
     triage_fires: bool = True,
     language: str = "solana",
     customer_id: str | None = None,
@@ -824,7 +856,12 @@ def _hunt_run(
     if customer_id:
         # Walk up: workspace is <repo>/audit_runs/<customer>-eval/workspaces/<cell>
         # parent.parent.parent gives us <repo>/audit_runs/<customer>-eval
-        candidate = workspace.parent.parent
+        # Bug fix (cycle 20260514-151541): resolve() first so relative paths
+        # like ``--workspace .`` still find the rollup. Without it,
+        # Path('.').parent.parent == Path('.') and the -eval check never
+        # matched, sending the cycle's findings to the per-cell DB instead.
+        resolved_ws = workspace.resolve()
+        candidate = resolved_ws.parent.parent
         if (candidate / "findings.db").exists() or candidate.name.endswith("-eval"):
             db_workspace = candidate
             console.print(

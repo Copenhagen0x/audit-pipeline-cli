@@ -61,12 +61,21 @@ def _resolve_findings_db_path(workspace_path: Path) -> Path:
     confirmed finding. Root cause was choosing the per-cell DB
     (which existed but was empty) over the shared customer DB at
     ``ottersec-eval/findings.db`` where the actual rows lived.
+
+    Operator-caught regression on cycle 20260514-151541: the rollup
+    detection silently failed when the workspace was invoked with a
+    relative path (e.g. ``--workspace .``). ``Path(".").parent.parent``
+    is still ``Path(".")``, so ``candidate.name`` was empty and the
+    ``"-eval"`` suffix check never matched. Resolve to absolute first
+    so the parent walk reaches the real directory names regardless
+    of how the operator invoked the CLI.
     """
     try:
-        candidate = workspace_path.parent.parent
+        resolved = workspace_path.resolve()
+        candidate = resolved.parent.parent
         shared = candidate / "findings.db"
         if (
-            workspace_path.parent.name == "workspaces"
+            resolved.parent.name == "workspaces"
             and candidate.name.endswith("-eval")
             and shared.is_file()
         ):
