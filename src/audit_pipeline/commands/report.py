@@ -583,6 +583,9 @@ def _executive_summary_section(
             if last_space >= 80:
                 cut = cut[:last_space]
             short = cut.rstrip(" ,;:-") + "…"
+        # Strip trailing terminal punctuation so the joined list doesn't
+        # produce double periods ("time-lock..") when the joiner adds one.
+        short = short.rstrip(" .!?")
         titles.append(short)
     findings_summary = ""
     if titles:
