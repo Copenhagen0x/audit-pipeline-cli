@@ -1494,6 +1494,36 @@ def _hunt_run(
                 # CALIBRATED: per-hyp PoC author cost ~$0.05 (same as Solana).
                 daily_cap.record_spend(0.05)
                 total_cost += 0.05
+
+                # Cycle 20260514-151541 anti-bullshit guard: reject the
+                # APT12-style "pages of math in comments + trivial
+                # assert" tests BEFORE compiling. The adapter exposes
+                # detect_weak_test(); if it flags the body, mark the
+                # outcome as weak_test and skip the compile+run cost.
+                _weak = False
+                _weak_reason = None
+                if hasattr(_l2_adapter, "detect_weak_test"):
+                    try:
+                        _weak, _weak_reason = _l2_adapter.detect_weak_test(body)
+                    except Exception:  # noqa: BLE001
+                        _weak = False
+                if _weak:
+                    log(
+                        "l2_weak_test_rejected",
+                        hypothesis_id=hyp_id,
+                        reason=_weak_reason,
+                    )
+                    poc_results[hyp_id] = {
+                        "scaffold_path": None,
+                        "scaffold_rc": 0,
+                        "compile_test_rc": None,
+                        "fired": False,
+                        "outcome": "weak_test",
+                        "weak_test_reason": _weak_reason,
+                        "authoring_mode": f"adapter:{language}",
+                    }
+                    continue
+
                 # Write test file then run it via the adapter
                 try:
                     test_path = _l2_adapter.write_test_file(

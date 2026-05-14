@@ -194,6 +194,64 @@ Relevant instructions: {relevant}
 # Move.toml named addresses
 
 {addr_block}
+
+# 🔥 ANTI-BULLSHIT CONTRACT (read before authoring — non-negotiable)
+
+The Layer-2 PoC layer exists to provide EMPIRICAL EVIDENCE the bug is
+reachable. A test that compiles + runs but never exercises the buggy
+code path is WORSE than no test — it inflates the "pass-no-bug" count
+and gives downstream triage a false signal.
+
+The following are AUTOMATIC REJECTIONS (the post-cycle gate flags
+these as `weak_test` and your output is wasted spend):
+
+1. **No exploration in comments.** If you need to find specific
+   inputs that trigger the bug, do that reasoning in your head
+   BEFORE writing the test. Code comments documenting the bug are
+   fine (1-3 lines max). Pages of math working out divergent cases
+   in `// ...` lines while the test body remains trivial = REJECT.
+   Cycle 20260514-151541 APT12 wrote 80+ lines of math in comments,
+   then `assert!(rate == 0, 0)` with zero borrows — the test passed
+   trivially without ever triggering the precision loss. Don't.
+
+2. **Non-trivial inputs required.** The hypothesis describes a bug
+   that manifests under SPECIFIC conditions (large amounts, attacker
+   signer, edge-case ratios). Your test MUST construct those exact
+   conditions. A test that calls `withdraw(0)` from a balance-0
+   account to "verify withdraw works" = REJECT. A test that checks
+   `current_rate == 0` when there are no borrowers = REJECT.
+
+3. **State-dependent assertion required.** The final `assert!(...)`
+   in your test must depend on whether the bug actually fired. Good
+   patterns:
+     * `assert!(balance_after == balance_before, E_BUG)` — fails
+       when an attacker drains funds.
+     * `assert!(state_field_after != expected_under_bug)` — fails
+       when the bug corrupted state.
+     * For abort-on-DoS bugs: omit `#[expected_failure]`; the
+       unexpected abort marks the test failed (= fired).
+     * `assert!(false, E_NOT_TRIGGERED)` at the end of an overflow
+       test — IF we reach this line, the overflow didn't fire,
+       which means the protection held.
+   Bad patterns (reject):
+     * `assert!(rate == 0, 0)` after no state mutation.
+     * `assert!(balance == initial_balance)` after zero operations.
+     * `assert!(true, 0)` — tautology.
+
+4. **Honesty escape hatch.** If you genuinely cannot construct the
+   bug-triggering state from the available source (e.g. the function
+   requires a coin transfer mechanism the module doesn't have, the
+   admin path the bug needs is gated behind setup you can't
+   replicate), output the `CANNOT_TEST:` form at the bottom of this
+   prompt. That's a HONEST answer and counts as "pass-no-bug-tested"
+   rather than "bullshit-test-that-trivially-passes".
+
+The post-cycle gate scans your test body. If it finds:
+  - the test body is <5 non-comment lines
+  - OR the assertion has no link to mutated state
+  - OR `#[expected_failure]` paired with a trivial assert
+the test is marked `weak_test` and you'll know — your work was wasted.
+
 # Your task
 
 Write a single self-contained Move test module `test_<finding_name>.move`
@@ -257,6 +315,85 @@ isn't reachable, or you don't have enough information), output:
 The `CANNOT_TEST:` marker is recognized by the post-cycle gate as a
 non-fire — it doesn't count as a passed test. Don't use it lightly.
 """
+
+    def detect_weak_test(self, body: str) -> tuple[bool, str | None]:
+        """Return (is_weak, reason) for an authored test body.
+
+        Cycle 20260514-151541 anti-bullshit guard. APT12 wrote ~80 lines
+        of precision-divergence math in `// ...` comments, then ended
+        with `assert!(rate == 0, 0)` after no state mutation — the test
+        "passed" trivially without ever triggering the bug.
+
+        Heuristics (any one = weak):
+          1. Comment-to-code ratio > 3:1 — bug exploration was offloaded
+             into comments instead of into the test setup.
+          2. < 5 non-comment, non-blank lines in the test function body.
+          3. Sole `assert!` references only literals or unchanged
+             initial state (heuristic: assertion includes `== 0`, `== 1`,
+             `== initial_*`, or compares to a `let` defined immediately
+             before with no intervening mutation).
+        """
+        # Strip the module wrapper to focus on the test fn body
+        body_lines = body.splitlines()
+        # Comment ratio across the whole body
+        n_comment = sum(
+            1 for ln in body_lines if ln.strip().startswith("//")
+        )
+        n_code = sum(
+            1 for ln in body_lines
+            if ln.strip() and not ln.strip().startswith("//")
+        )
+        if n_code and n_comment / n_code > 3:
+            return True, (
+                f"comment-to-code ratio {n_comment}/{n_code} > 3:1 — "
+                "bug-exploration math was offloaded to comments instead "
+                "of into the test setup (APT12-style)."
+            )
+
+        # Find the test function body
+        fn_body = ""
+        m = re.search(
+            r"#\[test[^\]]*\]\s*\n\s*fun\s+\w+\s*\([^)]*\)\s*"
+            r"(?:acquires[^{]+)?\{([\s\S]*?)\n\s*\}",
+            body,
+        )
+        if m:
+            fn_body = m.group(1)
+        if not fn_body:
+            return False, None  # can't parse — let compile catch it
+
+        # Count non-comment, non-blank lines in the test fn body
+        fn_lines = [
+            ln for ln in fn_body.splitlines()
+            if ln.strip() and not ln.strip().startswith("//")
+        ]
+        if len(fn_lines) < 5:
+            return True, (
+                f"test fn body has only {len(fn_lines)} non-comment lines — "
+                "almost certainly not exercising the bug-triggering path."
+            )
+
+        # Pattern: ONLY assertion in body is `assert!(<trivial>)`
+        asserts = re.findall(r"assert!\s*\(([^,]+)", fn_body)
+        if len(asserts) == 1:
+            expr = asserts[0].strip()
+            # Strip whitespace, lowercase for matching
+            low = expr.lower()
+            trivial_patterns = (
+                r"^true$",
+                r"^0\s*==\s*0$",
+                r"^\w+\s*==\s*0$",  # `rate == 0`, `bal == 0` — likely no mutation
+                r"^\w+\s*==\s*1$",
+            )
+            for pat in trivial_patterns:
+                if re.match(pat, low):
+                    return True, (
+                        f"sole assertion is trivial ({expr!r}) — the test "
+                        "didn't actually exercise the bug-triggering "
+                        "state mutation."
+                    )
+
+        return False, None
 
     def parse_test_body(self, llm_response: str) -> str:
         # Find ALL move/Move/rust/bare fenced blocks and pick the one
