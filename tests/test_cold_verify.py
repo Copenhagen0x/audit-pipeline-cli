@@ -9,6 +9,7 @@ import yaml
 
 from audit_pipeline.commands.cold_verify import (
     _claim_canon,
+    _extract_code_sites,
     _is_amplification,
     _is_phantom_body,
     cluster_candidates,
@@ -188,6 +189,89 @@ def test_cold_verify_cycle_drops_phantom_hyp(tmp_path: Path) -> None:
         d for d in payload["decisions"] if d["hyp_id"] == "FAKE-phantom"
     )
     assert "phantom" in (phantom_decision["drop_reason"] or "").lower()
+
+
+def test_extract_code_sites_basic() -> None:
+    """Should pull (file, line) tuples from common citation formats."""
+    text = (
+        "The bug is at sources/treasury.move:61. The fix would be at "
+        "treasury.move:65 or vault.move line 42. Also sources/vault.move:61-66."
+    )
+    sites = _extract_code_sites(text)
+    files = {s[0] for s in sites}
+    assert "treasury.move" in files
+    assert "vault.move" in files
+
+
+def test_extract_code_sites_buckets_nearby_lines() -> None:
+    """treasury.move:61 and treasury.move:64 should snap to the same
+    5-line bucket — same code site."""
+    text = "Path 1 at treasury.move:61. Path 2 at treasury.move:64."
+    sites = _extract_code_sites(text)
+    # Both should map to bucket starting at 60
+    buckets = {s[1] for s in sites if s[0] == "treasury.move"}
+    assert len(buckets) == 1
+    assert 60 in buckets
+
+
+def test_cluster_dedup_collapses_when_responses_cite_same_site() -> None:
+    """APT38 and APTM2 have different (bug_class, target_file) but
+    cite the same code site at treasury.move:60-65. The code-site
+    pass-2 clusterer must collapse them.
+    """
+    candidates = [
+        {
+            "id": "APT38-treasury-drain",
+            "bug_class": "treasury-drain",
+            "target_file": "sources/*.move",          # glob — differs
+            "claim": "Generic treasury drain via emergency.",
+        },
+        {
+            "id": "APTM2-treasury-emergency-withdraw-no-auth",
+            "bug_class": "treasury-drain",
+            "target_file": "sources/treasury.move",   # specific — differs
+            "claim": "treasury::emergency_withdraw is permissionless.",
+        },
+    ]
+    responses = {
+        "APT38-treasury-drain": (
+            "## Verdict\n**TRUE**\n\nThe drain is at sources/treasury.move:61. "
+            "emergency_drain bypasses ACL checks at treasury.move:64."
+        ),
+        "APTM2-treasury-emergency-withdraw-no-auth": (
+            "## Verdict\n**TRUE**\n\nThe critical issue is at treasury.move:61-66 "
+            "where emergency_withdraw never calls acl::assert_admin."
+        ),
+    }
+    clusters = cluster_candidates(candidates, response_texts=responses)
+    assert len(clusters) == 1
+    rep = next(iter(clusters.values()))[0]
+    assert rep == "APTM2-treasury-emergency-withdraw-no-auth"
+
+
+def test_cluster_dedup_keeps_distinct_sites_separate() -> None:
+    """Two hyps that cite DIFFERENT code sites should NOT cluster
+    even with similar bug_class."""
+    candidates = [
+        {
+            "id": "APT-treasury",
+            "bug_class": "missing-auth",
+            "target_file": "sources/*.move",
+            "claim": "Missing auth somewhere.",
+        },
+        {
+            "id": "APTM-oracle",
+            "bug_class": "missing-auth",
+            "target_file": "sources/*.move",
+            "claim": "Missing auth somewhere else.",
+        },
+    ]
+    responses = {
+        "APT-treasury": "## Verdict\nTRUE\n\nbug at treasury.move:61",
+        "APTM-oracle":  "## Verdict\nTRUE\n\nbug at oracle.move:51",
+    }
+    clusters = cluster_candidates(candidates, response_texts=responses)
+    assert len(clusters) == 0  # different sites, no cluster
 
 
 def test_cold_verify_cycle_collapses_duplicate(tmp_path: Path) -> None:

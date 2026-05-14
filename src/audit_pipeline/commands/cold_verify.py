@@ -136,20 +136,68 @@ def _claim_canon(claim: str) -> str:
     return s[:80]
 
 
+_FILE_LINE_RE = re.compile(
+    # `sources/foo.move:42`, `foo.move:42-44`, `foo.move:42–44` (em-dash),
+    # `foo.move line 42`, `foo.move:42:`. Captures (filename, primary line).
+    r"\b(?:sources/)?([a-zA-Z_][\w.-]*\.(?:move|rs|sol|c|h))[:\s]*"
+    r"(?:line\s+)?(\d{1,5})(?:\s*[-–to ]+\s*\d{1,5})?",
+    re.IGNORECASE,
+)
+
+
+def _extract_code_sites(text: str, top_k: int = 3) -> list[tuple[str, int]]:
+    """Pull the most-cited (file, line) pairs from a recon/debate body.
+
+    Two hyps that cite overlapping (file, line) sites are almost
+    certainly targeting the same bug regardless of how their
+    bug_class / target_file / claim wording differ at the surface.
+    Returns up to top_k unique sites, sorted by citation frequency.
+    """
+    if not text:
+        return []
+    counts: dict[tuple[str, int], int] = defaultdict(int)
+    for m in _FILE_LINE_RE.finditer(text):
+        fname = m.group(1).lower()
+        try:
+            line = int(m.group(2))
+        except (TypeError, ValueError):
+            continue
+        # Snap to nearest 5-line bucket so 61 and 64 collapse to the
+        # same site (proposers cite slightly different anchor lines
+        # for the same function body).
+        bucket = (line // 5) * 5
+        counts[(fname, bucket)] += 1
+    return [site for site, _ in sorted(counts.items(), key=lambda kv: -kv[1])][:top_k]
+
+
 def cluster_candidates(
     candidates: list[dict[str, Any]],
+    response_texts: dict[str, str] | None = None,
 ) -> dict[str, list[str]]:
     """Group candidate hyps by underlying bug. Returns cluster_id -> [hyp_ids].
 
-    Cluster key = (bug_class, target_file, claim-prefix). When two hyps
-    share all three, they're targeting the same code site with the same
-    invariant — one PoC test will cover both.
+    Two-pass clustering:
+      1. SURFACE cluster — exact match on
+         (bug_class, target_file, claim-canon). Catches identical
+         hyp instances (rare in practice — different libraries usually
+         have small surface differences).
+      2. CODE-SITE cluster — when response_texts are provided, extract
+         the top (file, line-bucket) citations from each proposer
+         body and cluster hyps whose top-cited sites overlap. This is
+         the real dedup signal: two hyps that both name
+         `treasury.move:60-65` as the bug location are testing the
+         same code path no matter how their YAML metadata diverges.
+         Cycle 20260514-151541 caught APT38↔APTM2, APT36↔APTM1,
+         APT9↔APTM13 — all 3 had different target_file (glob vs
+         specific) and different engine_function (template vs exact
+         function name), but cited the same code site at L1.
 
-    Specifically prefers APTM* (medium-specific, exact function name) over
-    APT* (class library, generic placeholder name) as the representative.
+    Representative selection: APTM* (medium-specific) over APT*
+    (class-library template), then shorter id (more direct), then
+    alphabetic.
     """
+    # Pass 1 — surface cluster
     groups: dict[tuple[str, str, str], list[str]] = defaultdict(list)
-    by_id: dict[str, dict[str, Any]] = {c["id"]: c for c in candidates}
     for c in candidates:
         key = (
             (c.get("bug_class") or "").lower().strip(),
@@ -158,18 +206,78 @@ def cluster_candidates(
         )
         groups[key].append(c["id"])
 
-    # Convert to readable cluster ids and pick a representative per group
     out: dict[str, list[str]] = {}
+    used_ids: set[str] = set()
+
+    def _rep_sort_key(hid: str) -> tuple[int, int, str]:
+        is_aptm = 0 if hid.startswith("APTM") else 1
+        return (is_aptm, len(hid), hid)
+
     for i, (key, ids) in enumerate(sorted(groups.items())):
         if len(ids) < 2:
             continue
-        cluster_id = f"cluster-{i:03d}-{key[0] or 'na'}"
-        # Sort: APTM* first (more specific), then by length (shorter id wins),
-        # then alphabetically. The FIRST one becomes the rep.
-        def sort_key(hid: str) -> tuple[int, int, str]:
-            is_aptm = 0 if hid.startswith("APTM") else 1
-            return (is_aptm, len(hid), hid)
-        out[cluster_id] = sorted(ids, key=sort_key)
+        cluster_id = f"surface-{i:03d}-{key[0] or 'na'}"
+        out[cluster_id] = sorted(ids, key=_rep_sort_key)
+        used_ids.update(ids)
+
+    # Pass 2 — code-site cluster (only when we have response bodies)
+    if response_texts:
+        # Map each unclustered hyp to its set of top-cited code sites
+        sites_by_hyp: dict[str, set[tuple[str, int]]] = {}
+        for c in candidates:
+            hid = c["id"]
+            if hid in used_ids:
+                continue
+            text = response_texts.get(hid, "")
+            sites = set(_extract_code_sites(text, top_k=3))
+            if sites:
+                sites_by_hyp[hid] = sites
+
+        # Greedy clustering on site-set overlap
+        # Two hyps cluster if they share ≥1 (file, line-bucket) AND
+        # they're not already in a surface cluster. The site-bucket
+        # is 5-line-snapped (see _extract_code_sites).
+        site_to_hyps: dict[tuple[str, int], list[str]] = defaultdict(list)
+        for hid, sites in sites_by_hyp.items():
+            for site in sites:
+                site_to_hyps[site].append(hid)
+
+        # Union-find: when N hyps share a site, they're in one cluster
+        parent: dict[str, str] = {h: h for h in sites_by_hyp}
+
+        def find(x: str) -> str:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a: str, b: str) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[rb] = ra
+
+        for site, hyps in site_to_hyps.items():
+            if len(hyps) < 2:
+                continue
+            for h2 in hyps[1:]:
+                union(hyps[0], h2)
+
+        # Collect clusters of size ≥ 2
+        site_clusters: dict[str, list[str]] = defaultdict(list)
+        for hid in sites_by_hyp:
+            site_clusters[find(hid)].append(hid)
+
+        for j, (root, ids) in enumerate(sorted(site_clusters.items())):
+            if len(ids) < 2:
+                continue
+            top_site = max(
+                ((s, sum(1 for h in ids if s in sites_by_hyp[h])) for s in
+                    {s for h in ids for s in sites_by_hyp[h]}),
+                key=lambda x: x[1],
+            )[0]
+            cluster_id = f"site-{j:03d}-{top_site[0]}-L{top_site[1]:04d}"
+            out[cluster_id] = sorted(ids, key=_rep_sort_key)
+
     return out
 
 
@@ -294,7 +402,17 @@ def cold_verify_cycle(
         c.setdefault("bug_class", h.get("bug_class"))
         c.setdefault("target_file", h.get("target_file"))
 
-    clusters = cluster_candidates(kept)
+    # Load proposer + challenger bodies for code-site clustering.
+    # Pass 2 of cluster_candidates uses these to find hyps that cite
+    # overlapping (file, line-bucket) sites — the real signal that two
+    # hyps test the same underlying bug regardless of YAML metadata.
+    response_texts: dict[str, str] = {}
+    for c in kept:
+        hid = c["id"]
+        proposer = _read_response(cycle_dir / "recon" / f"{hid}_response.md")
+        challenger = _read_response(debate_dir / f"{hid}_challenger_response.md")
+        response_texts[hid] = (proposer or "") + "\n" + (challenger or "")
+    clusters = cluster_candidates(kept, response_texts=response_texts)
     for cluster_id, ids in clusters.items():
         rep = ids[0]
         for hid in ids:
