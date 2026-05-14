@@ -31,11 +31,16 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
 from collections import defaultdict
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
+import click
+from rich.console import Console
+from rich.table import Table
+
+_console = Console()
 
 # Phrases that, when found in the proposer body, indicate the hypothesis
 # was not applicable to the codebase — the agent correctly identified
@@ -439,11 +444,6 @@ def cold_verify_cycle(
 
 
 # ─────────────────────────── CLI ───────────────────────────
-import click
-from rich.console import Console
-from rich.table import Table
-
-_console = Console()
 
 
 @click.command(name="cold-verify")
