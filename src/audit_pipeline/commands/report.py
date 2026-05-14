@@ -416,6 +416,116 @@ def _detect_language(workspace: Path, cycle_id: str) -> str:
     return "solana"
 
 
+def _hunt_funnel_section(
+    workspace: Path,
+    cycle_id: str,
+    findings: list[dict],
+) -> str:
+    """Render the layered-classification funnel for this cycle.
+
+    Numbers:
+      - hypotheses_tested      ← hunt_summary.json["n_candidates"]
+      - poc_fires              ← hunt_summary.json["n_poc_fired"]
+      - triage_strong          ← triage.jsonl count where classification=="STRONG"
+      - triage_soft / false / lost
+      - root_cause_clusters    ← distinct cluster_ids among STRONG fires
+      - confirmed_findings     ← DB count where status="confirmed" for this cycle
+
+    Each row is rendered as a horizontal stage with arrow + label + count,
+    so the reader can trace 40 hypotheses → 2 unique root causes without
+    asking "where did the other 38 go".
+    """
+    import json as _json
+    cycle_dir = workspace / "hunts" / cycle_id
+    summary_path = cycle_dir / "hunt_summary.json"
+    triage_jsonl = cycle_dir / "triage.jsonl"
+
+    n_hypotheses = "?"
+    n_fires = "?"
+    if summary_path.is_file():
+        try:
+            s = _json.loads(summary_path.read_text(encoding="utf-8"))
+            n_hypotheses = s.get("n_candidates", s.get("n_hypotheses", "?"))
+            n_fires = s.get("n_poc_fired", "?")
+        except (OSError, ValueError):
+            pass
+
+    counts = {"STRONG": 0, "SOFT": 0, "FALSE": 0, "LOST": 0}
+    clusters: set[str] = set()
+    if triage_jsonl.is_file():
+        try:
+            for line in triage_jsonl.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    r = _json.loads(line)
+                except ValueError:
+                    continue
+                cls = r.get("classification") or ""
+                if cls in counts:
+                    counts[cls] += 1
+                if cls == "STRONG" and r.get("cluster_id"):
+                    clusters.add(r["cluster_id"])
+        except OSError:
+            pass
+
+    n_confirmed = sum(
+        1 for f in findings
+        if (f.get("status") or "") == "confirmed"
+        and (f.get("cycle_id") or "") == cycle_id
+    )
+
+    def _cell(label: str, value: str, note: str = "") -> str:
+        note_html = (
+            f'<div style="font-size:10px;color:var(--text-3);margin-top:4px;'
+            f'font-family:var(--mono);letter-spacing:.06em">{html.escape(note)}</div>'
+            if note else ""
+        )
+        return (
+            f'<div style="flex:1 1 0;text-align:center;padding:14px 10px;'
+            f'border:1px solid var(--rule);border-radius:6px;background:var(--surface)">'
+            f'<div style="font-size:11px;color:var(--text-3);'
+            f'text-transform:uppercase;letter-spacing:.18em;font-family:var(--mono)">'
+            f'{html.escape(label)}</div>'
+            f'<div style="font-size:26px;font-weight:700;color:var(--ink);'
+            f'margin-top:6px;font-variant-numeric:tabular-nums">{html.escape(str(value))}</div>'
+            f'{note_html}</div>'
+        )
+
+    def _arrow() -> str:
+        return (
+            '<div style="display:flex;align-items:center;justify-content:center;'
+            'padding:0 4px;color:var(--ink-3);font-size:18px;'
+            'font-family:var(--mono)">&rarr;</div>'
+        )
+
+    triage_note = (
+        f"STRONG {counts['STRONG']} · SOFT {counts['SOFT']} · "
+        f"FALSE {counts['FALSE']} · LOST {counts['LOST']}"
+    )
+    funnel = (
+        '<div style="display:flex;gap:0;margin:20px 0 12px;align-items:stretch">'
+        + _cell("Hypotheses", str(n_hypotheses), "from class library")
+        + _arrow()
+        + _cell("PoC fires", str(n_fires), "test aborted in target module")
+        + _arrow()
+        + _cell("STRONG", str(counts["STRONG"]), triage_note)
+        + _arrow()
+        + _cell("Root causes", str(len(clusters) or n_confirmed), "after cluster dedup")
+        + _arrow()
+        + _cell("Confirmed", str(n_confirmed), "reach this report")
+        + '</div>'
+    )
+    caption = (
+        '<p style="color:var(--text-3);font-size:11px;margin:4px 0 18px;'
+        'font-family:var(--mono);letter-spacing:.04em">'
+        '&sect; B.1 &mdash; Cycle funnel. Mechanical fires &rarr; Layer 2.5 judge '
+        '&rarr; root-cause clustering &rarr; confirmed.'
+        '</p>'
+    )
+    return funnel + caption
+
+
 def _aptos_layer_results_from_log(
     workspace: Path, cycle_id: str,
 ) -> dict[str, dict[str, dict]]:
@@ -1371,16 +1481,27 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
 
   <h2>B &mdash; Methodology</h2>
   <p style="color:var(--text-2)">
-    This cycle was produced by Jelleo's continuous, hypothesis-driven Solana audit loop.
+    This cycle was produced by Jelleo's continuous, hypothesis-driven {protocol_label} audit loop.
     Every finding originates as a falsifiable invariant claim from a per-protocol
     hypothesis library, dispatched to multi-agent recon (Layer 1), promoted on
     contested verdicts via adversarial debate (Layer 1.5), and confirmed empirically
-    via a <code>cargo test</code> proof-of-concept (Layer 2) before transitioning to
-    <code>confirmed</code>. Confirmed findings auto-fire structural sibling derivation
-    and cross-protocol propagation hooks, then move through a restricted lifecycle
+    via a {"<code>aptos move test</code>" if language == "aptos" else "<code>cargo test</code>"}
+    proof-of-concept (Layer 2). Fires pass through a Layer 2.5 LLM judge that classifies
+    each as <code>STRONG</code> (real bug demonstrated), <code>SOFT</code> (PoC fired but on
+    a different invariant than claimed), <code>FALSE</code> (abort originated in stdlib /
+    framework setup, not target code), or <code>LOST</code> (signal lost). Only <code>STRONG</code>
+    cluster representatives advance to <code>confirmed</code> and reach this report's
+    per-finding section &mdash; <code>SOFT</code> and <code>STRONG</code> duplicates land in
+    <code>triaged</code> for review; <code>FALSE</code> fires return to <code>new</code> /
+    <code>rejected</code>.
+  </p>
+  <p style="color:var(--text-2)">
+    Confirmed findings auto-fire structural sibling derivation and cross-protocol
+    propagation hooks, then move through a restricted lifecycle
     (<code>new &rarr; triaged &rarr; confirmed &rarr; disclosed &rarr; fixed &rarr; verified</code>).
     Every cycle is signed Ed25519 against the platform key — see the cover-page receipt.
   </p>
+  {_hunt_funnel_section(workspace, cycle_id, findings) if workspace else ""}
   <p style="color:var(--text-2)">
     Full spec: <a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology">docs/methodology/</a>
     (eleven sections, &sect;01&ndash;&sect;10) &middot;
