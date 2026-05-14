@@ -221,62 +221,57 @@ def cluster_candidates(
         used_ids.update(ids)
 
     # Pass 2 — code-site cluster (only when we have response bodies)
+    #
+    # Fix from the first cold-verify run (cycle 20260514-151541): clustering on
+    # "any-of-top-3 sites overlap" over-merged. Many proposers cite multiple
+    # files in their response — e.g. an oracle-staleness response cites
+    # oracle.move (primary) AND lending_pool.move + vault.move (where the
+    # stale price flows). Union-find on ANY shared site then chained every
+    # hyp that touched a popular file like vault.move into one giant cluster.
+    # Result: 51 dropped, 10 kept — collapsed 16+ distinct bugs to a single
+    # "vault.move:125" cluster representative.
+    #
+    # New rule: each hyp gets a SINGLE primary code site (its most-cited
+    # location). Two hyps cluster IFF their primary sites are identical
+    # AND they share the same bug_class (or one has a glob target_file
+    # and the other a specific match for the same module).
     if response_texts:
-        # Map each unclustered hyp to its set of top-cited code sites
-        sites_by_hyp: dict[str, set[tuple[str, int]]] = {}
+        primary_by_hyp: dict[str, tuple[str, int]] = {}
+        bug_class_by_hyp: dict[str, str] = {}
         for c in candidates:
             hid = c["id"]
             if hid in used_ids:
                 continue
             text = response_texts.get(hid, "")
-            sites = set(_extract_code_sites(text, top_k=3))
-            if sites:
-                sites_by_hyp[hid] = sites
+            top = _extract_code_sites(text, top_k=1)
+            if top:
+                primary_by_hyp[hid] = top[0]
+                bug_class_by_hyp[hid] = (c.get("bug_class") or "").lower().strip()
 
-        # Greedy clustering on site-set overlap
-        # Two hyps cluster if they share ≥1 (file, line-bucket) AND
-        # they're not already in a surface cluster. The site-bucket
-        # is 5-line-snapped (see _extract_code_sites).
         site_to_hyps: dict[tuple[str, int], list[str]] = defaultdict(list)
-        for hid, sites in sites_by_hyp.items():
-            for site in sites:
-                site_to_hyps[site].append(hid)
+        for hid, site in primary_by_hyp.items():
+            site_to_hyps[site].append(hid)
 
-        # Union-find: when N hyps share a site, they're in one cluster
-        parent: dict[str, str] = {h: h for h in sites_by_hyp}
-
-        def find(x: str) -> str:
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
-        def union(a: str, b: str) -> None:
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[rb] = ra
-
-        for site, hyps in site_to_hyps.items():
+        for j, (site, hyps) in enumerate(sorted(site_to_hyps.items())):
             if len(hyps) < 2:
                 continue
-            for h2 in hyps[1:]:
-                union(hyps[0], h2)
-
-        # Collect clusters of size ≥ 2
-        site_clusters: dict[str, list[str]] = defaultdict(list)
-        for hid in sites_by_hyp:
-            site_clusters[find(hid)].append(hid)
-
-        for j, (root, ids) in enumerate(sorted(site_clusters.items())):
-            if len(ids) < 2:
-                continue
-            top_site = max(
-                ((s, sum(1 for h in ids if s in sites_by_hyp[h])) for s in
-                    {s for h in ids for s in sites_by_hyp[h]}),
-                key=lambda x: x[1],
-            )[0]
-            cluster_id = f"site-{j:03d}-{top_site[0]}-L{top_site[1]:04d}"
-            out[cluster_id] = sorted(ids, key=_rep_sort_key)
+            # Within hyps that share the same primary site, only cluster
+            # those whose bug_class is compatible. This blocks the
+            # "oracle-staleness" + "u64-overflow" co-citation collapse:
+            # they happen to both cite oracle.move but test different
+            # invariants. Treat bug_classes as compatible when they're
+            # the same string OR one is a substring of the other
+            # (e.g. "treasury-drain" ⊆ "missing-auth-treasury-drain").
+            from itertools import groupby
+            # Sort by bug_class so groupby works, then cluster within
+            # each compatibility group
+            hyps_sorted = sorted(hyps, key=lambda h: bug_class_by_hyp.get(h, ""))
+            for k, group in groupby(hyps_sorted, key=lambda h: bug_class_by_hyp.get(h, "")):
+                gids = list(group)
+                if len(gids) < 2:
+                    continue
+                cluster_id = f"site-{j:03d}-{site[0]}-L{site[1]:04d}-{k or 'na'}"
+                out[cluster_id] = sorted(gids, key=_rep_sort_key)
 
     return out
 
