@@ -88,27 +88,44 @@ Target file: {target_file}
 The TOP-LEVEL form for a free-standing spec file is:
 
   spec <address>::<module_name> {{
-      pragma aborts_if_is_strict;
 
+      // ── INNER spec module block — for pragmas + module-level invariants ──
+      // Note: `pragma` is NOT valid at the outer `spec <addr>::<mod>`
+      // scope. It must be INSIDE a `spec module {{ ... }}` block.
+      spec module {{
+          pragma aborts_if_is_strict;
+          invariant <module_level_invariant>;
+      }}
+
+      // ── Per-function spec blocks ──
       spec <function_name> {{
           requires <precondition>;       // input constraints
           ensures <postcondition>;       // result + state guarantees
           aborts_if <abort_condition>;   // when this aborts
       }}
-
-      spec module {{
-          invariant <module_level_invariant>;
-      }}
   }}
 
-DO NOT write `spec module <address>::<module_name>` at the top —
-that is INVALID Move syntax and the compiler will reject the file
-with "Unexpected 'module' / Expected an address or an identifier".
-The keyword `module` at the top-level position is only used for a
-REAL Move module declaration, not a spec attachment.
+ABSOLUTE rules:
 
-`spec module {{ ... }}` IS valid INSIDE a `spec <addr>::<mod>` block,
-for module-level invariants — see the inner block above.
+  ❌ DO NOT write `spec module <address>::<module_name>` at the top.
+     INVALID — the parser rejects with "Unexpected 'module'".
+     The keyword `module` at the top-level position is only used for
+     a REAL Move module declaration, not a spec attachment.
+
+  ❌ DO NOT put `pragma <name>;` at the outer `spec <addr>::<mod>` level.
+     INVALID — the parser rejects with "Unexpected 'pragma'. Expected
+     a module member: 'spec', 'use', 'friend', 'const', 'fun', 'inline',
+     or 'struct'". Pragmas MUST be inside `spec module {{ ... }}` (for
+     module-level pragmas like `aborts_if_is_strict`) OR inside an
+     individual `spec <function_name> {{ ... }}` block (for function-
+     scoped pragmas like `opaque`).
+
+  ✓ `spec module {{ ... }}` IS valid INSIDE a `spec <addr>::<mod>` block,
+     for both pragmas AND module-level invariants.
+
+  ✓ Multiple `spec <addr>::<mod>` blocks in a single file are OK if you
+     need to spec functions across multiple modules (e.g. attaching
+     specs to both `mutatis::access_control` and `mutatis::token_vault`).
 
 # Your task
 
@@ -116,21 +133,20 @@ Write a Move spec file that:
 
 1. Top-level: `spec <address>::<module_name>` (NO `module` keyword).
    The address + name MUST match the target module under test exactly.
-2. Inside, add `spec <function_name> {{ ... }}` blocks for the
-   engine_function and any helpers in its call chain.
-3. Express the invariant as the OPPOSITE of the bug:
+2. FIRST inner block: `spec module {{ pragma aborts_if_is_strict; ... }}`.
+   This is where ALL pragmas go + any module-level `invariant` clauses.
+3. Following inner blocks: `spec <function_name> {{ ... }}` per function.
+4. Express the invariant as the OPPOSITE of the bug:
      * If bug = "function admits invalid input X" → write
        `aborts_if input_is_invalid_X;`
      * If bug = "balance can go negative" → write
-       `invariant balance >= 0;`
+       `invariant balance >= 0;` (inside spec module)
      * If bug = "auth bypassed" → write
        `requires signer::address_of(s) == admin_addr;` + ensure
        state mutation only happens under that precondition.
 
 # Important
 
-* `pragma aborts_if_is_strict;` at the top of the spec block makes
-  the prover enforce that ALL abort paths must be declared.
 * Use `global<Resource>(addr)` and `exists<Resource>(addr)` to refer
   to global state.
 * `old(expr)` refers to the pre-execution value.
