@@ -271,6 +271,76 @@ def test_customer_manifest_scopes_to_matched_targets(tmp_path):
     )
 
 
+def test_customer_manifest_closed_not_planned_bucketed_as_disclosed(tmp_path):
+    """Regression: closed_not_planned (retraction terminal) used to fall
+    through to sev_in_progress, so retracted findings showed as
+    'active critical bug' in the dashboard forever."""
+    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.lifecycle import Status
+    from audit_pipeline.severity import Severity
+
+    db = FindingsDB(tmp_path / "findings.db")
+    tid = db.upsert_target("perc", engine_repo="x")
+    db.insert_cycle(tid, "20260513-cycle")
+    db.upsert_finding(
+        tid, "20260513-cycle", "F1",
+        verdict="TRUE", confidence="HIGH",
+        severity=Severity.CRITICAL,
+        status=Status.CLOSED_NOT_PLANNED,
+        title="retracted",
+    )
+
+    manifest = dashboard._build_customer_manifest(
+        db, {"id": "p", "name": "P", "target_match": "perc"},
+        workspace=tmp_path,
+    )
+
+    # The retracted finding must bucket under DISCLOSED (terminal),
+    # not IN_PROGRESS.
+    assert manifest["stats"]["by_severity_disclosed"]["Critical"] == 1
+    assert manifest["stats"]["by_severity_in_progress"]["Critical"] == 0
+
+
+def test_customer_manifest_cycles_total_does_not_ratchet_down(tmp_path):
+    """Regression: cycles_total used to be len(recent_cycles), which
+    is capped at 20. With 25 cycles in DB, the counter would show 20
+    and then RATCHET DOWN as the 20-row window slid forward."""
+    from audit_pipeline.db import FindingsDB
+    db = FindingsDB(tmp_path / "findings.db")
+    tid = db.upsert_target("perc", engine_repo="x")
+    # Insert 25 cycles → exceeds the recent-window cap of 20.
+    for i in range(25):
+        db.insert_cycle(tid, f"20260513-{i:03d}")
+    manifest = dashboard._build_customer_manifest(
+        db, {"id": "p", "name": "P", "target_match": "perc"},
+        workspace=tmp_path,
+    )
+    # Top-level + stats.n_cycles must both report the full 25.
+    assert manifest["cycles_total"] == 25, manifest["cycles_total"]
+    assert manifest["stats"]["n_cycles"] == 25, manifest["stats"]["n_cycles"]
+    # recent_cycles stays capped (windowed display).
+    assert len(manifest["recent_cycles"]) <= 20
+
+
+def test_customer_manifest_does_not_leak_platform_spend(tmp_path):
+    """Regression: `spend` field used to expose _spend_summary() —
+    platform-wide LLM cost totals — into the per-customer manifest,
+    leaking the scale + cadence of other customers' audits."""
+    from audit_pipeline.db import FindingsDB
+    db = FindingsDB(tmp_path / "findings.db")
+    tid = db.upsert_target("perc", engine_repo="x")
+    db.insert_cycle(tid, "20260513-c")
+    manifest = dashboard._build_customer_manifest(
+        db, {"id": "p", "name": "P", "target_match": "perc"},
+        workspace=tmp_path,
+    )
+    assert "spend" not in manifest, (
+        "spend = _spend_summary() leaks platform-wide LLM cost "
+        "into per-customer view — must be customer-scoped instead "
+        "via heartbeat.json"
+    )
+
+
 class TestL2PhaseCounterInflation:
     """Regression tests for the L2 progress denominator bug (2026-05-13).
 

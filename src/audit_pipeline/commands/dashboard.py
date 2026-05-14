@@ -800,6 +800,15 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         c for c in db.list_cycles(limit=20)
         if c.get("target_id") in owned_target_ids
     ]
+    # cycles_total: count of ALL cycles owned by this customer's
+    # targets across all time. Previously was len(recent_cycles)
+    # (capped at 20), which made the counter RATCHET DOWN as older
+    # cycles aged out of the 20-row window. Now pull a much larger
+    # set and count owned ones for the headline number.
+    cycles_total_for_customer = sum(
+        1 for c in db.list_cycles(limit=10000)
+        if c.get("target_id") in owned_target_ids
+    )
     findings_all = db.list_findings(limit=500)
     findings = [
         f for f in findings_all
@@ -838,12 +847,20 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         })
 
     # Status counters scoped to the customer.
+    # CUSTOMER_STATUSES (line ~762) explicitly includes both
+    # disclosure-history terminals (disclosed/fixed/verified) AND the
+    # retraction terminal (closed_not_planned). Previously the bucket
+    # selector at line below ONLY checked the disclosure-history set,
+    # so closed_not_planned findings fell through to sev_in_progress
+    # and stayed there forever — the dashboard read "active critical
+    # bug" for a finding that had been formally retracted.
     sev_disclosed = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
     sev_in_progress = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
+    _TERMINAL_STATUSES = ("disclosed", "fixed", "verified", "closed_not_planned")
     for f in customer_findings:
         st = f["status"]
         sev = f.get("severity")
-        bucket = sev_disclosed if st in ("disclosed", "fixed", "verified") else sev_in_progress
+        bucket = sev_disclosed if st in _TERMINAL_STATUSES else sev_in_progress
         if sev in bucket:
             bucket[sev] += 1
 
@@ -899,6 +916,12 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
             entry["n_planned"] = prog["phase_total"]
             entry["progress_pct"] = prog["pct_complete"]
             entry["finished_at"] = None
+        else:
+            # Finished cycle: emit progress_pct=100 explicitly so the
+            # dashboard JS can render the bar correctly. The grid +
+            # stage code expects progress_pct to be present on EVERY
+            # row (else `cycle.progress_pct.toFixed(1)` throws).
+            entry["progress_pct"] = 100.0
         # Surface n_true_layer1 etc. on BOTH in_progress AND finished
         # cycles so the dashboard grid paints correct fire counts on
         # finished cycles too. Without this, finished cycles showed
@@ -910,6 +933,19 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
             entry["n_poc_logs"] = prog.get("n_poc_logs", 0)
             entry["n_kani_harnesses"] = prog.get("n_kani_harnesses", 0)
             entry["n_litesvm"] = prog.get("n_litesvm", 0)
+        # Backfill n_confirmed for in-progress cycles by counting
+        # owned + cycle-scoped findings with poc_fired=True. The DB
+        # row's n_confirmed column is ONLY populated at cycle close
+        # — for cycles mid-flight it would be None → JS shows "—".
+        # Count the live state of the shared findings DB instead.
+        if entry.get("n_confirmed") is None:
+            cid = c.get("cycle_id") or ""
+            entry["n_confirmed"] = sum(
+                1 for f in findings_all
+                if f.get("cycle_id") == cid
+                and f.get("target_id") in owned_target_ids
+                and bool(f.get("poc_fired"))
+            )
         recent_cycles.append(entry)
 
     # G28: per-customer propagation slice. Counts are scoped to findings
@@ -939,7 +975,10 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
             "view_kind":      "customer-private",
         },
         "stats": {
-            "n_cycles":              len(recent_cycles),
+            # n_cycles = lifetime count of customer-owned cycles, NOT
+            # the count of the recent window (which is capped at 20
+            # and ratchets DOWN as old cycles age out).
+            "n_cycles":              cycles_total_for_customer,
             "n_findings_total":      len(customer_findings),
             "by_severity_disclosed":   sev_disclosed,
             "by_severity_in_progress": sev_in_progress,
@@ -960,11 +999,20 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         "recent_cycles": recent_cycles,
         "public_findings": customer_findings,  # name kept for shape compatibility with snapshot.json
         "services": _probe_services(),
-        "cycles_total":    len(recent_cycles),
+        # cycles_total — same as stats.n_cycles but at top level
+        # for back-compat with older dashboard JS readers.
+        "cycles_total":    cycles_total_for_customer,
         "receipts_signed": _count_signed_receipts(),
         "loop_uptime_human": _loop_uptime_human(),
         "loop_uptime_source": "jelleo-shadow.service",
-        "spend": _spend_summary(),
+        # NOTE: `spend` is intentionally OMITTED from the per-customer
+        # manifest. `_spend_summary()` returns PLATFORM-WIDE LLM
+        # spend totals — including spend on other customers' cycles
+        # — so surfacing it in a per-customer view leaks the rough
+        # scale + cadence of other customers' audits to this one.
+        # The customer's heartbeat.json gets per-customer-scoped
+        # spend (active_cycle_spend_usd + session_total_spend_usd)
+        # via osec-heartbeat-writer.py instead.
         # G28: customer-scoped propagation activity
         "propagation_stats": customer_propagation,
     }
