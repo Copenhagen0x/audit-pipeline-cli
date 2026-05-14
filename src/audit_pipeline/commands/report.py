@@ -371,11 +371,21 @@ def _table_of_contents(findings: list[dict]) -> str:
         sev_cls = sev.value.lower()
         title = (f.get("title") or f.get("hypothesis_id") or "?").strip()
         bug_class = f.get("bug_class") or "—"
+        # Word-boundary cap at ~90 chars so the TOC row doesn't break
+        # mid-word ("gated by an auth", "limits the amount to a sane fract").
+        if len(title) > 90:
+            cut = title[:87]
+            last_space = cut.rfind(" ")
+            if last_space >= 60:
+                cut = cut[:last_space]
+            display_title = cut.rstrip(" ,;:-") + "…"
+        else:
+            display_title = title
         lis.append(
             f'<li>'
             f'<span class="toc-num">{idx:02d}</span>'
             f'<span class="toc-sev"><span class="sev {sev_cls}">{sev.value}</span></span>'
-            f'<a href="#finding-{idx:02d}">{html.escape(title[:90])}</a>'
+            f'<a href="#finding-{idx:02d}">{html.escape(display_title)}</a>'
             f'<span class="toc-class">{html.escape(bug_class)}</span>'
             f'</li>'
         )
@@ -416,6 +426,516 @@ def _detect_language(workspace: Path, cycle_id: str) -> str:
     return "solana"
 
 
+def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
+    """Table of audit-artifact paths so a reviewer can verify the work.
+
+    Lists every file or directory the report references — PoCs, Move
+    Prover specs, fuzz harnesses, bundles, merkle root, signed reports
+    — relative to the workspace root. Existence-checked so absent
+    artifacts render dimmed with a "(missing)" marker.
+    """
+    cycle_dir = workspace / "hunts" / cycle_id
+    entries: list[tuple[str, str, Path]] = [
+        ("Cycle summary (manifest of every step)",
+         "hunts/<cycle>/hunt_summary.json",
+         cycle_dir / "hunt_summary.json"),
+        ("Per-step event log",
+         "hunts/<cycle>/hunt.log.jsonl",
+         cycle_dir / "hunt.log.jsonl"),
+        ("Layer 2.5 triage verdicts",
+         "hunts/<cycle>/triage.jsonl",
+         cycle_dir / "triage.jsonl"),
+        ("Layer 2 PoC sources (Move)",
+         "tests/aptos/test_<slug>.move",
+         workspace / "tests" / "aptos"),
+        ("Layer 2 PoC run logs",
+         "hunts/<cycle>/poc/runlog_<slug>.log",
+         cycle_dir / "poc"),
+        ("Layer 3 Move Prover specs",
+         "formal/aptos/spec_<slug>_invariant.move",
+         workspace / "formal" / "aptos"),
+        ("Layer 4 property-fuzz harnesses",
+         "fuzz/aptos/property_<slug>.move",
+         workspace / "fuzz" / "aptos"),
+        ("Layer P3 fix bundles (patch.diff + writeup.md + meta.json)",
+         "recon/bundles/<finding_id>/",
+         workspace / "recon" / "bundles"),
+        ("Narrative writeups (per finding)",
+         "hunts/<cycle>/narratives/<hyp_id>.md",
+         cycle_dir / "narratives"),
+        ("Cycle Merkle root (tamper-evidence)",
+         "hunts/<cycle>/merkle.json",
+         cycle_dir / "merkle.json"),
+        ("Findings DB (SQLite)",
+         "findings.db",
+         workspace / "findings.db"),
+        ("Ed25519 public key for receipt verification",
+         "keys/jelleo.ed25519.pub",
+         workspace / "keys" / "jelleo.ed25519.pub"),
+    ]
+    rows = []
+    for label, rel, abs_path in entries:
+        exists = abs_path.exists()
+        cell_style = "" if exists else 'style="color:var(--text-3)"'
+        suffix = "" if exists else (
+            ' <span style="color:var(--text-3);font-size:10.5px">'
+            '(absent in this cycle)</span>'
+        )
+        rows.append(
+            f'<tr {cell_style}>'
+            f'<td>{html.escape(label)}</td>'
+            f'<td><code>{html.escape(rel)}</code>{suffix}</td>'
+            f'</tr>'
+        )
+    return (
+        '<table style="margin-top:8px">'
+        '<thead><tr><th style="width:50%">Artifact</th><th>Path (relative to workspace)</th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody>'
+        '</table>'
+    )
+
+
+def _executive_summary_section(
+    target_name: str,
+    cycle: dict | None,
+    findings: list[dict],
+    real_counts: dict[str, int],
+    language: str,
+    protocol_label: str,
+) -> str:
+    """One-paragraph executive summary opening the report.
+
+    Renders before the TOC so the reader has the headline numbers and
+    one sentence of framing before diving into the per-finding section.
+    Pulls the cycle date from the cycle dict so the prose has the
+    actual audit window.
+    """
+    cycle_id = (cycle or {}).get("cycle_id", "")
+    started_at = (cycle or {}).get("started_at", "")
+    # Pull a human-readable date from cycle_id (UTC `YYYYMMDD-HHMMSS`).
+    date_label = ""
+    if cycle_id and len(cycle_id) >= 8:
+        try:
+            from datetime import datetime as _dt
+            dt = _dt.strptime(cycle_id[:8], "%Y%m%d")
+            date_label = dt.strftime("%B %d, %Y")
+        except ValueError:
+            date_label = cycle_id[:10]
+    elif started_at:
+        date_label = started_at[:10]
+
+    real_findings = [f for f in findings if (f.get("status") or "") in REAL_STATUSES]
+    n_crit = real_counts.get("Critical", 0)
+    n_high = real_counts.get("High", 0)
+    n_med = real_counts.get("Medium", 0)
+    n_low = real_counts.get("Low", 0)
+
+    def _grammatical_count(n: int, singular: str, plural: str) -> str:
+        if n == 1:
+            return f"1 {singular}"
+        return f"{n} {plural}"
+
+    sev_phrase_parts = []
+    for n, sing, plur in (
+        (n_crit, "Critical", "Critical"),
+        (n_high, "High", "High"),
+        (n_med, "Medium", "Medium"),
+        (n_low, "Low", "Low"),
+    ):
+        if n:
+            sev_phrase_parts.append(_grammatical_count(n, sing, plur))
+    if sev_phrase_parts:
+        if len(sev_phrase_parts) == 1:
+            sev_phrase = sev_phrase_parts[0] + " finding" + (
+                "s" if real_findings and len(real_findings) != 1 else ""
+            )
+        else:
+            sev_phrase = (
+                ", ".join(sev_phrase_parts[:-1]) + " and "
+                + sev_phrase_parts[-1] + " findings"
+            )
+    else:
+        sev_phrase = "no confirmed findings"
+
+    # Extract a short summary of what the findings are about — pull
+    # the engine_function from each finding's bundle meta if available.
+    titles = []
+    for f in real_findings:
+        title = (f.get("title") or "").strip()
+        if title:
+            # Take the first clause / 80 chars
+            short = re.split(r"(?<=[.!?])\s+", title, maxsplit=1)[0]
+            titles.append(short[:80])
+    findings_summary = ""
+    if titles:
+        if len(titles) == 1:
+            findings_summary = f" The finding documents: {titles[0]}."
+        elif len(titles) <= 3:
+            findings_summary = " The findings document: " + "; ".join(
+                f"({chr(ord('a') + i)}) {t}" for i, t in enumerate(titles)
+            ) + "."
+
+    framing = (
+        f"This report documents the results of an autonomous {protocol_label} audit "
+        f"cycle run by Jelleo against the <code>{html.escape(target_name)}</code> "
+        f"workspace on {html.escape(date_label) if date_label else 'the date noted on the cover'}. "
+        f"The cycle identified {sev_phrase} after Layer 2.5 triage and root-cause "
+        f"clustering.{findings_summary} Each finding includes a Move-VM-executed "
+        f"proof-of-concept, a Move Prover counterexample where the formal layer ran, "
+        f"a property-fuzz reproduction, and an LLM-authored structural fix patch."
+    )
+
+    return (
+        '<section style="margin:32px 0 24px;padding:20px 22px;'
+        'background:var(--surface);border:1px solid var(--rule);'
+        'border-radius:6px;border-left:3px solid var(--amber)">'
+        '<h2 style="margin:0 0 12px;font-size:11px;letter-spacing:.22em;'
+        'text-transform:uppercase;color:var(--amber);border:none;padding:0">'
+        '00 &mdash; Executive summary'
+        '</h2>'
+        f'<p style="margin:0;color:var(--text);font-size:13px;line-height:1.7">'
+        f'{framing}</p>'
+        '</section>'
+    )
+
+
+def _scope_section(
+    workspace: Path | None,
+    target_name: str,
+    cycle: dict | None,
+    language: str,
+    protocol_label: str,
+) -> str:
+    """Scope of work — engine repo, commit hash, target files, exclusions.
+
+    Lists every source file in the engine's `sources/` directory (Move)
+    or `src/` directory (Solana) so the reader sees exactly which code
+    was in scope. Also captures the cycle's hypothesis library so the
+    "what we tested for" surface is documented.
+    """
+    if not workspace or not cycle:
+        return ""
+    engine_sha_full = (cycle.get("engine_sha") or "").strip()
+    engine_sha_short = engine_sha_full[:10] if engine_sha_full else "—"
+    engine_root = workspace / "engine"
+    sources: list[str] = []
+    if language == "aptos":
+        for sub in ("sources",):
+            d = engine_root / sub
+            if d.is_dir():
+                sources.extend(
+                    str(p.relative_to(engine_root))
+                    for p in sorted(d.glob("*.move"))
+                )
+    else:
+        for sub in ("src",):
+            d = engine_root / sub
+            if d.is_dir():
+                sources.extend(
+                    str(p.relative_to(engine_root))
+                    for p in sorted(d.glob("*.rs"))
+                )
+    if not sources:
+        sources = ["(engine source enumeration unavailable in this build)"]
+
+    # Hypothesis library — how many hypotheses tested
+    hyp_library = _load_hypothesis_library(workspace)
+    n_hyps_in_library = len(hyp_library)
+
+    files_rows = "".join(
+        f'<tr><td><code>{html.escape(s)}</code></td></tr>' for s in sources
+    )
+    return f"""
+  <h2>00.1 &mdash; Scope</h2>
+  <table>
+    <thead><tr><th colspan="2">In-scope source set</th></tr></thead>
+    <tbody>
+      <tr><td style="width:160px;color:var(--text-3)">Target workspace</td>
+          <td><code>{html.escape(target_name)}</code></td></tr>
+      <tr><td style="color:var(--text-3)">Protocol</td>
+          <td>{html.escape(protocol_label)} ({"Move smart-contract framework" if language == "aptos" else "Solana BPF program"})</td></tr>
+      <tr><td style="color:var(--text-3)">Engine commit</td>
+          <td><code>{html.escape(engine_sha_short)}</code> {('<span style="color:var(--text-3);font-size:11px">(' + html.escape(engine_sha_full) + ')</span>') if engine_sha_full and len(engine_sha_full) > 10 else ''}</td></tr>
+      <tr><td style="color:var(--text-3)">Source files</td>
+          <td><table style="border:none;margin:0;background:none"><tbody>{files_rows}</tbody></table></td></tr>
+      <tr><td style="color:var(--text-3)">Hypothesis library</td>
+          <td>{n_hyps_in_library} invariant claim(s) covering authorization, arithmetic safety, accounting consistency, capability handling, event auditability, and oracle / time freshness</td></tr>
+      <tr><td style="color:var(--text-3)">Out of scope</td>
+          <td style="color:var(--text-2)">Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>Move.toml</code> / <code>Cargo.toml</code> beyond their declared interfaces.</td></tr>
+    </tbody>
+  </table>
+"""
+
+
+def _load_hypothesis_library(workspace: Path) -> dict[str, dict]:
+    """Pull the full hypothesis library that drove this workspace.
+
+    The DB stores a 120-char-truncated ``title`` (the first segment of
+    each hypothesis's ``claim:`` field). For audit-quality rendering we
+    need the FULL claim prose. We re-load it from the YAML at render
+    time. Caller can look up ``hypothesis_id`` and pull the untruncated
+    claim, plus the ``rationale`` / ``severity`` / ``engine_function`` /
+    ``target_file`` metadata that the DB also doesn't carry.
+
+    Resolution order:
+      1. ``workspace/hypotheses.yaml``       (legacy cycle-local copy)
+      2. ``workspace/hypotheses/*.yaml``     (per-cycle library directory)
+      3. ``src/audit_pipeline/templates/hypotheses/osec_aptos_class.yaml``
+         (the bundled OSec eval class library — used by aptos-* workspaces)
+      4. ``src/audit_pipeline/templates/hypotheses/*.yaml``  (other bundled)
+
+    Returns ``{hypothesis_id: hyp_dict, ...}``. Empty dict if nothing
+    resolves — caller falls back to the DB title.
+    """
+    import yaml as _yaml
+    candidates: list[Path] = []
+    direct = workspace / "hypotheses.yaml"
+    if direct.is_file():
+        candidates.append(direct)
+    hyp_dir = workspace / "hypotheses"
+    if hyp_dir.is_dir():
+        candidates.extend(sorted(hyp_dir.glob("*.yaml")))
+    # Bundled templates as fallback
+    try:
+        import audit_pipeline
+        pkg_root = Path(audit_pipeline.__file__).resolve().parent
+        templates = pkg_root / "templates" / "hypotheses"
+        if templates.is_dir():
+            candidates.extend(sorted(templates.glob("*.yaml")))
+    except Exception:  # noqa: BLE001
+        pass
+
+    out: dict[str, dict] = {}
+    for path in candidates:
+        try:
+            data = _yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, _yaml.YAMLError):
+            continue
+        for h in (data.get("hypotheses") or []):
+            if isinstance(h, dict) and h.get("id"):
+                # First file wins per hypothesis_id (workspace-local
+                # copies override bundled templates).
+                out.setdefault(h["id"], h)
+    return out
+
+
+# Bug-class → (impact, recommendation) prose. Keyed by the slug used in
+# the hypothesis library `bug_class:` field. Falls back to a generic
+# severity-tier description when the bug_class is unknown.
+#
+# Each entry is two short paragraphs:
+#   - Impact:        what the bug lets an attacker do, in user-facing terms
+#   - Recommendation: structural fix direction (not the literal patch —
+#                    the patch diff is already in the L-P3 section)
+_BUG_CLASS_PROSE: dict[str, tuple[str, str]] = {
+    "borrow-global-no-auth": (
+        "Any signer can call the privileged function and overwrite the resource "
+        "without proving they are the current admin or capability holder. For a "
+        "treasury / admin-cap module this is full protocol takeover: an attacker "
+        "becomes admin in one transaction with zero preconditions beyond holding "
+        "an Aptos account.",
+        "Gate every entry that performs `borrow_global_mut<T>(addr)` on a "
+        "privileged resource through `access_control::assert_admin(...)` (or the "
+        "equivalent capability check) BEFORE the mutation. The check must run on "
+        "the actual signer, not on a parameter that can be ignored — use a "
+        "non-underscore-prefixed binding so the compiler enforces use.",
+    ),
+    "treasury-drain": (
+        "An unprivileged signer can withdraw arbitrary amounts from the protocol's "
+        "vault. No admin check, no rate limit, no time-lock: the attacker passes "
+        "the desired amount and receives the funds. The vault's internal accounting "
+        "(`total_deposits`) is also not updated, so on-chain dashboards continue "
+        "to show the pre-drain balance until the next deposit/withdraw rebalance.",
+        "Add `access_control::assert_admin(signer::address_of(invoker))` at the "
+        "top of every treasury-withdrawal entry, and update the vault's "
+        "`total_deposits` counter in the same transaction as the coin extraction. "
+        "For higher assurance, require a time-lock or multisig signer for "
+        "emergency drains rather than a single-step admin call.",
+    ),
+    "acl-bypass-entry": (
+        "A second public entry function performs the same privileged mutation as "
+        "the gated entry but skips the access-control check. Even when the canonical "
+        "entry is properly auth-gated, the bypass entry provides a route past the "
+        "ACL. This is the multi-entry analogue of the single-entry missing-auth bug.",
+        "Audit every `public entry fun` against the access-control matrix. Functions "
+        "that mutate gated resources must call `assert_admin` (or the relevant "
+        "capability accessor) on entry. Where multiple entries share a mutation, "
+        "extract a private helper that performs the check + mutation, and have "
+        "the public entries delegate.",
+    ),
+    "cap-leak": (
+        "A capability with `store` ability is granted under a structurally "
+        "unbounded issuance plan — the cap can be cloned, persisted in a public "
+        "resource, or handed to per-user storage. Once leaked, the capability "
+        "grants admin permanently and cannot be revoked without code changes.",
+        "Issue privileged capabilities under a finite, intentional plan: one "
+        "capability per admin slot, destroyed on rotation. Avoid `store` on "
+        "capability types unless the storage path is also access-gated. Prefer "
+        "non-storable witness types where the use site can verify the caller "
+        "directly.",
+    ),
+    "event-emit-missing": (
+        "State-mutating entries do not emit events. On-chain auditability is "
+        "degraded — observers (indexers, monitoring, governance) cannot reconstruct "
+        "who performed which mutation and when. In combination with other findings "
+        "(e.g. silent admin takeover) this prevents downstream detection.",
+        "Emit a typed event from every state-mutating entry. Events should record "
+        "the actor (`signer::address_of(caller)`), the affected resource address, "
+        "and the relevant before/after fields. Combine with `#[event]` typed struct "
+        "definitions so off-chain tooling can decode the events with the deployed "
+        "ABI.",
+    ),
+    "u64-overflow-arith": (
+        "Arithmetic on a `u64` balance or counter that can grow under attacker "
+        "control aborts on overflow at the Move VM level. While Aptos halts the "
+        "transaction (no silent wrap), the abort is a denial-of-service vector — "
+        "once the counter saturates, every subsequent call on the affected path "
+        "is bricked until a counter-reset mechanism is invoked.",
+        "Widen the arithmetic into `u128` for the accumulation step, check the "
+        "result against `u64::MAX` before casting back, and abort with a typed "
+        "error code (not the VM's generic arithmetic error). For long-running "
+        "counters consider periodic rebalancing or a u256 representation.",
+    ),
+    "stake-double-claim": (
+        "A reward-claim path computes the user's accrued reward from a stored "
+        "snapshot (`last_claim`) but does not advance the snapshot atomically with "
+        "the payout. The user can call the claim function repeatedly in the same "
+        "block and accumulate the per-period reward multiple times. The protocol "
+        "pays out N× the entitled amount.",
+        "After computing the reward, advance the user's `last_claim` cursor by "
+        "`period_count * SECONDS_PER_PERIOD` BEFORE updating `accumulated`. The "
+        "cursor advancement must happen in the same transaction (and the same "
+        "function) as the reward computation, not deferred to a separate "
+        "settlement step.",
+    ),
+}
+
+
+def _impact_and_recommendation(
+    *, bug_class: str, hyp_yaml: dict, severity: Severity,
+) -> tuple[str, str]:
+    """Return (impact_text, recommendation_text) for a finding.
+
+    Prefers the YAML's per-hypothesis ``impact`` + ``recommendation`` fields
+    if the library author wrote them. Falls back to the bug-class lookup
+    table above. Falls back to a generic severity-tier description if
+    bug_class is unknown.
+    """
+    yaml_impact = (hyp_yaml or {}).get("impact")
+    yaml_rec = (hyp_yaml or {}).get("recommendation")
+    if yaml_impact and yaml_rec:
+        return str(yaml_impact).strip(), str(yaml_rec).strip()
+
+    bc = (bug_class or "").strip().lower()
+    prose = _BUG_CLASS_PROSE.get(bc)
+    if prose:
+        impact, rec = prose
+        return yaml_impact or impact, yaml_rec or rec
+
+    # Generic fallback by severity
+    sev_v = severity.value if hasattr(severity, "value") else str(severity)
+    generic_impact = {
+        "Critical": "Direct loss of user funds or full protocol takeover with no "
+                    "meaningful preconditions.",
+        "High":     "Significant loss of user funds or invariant violation under "
+                    "realistic preconditions.",
+        "Medium":   "Hardening issue or invariant violation requiring a privileged "
+                    "signer / improbable state.",
+        "Low":      "Minor issue with no plausible path to fund loss.",
+        "Info":     "Informational. No security impact.",
+    }.get(sev_v, "")
+    generic_rec = (
+        "Audit the affected code path against the invariant stated above and "
+        "apply the structural fix proposed in the patch diff below."
+    )
+    return yaml_impact or generic_impact, yaml_rec or generic_rec
+
+
+def _load_triage_clusters(workspace: Path, cycle_id: str) -> dict[str, list[str]]:
+    """Build a hyp_id → cluster members lookup from triage.jsonl.
+
+    Used to render the "Represents N hypotheses" chip on cluster
+    representatives. Every member maps to the SAME list (so non-reps
+    also know the cluster id), but only the representative's section
+    actually appears in the report (non-reps are TRIAGED, filtered by
+    REAL_STATUSES).
+
+    Returns ``{hyp_id: [member_ids, ...]}`` where the cluster
+    representative's hyp_id keys the list. Empty dict if triage.jsonl
+    is absent or unparseable.
+    """
+    import json as _json
+    out: dict[str, list[str]] = {}
+    log = workspace / "hunts" / cycle_id / "triage.jsonl"
+    if not log.is_file():
+        return out
+    by_cluster: dict[str, list[str]] = {}
+    try:
+        for line in log.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                r = _json.loads(line)
+            except ValueError:
+                continue
+            if r.get("classification") != "STRONG":
+                continue
+            cid = r.get("cluster_id")
+            hid = r.get("hyp_id")
+            if not cid or not hid:
+                continue
+            by_cluster.setdefault(cid, []).append(hid)
+    except OSError:
+        return out
+    # Map every member → the cluster's member list, with the rep first.
+    for cid, members in by_cluster.items():
+        ordered = [cid] + [m for m in members if m != cid]
+        for hid in members:
+            out[hid] = ordered
+    return out
+
+
+def _aptos_counterexample_excerpt(workspace: Path, cycle_id: str, hyp_slug: str) -> str:
+    """Pull the Move Prover counterexample state from formal logs.
+
+    Move Prover's `--diagnostics` output includes lines like:
+        Counterexample found: ...
+        Error trace: ...
+    We surface a small excerpt so the report shows the actual state
+    that violated the spec, not just "✓ counterexample found".
+
+    Returns "" if no usable excerpt is available — caller renders only
+    the one-line verdict in that case.
+    """
+    candidates = [
+        workspace / "formal" / "aptos" / f"aptos_move_prove_{hyp_slug}.log",
+        workspace / "hunts" / cycle_id / "formal" / f"prove_{hyp_slug}.log",
+    ]
+    for cand in candidates:
+        if not cand.is_file():
+            continue
+        try:
+            text = cand.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        # Look for the diagnostics block
+        lines = text.splitlines()
+        keep: list[str] = []
+        in_trace = False
+        for ln in lines:
+            low = ln.lower()
+            if "counterexample" in low or "error trace" in low:
+                in_trace = True
+            if in_trace:
+                keep.append(ln.rstrip())
+                if len(keep) >= 18:
+                    keep.append("    // …trace truncated for brevity")
+                    break
+        if keep:
+            return "\n".join(keep)
+    return ""
+
+
 def _hunt_funnel_section(
     workspace: Path,
     cycle_id: str,
@@ -442,11 +962,15 @@ def _hunt_funnel_section(
 
     n_hypotheses = "?"
     n_fires = "?"
+    total_cost_usd: float | None = None
+    elapsed_seconds: float | None = None
     if summary_path.is_file():
         try:
             s = _json.loads(summary_path.read_text(encoding="utf-8"))
             n_hypotheses = s.get("n_candidates", s.get("n_hypotheses", "?"))
             n_fires = s.get("n_poc_fired", "?")
+            total_cost_usd = s.get("total_cost_usd")
+            elapsed_seconds = s.get("elapsed_seconds")
         except (OSError, ValueError):
             pass
 
@@ -474,6 +998,18 @@ def _hunt_funnel_section(
         if (f.get("status") or "") == "confirmed"
         and (f.get("cycle_id") or "") == cycle_id
     )
+
+    # Where did the non-firing hypotheses go? Walk findings DB by status
+    # for hypotheses in this cycle that didn't fire. This gives the reader
+    # a complete accounting of the "24 → 7 fires" delta.
+    non_fire_breakdown: dict[str, int] = {}
+    for f in findings:
+        if (f.get("cycle_id") or "") != cycle_id:
+            continue
+        if f.get("poc_fired"):
+            continue
+        st = f.get("status") or "unknown"
+        non_fire_breakdown[st] = non_fire_breakdown.get(st, 0) + 1
 
     def _cell(label: str, value: str, note: str = "") -> str:
         note_html = (
@@ -503,27 +1039,87 @@ def _hunt_funnel_section(
         f"STRONG {counts['STRONG']} · SOFT {counts['SOFT']} · "
         f"FALSE {counts['FALSE']} · LOST {counts['LOST']}"
     )
+    fires_note = (
+        f"{counts['STRONG'] + counts['SOFT'] + counts['FALSE'] + counts['LOST']} "
+        "fires triaged"
+    ) if any(counts.values()) else "test aborted in target module"
     funnel = (
         '<div style="display:flex;gap:0;margin:20px 0 12px;align-items:stretch">'
         + _cell("Hypotheses", str(n_hypotheses), "from class library")
         + _arrow()
-        + _cell("PoC fires", str(n_fires), "test aborted in target module")
+        + _cell("PoC fires", str(n_fires), fires_note)
         + _arrow()
         + _cell("STRONG", str(counts["STRONG"]), triage_note)
         + _arrow()
-        + _cell("Root causes", str(len(clusters) or n_confirmed), "after cluster dedup")
+        + _cell(
+            "Root causes",
+            str(len(clusters) or n_confirmed),
+            f"{counts['STRONG']} STRONG → {len(clusters) or n_confirmed} cluster(s)",
+        )
         + _arrow()
         + _cell("Confirmed", str(n_confirmed), "reach this report")
         + '</div>'
     )
+
+    # Where the non-firing hypotheses went
+    non_fire_total = sum(non_fire_breakdown.values())
+    non_fire_rows = ""
+    if non_fire_total:
+        ordered = sorted(non_fire_breakdown.items(), key=lambda x: -x[1])
+        non_fire_rows = (
+            '<p style="color:var(--text-3);font-size:11.5px;margin:6px 0 14px;'
+            'line-height:1.55">'
+            '<strong style="color:var(--text-3);'
+            'font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;'
+            'font-family:var(--mono);margin-right:8px">Non-fire accounting</strong>'
+            + (
+                f"{non_fire_total} hypotheses tested but PoC did not fire — "
+                + ", ".join(
+                    f'{c}× <code>{html.escape(st)}</code>' for st, c in ordered
+                ) + ". "
+                "These are hypotheses where Layer 1 / Layer 1.5 returned a verdict "
+                "but the Layer 2 PoC author either declined to produce a test "
+                "(no plausible attack) or the test ran without an abort in the "
+                "target module."
+            )
+            + '</p>'
+        )
+
+    # Cost + elapsed pill row
+    cost_elapsed = ""
+    if total_cost_usd is not None or elapsed_seconds is not None:
+        cost_str = f"${total_cost_usd:.2f}" if total_cost_usd is not None else "—"
+        elapsed_str = (
+            f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60)}s"
+            if elapsed_seconds is not None else "—"
+        )
+        cost_elapsed = (
+            '<p style="color:var(--text-3);font-size:11.5px;margin:6px 0 14px;'
+            'font-family:var(--mono);letter-spacing:.06em">'
+            f'<strong style="color:var(--text-3);font-size:10.5px;'
+            f'letter-spacing:.12em;text-transform:uppercase;margin-right:8px">'
+            f'Cycle economics</strong>'
+            f'LLM spend: <code>{cost_str}</code> &middot; '
+            f'wall-clock: <code>{elapsed_str}</code> &middot; '
+            f'per-hypothesis amortized: <code>'
+            f'${total_cost_usd / int(n_hypotheses):.3f}</code>'
+            if (total_cost_usd is not None and str(n_hypotheses).isdigit()
+                and int(n_hypotheses) > 0)
+            else f'LLM spend: <code>{cost_str}</code> &middot; '
+                 f'wall-clock: <code>{elapsed_str}</code>'
+            + '</p>'
+        )
+
     caption = (
         '<p style="color:var(--text-3);font-size:11px;margin:4px 0 18px;'
         'font-family:var(--mono);letter-spacing:.04em">'
-        '&sect; B.1 &mdash; Cycle funnel. Mechanical fires &rarr; Layer 2.5 judge '
-        '&rarr; root-cause clustering &rarr; confirmed.'
+        '&sect; B.1 &mdash; Cycle funnel. Hypotheses tested &rarr; PoC fires '
+        '&rarr; Layer 2.5 judge filters out artifactual / mis-invariant fires '
+        '&rarr; surviving STRONG fires cluster by code site '
+        '&rarr; cluster representatives become published findings.'
         '</p>'
     )
-    return funnel + caption
+    return funnel + non_fire_rows + cost_elapsed + caption
 
 
 def _aptos_layer_results_from_log(
@@ -595,6 +1191,13 @@ def _findings_writeup(
         if language == "aptos" else {"l3": {}, "l4": {}}
     )
 
+    # Full claims from the hypothesis library (DB stores claim[:120]
+    # truncated; we want the full prose for the Invariant block).
+    hyp_library = _load_hypothesis_library(workspace)
+    # Build a hyp_id → (cluster_id, [member_ids]) map from triage.jsonl
+    # so cluster representatives can render the duplicate-coverage chip.
+    triage_clusters = _load_triage_clusters(workspace, cycle_id)
+
     # Per-finding analysis is reserved for findings that have material
     # signal (confirmed PoC, or already moved through the disclosure
     # pipeline). `new` / `triaged` findings are unreviewed LLM verdicts
@@ -617,17 +1220,22 @@ def _findings_writeup(
         except ValueError:
             sev = Severity.INFO
         sev_cls = sev.value.lower()
-        # The DB stores the full hypothesis "claim" prose as title — useful
-        # as a finding-description paragraph but too long for the section
-        # heading. Truncate at the end of the first sentence (or at a word
-        # boundary near 110 chars) so the banner reads cleanly; keep the
-        # full text available below as the Invariant description paragraph.
-        full_title = (f.get("title") or hyp_id).strip()
-        first_sentence = re.split(r"(?<=[.!?])\s+", full_title, maxsplit=1)[0]
+        # Prefer the YAML's untruncated `claim:` for the finding heading
+        # + invariant block; fall back to the DB title when the cycle ran
+        # against a hypothesis library that's no longer on disk.
+        hyp_yaml = hyp_library.get(hyp_id, {})
+        full_claim = (
+            (hyp_yaml.get("claim") or "").strip()
+            or (f.get("title") or hyp_id).strip()
+        )
+        # Collapse internal whitespace (YAML folded-style block keeps
+        # single-space joins, but residual newlines confuse the line cap).
+        full_claim = re.sub(r"\s+", " ", full_claim)
+        first_sentence = re.split(r"(?<=[.!?])\s+", full_claim, maxsplit=1)[0]
         if len(first_sentence) <= 110:
             title = first_sentence
         else:
-            cut = full_title[:107]
+            cut = full_claim[:107]
             # Break on the last whitespace so we don't truncate mid-word.
             last_space = cut.rfind(" ")
             if last_space >= 80:
@@ -635,20 +1243,44 @@ def _findings_writeup(
             title = cut.rstrip(" ,;:") + "…"
         bug_class = f.get("bug_class") or "unknown"
         finding_id = f.get("id")
+        cluster_members = triage_clusters.get(hyp_id, [])
 
         # ── L2 PoC excerpt (language-dependent file extension + body shape) ──
         l2_excerpt = ""
         l2_lang = "rust"
 
-        def _cap_lines(s: str, n: int = 24) -> str:
-            # Cap at ~24 lines so L2 + P3 patch both fit on the
-            # second-half page without splitting. Code-tight font
-            # is 10.5px × 1.4 line-height; combined L2(24)+P3(16)
-            # lands at ~750px, well under the 870px usable budget.
-            parts = s.splitlines()
-            if len(parts) <= n:
-                return s
-            return "\n".join(parts[:n]) + "\n    // …truncated for brevity"
+        def _cap_with_firing_tail(body: str, head: int = 18, tail: int = 8) -> str:
+            """Cap the PoC body but ALWAYS preserve the firing assertion.
+
+            The naive cap-at-N rule cuts before the `assert!(...)` that
+            actually fires the bug, leaving the reader to infer the
+            exploit from setup alone. We split into head + tail so the
+            reader sees the attack setup AND the firing assertion, with
+            a marker between them.
+
+            If the body fits in head+tail lines, return it as-is.
+            """
+            parts = body.splitlines()
+            if len(parts) <= head + tail:
+                return body
+            # Find the last assert!() or abort line; bias the tail to
+            # land it. If neither found, just take the last `tail` lines.
+            firing_idx = -1
+            for i, ln in enumerate(parts):
+                s = ln.lstrip()
+                if s.startswith(("assert!", "abort ", "abort(")):
+                    firing_idx = i
+            if firing_idx < 0:
+                firing_idx = len(parts) - 1
+            tail_start = max(head + 1, firing_idx - tail + 2)
+            tail_end = min(len(parts), firing_idx + 2)
+            head_part = parts[:head]
+            tail_part = parts[tail_start:tail_end]
+            return (
+                "\n".join(head_part)
+                + "\n        // …setup truncated for brevity…\n"
+                + "\n".join(tail_part)
+            )
 
         if language == "aptos":
             # Move PoCs live at workspace/tests/aptos/test_<slug>.move
@@ -662,7 +1294,7 @@ def _findings_writeup(
                         r"(#\[test[^\]]*\]\s*\n\s*fun\s+[A-Za-z0-9_]+\s*[^\{]*\{.*?\n\s*\})",
                         pt, re.DOTALL,
                     )
-                    l2_excerpt = _cap_lines(m.group(1) if m else pt)
+                    l2_excerpt = _cap_with_firing_tail(m.group(1) if m else pt)
                 except OSError:
                     pass
             l2_lang = "rust"  # Prism doesn't ship `move`; rust highlight is closest
@@ -677,9 +1309,9 @@ def _findings_writeup(
                         poc_text, re.DOTALL,
                     )
                     if m:
-                        l2_excerpt = _cap_lines(m.group(1))
+                        l2_excerpt = _cap_with_firing_tail(m.group(1))
                     else:
-                        l2_excerpt = _cap_lines(poc_text)
+                        l2_excerpt = _cap_with_firing_tail(poc_text)
                 except OSError:
                     pass
 
@@ -846,32 +1478,69 @@ def _findings_writeup(
             if language == "aptos"
             else "Layer 3 — Symbolic verification (Kani)"
         )
-        # If the full claim was truncated for the heading, surface the
-        # full text as a finding-description paragraph below so the
-        # reader still gets the invariant statement in context.
+
+        # Invariant block — the full untruncated claim from the YAML
+        # (no longer relying on DB's claim[:120]).
         description_para = ""
-        if full_title != title:
-            # The DB stores `title = claim[:120]` so the invariant prose
-            # may have been chopped mid-word at insert time. Add a soft
-            # ellipsis only when the stored value hit exactly 120 chars
-            # (i.e. probable truncation) AND doesn't already end on a
-            # terminal punctuation mark.
-            display_title = full_title
-            if len(full_title) == 120 and not full_title.rstrip().endswith((".", "!", "?")):
-                # Trim any trailing partial word so the ellipsis lands clean
-                trimmed = full_title.rstrip()
-                last_space = trimmed.rfind(" ")
-                if last_space >= 100:
-                    trimmed = trimmed[:last_space]
-                display_title = trimmed.rstrip(" ,;:-") + " …"
+        if full_claim and full_claim != title:
             description_para = (
                 f'<p class="finding-prose" style="color:var(--text-2);'
-                f'margin:-4px 0 14px;font-size:12.5px;">'
+                f'margin:-4px 0 14px;font-size:12.5px;line-height:1.55">'
                 f'<strong style="color:var(--text-3);'
                 f'font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;'
                 f'font-family:var(--mono);margin-right:8px">Invariant</strong>'
-                f'{html.escape(display_title)}</p>'
+                f'{html.escape(full_claim)}</p>'
             )
+
+        # Cluster disclosure chip — if this finding's hyp_id is the
+        # cluster representative for >1 STRONG fires, list the duplicate
+        # hypothesis IDs it covers. Without this, the reader has no way
+        # to know that 4 STRONG fires collapsed to 1 finding.
+        cluster_chip = ""
+        if len(cluster_members) > 1:
+            covered = ", ".join(cluster_members[1:])
+            cluster_chip = (
+                f'<p class="finding-prose" style="color:var(--text-2);'
+                f'margin:-2px 0 14px;font-size:12px;line-height:1.55;'
+                f'padding:8px 12px;background:var(--surface);'
+                f'border:1px solid var(--rule);border-radius:4px">'
+                f'<strong style="color:var(--text-3);'
+                f'font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;'
+                f'font-family:var(--mono);margin-right:8px">Cluster</strong>'
+                f'This finding represents {len(cluster_members)} hypotheses that '
+                f'converged on the same code-site root cause. The cluster '
+                f'representative is <code>{html.escape(hyp_id)}</code>; '
+                f'co-occurring duplicates: <code>{html.escape(covered)}</code>. '
+                f'Each duplicate produced an independent STRONG-classified PoC fire '
+                f'against the same engine function — see §B for the clustering rule.</p>'
+            )
+
+        # Impact + Recommendation prose. The bug_class drives a short
+        # impact statement so the reader gets the "what does this mean
+        # for users / funds" framing OSec / ToB / Zellic reports have.
+        impact_text, recommendation_text = _impact_and_recommendation(
+            bug_class=bug_class, hyp_yaml=hyp_yaml, severity=sev,
+        )
+        impact_section = (
+            f'<h4>Impact</h4>'
+            f'<p class="finding-prose">{html.escape(impact_text)}</p>'
+        ) if impact_text else ""
+        recommendation_section = (
+            f'<h4>Recommendation</h4>'
+            f'<p class="finding-prose">{html.escape(recommendation_text)}</p>'
+        ) if recommendation_text else ""
+
+        # Move Prover counterexample excerpt (Aptos only). Surfaces the
+        # actual state assignment that violated the spec, not just the
+        # one-line verdict.
+        l3_excerpt = ""
+        if language == "aptos":
+            l3_excerpt = _aptos_counterexample_excerpt(workspace, cycle_id, hyp_slug)
+        l3_excerpt_block = (
+            f'<pre class="code-block code-tight"><code>{html.escape(l3_excerpt)}</code></pre>'
+            if l3_excerpt else ""
+        )
+
         sections.append(f"""
         <section class="finding" id="finding-{idx:02d}">
           <div class="finding-banner">
@@ -884,11 +1553,17 @@ def _findings_writeup(
           </div>
           <h3 class="finding-title">{html.escape(title)}</h3>
           {description_para}
+          {cluster_chip}
+
+          {impact_section}
 
           <h4>{l3_label}</h4>
           <p class="finding-prose">{html.escape(l3_status)}</p>
+          {l3_excerpt_block}
 
           {l4_section}
+
+          {recommendation_section}
 
           {gates_section}
 
@@ -986,14 +1661,99 @@ def _fix_bundle_section(
   {counter_html}
 """
 
+    # Build a hyp_id → finding_status map so we can annotate each row
+    # with the FINDING-level state (confirmed / triaged / new), not just
+    # the bundle-level state. Without this the reader sees seven rows of
+    # `status: drafted` and can't tell which bundles back the published
+    # findings vs which back triaged duplicates vs which back FALSE-
+    # classified fires.
+    finding_status_by_hyp: dict[str, str] = {}
+    for f in findings:
+        hid = f.get("hypothesis_id") or ""
+        if hid:
+            finding_status_by_hyp[hid] = (f.get("status") or "?")
+
+    # Pull triage classification from triage.jsonl so we can label each
+    # row's role: cluster-rep / duplicate / FALSE / SOFT.
+    triage_classification: dict[str, str] = {}
+    triage_clusters_local: dict[str, list[str]] = {}
+    cycle_id_for_triage = ""
+    # Best-effort cycle_id extraction from the first finding row (all share
+    # the cycle in cycle_report mode).
+    for f in findings:
+        if f.get("cycle_id"):
+            cycle_id_for_triage = str(f["cycle_id"])
+            break
+    if cycle_id_for_triage:
+        triage_jsonl = workspace / "hunts" / cycle_id_for_triage / "triage.jsonl"
+        if triage_jsonl.is_file():
+            by_cluster: dict[str, list[str]] = {}
+            try:
+                for line in triage_jsonl.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        rrec = _json.loads(line)
+                    except ValueError:
+                        continue
+                    hid = rrec.get("hyp_id")
+                    cls = rrec.get("classification")
+                    cid = rrec.get("cluster_id")
+                    if hid and cls:
+                        triage_classification[hid] = cls
+                    if cls == "STRONG" and cid and hid:
+                        by_cluster.setdefault(cid, []).append(hid)
+            except OSError:
+                pass
+            triage_clusters_local = by_cluster
+
+    def _role_for(hyp_id: str, finding_status: str) -> str:
+        cls = triage_classification.get(hyp_id, "")
+        if cls == "STRONG":
+            # Is it the cluster representative?
+            for cid, members in triage_clusters_local.items():
+                if hyp_id in members:
+                    if hyp_id == cid:
+                        if len(members) > 1:
+                            return f"cluster rep ({len(members)} hyps)"
+                        return "confirmed"
+                    return f"duplicate of {cid}"
+        if cls == "SOFT":
+            return "SOFT — wrong invariant"
+        if cls == "FALSE":
+            return "FALSE — artifactual fire"
+        if cls == "LOST":
+            return "LOST — couldn't classify"
+        return finding_status or "—"
+
+    # Sort: confirmed reps first, then dups, then SOFT/FALSE last.
+    def _sort_key(r):
+        role = _role_for(r["hyp"], finding_status_by_hyp.get(r["hyp"], ""))
+        if role.startswith("cluster rep") or role == "confirmed":
+            return (0, r["hyp"])
+        if role.startswith("duplicate"):
+            return (1, r["hyp"])
+        return (2, r["hyp"])
+
     body_rows: list[str] = []
-    for r in rows:
+    for r in sorted(rows, key=_sort_key):
         authz_mark = "&#x2713;" if r["authorized"] else "&middot;"
+        finding_status = finding_status_by_hyp.get(r["hyp"], "")
+        role = _role_for(r["hyp"], finding_status)
+        role_color = {
+            "confirmed": "var(--critical)",
+        }.get(role.split(" ")[0], "var(--text-3)")
+        # Special-case the visual emphasis for the "cluster rep" / plain
+        # "confirmed" rows so they stand out from triaged duplicates.
+        if role.startswith("cluster rep") or role == "confirmed":
+            role_color = "var(--critical)"
         body_rows.append(
             f"<tr>"
             f"<td><code>{r['id']}</code></td>"
             f"<td><code>{html.escape(r['hyp'])}</code></td>"
             f"<td style=\"color:var(--text-2)\">{html.escape(r['title'])}</td>"
+            f"<td style=\"color:{role_color};font-family:var(--mono);font-size:11.5px\">"
+            f"{html.escape(role)}</td>"
             f"<td><code>{html.escape(r['status'])}</code></td>"
             f"<td style=\"text-align:right\">{html.escape(r['gates'])}</td>"
             f"<td style=\"text-align:center\">{authz_mark}</td>"
@@ -1002,19 +1762,46 @@ def _fix_bundle_section(
     table = (
         '<table><thead><tr>'
         '<th>id</th><th>hypothesis</th><th>title</th>'
-        '<th>status</th><th style="text-align:right">gates</th>'
+        '<th>role</th><th>bundle status</th>'
+        '<th style="text-align:right">gates</th>'
         '<th style="text-align:center">authz</th>'
         '</tr></thead><tbody>' + "".join(body_rows) + '</tbody></table>'
+    )
+
+    # Replace the original "Findings with bundle" headline — it's
+    # misleading when triaged duplicates + FALSE fires also get bundles.
+    confirmed_with_bundle = sum(
+        1 for r in rows
+        if (finding_status_by_hyp.get(r["hyp"]) or "") == "confirmed"
+    )
+    advisory_with_bundle = len(rows) - confirmed_with_bundle
+    refined_counters = (
+        '<div class="kpi-grid">'
+        f'<div class="kpi"><div class="label">Confirmed-finding bundles</div>'
+        f'<div class="value">{confirmed_with_bundle}</div></div>'
+        f'<div class="kpi"><div class="label">Advisory bundles</div>'
+        f'<div class="value">{advisory_with_bundle}</div>'
+        f'<div class="delta">duplicates + SOFT + FALSE retained for audit trail</div></div>'
+        f'<div class="kpi"><div class="label">Verified</div>'
+        f'<div class="value">{counts.get("verified", 0) + counts.get("authorized", 0) + counts.get("pr-opened", 0) + counts.get("merged", 0) + counts.get("fixed", 0)}</div></div>'
+        f'<div class="kpi"><div class="label">Authorized</div>'
+        f'<div class="value">{counts.get("authorized", 0) + counts.get("pr-opened", 0) + counts.get("merged", 0) + counts.get("fixed", 0)}</div></div>'
+        f'<div class="kpi"><div class="label">Merged</div>'
+        f'<div class="value">{counts.get("merged", 0) + counts.get("fixed", 0)}</div></div>'
+        '</div>'
     )
 
     return f"""
   <h2>03 &mdash; Fix-bundle activity</h2>
   <p style="color:var(--text-2)">
     Per-finding fix-bundle pipeline state. Engine drafts + verifies; operator
-    authorizes via long-form typed phrase; PR opens only against valid
-    authorization marker.
+    authorizes via long-form typed phrase; PR opens only against a valid
+    authorization marker. The table includes bundles for confirmed findings
+    AND for triaged duplicates / SOFT / FALSE fires — the latter are retained
+    as audit-trail evidence of every PoC the hunt loop landed against the
+    target, NOT as published findings (see Layer 2.5 gating in §B).
   </p>
-  {counter_html}
+  {refined_counters}
   {table}
 """
 
@@ -1210,9 +1997,26 @@ def _render_cycle_html(
     else:
         status_label, status_class = "Cycle complete · no confirmed Critical/High", "ok"
 
+    # Build a human-readable audit-date label from the cycle's
+    # YYYYMMDD-HHMMSS id. Falls back to ``started_at`` if available.
+    audit_date_label = ""
+    raw_cycle_id = cycle.get("cycle_id", "") if cycle else ""
+    if raw_cycle_id and len(raw_cycle_id) >= 8:
+        try:
+            dt = datetime.strptime(raw_cycle_id[:8], "%Y%m%d")
+            audit_date_label = dt.strftime("%B %d, %Y")
+        except ValueError:
+            pass
+    if not audit_date_label and started and started != "?":
+        audit_date_label = started[:10]
+
+    # Aptos / Move workspaces don't have a separate wrapper repo, so the
+    # wrapper SHA equals the engine SHA. Hide the duplicate row.
+    show_wrapper = language == "solana"
+
     cover = cover_page_html(
         target_name=target_name,
-        report_title="Hunt cycle ·",
+        report_title="",  # title now reads as just the target name (cleaner)
         window_label=f"cycle {cycle_id}",
         cycle_id=cycle_id,
         engine_sha=engine_sha,
@@ -1222,6 +2026,9 @@ def _render_cycle_html(
         pubkey_fingerprint=pubkey_fingerprint,
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         protocol_label=protocol_label,
+        audit_date_label=audit_date_label,
+        show_wrapper_sha=show_wrapper,
+        draft=True,
     )
 
     return f"""<!doctype html>
@@ -1462,6 +2269,10 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
 
 <div class="shell">
 
+  {_executive_summary_section(target_name, cycle, findings, real_counts, language, protocol_label)}
+
+  {_scope_section(workspace, target_name, cycle, language, protocol_label)}
+
   {_table_of_contents(findings)}
 
   {_findings_writeup(findings, workspace, cycle_id) if workspace else ""}
@@ -1480,33 +2291,79 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
   </table>
 
   <h2>B &mdash; Methodology</h2>
+
+  <h3 style="font-size:13px;margin:18px 0 6px;color:var(--text-2)">Layer overview</h3>
+  <table>
+    <thead><tr><th style="width:130px">Layer</th><th>Function</th></tr></thead>
+    <tbody>
+      <tr><td><code>Layer 1</code></td>
+          <td style="color:var(--text-2)">Multi-agent recon. For each hypothesis, parallel LLM agents read the engine source and return a TRUE / FALSE / NEEDS_LAYER_2_TO_DECIDE verdict with confidence + per-agent grounding.</td></tr>
+      <tr><td><code>Layer 1.5</code></td>
+          <td style="color:var(--text-2)">Adversarial debate. Contested verdicts (NEEDS_L2 or split verdicts) are promoted through a single-round attacker / defender debate, with a separate judge resolving the final verdict.</td></tr>
+      <tr><td><code>Layer 2</code></td>
+          <td style="color:var(--text-2)">Concrete proof-of-concept. An inverted-assertion test is authored in {("Move and run via <code>aptos move test</code>" if language == "aptos" else "Rust and run via <code>cargo test</code>")}. The test &quot;fires&quot; iff an abort with a custom error code originates in the target module (not stdlib / setup).</td></tr>
+      <tr><td><code>Layer 2.5</code></td>
+          <td style="color:var(--text-2)">Triage. An LLM judge classifies each fire as <code>STRONG</code> (real bug), <code>SOFT</code> (wrong invariant), <code>FALSE</code> (artifactual abort), or <code>LOST</code> (signal missing). STRONG fires are clustered by (engine_function, target_file) so the same code-site bug under multiple hypothesis IDs collapses to one root cause.</td></tr>
+      <tr><td><code>Layer 3</code></td>
+          <td style="color:var(--text-2)">Symbolic verification. {("Move Prover with Boogie + Z3 / CVC5 backends. The spec asserts the violated invariant; the prover either finds a counterexample (bug confirmed by SMT) or proves the invariant holds within the spec's bounded model." if language == "aptos" else "Kani-based bounded model checking. The harness asserts the violated invariant; Kani either finds a counterexample within the bounded depth or proves safety.")}</td></tr>
+      <tr><td><code>Layer 4</code></td>
+          <td style="color:var(--text-2)">{("Property-based fuzzing via <code>aptos move test</code>. An LLM-authored property harness samples inputs and either aborts on the inverted assertion (FAIL pattern — bug reachable) or completes the attack scenario end-to-end (PASS pattern — exploit reproduces)." if language == "aptos" else "On-chain BPF reproduction. The Solana program is deployed into LiteSVM and the PoC re-executed through the deployed instructions, confirming the wrapper-side defenses don't catch the bug.")}</td></tr>
+      <tr><td><code>Layer P3</code></td>
+          <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 5-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass). Operator authorization is required before any upstream PR is opened.</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size:13px;margin:24px 0 6px;color:var(--text-2)">Cycle execution</h3>
   <p style="color:var(--text-2)">
     This cycle was produced by Jelleo's continuous, hypothesis-driven {protocol_label} audit loop.
     Every finding originates as a falsifiable invariant claim from a per-protocol
-    hypothesis library, dispatched to multi-agent recon (Layer 1), promoted on
-    contested verdicts via adversarial debate (Layer 1.5), and confirmed empirically
+    hypothesis library, dispatched to Layer 1 multi-agent recon, promoted on
+    contested verdicts via Layer 1.5 adversarial debate, and confirmed empirically
     via a {"<code>aptos move test</code>" if language == "aptos" else "<code>cargo test</code>"}
-    proof-of-concept (Layer 2). Fires pass through a Layer 2.5 LLM judge that classifies
-    each as <code>STRONG</code> (real bug demonstrated), <code>SOFT</code> (PoC fired but on
-    a different invariant than claimed), <code>FALSE</code> (abort originated in stdlib /
-    framework setup, not target code), or <code>LOST</code> (signal lost). Only <code>STRONG</code>
-    cluster representatives advance to <code>confirmed</code> and reach this report's
-    per-finding section &mdash; <code>SOFT</code> and <code>STRONG</code> duplicates land in
-    <code>triaged</code> for review; <code>FALSE</code> fires return to <code>new</code> /
-    <code>rejected</code>.
-  </p>
-  <p style="color:var(--text-2)">
-    Confirmed findings auto-fire structural sibling derivation and cross-protocol
-    propagation hooks, then move through a restricted lifecycle
-    (<code>new &rarr; triaged &rarr; confirmed &rarr; disclosed &rarr; fixed &rarr; verified</code>).
+    Layer 2 proof-of-concept. Layer 2.5 triage classifies each fire as
+    <code>STRONG</code> / <code>SOFT</code> / <code>FALSE</code> / <code>LOST</code>;
+    only STRONG cluster representatives advance to <code>confirmed</code> and
+    appear in §01 above. SOFT and STRONG duplicates land in <code>triaged</code>;
+    FALSE fires return to <code>new</code>. Lifecycle:
+    <code>new &rarr; triaged &rarr; confirmed &rarr; disclosed &rarr; fixed &rarr; verified</code>.
     Every cycle is signed Ed25519 against the platform key — see the cover-page receipt.
   </p>
   {_hunt_funnel_section(workspace, cycle_id, findings) if workspace else ""}
+
+  <h2>C &mdash; Audit artifacts</h2>
   <p style="color:var(--text-2)">
-    Full spec: <a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology">docs/methodology/</a>
-    (eleven sections, &sect;01&ndash;&sect;10) &middot;
-    Live reference: <a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a> &middot;
-    Inaugural disclosure: <a href="https://github.com/aeyakovenko/percolator-prog/pull/39">aeyakovenko/percolator-prog#39</a> (F7, 2026-04)
+    All cycle artifacts are persisted on disk and verifiable independently of
+    this report. The table below lists the canonical paths under the cycle workspace
+    so a reviewer can re-execute every layer or recompute the cycle Merkle root.
+  </p>
+  {_artifact_paths_section(workspace, cycle_id) if workspace else ""}
+
+  <h2>D &mdash; Disclaimers</h2>
+  <p style="color:var(--text-2)">
+    Findings in this report reflect the state of the engine source at the commit
+    hash on the cover page. Subsequent changes to the codebase are not analyzed.
+    The report is not a guarantee of code correctness or security: it documents
+    invariants that fired (or held) under the hypothesis library applied during
+    this cycle. Out-of-scope items are listed in §00.1 (Scope). Findings flagged
+    by Layer 2.5 as <code>SOFT</code> / <code>FALSE</code> / <code>LOST</code>
+    are retained in the audit trail (§03) but are not published findings; readers
+    should not interpret a bundle in §03 as a confirmed vulnerability unless its
+    finding row is also present in §01.
+  </p>
+  <p style="color:var(--text-2)">
+    Communication channel: <a href="mailto:security@jelleo.com">security@jelleo.com</a>
+    (PGP key on <a href="https://jelleo.com/security.html">jelleo.com/security.html</a>).
+    Coordinated disclosure follows the timeline published in our security policy;
+    pre-disclosure leak protections are enforced at the report level (the
+    <code>--public</code> renderer suppresses confirmed-but-not-disclosed findings).
+  </p>
+
+  <p style="color:var(--text-3);font-size:11.5px;margin-top:24px">
+    Methodology spec: <a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/docs/methodology">docs/methodology/</a>
+    &middot;
+    Live reference: <a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a>
+    &middot;
+    Source: <a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a>
   </p>
 
   {footer_html(extra=f"Cycle {cycle_id}", protocol_label=protocol_label)}

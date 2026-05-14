@@ -754,6 +754,9 @@ def cover_page_html(
     auditor_name: str = "Kirill Sakharuk",
     auditor_email: str = "kirill@jelleo.com",
     protocol_label: str = "Solana",
+    audit_date_label: str = "",
+    show_wrapper_sha: bool = True,
+    draft: bool = False,
 ) -> str:
     """Render a customer-facing PDF cover page.
 
@@ -794,9 +797,25 @@ def cover_page_html(
         f'<div class="label">Engine SHA</div><div class="value"><code>{engine_sha}</code></div>'
         if engine_sha else ""
     )
+    # Solana has a separate wrapper repo; Aptos / Move and other languages
+    # use a single engine repo. Hide the wrapper row entirely when there
+    # is no distinct wrapper or when the caller flagged it off, so the
+    # cover doesn't render `engine_sha == wrapper_sha` and confuse readers.
     wrapper_row = (
         f'<div class="label">Wrapper SHA</div><div class="value"><code>{wrapper_sha}</code></div>'
-        if wrapper_sha else ""
+        if (wrapper_sha and show_wrapper_sha and wrapper_sha != engine_sha) else ""
+    )
+    date_row = (
+        f'<div class="label">Audit date</div><div class="value">{audit_date_label}</div>'
+        if audit_date_label else ""
+    )
+    draft_chip = (
+        '<span style="display:inline-block;margin-left:14px;padding:3px 10px;'
+        'border:1px solid var(--amber);color:var(--amber);'
+        'font-family:var(--mono);font-size:10px;letter-spacing:.18em;'
+        'text-transform:uppercase;border-radius:3px;vertical-align:middle">'
+        'Draft &mdash; not for distribution</span>'
+        if draft else ""
     )
 
     return f"""
@@ -804,16 +823,17 @@ def cover_page_html(
       <div class="cover-logo">
         <span class="cover-wordmark">{PRODUCT_NAME}</span>
         <span class="cover-tagline">{tagline_display}</span>
+        {draft_chip}
       </div>
 
       <div class="cover-hero">
-        <div class="cover-eyebrow">Audit report · {window_label}</div>
-        <h1 class="cover-title">{report_title} <span class="accent">{target_name}.</span></h1>
+        <div class="cover-eyebrow">{protocol_label} audit &middot; {window_label}</div>
+        <h1 class="cover-title"><span class="accent">{target_name}</span></h1>
 
         <div class="cover-meta-grid">
           <div class="label">Auditor</div><div class="value">{auditor_name} &middot; <a href="mailto:{auditor_email}">{auditor_email}</a></div>
-          <div class="label">Customer</div><div class="value">{target_name}</div>
-          <div class="label">Window</div><div class="value">{window_label}</div>
+          <div class="label">Target</div><div class="value">{target_name}</div>
+          {date_row}
           {cycle_row}
           {engine_row}
           {wrapper_row}
@@ -829,7 +849,7 @@ def cover_page_html(
         </div>
 
         <div class="cover-summary-caption">
-          confirmed · disclosed · fixed · verified
+          Findings counted across lifecycle states: confirmed &middot; disclosed &middot; fixed &middot; verified
         </div>
       </div>
 
