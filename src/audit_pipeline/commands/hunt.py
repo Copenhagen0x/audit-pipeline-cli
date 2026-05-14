@@ -1467,61 +1467,108 @@ def _hunt_run(
                     # Runlog exists but no event in log → re-run defensively
 
                 meta = hyp_meta.get(hyp_id, {})
-                # Build the LLM authoring prompt + call the model
+                # Build the LLM authoring prompt + call the model.
+                # Cycle 20260514-151541 fix: retry up to 2x when the
+                # authored body fails the pre-compile validator
+                # (invalid hex addresses, cross-module acquires, imports
+                # of non-existent modules, weak-test heuristics). Each
+                # retry re-prompts with the validator's error message
+                # so the LLM can fix the specific issue. Total cost on
+                # a clean run is unchanged; bad runs cost ~$0.05 per
+                # extra attempt.
                 from audit_pipeline.utils import complete as _complete_l2
                 source_context = _grounded_source_for_hyp(
                     engine_dir, meta, ground_code=ground_code,
                 )
-                prompt = _l2_adapter.build_author_prompt(
+                base_prompt = _l2_adapter.build_author_prompt(
                     hyp=meta, source_context=source_context,
                     target_repo_root=engine_dir,
                 )
-                try:
-                    resp = _complete_l2(prompt)
-                    raw_text = getattr(resp, "text", str(resp))
-                    body = _l2_adapter.parse_test_body(raw_text)
-                except Exception as e:  # noqa: BLE001
-                    log("l2_author_failed", hypothesis_id=hyp_id, error=str(e))
+                MAX_AUTHOR_ATTEMPTS = 3
+                body = None
+                _attempt_err = None
+                _author_error = None
+                for _attempt in range(MAX_AUTHOR_ATTEMPTS):
+                    prompt = base_prompt
+                    if _attempt_err:
+                        prompt = (
+                            base_prompt
+                            + "\n\n# Previous attempt rejected\n\n"
+                            + "Your previous attempt was rejected by the "
+                            + "pre-compile validator:\n\n"
+                            + f"  ERROR: {_attempt_err}\n\n"
+                            + "Output a CORRECTED version that fixes this "
+                            + "specific issue. Do NOT repeat the same mistake."
+                        )
+                    try:
+                        resp = _complete_l2(prompt)
+                        raw_text = getattr(resp, "text", str(resp))
+                        candidate_body = _l2_adapter.parse_test_body(raw_text)
+                    except Exception as e:  # noqa: BLE001
+                        _author_error = str(e)
+                        break
+                    daily_cap.record_spend(0.05)
+                    total_cost += 0.05
+
+                    # Validate the authored body BEFORE compile
+                    _valid = True
+                    _val_err = None
+                    if hasattr(_l2_adapter, "validate_test_body"):
+                        try:
+                            _valid, _val_err = _l2_adapter.validate_test_body(
+                                candidate_body, engine_repo_root=engine_dir,
+                            )
+                        except Exception:  # noqa: BLE001
+                            _valid = True
+                    # Also run the weak-test detector
+                    _weak = False
+                    _weak_reason = None
+                    if _valid and hasattr(_l2_adapter, "detect_weak_test"):
+                        try:
+                            _weak, _weak_reason = _l2_adapter.detect_weak_test(
+                                candidate_body
+                            )
+                        except Exception:  # noqa: BLE001
+                            _weak = False
+
+                    if _valid and not _weak:
+                        body = candidate_body
+                        log(
+                            "l2_author_validated",
+                            hypothesis_id=hyp_id,
+                            attempt=_attempt + 1,
+                        )
+                        break
+
+                    _attempt_err = _val_err or _weak_reason
+                    log(
+                        "l2_author_retry",
+                        hypothesis_id=hyp_id,
+                        attempt=_attempt + 1,
+                        reason=_attempt_err,
+                    )
+
+                if body is None:
+                    log(
+                        "l2_author_failed",
+                        hypothesis_id=hyp_id,
+                        error=_author_error or _attempt_err or "unknown",
+                        attempts=MAX_AUTHOR_ATTEMPTS,
+                    )
                     poc_results[hyp_id] = {
                         "scaffold_path": None,
                         "scaffold_rc": -2,
                         "compile_test_rc": None,
                         "fired": False,
-                        "outcome": "author_failed",
+                        "outcome": (
+                            "weak_test"
+                            if _attempt_err and "rejected" not in (_author_error or "")
+                            else "author_failed"
+                        ),
+                        "weak_test_reason": _attempt_err,
                         "authoring_mode": f"adapter:{language}",
                     }
                     continue
-                # CALIBRATED: per-hyp PoC author cost ~$0.05 (same as Solana).
-                daily_cap.record_spend(0.05)
-                total_cost += 0.05
-
-                # Cycle 20260514-151541 anti-bullshit guard: reject the
-                # APT12-style "pages of math in comments + trivial
-                # assert" tests BEFORE compiling. The adapter exposes
-                # detect_weak_test(); if it flags the body, mark the
-                # outcome as weak_test and skip the compile+run cost.
-                _weak = False
-                _weak_reason = None
-                if hasattr(_l2_adapter, "detect_weak_test"):
-                    try:
-                        _weak, _weak_reason = _l2_adapter.detect_weak_test(body)
-                    except Exception:  # noqa: BLE001
-                        _weak = False
-                if _weak:
-                    log(
-                        "l2_weak_test_rejected",
-                        hypothesis_id=hyp_id,
-                        reason=_weak_reason,
-                    )
-                    poc_results[hyp_id] = {
-                        "scaffold_path": None,
-                        "scaffold_rc": 0,
-                        "compile_test_rc": None,
-                        "fired": False,
-                        "outcome": "weak_test",
-                        "weak_test_reason": _weak_reason,
-                        "authoring_mode": f"adapter:{language}",
-                    }
                     continue
 
                 # Write test file then run it via the adapter

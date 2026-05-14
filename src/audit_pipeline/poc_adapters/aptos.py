@@ -180,6 +180,21 @@ Relevant instructions: {relevant}
 * **Only import modules that exist in `sources/`.** Verify each
   `use <addr>::<module>;` you write against the Grounded source
   block below. If the module isn't there, you can't import it.
+  Framework imports (`use aptos_framework::*`, `use std::*`) are
+  always OK.
+
+* **Addresses are HEX. Only 0-9, a-f, A-F.** Move addresses are
+  hexadecimal literals. The lexer rejects ANY non-hex character.
+  Cycle 20260514-151541 saw `@0xAT`, `@0xDEBT`, `@0xCOLL`,
+  `@0xATTACKER` — all rejected because T, K, L, M, N, O, P, Q,
+  R, S, T, U, V, W, X, Y, Z are NOT hex digits.
+  ✓ valid:   `@0x42`, `@0xAA`, `@0xBEEF`, `@0xC0DE`, `@0xCAFE`,
+             `@0xDEAD`, `@0xFADE`, `@0x100`, `@0x999`
+  ✗ invalid: `@0xATTACKER`, `@0xVICTIM`, `@0xUSER`, `@0xDEBT`,
+             `@0xCOLL`, `@0xATOKEN`, `@0xTOKEN`
+  Use numeric or hex-friendly mnemonics: prefer `@0x42` /
+  `@0xAA` / `@0x100` (host), `@0x999` / `@0xBE` / `@0xBAD` (attacker),
+  `@0xC0` / `@0xC1` (collateral token), `@0xDE` / `@0xDF` (debt token).
 
 # Grounded source
 
@@ -315,6 +330,138 @@ isn't reachable, or you don't have enough information), output:
 The `CANNOT_TEST:` marker is recognized by the post-cycle gate as a
 non-fire — it doesn't count as a passed test. Don't use it lightly.
 """
+
+    def validate_test_body(
+        self,
+        body: str,
+        engine_repo_root: Path | None = None,
+    ) -> tuple[bool, str | None]:
+        """Pre-compile validation of an LLM-authored Move test body.
+
+        Catches the four failure modes the L2 author has hit on cycle
+        20260514-151541 — each ate ~$0.50 of compile-cost before the
+        Move toolchain rejected the test. Validating BEFORE compile
+        lets the dispatch retry with a feedback message instead of
+        wasting the compile/run.
+
+        Returns (is_valid, error_message). When invalid, error_message
+        is a single-line description suitable for re-prompting the LLM
+        ("Your previous attempt had error X — fix and retry.").
+
+        Checks (in order, returns first failure):
+
+        1. Invalid hex addresses. Move addresses are 0x[0-9a-fA-F]+.
+           Cute mnemonic addresses like @0xATTACKER / @0xDEBT / @0xCOLL
+           contain non-hex characters and fail Move's lexer.
+
+        2. Cross-module ``acquires`` annotations. Tests written in a
+           test module cannot ``acquires <other_module>::<Resource>``
+           — the bytecode verifier rejects it. Module-local acquires
+           and same-module resource references are fine.
+
+        3. Imports of non-existent modules. ``use mutatis::<X>;`` is
+           only valid when ``module mutatis::<X>`` exists in the
+           engine source. ``use aptos_framework::*`` and ``use std::*``
+           are always allowed (framework). When engine_repo_root is
+           given we scan sources/*.move for actual module names and
+           reject imports for modules not present.
+
+        4. Bare source-paste fallback. If the body has no `module`
+           declaration but contains `public entry fun`, the LLM
+           pasted source code instead of a test module. Reject.
+        """
+        # 4) bare source paste — quick check first
+        if "module " not in body and "public entry fun " in body:
+            return False, (
+                "Output looks like a bare `public entry fun` paste, not a "
+                "Move test module. Wrap the test in "
+                "`module <addr>::test_<name> { #[test] fun test_<name>() { ... } }`."
+            )
+
+        # 1) hex address validation
+        # Match @0x... and check every char is hex
+        bad_addrs: list[str] = []
+        for m in re.finditer(r"@0x([0-9a-zA-Z_]+)", body):
+            hexpart = m.group(1)
+            if not re.fullmatch(r"[0-9a-fA-F]+", hexpart):
+                bad_addrs.append("@0x" + hexpart)
+        if bad_addrs:
+            uniq = sorted(set(bad_addrs))
+            return False, (
+                f"Invalid hex addresses: {', '.join(uniq[:5])}. Move "
+                f"addresses must contain ONLY characters 0-9, a-f, A-F. "
+                f"Cute mnemonic names like @0xATTACKER are not valid hex "
+                f"(T, K, R are not hex digits). Use real hex like @0x100, "
+                f"@0xAA, @0xBEEF, @0xC0DE."
+            )
+
+        # 2) cross-module acquires
+        # Match `acquires <ident>::<Resource>` or
+        # `acquires <ident>, <ident2>::<Resource>`
+        # Note: bare `acquires <Type>` (same-module) is fine.
+        m = re.search(r"\bacquires\s+(?:[^,{]+,\s*)*([A-Za-z_]\w*)::(\w+)", body)
+        if m:
+            other_mod = m.group(1)
+            res = m.group(2)
+            return False, (
+                f"`acquires {other_mod}::{res}` is a cross-module acquires "
+                f"clause. Move's bytecode verifier rejects this — a test "
+                f"module can only declare `acquires` on resources defined "
+                f"in the SAME module. Drop the `acquires` annotation from "
+                f"your test fn signature and just call the target module's "
+                f"`public entry fun` (e.g. `treasury::deposit(...)`) — the "
+                f"framework handles acquires internally on cross-module "
+                f"calls."
+            )
+
+        # 3) imports of non-existent modules
+        if engine_repo_root is not None and engine_repo_root.is_dir():
+            engine_modules: set[str] = set()
+            for src in (engine_repo_root / "sources").glob("*.move"):
+                try:
+                    txt = src.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                for mm in re.finditer(
+                    r"^\s*module\s+\w+::(\w+)\s*\{", txt, re.MULTILINE
+                ):
+                    engine_modules.add(mm.group(1))
+
+            # Allow framework + stdlib imports unconditionally
+            ALLOWED_FRAMEWORK_PREFIXES = (
+                "aptos_framework::",
+                "aptos_std::",
+                "aptos_token::",
+                "std::",
+                "0x1::",
+                "0x2::",
+                "0x3::",
+                "0x4::",
+            )
+            bad_imports: list[str] = []
+            for um in re.finditer(
+                r"^\s*use\s+([\w:]+::\w+);", body, re.MULTILINE
+            ):
+                full = um.group(1)
+                # Skip framework / stdlib
+                if any(full.startswith(p) for p in ALLOWED_FRAMEWORK_PREFIXES):
+                    continue
+                # Engine modules: extract trailing module name and verify
+                mod_name = full.rsplit("::", 1)[1]
+                if mod_name not in engine_modules:
+                    bad_imports.append(full)
+            if bad_imports:
+                uniq = sorted(set(bad_imports))[:5]
+                avail = sorted(engine_modules)
+                return False, (
+                    f"Imports reference modules not present in engine "
+                    f"source: {', '.join(uniq)}. Available engine modules "
+                    f"(import these only): {', '.join(avail)}. (Framework "
+                    f"imports like aptos_framework::account, std::signer "
+                    f"are always OK.)"
+                )
+
+        return True, None
 
     def detect_weak_test(self, body: str) -> tuple[bool, str | None]:
         """Return (is_weak, reason) for an authored test body.
