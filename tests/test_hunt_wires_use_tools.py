@@ -113,7 +113,26 @@ def test_hunt_cmd_declares_use_tools_flag() -> None:
 def test_hunt_cmd_use_tools_default_is_on() -> None:
     """Operators who fire `audit-pipeline hunt` with no extra flags MUST
     get source-grounded recon. The retracted cycle ran on the legacy
-    speculation path; the default has to be ON to prevent regression."""
+    speculation path; the default has to be ON to prevent regression.
+
+    redact_proposer_evidence default flipped True->False on cycle
+    20260514-151541. The original rubber-stamp risk (challenger just
+    echoes proposer) is now mitigated by inlining engine source into
+    the challenger prompt (see debate.py
+    _resolve_engine_source_for_debate + the {ENGINE_SOURCE} block in
+    templates/agent_prompts/13_adversarial_debate.md). Challenger now
+    re-derives evidence from inlined source, not from the proposer's
+    summary — redaction is no longer needed for independence, and
+    keeping it on broke L1.5 entirely (challengers produced
+    "I cannot verify — escalate to L2" structural punts on every hyp).
+
+    auto_publish default also flipped True->False same cycle. --skip-*
+    flags only short-circuit LAYER execution, NOT the cycle-end
+    publish hook — so a layer-by-layer paused hunt with default-True
+    auto-pushed stub (n_confirmed=0) reports to jelleo.com/cycles/.
+    watch_on_update.sh passes --auto-publish explicitly to preserve
+    percolator-live production publish behavior.
+    """
     from audit_pipeline.commands.hunt import hunt_cmd
     for p in hunt_cmd.params:
         if p.name == "use_tools":
@@ -121,9 +140,20 @@ def test_hunt_cmd_use_tools_default_is_on() -> None:
                 "regression: hunt --use-tools default is no longer True"
             )
         if p.name == "redact_proposer_evidence":
-            assert p.default is True, (
-                "regression: hunt --redact-proposer-evidence default is "
-                "no longer True — debate would rubber-stamp the proposer"
+            assert p.default is False, (
+                "regression: hunt --redact-proposer-evidence default "
+                "flipped back to True. As of cycle 20260514-151541 the "
+                "default is False because engine source is now inlined "
+                "into the challenger prompt — that's how we get "
+                "independence-without-rubber-stamp."
+            )
+        if p.name == "auto_publish":
+            assert p.default is False, (
+                "regression: hunt --auto-publish default flipped back "
+                "to True. As of cycle 20260514-151541 the default is "
+                "False to prevent layer-by-layer paused hunts from "
+                "publishing stub (n_confirmed=0) reports. Pass "
+                "--auto-publish explicitly when you want it on."
             )
 
 
