@@ -1032,6 +1032,27 @@ def _parse_verdict(text: str) -> tuple[str, str]:
         block = text[section_start:section_end][:2000].upper()
 
         block_head = block[:200]
+        # Cycle 20260514-151541 fix: extract verdict from the FIRST
+        # non-empty line of the block (the actual verdict declaration)
+        # before falling back to naive substring scans. The previous
+        # logic's last-resort `\bTRUE\b in block_head` matched any
+        # occurrence of "TRUE" anywhere in the first 200 chars —
+        # including phrases like "cannot be TRUE or violated" in
+        # FALSE-verdict bodies (APT29-auction-settle-no-winner: body
+        # said `**FALSE** — Confidence: **HIGH**` but the very next
+        # sentence said "cannot be TRUE", so the parser flipped the
+        # verdict to TRUE, sending a phantom-hyp into L2 candidates).
+        first_line = next(
+            (ln.strip() for ln in block.splitlines() if ln.strip()),
+            "",
+        )
+        # Match `**TRUE**`, `TRUE`, `**FALSE** — Confidence: ...`, etc.
+        # at the START of the first non-empty line.
+        m_lead = re.match(
+            r"^\*{0,2}\s*(NEEDS[_\s]LAYER[_\s]2(?:[_\s]TO[_\s]DECIDE)?|"
+            r"TRUE|FALSE|UNKNOWN|INCONCLUSIVE)\b\*{0,2}",
+            first_line,
+        )
         if re.search(r"NEEDS[_\s]LAYER[_\s]2", block):
             verdict = "NEEDS_LAYER_2_TO_DECIDE"
         elif re.search(r"\bVERDICT\s*[:=\-]\s*TRUE\b", block):
@@ -1042,10 +1063,20 @@ def _parse_verdict(text: str) -> tuple[str, str]:
             verdict = "TRUE"
         elif re.search(r"(?m)^\s*\*{0,2}FALSE\*{0,2}\s*$", block):
             verdict = "FALSE"
-        elif re.search(r"\bTRUE\b", block_head):
-            verdict = "TRUE"
-        elif re.search(r"\bFALSE\b", block_head):
-            verdict = "FALSE"
+        elif m_lead:
+            tok = m_lead.group(1).upper().replace(" ", "_")
+            if "NEEDS" in tok:
+                verdict = "NEEDS_LAYER_2_TO_DECIDE"
+            elif tok == "INCONCLUSIVE":
+                verdict = "UNKNOWN"
+            else:
+                verdict = tok
+        # NOTE: the old `\bTRUE\b in block_head` / `\bFALSE\b in
+        # block_head` fallbacks were removed — they false-positive on
+        # bodies that mention TRUE/FALSE in passing. The lead-line
+        # match above handles every well-formed case; truly malformed
+        # verdicts now fall through to the FALLBACKS list below and
+        # only match strong patterns like `**Verdict: X**`.
 
     # Fallback: scan the whole text for strong verdict-declaration patterns.
     # Tries from most specific (least likely to false-positive) to broadest.

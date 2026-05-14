@@ -12,6 +12,7 @@ from audit_pipeline import __version__
 from audit_pipeline.commands import (
     bundle,
     cache,
+    cold_verify,
     confirm,
     cross_check,
     customer,
@@ -117,6 +118,7 @@ main.add_command(run.run_cmd)
 # Subcommands — force multipliers (the "how the fuck" tier)
 main.add_command(spec_check.spec_check_cmd)        # Layer 0
 main.add_command(debate.debate_cmd)                # Layer 1.5
+main.add_command(cold_verify.cold_verify_cmd)      # Layer 1.6 — L1.5 → L2 pre-gate
 main.add_command(propagate.propagate_cmd)          # Layer 1.6 (group: init-corpus, search)
 main.add_command(synth_kani.synth_kani_cmd)        # Layer 2.5
 main.add_command(shadow.shadow_group)              # Layer 6  (group: start, tail)
