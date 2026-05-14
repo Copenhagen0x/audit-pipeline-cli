@@ -32,8 +32,8 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: borrow-global-no-auth
-    engine_function: privileged_op
-    target_file: sources/*.move
+    engine_function: transfer_admin
+    target_file: sources/access_control.move
     claim: >
       Every `borrow_global_mut<T>(addr)` operation on a privileged
       resource is gated by an auth check that the caller is the owner
@@ -71,8 +71,8 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: cap-leak
-    engine_function: grant_capability
-    target_file: sources/*.move
+    engine_function: transfer_admin
+    target_file: sources/access_control.move
     claim: >
       Every privileged capability with `store` ability is given out
       under a finite, intentional issuance plan (one cap per admin,
@@ -83,8 +83,8 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: acl-bypass-entry
-    engine_function: privileged_op
-    target_file: sources/*.move
+    engine_function: transfer_admin
+    target_file: sources/access_control.move
     claim: >
       Every access-control-gated module function is reached ONLY
       through the gated entry. Adding a direct `public entry fun`
@@ -137,8 +137,8 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: event-emit-missing
-    engine_function: mutate_state
-    target_file: sources/*.move
+    engine_function: transfer_admin
+    target_file: sources/access_control.move
     claim: >
       Every state-mutating function emits an event with the relevant
       fields. Auditability requires events on transfers, role changes,
@@ -151,8 +151,8 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: u64-overflow-arith
-    engine_function: deposit
-    target_file: sources/*.move
+    engine_function: emergency_drain
+    target_file: sources/token_vault.move
     claim: >
       Every arithmetic op on a u64 balance / counter that COULD
       overflow either uses a wider type (u128/u256) or has a
@@ -354,7 +354,7 @@ hypotheses:
     severity: High
     bug_class: stake-double-claim
     engine_function: claim_rewards
-    target_file: sources/*.move
+    target_file: sources/staking_pool.move
     claim: >
       Every reward-claim path marks the user's snapshot consumed
       atomically with the payout. Re-entrant or two-call patterns
@@ -484,8 +484,8 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: treasury-drain
-    engine_function: withdraw_treasury
-    target_file: sources/*.move
+    engine_function: emergency_drain
+    target_file: sources/token_vault.move
     claim: >
       Every treasury-withdrawal function checks admin auth AND limits
       the amount to a sane fraction or via a time-lock. Unbounded

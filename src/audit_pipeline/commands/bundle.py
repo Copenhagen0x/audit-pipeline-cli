@@ -126,14 +126,61 @@ def draft_cmd(
     bug_class = finding.get("bug_class") or "unknown"
     template = template_for(bug_class)
 
-    # Read the target source file if given (for LLM context)
+    # Read the target source file if given (for LLM context).
+    #
+    # target_file is sourced from the hypothesis library's
+    # `target_file` field. For a single-file target (Solana cycles
+    # set "src/percolator.rs"), this is a direct path read. For
+    # Aptos cycles the hyp library uses a glob like "sources/*.move"
+    # — the engine has many small Move modules, any of which could
+    # host the buggy function.
+    #
+    # OLD behavior: if `tpath.is_file()` was False (glob doesn't
+    # match a real file literally named "*.move"), the function fell
+    # through with target_source = "" → no LLM patch authoring →
+    # bundle had only the skeleton template. Operator caught this
+    # on cycle 20260513-191318 Aptos run: 6 bundles drafted as
+    # placeholder text with `<2-4 paragraph description...>` and no
+    # actual diff.
+    #
+    # NEW behavior: detect glob characters (`*`, `?`, `[`) and use
+    # Path.glob to expand. Concatenate every matched file into one
+    # `target_source` string with `// === FILE: <path> ===` headers
+    # between them so the LLM can pinpoint which file/line to patch.
+    # The LLM's context is 200K — concatenated Move source for a
+    # whole engine package is ~10-30K tokens, well under the budget.
     target_source = ""
     if target_file and engine_repo:
-        tpath = engine_repo / target_file
-        if tpath.is_file():
-            target_source = tpath.read_text(encoding="utf-8", errors="replace")
+        is_glob = any(ch in target_file for ch in "*?[")
+        if is_glob:
+            matches = sorted(engine_repo.glob(target_file))
+            chunks = []
+            for p in matches:
+                if not p.is_file():
+                    continue
+                rel = p.relative_to(engine_repo)
+                try:
+                    body = p.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                chunks.append(f"// === FILE: {rel} ===\n{body}")
+            target_source = "\n\n".join(chunks)
+            if not target_source:
+                console.print(
+                    f"[yellow]warn:[/yellow] target_file glob "
+                    f"{target_file!r} matched no files under {engine_repo}"
+                )
+            else:
+                console.print(
+                    f"[green]glob-expanded[/green] {target_file} → "
+                    f"{len(matches)} files, {len(target_source)} bytes"
+                )
         else:
-            console.print(f"[yellow]warn:[/yellow] target file {tpath} not found")
+            tpath = engine_repo / target_file
+            if tpath.is_file():
+                target_source = tpath.read_text(encoding="utf-8", errors="replace")
+            else:
+                console.print(f"[yellow]warn:[/yellow] target file {tpath} not found")
 
     # Read the PoC source (for LLM context)
     poc_source = ""
