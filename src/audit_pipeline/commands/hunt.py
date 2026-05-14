@@ -1953,6 +1953,20 @@ def _hunt_run(
                 hyp_id = v["hypothesis_id"]
                 meta = hyp_meta.get(hyp_id, {})
                 harness_name = _slugify(hyp_id)
+                # Inject the slug into meta so the L4 adapter's prompt
+                # can tell the LLM the EXACT module + test function
+                # name to use. The adapter dispatches via
+                # `aptos move test --filter property_<harness_name>`,
+                # so the LLM-authored test function MUST match the
+                # `property_<harness_name>` naming pattern verbatim
+                # or no tests match the filter → no signal.
+                # Operator caught this on cycle 20260513-191318: LLM
+                # wrote `property_borrow_global_no_auth` while filter
+                # expected `property_apt1_borrow_global_no_auth`,
+                # producing 4× crash=false ran_clean=true pass=0
+                # fail=0 — "no signal" → looks like no bug found.
+                meta = dict(meta)
+                meta["_slug"] = harness_name
                 from audit_pipeline.utils import complete as _complete_l4
                 source_context = _grounded_source_for_hyp(
                     engine_dir_for_cargo, meta, ground_code=True,

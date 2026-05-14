@@ -47,14 +47,30 @@ class AptosRuntimeAdapter(LanguageRuntimeAdapter):
 ID: {hyp_id}
 Claim: {claim}
 Function under test: {engine_function}
+Slug (use this for module + function names): {hyp.get("_slug", hyp_id.lower().replace("-", "_"))}
 
 # Grounded source
 
 {source_context}
 
-# Run command
+# Run command (the FILTER substring is fixed — your test function
+# MUST be named to match this exactly)
 
-  aptos move test --filter property_<name> --package-dir {target_repo_root}
+  aptos move test --filter property_<slug> --package-dir {target_repo_root}
+
+CRITICAL NAMING RULE — the adapter dispatches via the filter
+`property_<slug>`. Your file MUST declare:
+
+   * module name: `<target_addr>::property_<slug>`
+   * test function name: `fun property_<slug>(...)`
+
+… with the slug taken VERBATIM from the line above. E.g. if the
+slug is `apt1_borrow_global_no_auth`, the module is
+`@<addr>::property_apt1_borrow_global_no_auth` and the test fn is
+`fun property_apt1_borrow_global_no_auth(...)`. DO NOT strip the
+`apt1_` (or whatever) prefix — the adapter's filter won't find a
+test that was renamed to drop it, and the L4 result will read as
+"no signal" even though the harness was authored.
 
 The harness is run as a Move unit test. A test that ABORTS = the
 inverted-assertion fired = bug confirmed. A test that PASSES =
@@ -102,10 +118,10 @@ the `fun` keyword).
 # Harness pattern
 
 ```move
-module <addr>::property_<name> {{
+module <target_addr>::property_<slug> {{
     use std::signer;
     use aptos_framework::account;
-    use <addr>::<module_under_test>;
+    use <target_addr>::<module_under_test>;
 
     /// Property-based test that demonstrates the bug exists.
     /// Setup: legitimate state. Attack: invoke with hostile inputs.
@@ -117,7 +133,7 @@ module <addr>::property_<name> {{
         admin = @<target_addr>,
         attacker = @0xDEAD
     )]
-    fun property_<name>(
+    fun property_<slug>(
         aptos_framework: signer,
         admin: signer,
         attacker: signer,
