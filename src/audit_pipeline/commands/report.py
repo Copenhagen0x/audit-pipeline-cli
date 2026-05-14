@@ -131,10 +131,15 @@ def report_cmd() -> None:
                    "EXCLUDED from --public reports — they're a pre-disclosure leak. "
                    "Use --full for customer-private cycle reports that include "
                    "in-progress findings (the manifest gate handles those separately).")
+@click.option("--draft/--no-draft", default=True, show_default=True,
+              help="Mark the report with a 'DRAFT — NOT FOR DISTRIBUTION' "
+                   "banner on the cover. Defaults to --draft so intermediate "
+                   "review copies are clearly labeled; pass --no-draft for the "
+                   "final publishable version.")
 @click.pass_context
 def cycle_report(
     ctx: click.Context, cycle_id: str, output: Path | None, sign: bool, pdf: bool,
-    public: bool,
+    public: bool, draft: bool,
 ) -> None:
     """Generate an HTML report for a single hunt cycle."""
     workspace = Path(ctx.obj["workspace"])
@@ -159,7 +164,7 @@ def cycle_report(
     pubkey = read_pubkey_fingerprint(workspace)
     out.write_text(
         _render_cycle_html(target, cycle, findings, pubkey,
-                           workspace=workspace, public=public),
+                           workspace=workspace, public=public, draft=draft),
         encoding="utf-8",
     )
     console.print(f"[green]wrote[/green] {out}")
@@ -2196,6 +2201,7 @@ def _render_cycle_html(
     *,
     workspace: Path | None = None,
     public: bool = True,
+    draft: bool = True,
 ) -> str:
     target_name = html.escape(target.get("name", "?"))
     cycle_id = html.escape(cycle.get("cycle_id", "?") if cycle else "?")
@@ -2273,7 +2279,7 @@ def _render_cycle_html(
         protocol_label=protocol_label,
         audit_date_label=audit_date_label,
         show_wrapper_sha=show_wrapper,
-        draft=True,
+        draft=draft,
     )
 
     return f"""<!doctype html>
