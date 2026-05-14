@@ -68,6 +68,15 @@ console = Console()
          "aptos-cli). Appears in the judge prompt header for context. "
          "Optional; defaults to the language's canonical framework.",
 )
+@click.option(
+    "--apply-to-db", is_flag=True, default=False,
+    help="After triage, recompute each finding's status from the new "
+         "triage classification + clustering and UPDATE the findings DB "
+         "row. FALSE/LOST fires are demoted to NEW (or REJECTED if the "
+         "verdict was also FALSE), SOFT and non-representative STRONG "
+         "fires are demoted to TRIAGED, STRONG cluster representatives "
+         "land on CONFIRMED. Without this flag, triage is read-only.",
+)
 @click.pass_context
 def triage_fires_cmd(
     ctx: click.Context,
@@ -78,12 +87,14 @@ def triage_fires_cmd(
     no_llm: bool,
     language: str,
     framework: str | None,
+    apply_to_db: bool,
 ) -> None:
     """Triage a cycle's PoC fires into STRONG / SOFT / FALSE / LOST.
 
     Writes ``<workspace>/hunts/<cycle-id>/triage.jsonl`` and prints a
-    summary. Does NOT mutate the cycle's existing artifacts beyond the
-    new triage.jsonl sidecar.
+    summary. With ``--apply-to-db``, also recomputes each finding's
+    status based on the new triage verdict + cluster representative
+    role and updates the findings DB.
     """
     workspace = Path(ctx.obj["workspace"])
     cycle_dir = workspace / "hunts" / cycle_id
@@ -186,6 +197,118 @@ def triage_fires_cmd(
     console.print(f"[dim]LLM calls: {out['n_llm_calls']} (fast-path saved "
                   f"{n_fired - out['n_llm_calls']})[/dim]")
     console.print(f"[dim]triage.jsonl: {out['triage_jsonl_path']}[/dim]")
+
+    if apply_to_db:
+        _apply_triage_to_findings(workspace, cycle_id, out)
+
+
+def _apply_triage_to_findings(
+    workspace: Path, cycle_id: str, triage_out: dict,
+) -> None:
+    """Recompute each finding's status using the new triage results.
+
+    Used to retroactively correct cycles persisted BEFORE the
+    persistence step learned to honor triage classification — e.g. cycle
+    20260513-191318 where 2 FALSE fires and 1 SOFT fire were incorrectly
+    promoted to status=CONFIRMED, and 4 duplicates of one root cause
+    each got their own CONFIRMED row.
+
+    Idempotent: re-runs converge to the same DB state.
+    """
+    from audit_pipeline.db import open_findings_db
+    from audit_pipeline.lifecycle import from_hunt_outcome
+
+    db = open_findings_db(workspace)
+    # Build hyp_id → triage info from the freshly-written results
+    triage_by_hyp: dict[str, dict] = {}
+    for r in triage_out.get("results", []):
+        triage_by_hyp[r["hyp_id"]] = {
+            "classification": r.get("classification"),
+            "cluster_id": r.get("cluster_id"),
+            "is_representative": bool(r.get("is_representative", True)),
+            "reason": r.get("reason", ""),
+        }
+
+    all_findings = [
+        f for f in db.list_findings(limit=10_000)
+        if f.get("cycle_id") == cycle_id
+    ]
+    n_changed = 0
+    transitions_log: list[tuple[str, str, str, str]] = []
+    for f in all_findings:
+        hyp_id = f.get("hypothesis_id") or ""
+        verdict = f.get("verdict") or "UNKNOWN"
+        debate_promoted = bool(f.get("debate_promoted"))
+        poc_fired = bool(f.get("poc_fired"))
+        current_status_str = f.get("status") or "new"
+        info = triage_by_hyp.get(hyp_id, {})
+        new_status = from_hunt_outcome(
+            verdict, debate_promoted, poc_fired,
+            triage_classification=info.get("classification"),
+            is_cluster_representative=info.get("is_representative", True),
+        )
+        if new_status.value == current_status_str:
+            continue
+        # Some lifecycle transitions are forbidden (e.g. FIXED → NEW).
+        # `_force_update_status` bypasses the state-machine guard since
+        # we're doing a corrective re-classification, not a forward
+        # workflow step. The transitions table records the reason.
+        try:
+            _force_update_status(
+                db, finding_id=int(f["id"]),
+                from_status=current_status_str,
+                to_status=new_status.value,
+                reason=(
+                    f"triage reclassify: cls="
+                    f"{info.get('classification') or '?'} "
+                    f"rep={info.get('is_representative', True)}"
+                ),
+            )
+            n_changed += 1
+            transitions_log.append((
+                hyp_id, current_status_str, new_status.value,
+                info.get("classification") or "—",
+            ))
+        except Exception as e:  # noqa: BLE001
+            console.print(f"[yellow]skip finding {f['id']} ({hyp_id}): {e}[/yellow]")
+
+    console.print()
+    console.print(f"[bold]Applied triage to DB:[/bold] {n_changed} status change(s)")
+    if transitions_log:
+        tbl = Table(show_header=True, header_style="bold")
+        tbl.add_column("Hypothesis")
+        tbl.add_column("From")
+        tbl.add_column("To")
+        tbl.add_column("Triage")
+        for hyp, frm, to, cls in transitions_log:
+            tbl.add_row(hyp, frm, to, cls)
+        console.print(tbl)
+
+
+def _force_update_status(
+    db, *, finding_id: int, from_status: str, to_status: str, reason: str,
+) -> None:
+    """Bypass the state-machine guard to write a corrective status.
+
+    The lifecycle state machine rejects backward transitions (CONFIRMED
+    → NEW) by design — that's correct for forward workflow. But a
+    reclassify pass is a CORRECTION, not a workflow step: the previous
+    CONFIRMED was wrong (triage said FALSE all along, the persistence
+    step ignored it). We update directly and log the transition.
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with db._conn() as c:  # noqa: SLF001 — purposeful low-level write
+        c.execute(
+            "UPDATE findings SET status = ?, updated_at = ? WHERE id = ?",
+            (to_status, now, finding_id),
+        )
+        c.execute(
+            """INSERT INTO transitions
+               (finding_id, from_status, to_status, reason, actor, ts)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (finding_id, from_status, to_status, reason, "triage-reclassify", now),
+        )
 
 
 __all__ = ["triage_fires_cmd"]
