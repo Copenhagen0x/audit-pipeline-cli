@@ -502,6 +502,7 @@ def _executive_summary_section(
     real_counts: dict[str, int],
     language: str,
     protocol_label: str,
+    workspace: Path | None = None,
 ) -> str:
     """One-paragraph executive summary opening the report.
 
@@ -557,15 +558,32 @@ def _executive_summary_section(
     else:
         sev_phrase = "no confirmed findings"
 
-    # Extract a short summary of what the findings are about — pull
-    # the engine_function from each finding's bundle meta if available.
+    # Short summary of what each finding documents. Use the YAML's full
+    # claim (not the DB-truncated title) so the exec summary sentence
+    # doesn't end mid-word ("gated b", "limits the amount to a ").
+    hyp_library = _load_hypothesis_library(workspace) if workspace else {}
     titles = []
     for f in real_findings:
-        title = (f.get("title") or "").strip()
-        if title:
-            # Take the first clause / 80 chars
-            short = re.split(r"(?<=[.!?])\s+", title, maxsplit=1)[0]
-            titles.append(short[:80])
+        hid = f.get("hypothesis_id") or ""
+        claim = ""
+        if hid and hyp_library.get(hid):
+            claim = (hyp_library[hid].get("claim") or "").strip()
+        if not claim:
+            claim = (f.get("title") or "").strip()
+        claim = re.sub(r"\s+", " ", claim)
+        if not claim:
+            continue
+        # Take the first sentence; if still too long, word-boundary cap.
+        first_sentence = re.split(r"(?<=[.!?])\s+", claim, maxsplit=1)[0]
+        if len(first_sentence) <= 120:
+            short = first_sentence
+        else:
+            cut = first_sentence[:117]
+            last_space = cut.rfind(" ")
+            if last_space >= 80:
+                cut = cut[:last_space]
+            short = cut.rstrip(" ,;:-") + "…"
+        titles.append(short)
     findings_summary = ""
     if titles:
         if len(titles) == 1:
@@ -575,14 +593,25 @@ def _executive_summary_section(
                 f"({chr(ord('a') + i)}) {t}" for i, t in enumerate(titles)
             ) + "."
 
+    formal_phrase = (
+        "a Move Prover counterexample where the formal layer ran"
+        if language == "aptos"
+        else "a Kani-bounded model-checker proof where the formal layer ran"
+    )
+    fuzz_phrase = (
+        "a property-based <code>aptos move test</code> reproduction"
+        if language == "aptos"
+        else "an on-chain BPF reproduction through LiteSVM"
+    )
     framing = (
         f"This report documents the results of an autonomous {protocol_label} audit "
         f"cycle run by Jelleo against the <code>{html.escape(target_name)}</code> "
         f"workspace on {html.escape(date_label) if date_label else 'the date noted on the cover'}. "
         f"The cycle identified {sev_phrase} after Layer 2.5 triage and root-cause "
-        f"clustering.{findings_summary} Each finding includes a Move-VM-executed "
-        f"proof-of-concept, a Move Prover counterexample where the formal layer ran, "
-        f"a property-fuzz reproduction, and an LLM-authored structural fix patch."
+        f"clustering.{findings_summary} Each finding includes a "
+        f"{('Move-VM-executed' if language == 'aptos' else 'engine-direct')} "
+        f"proof-of-concept, {formal_phrase}, {fuzz_phrase}, "
+        f"and an LLM-authored structural fix patch."
     )
 
     return (
@@ -638,9 +667,17 @@ def _scope_section(
     if not sources:
         sources = ["(engine source enumeration unavailable in this build)"]
 
-    # Hypothesis library — how many hypotheses tested
-    hyp_library = _load_hypothesis_library(workspace)
-    n_hyps_in_library = len(hyp_library)
+    # Hypothesis library size — prefer the cycle-specific count (from
+    # hunt_summary.json or the cycle's hunt.log.jsonl). Avoids the
+    # union-of-all-bundled-libraries count which can read as e.g. 954.
+    cycle_id_for_lib = (cycle or {}).get("cycle_id") if cycle else None
+    n_hyps_in_library = (
+        _cycle_hypothesis_library_size(workspace, cycle_id_for_lib)
+        if cycle_id_for_lib else None
+    )
+    if n_hyps_in_library is None:
+        # Final fallback: union library size
+        n_hyps_in_library = len(_load_hypothesis_library(workspace))
 
     files_rows = "".join(
         f'<tr><td><code>{html.escape(s)}</code></td></tr>' for s in sources
@@ -677,15 +714,18 @@ def _load_hypothesis_library(workspace: Path) -> dict[str, dict]:
     claim, plus the ``rationale`` / ``severity`` / ``engine_function`` /
     ``target_file`` metadata that the DB also doesn't carry.
 
-    Resolution order:
+    Resolution order (first-match wins per hypothesis_id, so per-cycle
+    libraries override bundled templates):
       1. ``workspace/hypotheses.yaml``       (legacy cycle-local copy)
       2. ``workspace/hypotheses/*.yaml``     (per-cycle library directory)
-      3. ``src/audit_pipeline/templates/hypotheses/osec_aptos_class.yaml``
-         (the bundled OSec eval class library — used by aptos-* workspaces)
-      4. ``src/audit_pipeline/templates/hypotheses/*.yaml``  (other bundled)
+      3. ``src/audit_pipeline/templates/hypotheses/*.yaml``  (bundled)
 
     Returns ``{hypothesis_id: hyp_dict, ...}``. Empty dict if nothing
     resolves — caller falls back to the DB title.
+
+    NOTE on counting: this dict is the UNION across all loaded files,
+    so its length is NOT the size of the cycle's specific library. For
+    cycle-specific counts use ``_cycle_hypothesis_library_size()``.
     """
     import yaml as _yaml
     candidates: list[Path] = []
@@ -717,6 +757,51 @@ def _load_hypothesis_library(workspace: Path) -> dict[str, dict]:
                 # copies override bundled templates).
                 out.setdefault(h["id"], h)
     return out
+
+
+def _cycle_hypothesis_library_size(
+    workspace: Path, cycle_id: str,
+) -> int | None:
+    """Return the size of the SPECIFIC hypothesis library this cycle used.
+
+    Strategy:
+      1. If ``hunt_summary.json`` recorded ``n_hypotheses``, use that.
+      2. Else: count hypothesis_ids that appeared in the cycle's hunt
+         log events (any event that has a ``hypothesis_id`` field).
+      3. Else: None (caller falls back to the union library size).
+
+    Avoids the inflated "954 hypotheses" we got from blindly counting
+    every YAML in the bundled templates directory.
+    """
+    import json as _json
+    summary = workspace / "hunts" / cycle_id / "hunt_summary.json"
+    if summary.is_file():
+        try:
+            s = _json.loads(summary.read_text(encoding="utf-8"))
+            n = s.get("n_hypotheses")
+            if isinstance(n, int) and n > 0:
+                return n
+        except (OSError, ValueError):
+            pass
+    log = workspace / "hunts" / cycle_id / "hunt.log.jsonl"
+    if log.is_file():
+        seen: set[str] = set()
+        try:
+            for line in log.read_text(encoding="utf-8").splitlines():
+                if '"hypothesis_id"' not in line:
+                    continue
+                try:
+                    ev = _json.loads(line)
+                except ValueError:
+                    continue
+                hid = ev.get("hypothesis_id")
+                if hid:
+                    seen.add(hid)
+        except OSError:
+            pass
+        if seen:
+            return len(seen)
+    return None
 
 
 # Bug-class → (impact, recommendation) prose. Keyed by the slug used in
@@ -1249,7 +1334,7 @@ def _findings_writeup(
         l2_excerpt = ""
         l2_lang = "rust"
 
-        def _cap_with_firing_tail(body: str, head: int = 18, tail: int = 8) -> str:
+        def _cap_with_firing_tail(body: str, head: int = 16, tail: int = 12) -> str:
             """Cap the PoC body but ALWAYS preserve the firing assertion.
 
             The naive cap-at-N rule cuts before the `assert!(...)` that
@@ -1258,13 +1343,18 @@ def _findings_writeup(
             reader sees the attack setup AND the firing assertion, with
             a marker between them.
 
+            Multi-line `assert!(\\n   x == y,\\n   E_BUG_HIT\\n);` shapes
+            are common in Move — we extend the tail past the firing
+            line through the next matching `);` so the full statement
+            survives.
+
             If the body fits in head+tail lines, return it as-is.
             """
             parts = body.splitlines()
             if len(parts) <= head + tail:
                 return body
-            # Find the last assert!() or abort line; bias the tail to
-            # land it. If neither found, just take the last `tail` lines.
+            # Find the LAST assert!() or abort opener. Then walk forward
+            # to find its closing `);` so multi-line asserts survive.
             firing_idx = -1
             for i, ln in enumerate(parts):
                 s = ln.lstrip()
@@ -1272,8 +1362,17 @@ def _findings_writeup(
                     firing_idx = i
             if firing_idx < 0:
                 firing_idx = len(parts) - 1
-            tail_start = max(head + 1, firing_idx - tail + 2)
-            tail_end = min(len(parts), firing_idx + 2)
+            # Extend through the next `);` line if the firing line itself
+            # didn't end the statement.
+            end_idx = firing_idx
+            firing_line = parts[firing_idx].rstrip()
+            if not firing_line.endswith((");", ");//", "); ")):
+                for j in range(firing_idx + 1, min(firing_idx + 12, len(parts))):
+                    end_idx = j
+                    if parts[j].rstrip().endswith((");", ");//", "); ")):
+                        break
+            tail_start = max(head + 1, end_idx - tail + 2)
+            tail_end = min(len(parts), end_idx + 2)
             head_part = parts[:head]
             tail_part = parts[tail_start:tail_end]
             return (
@@ -2269,7 +2368,7 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
 
 <div class="shell">
 
-  {_executive_summary_section(target_name, cycle, findings, real_counts, language, protocol_label)}
+  {_executive_summary_section(target_name, cycle, findings, real_counts, language, protocol_label, workspace=workspace)}
 
   {_scope_section(workspace, target_name, cycle, language, protocol_label)}
 
@@ -2319,8 +2418,8 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
     Every finding originates as a falsifiable invariant claim from a per-protocol
     hypothesis library, dispatched to Layer 1 multi-agent recon, promoted on
     contested verdicts via Layer 1.5 adversarial debate, and confirmed empirically
-    via a {"<code>aptos move test</code>" if language == "aptos" else "<code>cargo test</code>"}
-    Layer 2 proof-of-concept. Layer 2.5 triage classifies each fire as
+    through {"a Layer 2 <code>aptos move test</code> proof-of-concept" if language == "aptos" else "a Layer 2 <code>cargo test</code> proof-of-concept"}.
+    Layer 2.5 triage classifies each fire as
     <code>STRONG</code> / <code>SOFT</code> / <code>FALSE</code> / <code>LOST</code>;
     only STRONG cluster representatives advance to <code>confirmed</code> and
     appear in §01 above. SOFT and STRONG duplicates land in <code>triaged</code>;

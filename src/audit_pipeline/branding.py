@@ -809,21 +809,29 @@ def cover_page_html(
         f'<div class="label">Audit date</div><div class="value">{audit_date_label}</div>'
         if audit_date_label else ""
     )
-    draft_chip = (
-        '<span style="display:inline-block;margin-left:14px;padding:3px 10px;'
-        'border:1px solid var(--amber);color:var(--amber);'
-        'font-family:var(--mono);font-size:10px;letter-spacing:.18em;'
-        'text-transform:uppercase;border-radius:3px;vertical-align:middle">'
-        'Draft &mdash; not for distribution</span>'
+    # The DRAFT chip is rendered as a separate banner ABOVE the hero
+    # so it doesn't compete with the wordmark for horizontal space and
+    # force the tagline to wrap ("AUTONOMOUS APTOS / AUDIT"). Print-time
+    # the chip sits in its own row, full-width, and reads as a clear
+    # NOT-FOR-DISTRIBUTION header.
+    draft_banner = (
+        '<div style="margin:0 0 18px;padding:6px 14px;'
+        'background:rgba(245,184,0,0.08);'
+        'border:1px solid var(--amber);border-radius:4px;'
+        'font-family:var(--mono);font-size:10.5px;letter-spacing:.20em;'
+        'text-transform:uppercase;color:var(--amber);text-align:center;'
+        'font-weight:600">'
+        'Draft &mdash; not for distribution'
+        '</div>'
         if draft else ""
     )
 
     return f"""
     <section class="cover">
+      {draft_banner}
       <div class="cover-logo">
         <span class="cover-wordmark">{PRODUCT_NAME}</span>
         <span class="cover-tagline">{tagline_display}</span>
-        {draft_chip}
       </div>
 
       <div class="cover-hero">
