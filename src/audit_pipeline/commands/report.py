@@ -957,9 +957,9 @@ _BUG_CLASS_PROSE: dict[str, tuple[str, str]] = {
         "an Aptos account.",
         "Gate every entry that performs `borrow_global_mut<T>(addr)` on a "
         "privileged resource through `access_control::assert_admin(...)` (or the "
-        "equivalent capability check) BEFORE the mutation. The check must run on "
-        "the actual signer, not on a parameter that can be ignored — use a "
-        "non-underscore-prefixed binding so the compiler enforces use.",
+        "equivalent capability check) BEFORE the mutation. Pass the actual "
+        "signer's address into the check — `signer::address_of(caller)` — so an "
+        "attacker calling with a non-admin signer aborts before the borrow.",
     ),
     "treasury-drain": (
         "An unprivileged signer can withdraw arbitrary amounts from the protocol's "
@@ -1188,7 +1188,12 @@ def _hunt_funnel_section(
     if summary_path.is_file():
         try:
             s = _json.loads(summary_path.read_text(encoding="utf-8"))
-            n_hypotheses = s.get("n_candidates", s.get("n_hypotheses", "?"))
+            # Use n_hypotheses (total library size tested) as the funnel
+            # base, NOT n_candidates (a narrower subset). The funnel math
+            # only works if base = fires + non-fires, and the DB shows
+            # exactly n_hypotheses findings per cycle. n_candidates is an
+            # internal dispatch count that doesn't account for all rows.
+            n_hypotheses = s.get("n_hypotheses") or s.get("n_candidates") or "?"
             n_fires = s.get("n_poc_fired", "?")
             total_cost_usd = s.get("total_cost_usd")
             elapsed_seconds = s.get("elapsed_seconds")
