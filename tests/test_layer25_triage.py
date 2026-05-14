@@ -267,6 +267,95 @@ def test_cluster_first_member_is_representative() -> None:
     assert "B" in clusters["A"]
 
 
+def test_cluster_merges_same_engine_function_different_bugclass() -> None:
+    """OSec eval regression: APT1 (borrow-global-no-auth) + APT4 (cap-leak)
+    + APT5 (acl-bypass) + APT9 (event-emit-missing) all exploit the SAME
+    attack on access_control::transfer_admin (non-admin calls
+    transfer_admin, admin changes). Cycle 20260513-191318 reported 4
+    "distinct Critical findings" — all four were the same bug under
+    different hypothesis labels.
+
+    The new Rule 2 merges them by engine_function + PoC-body Jaccard.
+    """
+    common_poc = (
+        "fun test_transfer_admin_no_auth(s: &signer) {\n"
+        "    access_control::initialize(s);\n"
+        "    let attacker = account::create_signer_for_test(@0xDEAD);\n"
+        "    access_control::transfer_admin(&attacker, @0xDEAD);\n"
+        "    let admin = access_control::current_admin();\n"
+        "    assert!(admin == @mutatis, E_BUG_HIT);\n"
+        "}"
+    )
+    strong = [
+        {"hyp_id": "APT1", "bug_class": "borrow-global-no-auth",
+         "engine_function": "transfer_admin",
+         "claim": "every borrow_global_mut on a privileged resource is auth-gated",
+         "poc_body": common_poc},
+        {"hyp_id": "APT4", "bug_class": "cap-leak",
+         "engine_function": "transfer_admin",
+         "claim": "every privileged capability is consumed after use",
+         "poc_body": common_poc},
+        {"hyp_id": "APT5", "bug_class": "acl-bypass-entry",
+         "engine_function": "transfer_admin",
+         "claim": "every gated module function is reached only through the gated entry",
+         "poc_body": common_poc},
+        {"hyp_id": "APT9", "bug_class": "event-emit-missing",
+         "engine_function": "transfer_admin",
+         "claim": "every state-mutating function emits an event",
+         "poc_body": common_poc},
+    ]
+    clusters = cluster_strong_fires(strong)
+    assert len(clusters) == 1, f"expected 1 cluster, got {clusters}"
+    cid = next(iter(clusters))
+    assert cid == "APT1"  # first hyp_id is the representative
+    assert set(clusters[cid]) == {"APT1", "APT4", "APT5", "APT9"}
+
+
+def test_cluster_does_not_merge_when_poc_bodies_diverge() -> None:
+    """Two STRONG fires hitting the same engine_function but exercising
+    DIFFERENT attacks (different PoC bodies) must NOT collapse. Defends
+    against over-clustering: a function with two genuine bugs (e.g.
+    missing-auth AND missing-overflow-check) should report two findings.
+    """
+    strong = [
+        {"hyp_id": "X1", "bug_class": "missing-auth",
+         "engine_function": "deposit", "claim": "auth missing",
+         "poc_body":
+            "fun test_auth(s: &signer) {\n"
+            "    let attacker = account::create_signer_for_test(@0xDEAD);\n"
+            "    vault::deposit(&attacker, 1);\n"
+            "    assert!(false, E);\n}"},
+        {"hyp_id": "X2", "bug_class": "u64-overflow",
+         "engine_function": "deposit", "claim": "overflow possible",
+         "poc_body":
+            "fun test_overflow(s: &signer) {\n"
+            "    coin::mint(s, u64_max);\n"
+            "    vault::deposit(s, u64_max);\n"
+            "    vault::deposit(s, 100);\n"
+            "    assert!(total < u64_max, E);\n}"},
+    ]
+    clusters = cluster_strong_fires(strong)
+    # Different attack flows → two clusters
+    assert len(clusters) == 2
+
+
+def test_cluster_skips_poc_rule_when_engine_function_missing() -> None:
+    """Rule 2 (PoC-body similarity) requires engine_function on both sides
+    — if it's blank, fall through to Rule 3 (claim shingle similarity)."""
+    strong = [
+        {"hyp_id": "P1", "bug_class": "auth", "engine_function": "",
+         "claim": "missing auth check on transfer",
+         "poc_body": "fun test() { call_transfer(); assert!(false, E); }"},
+        {"hyp_id": "P2", "bug_class": "auth", "engine_function": "",
+         "claim": "missing auth check on transfer admin",
+         "poc_body": "fun test() { call_transfer(); assert!(false, E); }"},
+    ]
+    clusters = cluster_strong_fires(strong)
+    # No engine_function → Rule 2 inert. Rule 3 (claim similarity) merges
+    # via same bug_class + claim Jaccard ≥ 0.25.
+    assert len(clusters) == 1
+
+
 # ─────────────────── triage_cycle end-to-end ───────────────────
 
 

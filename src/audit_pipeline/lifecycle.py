@@ -70,13 +70,56 @@ def from_hunt_outcome(
     verdict: str,
     debate_promoted: bool,
     poc_fired: bool,
+    triage_classification: str | None = None,
+    is_cluster_representative: bool = True,
 ) -> Status:
     """Initial status for a finding straight out of a hunt cycle.
 
     A finding can be inserted into the DB at any non-terminal state,
     but for traceability we always start at NEW and let the auto-advance
     pipeline walk it forward.
+
+    ``triage_classification`` overrides the raw ``poc_fired`` signal
+    using the Layer 2.5 judge's verdict:
+      - ``"STRONG"``  → real bug demonstrated by the PoC. Promote to
+                        CONFIRMED (or TRIAGED if it's a non-rep duplicate
+                        in a cluster — the representative carries the
+                        CONFIRMED status for that root cause).
+      - ``"SOFT"``    → PoC fired but the assertion exercises a different
+                        invariant than the hypothesis claimed. Mark TRIAGED
+                        so a human reviews before public disclosure.
+      - ``"FALSE"``   → PoC fired but in stdlib / setup / framework code,
+                        never reached the bug. Demote to NEW — the signal
+                        is artifactual.
+      - ``"LOST"``    → couldn't classify (missing log / body). NEW so
+                        the next cycle retries.
+      - ``None``      → no triage ran (legacy path). Fall back to the
+                        original poc_fired-based status.
+
+    Caught on cycle 20260513-191318 osec-aptos-small: APT10 + APT27 had
+    triage="FALSE" (abort in coin::merge stdlib + abort in timestamp setup)
+    but the persistence step ignored triage and promoted both to CONFIRMED.
+    Two of the seven "confirmed" findings were not actually demonstrated.
     """
+    if triage_classification is not None:
+        cls = triage_classification.upper()
+        if cls == "STRONG" and poc_fired:
+            # Non-representative duplicates land in TRIAGED so the
+            # cluster representative is the canonical CONFIRMED entry.
+            return Status.CONFIRMED if is_cluster_representative else Status.TRIAGED
+        if cls == "SOFT" and poc_fired:
+            return Status.TRIAGED
+        if cls == "FALSE":
+            # The mechanical fire is artifactual — don't promote past NEW.
+            # If the verdict is also FALSE/UNKNOWN, REJECTED is fine.
+            if verdict == "TRUE":
+                return Status.NEW
+            return Status.REJECTED
+        if cls == "LOST":
+            if verdict == "TRUE":
+                return Status.NEW
+            return Status.REJECTED
+        # Unknown classification → fall through to legacy logic
     if poc_fired:
         return Status.CONFIRMED
     if verdict == "TRUE" and debate_promoted:

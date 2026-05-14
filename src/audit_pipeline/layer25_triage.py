@@ -808,6 +808,42 @@ def _claim_shingles(claim: str, k: int = 3) -> set[tuple[str, ...]]:
     return {tuple(toks[i:i + k]) for i in range(max(0, len(toks) - k + 1))}
 
 
+def _poc_body_shingles(body: str, k: int = 4) -> set[tuple[str, ...]]:
+    """Token-shingle the PoC source body so two PoCs running the SAME
+    attack flow (same external calls, same assertion shape) Jaccard
+    above the dup threshold even when they use different variable
+    names / framework setup boilerplate.
+
+    Tokenization: split on whitespace + ``(`` + ``)`` + ``,`` + ``;``
+    so a call like ``access_control::transfer_admin(&attacker, addr)``
+    yields ``access_control::transfer_admin``, ``&attacker``, ``addr``
+    as independent tokens. Comments and ``#[test(...)]`` attribute
+    lines are stripped first — those are scaffolding noise.
+
+    Empty body → empty set. Caller checks before Jaccard.
+    """
+    if not body:
+        return set()
+    # Drop comments + #[test(...)] decorators so they don't bias the
+    # similarity score. Move and Rust both use `//` line comments.
+    cleaned_lines = []
+    for ln in body.splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        if s.startswith("//"):
+            continue
+        if s.startswith("#["):  # attribute lines
+            continue
+        cleaned_lines.append(s)
+    cleaned = " ".join(cleaned_lines).lower()
+    # Replace structural punctuation with whitespace so tokens split clean
+    for ch in "(),;{}":
+        cleaned = cleaned.replace(ch, " ")
+    toks = [t for t in cleaned.split() if t]
+    return {tuple(toks[i:i + k]) for i in range(max(0, len(toks) - k + 1))}
+
+
 def _jaccard(a: set, b: set) -> float:
     if not a or not b:
         return 0.0
@@ -818,6 +854,7 @@ def cluster_strong_fires(
     strong: list[dict[str, Any]],
     *,
     similarity_threshold: float = 0.25,
+    poc_body_threshold: float = 0.5,
 ) -> dict[str, list[str]]:
     """Cluster STRONG fires by root cause.
 
@@ -826,14 +863,29 @@ def cluster_strong_fires(
 
     Membership rule (in priority order):
 
-      1. **Strong match — same engine_function**: if two STRONG fires
-         hit the SAME engine_function with the SAME bug_class, they're
-         the same root cause by definition. The LLM judge already
-         confirmed both are STRONG (real bugs); two real bugs in the
-         same function under the same bug class is one root cause
-         expressed twice. Cluster regardless of claim wording.
+      1. **Strong match — same engine_function + same bug_class**: if
+         two STRONG fires hit the SAME engine_function with the SAME
+         bug_class, they're the same root cause by definition. The LLM
+         judge already confirmed both are STRONG (real bugs); two real
+         bugs in the same function under the same bug class is one
+         root cause expressed twice. Cluster regardless of claim wording.
 
-      2. **Weak match — claim similarity**: if one of bug_class /
+      2. **Strong match — same engine_function + similar PoC body**:
+         even when bug_class labels differ, two PoCs that exploit the
+         same engine_function with the same call sequence are the same
+         attack. The bug-class label drift comes from hypothesis-library
+         framing (one hyp says "missing auth", another says "missing
+         event emit", a third says "capability leak"), but all three
+         PoCs end up calling ``transfer_admin`` from a non-admin signer
+         and asserting the admin changed. PoC body 4-token shingle
+         Jaccard ≥ ``poc_body_threshold`` against any prior cluster
+         member triggers a merge.
+
+         Caught on cycle 20260513-191318 osec-aptos-small: APT1, APT4,
+         APT5, APT9 all hit ``access_control::transfer_admin`` with
+         the same attack flow but four different bug_class labels.
+
+      3. **Weak match — claim similarity**: if one of bug_class /
          engine_function is missing, fall back to comparing claim
          3-token shingle Jaccard against any prior cluster member.
          Compared to ALL members (not just the cluster representative)
@@ -852,7 +904,11 @@ def cluster_strong_fires(
         bc = (fire.get("bug_class") or "").strip().lower()
         ef = (fire.get("engine_function") or "").strip().lower()
         sh = _claim_shingles(fire.get("claim") or "")
-        meta = {"bug_class": bc, "engine_function": ef, "shingles": sh}
+        poc_sh = _poc_body_shingles(fire.get("poc_body") or "")
+        meta = {
+            "bug_class": bc, "engine_function": ef,
+            "shingles": sh, "poc_shingles": poc_sh,
+        }
 
         matched: str | None = None
         for cid, members in cluster_meta.items():
@@ -864,7 +920,22 @@ def cluster_strong_fires(
                        for m in members):
                     matched = cid
                     break
-            # Rule 2: weak match — claim shingle similarity, but ONLY if
+            # Rule 2 (NEW): same engine_function + PoC body similarity ≥
+            # poc_body_threshold. Catches the cross-bug-class duplicate
+            # case where the hypothesis library framed the same attack
+            # under multiple bug_class labels. Skipped when engine_function
+            # is empty on either side (can't say "same function" when we
+            # don't know either function).
+            if ef and poc_sh:
+                if any(
+                    m["engine_function"] == ef
+                    and m["poc_shingles"]
+                    and _jaccard(poc_sh, m["poc_shingles"]) >= poc_body_threshold
+                    for m in members
+                ):
+                    matched = cid
+                    break
+            # Rule 3: weak match — claim shingle similarity, but ONLY if
             # bug_class agrees AND engine_function isn't a hard mismatch.
             # Different engine_function = different code path = different
             # root cause, even when the claim wording rhymes. This rule
@@ -1004,13 +1075,24 @@ def triage_cycle(
             hyp_id=hyp_id, classification=cls, reason=reason, used_llm=True,
         ))
 
-    # Cluster STRONG fires
+    # Cluster STRONG fires. Read each PoC body so the clustering rule
+    # can compare attack-flow similarity, not just claim wording.
+    def _read_poc_body(hyp_id: str) -> str:
+        scaffold_path = poc_results.get(hyp_id, {}).get("scaffold_path")
+        if not scaffold_path:
+            return ""
+        try:
+            return Path(scaffold_path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+
     strong_dicts = [
         {
             "hyp_id": r.hyp_id,
             "bug_class": hyp_meta.get(r.hyp_id, {}).get("bug_class"),
             "engine_function": hyp_meta.get(r.hyp_id, {}).get("engine_function"),
             "claim": hyp_meta.get(r.hyp_id, {}).get("claim"),
+            "poc_body": _read_poc_body(r.hyp_id),
         }
         for r in results if r.classification == "STRONG"
     ]

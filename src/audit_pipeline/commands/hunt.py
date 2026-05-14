@@ -1751,14 +1751,19 @@ def _hunt_run(
                     used_llm=r.get("used_llm", False),
                     reason=r.get("reason", "")[:200])
             layer3_dispatch_filter = set(triage_out["layer3_dispatch_set"])
-            # Capture for cycle_summary — minus the per-fire results list
-            # (already in triage.jsonl) so summary stays compact.
+            # Capture for cycle_summary. ``results`` is included so the
+            # downstream persistence loop can honor each fire's STRONG /
+            # SOFT / FALSE / LOST verdict — without this, hunt.py upserts
+            # status=CONFIRMED for any mechanical fire and ignores the
+            # judge entirely. The full triage.jsonl on disk is still the
+            # canonical record; this in-memory copy is just for routing.
             triage_summary = {
                 "counts": triage_out["counts"],
                 "n_clusters": len(triage_out["clusters"]),
                 "n_llm_calls": triage_out["n_llm_calls"],
                 "layer3_dispatch_set": triage_out["layer3_dispatch_set"],
                 "clusters": triage_out["clusters"],
+                "results": triage_out["results"],
             }
         except Exception as e:  # noqa: BLE001 — never crash hunt over triage
             log("triage_failed", error=str(e)[:300])
@@ -2139,6 +2144,25 @@ def _hunt_run(
                 "kani": kani_results.get(hyp_id),
             })
 
+    # Build (classification, cluster_id, is_representative) lookup so the
+    # persistence loop can honor Layer 2.5 triage. Without this, the
+    # `poc_fired=true → status=CONFIRMED` rule blindly promotes mechanical
+    # fires that triage already classified as FALSE (abort in stdlib /
+    # framework setup) or SOFT (wrong invariant tested). Cycle
+    # 20260513-191318 osec-aptos-small caught this — 2 of 7 "confirmed"
+    # findings were artifactual, 3 were duplicates of one root cause.
+    triage_by_hyp: dict[str, dict[str, Any]] = {}
+    try:
+        for r in (triage_summary.get("results") or []):
+            triage_by_hyp[r["hyp_id"]] = {
+                "classification": r.get("classification"),
+                "cluster_id": r.get("cluster_id"),
+                "is_representative": bool(r.get("is_representative", True)),
+                "reason": r.get("reason", ""),
+            }
+    except (AttributeError, TypeError, KeyError):
+        triage_by_hyp = {}
+
     # Write every verdict (TRUE / NEEDS_L2 / FALSE) to the findings DB
     for v in verdicts:
         hyp_id = v["hypothesis_id"]
@@ -2147,6 +2171,8 @@ def _hunt_run(
         confidence = v.get("confidence", "UNKNOWN")
         debate_promoted = hyp_id in promoted_ids
         poc_fired = poc_results.get(hyp_id, {}).get("fired", False)
+        triage_info = triage_by_hyp.get(hyp_id, {})
+        triage_cls = triage_info.get("classification")
         sev = derive_severity(
             hypothesis_class=meta.get("class", "implicit_invariant"),
             verdict=verdict,
@@ -2154,7 +2180,11 @@ def _hunt_run(
             debate_promoted=debate_promoted,
             explicit=meta.get("severity"),
         )
-        status = from_hunt_outcome(verdict, debate_promoted, poc_fired)
+        status = from_hunt_outcome(
+            verdict, debate_promoted, poc_fired,
+            triage_classification=triage_cls,
+            is_cluster_representative=triage_info.get("is_representative", True),
+        )
         title = (meta.get("claim", hyp_id)[:120].replace("\n", " ")) or hyp_id
 
         finding_id = db.upsert_finding(
@@ -2174,6 +2204,7 @@ def _hunt_run(
             details={
                 "debate": debate_results.get(hyp_id),
                 "kani": kani_results.get(hyp_id),
+                "triage": triage_info or None,
                 "input_tokens": v.get("input_tokens"),
                 "output_tokens": v.get("output_tokens"),
             },
