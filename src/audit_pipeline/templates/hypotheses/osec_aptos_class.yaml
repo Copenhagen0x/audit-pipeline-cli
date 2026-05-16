@@ -32,7 +32,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: borrow-global-no-auth
-    engine_function: transfer_admin
+    engine_function: ""
     target_file: sources/access_control.move
     claim: >
       Every `borrow_global_mut<T>(addr)` operation on a privileged
@@ -47,7 +47,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: missing-signer-check
-    engine_function: privileged_op
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every public entry function that performs an admin-only or
@@ -59,7 +59,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: signer-not-bound-to-resource
-    engine_function: deposit
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every operation on a per-user resource binds the signer's address
@@ -71,7 +71,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: cap-leak
-    engine_function: transfer_admin
+    engine_function: ""
     target_file: sources/access_control.move
     claim: >
       Every privileged capability with `store` ability is given out
@@ -83,7 +83,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: acl-bypass-entry
-    engine_function: transfer_admin
+    engine_function: ""
     target_file: sources/access_control.move
     claim: >
       Every access-control-gated module function is reached ONLY
@@ -95,7 +95,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: friend-module-trust
-    engine_function: friend_call
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       `friend` declarations in Move are UNIDIRECTIONAL: `module A
@@ -112,7 +112,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: resource-double-move
-    engine_function: transfer_resource
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every code path that moves a linear resource handles ALL early
@@ -125,7 +125,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: resource-leak
-    engine_function: process
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every function that acquires a resource via `move_from` or
@@ -137,7 +137,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: event-emit-missing
-    engine_function: transfer_admin
+    engine_function: ""
     target_file: sources/access_control.move
     claim: >
       Every state-mutating function emits an event with the relevant
@@ -151,7 +151,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: u64-overflow-arith
-    engine_function: deposit
+    engine_function: ""
     target_file: sources/token_vault.move
     claim: >
       Every arithmetic op on a u64 balance / counter that COULD
@@ -164,7 +164,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: u64-underflow-dos
-    engine_function: withdraw
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every subtraction `a - b` on u64 values checks `a >= b` before
@@ -175,7 +175,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: precision-drop
-    engine_function: share_value
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every multi-step share/reward calculation orders multiply-before-
@@ -185,7 +185,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: cast-truncation
-    engine_function: cast_amount
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every narrowing cast (u128 -> u64, u64 -> u8) checks bounds
@@ -197,7 +197,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: divide-by-zero
-    engine_function: compute_ratio
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every division `a / b` where `b` is derived from input or state
@@ -208,7 +208,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: rounding-direction
-    engine_function: convert_to_shares
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every share-vault function rounds in the protocol's favor:
@@ -223,7 +223,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: oracle-staleness
-    engine_function: get_price
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every oracle price read checks the `updated_at` timestamp is
@@ -234,7 +234,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: oracle-zero-price
-    engine_function: get_price
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every oracle read rejects zero or negative prices. Zero is
@@ -246,7 +246,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: oracle-decimals-mismatch
-    engine_function: normalize_price
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every multi-asset price normalization uses each feed's actual
@@ -258,7 +258,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: missing-pause-check
-    engine_function: deposit
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every user-facing state-mutating function checks the pause flag
@@ -269,7 +269,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: pause-asymmetric
-    engine_function: withdraw
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Pause applies symmetrically to deposit and withdraw. Pausing
@@ -282,7 +282,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Critical
     bug_class: share-inflation-first-depositor
-    engine_function: deposit
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every vault that mints shares from assets handles the first-
@@ -295,7 +295,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: share-donation
-    engine_function: convert_to_shares
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every vault's share conversion math is robust to direct token
@@ -307,7 +307,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: total-supply-divergence
-    engine_function: invariant
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       For every token-like aggregate (vault shares, governance votes,
@@ -320,7 +320,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: missing-slippage
-    engine_function: swap
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every swap/redeem function accepts a min-out parameter and
@@ -330,7 +330,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: missing-deadline
-    engine_function: swap
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every off-chain-signed action (relayed tx, permit) has a deadline
@@ -342,7 +342,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: withdraw-delay-bypass
-    engine_function: withdraw
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every cooldown/unstake delay is unstoppable once requested.
@@ -353,7 +353,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: stake-double-claim
-    engine_function: claim_rewards
+    engine_function: ""
     target_file: sources/staking_pool.move
     claim: >
       Every reward-claim path marks the user's snapshot consumed
@@ -366,7 +366,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: auction-bid-after-end
-    engine_function: place_bid
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every bid-placing function rejects bids after the auction's
@@ -377,7 +377,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: auction-settle-no-winner
-    engine_function: settle_auction
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every settle path handles the no-bid case correctly — returns
@@ -390,7 +390,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: module-publisher-confusion
-    engine_function: init_module
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every `init_module` (or initializer pattern) verifies the
@@ -402,7 +402,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: type-argument-confusion
-    engine_function: generic_op
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every generic function `f<T>` that branches based on `T` (e.g.
@@ -414,7 +414,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: phantom-type-trust
-    engine_function: typed_resource_op
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every operation that consumes a `Resource<T>` and trusts its
@@ -428,7 +428,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: liquidation-no-min-amount
-    engine_function: liquidate
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every liquidation function rejects min-size violations (a
@@ -439,7 +439,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: liquidation-bonus-overflow
-    engine_function: compute_liq_bonus
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every liquidation-bonus calculation is bounded such that
@@ -450,7 +450,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: lending-interest-accrual
-    engine_function: accrue_interest
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every interest-accrual computation handles long time-since-last-
@@ -464,7 +464,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: fee-receiver-bypass
-    engine_function: set_fee_receiver
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every fee-receiver setter is gated by admin auth AND validates
@@ -475,7 +475,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: fee-percent-bound
-    engine_function: set_fee_bps
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every fee-percentage setter rejects values >= 100% (10_000 bps).
@@ -484,7 +484,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: treasury-drain
-    engine_function: emergency_drain
+    engine_function: ""
     target_file: sources/token_vault.move
     claim: >
       Every treasury-withdrawal function checks admin auth AND limits
@@ -497,7 +497,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: governance-flashloan-vote
-    engine_function: cast_vote
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every governance vote-weight read uses a historical snapshot at
@@ -508,7 +508,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: proposal-replay
-    engine_function: execute_proposal
+    engine_function: ""
     target_file: sources/*.move
     claim: >
       Every proposal execution transitions the proposal state from

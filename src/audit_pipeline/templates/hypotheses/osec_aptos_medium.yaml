@@ -11,7 +11,7 @@ hypotheses:
   class: authorization
   severity: Critical
   bug_class: borrow-global-no-auth
-  engine_function: transfer_admin
+  engine_function: emergency_withdraw
   target_file: sources/*.move
   claim: 'Every `borrow_global_mut<T>(addr)` operation on a privileged resource is gated by an auth check that the caller
     is the owner of `addr` (or holds the right capability). Permissionlessly borrowing a privileged resource (admin config,
@@ -271,7 +271,7 @@ hypotheses:
   class: state_transition
   severity: High
   bug_class: withdraw-delay-bypass
-  engine_function: withdraw
+  engine_function: stake
   target_file: sources/*.move
   claim: 'Every cooldown/unstake delay is unstoppable once requested. Functions that reset the readyAt timer on routine actions
     (transfer, claim) are unstake-delay-bypass primitives.

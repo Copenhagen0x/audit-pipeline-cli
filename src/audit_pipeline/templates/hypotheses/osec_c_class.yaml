@@ -31,7 +31,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: buffer-write-off-by-one
-    engine_function: parse_frame
+    engine_function: ""
     target_file: src/program_*.c
     claim: >
       Every fixed-size buffer write in parsing/copy functions uses a
@@ -50,7 +50,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Critical
     bug_class: memcpy-attacker-length
-    engine_function: parse_frame
+    engine_function: ""
     target_file: src/program_*.c
     claim: >
       Every `memcpy(dst, src, len)` where `len` is derived from
@@ -67,7 +67,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Critical
     bug_class: integer-overflow-size-calc
-    engine_function: alloc_buffer
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every `malloc(a * b)` or `malloc(a + b)` where `a` and `b` are
@@ -82,7 +82,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: use-after-free
-    engine_function: session_close
+    engine_function: ""
     target_file: src/auth/*.c
     claim: >
       Every code path that calls `free(p)` either NULLs the pointer
@@ -98,7 +98,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: double-free
-    engine_function: session_close
+    engine_function: ""
     target_file: src/auth/*.c
     claim: >
       No code path calls `free(p)` twice on the same allocation.
@@ -112,7 +112,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: null-deref-after-malloc
-    engine_function: alloc_buffer
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every `malloc/calloc/realloc/strdup` return value is checked
@@ -126,7 +126,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: uninit-stack-read
-    engine_function: process_frame
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every stack-allocated struct or buffer that's passed by pointer
@@ -141,7 +141,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Critical
     bug_class: stack-format-overflow
-    engine_function: log_message
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every `sprintf` / `vsprintf` / `strcpy` / `strcat` call uses a
@@ -158,7 +158,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: signed-unsigned-compare
-    engine_function: bounds_check
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Bounds checks comparing a signed integer (e.g. `int len`) against
@@ -173,7 +173,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: sign-conversion
-    engine_function: read_length
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every conversion from a signed external value (e.g. `int` read
@@ -185,7 +185,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: integer-overflow-add
-    engine_function: compute_offset
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every `offset += delta` or `len + extra` computation involving
@@ -197,7 +197,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: shift-overflow
-    engine_function: parse_field
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every left-shift `x << n` constrains `n < bit_width(x)`. Shifts
@@ -210,7 +210,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: toctou-file-or-state
-    engine_function: open_resource
+    engine_function: ""
     target_file: src/storage/*.c
     claim: >
       Every check-then-use of a resource (file existence, session
@@ -222,7 +222,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: missing-auth-check
-    engine_function: privileged_op
+    engine_function: ""
     target_file: src/auth/*.c
     claim: >
       Every privileged operation (admin-only mutation, key rotation,
@@ -234,7 +234,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: inverted-auth-check
-    engine_function: privileged_op
+    engine_function: ""
     target_file: src/auth/*.c
     claim: >
       Every authorization conditional is in the correct sense — the
@@ -249,7 +249,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Critical
     bug_class: format-string-injection
-    engine_function: log_message
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every `printf`-family call uses a STATIC format string, not a
@@ -260,7 +260,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: unbounded-loop
-    engine_function: process_records
+    engine_function: ""
     target_file: src/queue/*.c
     claim: >
       Every loop iterating over a count read from untrusted input
@@ -272,7 +272,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: timing-side-channel-memcmp
-    engine_function: verify_secret
+    engine_function: ""
     target_file: src/auth/*.c
     claim: >
       Every comparison of a secret (token, MAC, password hash) against
@@ -286,7 +286,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: state-invariant-broken
-    engine_function: process_event
+    engine_function: ""
     target_file: src/runtime/*.c
     claim: >
       Every state transition after a user-supplied callback re-validates
@@ -298,7 +298,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: race-shared-counter
-    engine_function: increment_counter
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every shared counter accessed from multiple paths uses atomic
@@ -311,7 +311,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: realloc-leak
-    engine_function: realloc_buffer
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every `p = realloc(p, n)` pattern checks the return value before
@@ -323,7 +323,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: zero-length-malloc
-    engine_function: alloc_buffer
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every `malloc(n)` where `n` could be zero handles the result
@@ -335,7 +335,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: strncpy-no-null-term
-    engine_function: copy_string
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every `strncpy(dst, src, n)` is followed by `dst[n - 1] = '\0'`
@@ -348,7 +348,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: cast-truncation
-    engine_function: parse_record
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every cast from a wider integer to a narrower one (u64 -> u32,
@@ -360,7 +360,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: struct-padding-uninit
-    engine_function: serialize_record
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every struct that's serialized (memcpy'd to a wire buffer or hash)
@@ -374,7 +374,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: iv-nonce-reuse
-    engine_function: encrypt_block
+    engine_function: ""
     target_file: src/auth/*.c
     claim: >
       Every encryption call uses a unique IV/nonce per (key, session).
@@ -385,7 +385,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: mac-not-checked
-    engine_function: decrypt_authenticated
+    engine_function: ""
     target_file: src/auth/*.c
     claim: >
       Every authenticated-decryption path verifies the MAC BEFORE
@@ -396,7 +396,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: padding-oracle
-    engine_function: pkcs7_unpad
+    engine_function: ""
     target_file: src/auth/*.c
     claim: >
       Every block-cipher padding-verification function returns a single
@@ -410,7 +410,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: state-machine-bypass
-    engine_function: handle_message
+    engine_function: ""
     target_file: src/protocol/*.c
     claim: >
       Every state-machine handler rejects messages received in the
@@ -421,7 +421,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: unbounded-alloc
-    engine_function: handle_message
+    engine_function: ""
     target_file: src/protocol/*.c
     claim: >
       Every protocol field that drives an allocation (record count,
@@ -433,7 +433,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: stack-exhaustion-recursion
-    engine_function: parse_nested
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every recursive function (TLV parsers, expression evaluators,
@@ -446,7 +446,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: path-traversal
-    engine_function: open_file
+    engine_function: ""
     target_file: src/storage/*.c
     claim: >
       Every file-open path that uses an attacker-controlled component
@@ -458,7 +458,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: symlink-race
-    engine_function: open_file
+    engine_function: ""
     target_file: src/storage/*.c
     claim: >
       Every privileged file-open uses `O_NOFOLLOW` and/or
@@ -471,7 +471,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: predictable-tempfile
-    engine_function: open_tempfile
+    engine_function: ""
     target_file: src/storage/*.c
     claim: >
       Every temporary file creation uses `mkstemp` (or equivalent),
@@ -484,7 +484,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: vendor-mode-unchecked
-    engine_function: vendor_init
+    engine_function: ""
     target_file: src/vendor/*.c
     claim: >
       Every call into vendored crypto/parsing libraries passes the
@@ -497,7 +497,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: secret-in-log
-    engine_function: log_message
+    engine_function: ""
     target_file: src/*.c
     claim: >
       No `printf`/`syslog`/log-file write includes raw secret material
@@ -508,7 +508,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: error-context-loss
-    engine_function: handle_error
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every error path that translates errno -> domain error preserves
@@ -522,7 +522,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: divide-by-zero
-    engine_function: compute_ratio
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every division `a / b` where `b` is derived from user input or
@@ -534,7 +534,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: modulo-by-zero
-    engine_function: hash_record
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Every `a % b` where `b` derives from input checks `b != 0` first.
@@ -543,7 +543,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: pointer-comparison-different-objects
-    engine_function: compare_ptrs
+    engine_function: ""
     target_file: src/*.c
     claim: >
       Pointer comparisons (`<`, `<=`, `>`, `>=`) only happen between

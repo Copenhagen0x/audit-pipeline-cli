@@ -1,0 +1,832 @@
+# OtterSec evaluation - Aptos LARGE target (combined library).
+# Auto-generated from osec_aptos_class.yaml + osec_aptos_large_specific.yaml.
+# 7 class hyps with aptos-small-only filenames (access_control.move,
+# staking_pool.move, token_vault.move) auto-rewritten to sources/*.move
+# so they resolve correctly against the large engine. DO NOT EDIT BY HAND.
+# To regenerate: python3 merge_aptos_large_hyps.py (script in scripts/).
+
+hypotheses:
+- id: APT1-borrow-global-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: borrow-global-no-auth
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every `borrow_global_mut<T>(addr)` operation on a privileged resource is gated by an auth check that the caller
+    is the owner of `addr` (or holds the right capability). Permissionlessly borrowing a privileged resource (admin config,
+    treasury) lets anyone mutate it.
+
+    '
+  relevant_instructions: 'borrow_global, borrow_global_mut, move_from on admin/config types
+
+    '
+- id: APT2-missing-signer-check
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every public entry function that performs an admin-only or owner-only mutation calls `assert!(signer::address_of(s)
+    == owner)` before the mutation. Functions that take a `&signer` and never use it for an identity check are admin-bypass
+    primitives.
+
+    '
+- id: APT3-signer-address-of-not-checked
+  class: authorization
+  severity: Critical
+  bug_class: signer-not-bound-to-resource
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every operation on a per-user resource binds the signer''s address to the resource''s owner. `borrow_global_mut<UserBalance>(some_addr)`
+    where `some_addr` is NOT `signer::address_of(&signer)` admits cross-account state-mutation attacks.
+
+    '
+- id: APT4-capability-stored-not-consumed
+  class: authorization
+  severity: High
+  bug_class: cap-leak
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every privileged capability with `store` ability is given out under a finite, intentional issuance plan (one cap
+    per admin, destroyed on rotation). Storing a cap in a public-readable struct or in a per-user resource grants permanent
+    admin to anyone.
+
+    '
+- id: APT5-acl-bypass-via-direct-entry
+  class: authorization
+  severity: Critical
+  bug_class: acl-bypass-entry
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every access-control-gated module function is reached ONLY through the gated entry. Adding a direct `public entry
+    fun` that performs the same mutation without going through access_control::assert_admin is a bypass.
+
+    '
+- id: APT6-friend-module-trust
+  class: authorization
+  severity: High
+  bug_class: friend-module-trust
+  engine_function: ''
+  target_file: sources/*.move
+  claim: '`friend` declarations in Move are UNIDIRECTIONAL: `module A friend module B` grants B private-function access to
+    A; it does NOT grant A access to B''s privates. The cross-module trust boundary check is: every friend module that exposes
+    private helpers verifies the calling signer if the helper mutates state. A friend module called from a trusted context
+    still needs its own auth checks unless it''s a pure passthrough.
+
+    '
+- id: APT7-resource-double-move
+  class: state_transition
+  severity: High
+  bug_class: resource-double-move
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every code path that moves a linear resource handles ALL early returns by either re-storing the resource or destroying
+    it explicitly. Move''s borrow checker catches simple cases, but conditional branches can still leak resources or hit "you
+    must consume" errors that DOS legitimate calls.
+
+    '
+- id: APT8-resource-leak
+  class: state_transition
+  severity: Medium
+  bug_class: resource-leak
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every function that acquires a resource via `move_from` or `borrow_global_mut` and conditionally early-returns puts
+    the resource back. Forgetting to re-store leaves the resource locked / unreachable.
+
+    '
+- id: APT9-event-emit-missing
+  class: state_transition
+  severity: Low
+  bug_class: event-emit-missing
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every state-mutating function emits an event with the relevant fields. Auditability requires events on transfers,
+    role changes, parameter updates — silent state mutations are opaque to observers.
+
+    '
+- id: APT10-u64-overflow-arith
+  class: arithmetic_overflow
+  severity: High
+  bug_class: u64-overflow-arith
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every arithmetic op on a u64 balance / counter that COULD overflow either uses a wider type (u128/u256) or has a
+    pre-check. Move ABORTS on overflow (not wraps) — so unguarded overflow is a DoS, not a fund-loss. Reachable DoS is still
+    a severity High.
+
+    '
+- id: APT11-u64-underflow-DoS
+  class: arithmetic_overflow
+  severity: Medium
+  bug_class: u64-underflow-dos
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every subtraction `a - b` on u64 values checks `a >= b` before the subtract. Underflow aborts, which DoSes legitimate
+    paths (e.g. withdraw 0 from a balance of 0).
+
+    '
+- id: APT12-fixed-point-precision-drop
+  class: arithmetic_overflow
+  severity: Medium
+  bug_class: precision-drop
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every multi-step share/reward calculation orders multiply-before- divide to preserve precision (`(a * c) / b`, not
+    `(a / b) * c`).
+
+    '
+- id: APT13-cast-truncation
+  class: arithmetic_overflow
+  severity: Medium
+  bug_class: cast-truncation
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every narrowing cast (u128 -> u64, u64 -> u8) checks bounds before casting. Move''s narrowing cast aborts on overflow,
+    but reaching that abort path with attacker-controlled inputs DoSes the function.
+
+    '
+- id: APT14-divide-by-zero
+  class: arithmetic_overflow
+  severity: High
+  bug_class: divide-by-zero
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every division `a / b` where `b` is derived from input or state checks `b != 0` first. Division by zero aborts —
+    reachable abort = DoS.
+
+    '
+- id: APT15-rounding-direction
+  class: arithmetic_overflow
+  severity: High
+  bug_class: rounding-direction
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every share-vault function rounds in the protocol''s favor: mint/deposit rounds DOWN on shares minted (so user pays
+    more assets per share), withdraw/redeem rounds UP on assets paid (so user gets fewer assets per share). Inverting direction
+    drains the vault.
+
+    '
+- id: APT16-oracle-staleness
+  class: invariant_property
+  severity: Critical
+  bug_class: oracle-staleness
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every oracle price read checks the `updated_at` timestamp is within a max-staleness window. Stale prices during
+    oracle outages create arbitrage primitives.
+
+    '
+- id: APT17-oracle-zero-price
+  class: invariant_property
+  severity: High
+  bug_class: oracle-zero-price
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every oracle read rejects zero or negative prices. Zero is often a sentinel for "feed unavailable" and silently
+    rejecting it as a valid price corrupts downstream math (divide by zero, free shares).
+
+    '
+- id: APT18-oracle-decimals-mismatch
+  class: invariant_property
+  severity: High
+  bug_class: oracle-decimals-mismatch
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every multi-asset price normalization uses each feed''s actual decimals, not a hardcoded 8 or 18. Mixing produces
+    10^N errors.
+
+    '
+- id: APT19-missing-pause-check
+  class: state_transition
+  severity: Medium
+  bug_class: missing-pause-check
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every user-facing state-mutating function checks the pause flag before mutating. Skipping pause on some functions
+    means a paused protocol still bleeds via the unguarded paths.
+
+    '
+- id: APT20-asymmetric-pause
+  class: state_transition
+  severity: High
+  bug_class: pause-asymmetric
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Pause applies symmetrically to deposit and withdraw. Pausing only withdrawals while deposits remain open is a rug-pull
+    primitive.
+
+    '
+- id: APT21-share-inflation-first-depositor
+  class: arithmetic_overflow
+  severity: Critical
+  bug_class: share-inflation-first-depositor
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every vault that mints shares from assets handles the first- depositor inflation: either virtual shares (constant
+    offset) or a dead-shares burn on first deposit. Naive `shares = assets * total_supply / total_assets` admits the donate-1-wei-then-10^18
+    inflation attack.
+
+    '
+- id: APT22-share-donation-inflation
+  class: state_transition
+  severity: High
+  bug_class: share-donation
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every vault''s share conversion math is robust to direct token transfers (donations) into the vault. Donations that
+    inflate total_assets without minting corresponding shares should not be profitable to the attacker.
+
+    '
+- id: APT23-total-supply-divergence
+  class: invariant_property
+  severity: High
+  bug_class: total-supply-divergence
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'For every token-like aggregate (vault shares, governance votes, reward points), the protocol-tracked total equals
+    the sum of per-user balances at every state transition.
+
+    '
+- id: APT24-missing-slippage
+  class: state_transition
+  severity: High
+  bug_class: missing-slippage
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every swap/redeem function accepts a min-out parameter and enforces it. Otherwise MEV bots arbitrage every swap.
+
+    '
+- id: APT25-no-deadline-on-permit
+  class: state_transition
+  severity: Medium
+  bug_class: missing-deadline
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every off-chain-signed action (relayed tx, permit) has a deadline timestamp and rejects past-deadline submissions.
+
+    '
+- id: APT26-withdraw-delay-bypass
+  class: state_transition
+  severity: High
+  bug_class: withdraw-delay-bypass
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every cooldown/unstake delay is unstoppable once requested. Functions that reset the readyAt timer on routine actions
+    (transfer, claim) are unstake-delay-bypass primitives.
+
+    '
+- id: APT27-stake-double-claim
+  class: state_transition
+  severity: High
+  bug_class: stake-double-claim
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every reward-claim path marks the user''s snapshot consumed atomically with the payout. Re-entrant or two-call patterns
+    where the snapshot updates AFTER the payout admit double-claim.
+
+    '
+- id: APT28-auction-bid-after-end
+  class: state_transition
+  severity: High
+  bug_class: auction-bid-after-end
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every bid-placing function rejects bids after the auction''s end_time. A late-bid-accepted auction allows arbitrage
+    of after-end market info.
+
+    '
+- id: APT29-auction-settle-no-winner
+  class: state_transition
+  severity: Medium
+  bug_class: auction-settle-no-winner
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every settle path handles the no-bid case correctly — returns the listed asset to the seller, does NOT transfer
+    to the zero address or to the seller''s auction_id mapping with a 0 amount.
+
+    '
+- id: APT30-module-publisher-confusion
+  class: authorization
+  severity: High
+  bug_class: module-publisher-confusion
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every `init_module` (or initializer pattern) verifies the caller is the expected publisher address. Modules deployable
+    under multiple addresses can lead to "wrong publisher" trust bypass.
+
+    '
+- id: APT31-type-argument-confusion
+  class: authorization
+  severity: High
+  bug_class: type-argument-confusion
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every generic function `f<T>` that branches based on `T` (e.g. via phantom-type tags) verifies T is one of the expected
+    types. Otherwise an attacker calls `f<AttackerOwnedToken>` to bypass whitelists.
+
+    '
+- id: APT32-phantom-type-trust
+  class: authorization
+  severity: Medium
+  bug_class: phantom-type-trust
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every operation that consumes a `Resource<T>` and trusts its semantics requires a runtime check that T is an admitted/
+    whitelisted type — phantom types only enforce at compile time; Move runtime can dispatch on attacker-supplied types.
+
+    '
+- id: APT33-liquidation-no-min-amount
+  class: state_transition
+  severity: High
+  bug_class: liquidation-no-min-amount
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every liquidation function rejects min-size violations (a liquidate of $0.01 should revert, not consume gas + emit
+    events). Otherwise spammers grief the liquidation queue.
+
+    '
+- id: APT34-liquidation-bonus-overflow
+  class: arithmetic_overflow
+  severity: High
+  bug_class: liquidation-bonus-overflow
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every liquidation-bonus calculation is bounded such that bonus + repay <= collateral_seized, even after rounding.
+    Bonus formulas that admit `bonus > collateral` are insolvency primitives.
+
+    '
+- id: APT35-lending-interest-accrual-overflow
+  class: arithmetic_overflow
+  severity: High
+  bug_class: lending-interest-accrual
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every interest-accrual computation handles long time-since-last- accrue gracefully (caps or saturates). An untouched
+    pool over months that''s then poked with `accrue_interest` could overflow u128 and DoS the pool.
+
+    '
+- id: APT36-fee-receiver-unauthorized
+  class: authorization
+  severity: High
+  bug_class: fee-receiver-bypass
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every fee-receiver setter is gated by admin auth AND validates the new receiver is non-zero, non-self. Letting the
+    receiver be the contract itself can lock fees.
+
+    '
+- id: APT37-fee-percent-bound
+  class: arithmetic_overflow
+  severity: Medium
+  bug_class: fee-percent-bound
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every fee-percentage setter rejects values >= 100% (10_000 bps).
+
+    '
+- id: APT38-treasury-drain
+  class: authorization
+  severity: Critical
+  bug_class: treasury-drain
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every treasury-withdrawal function checks admin auth AND limits the amount to a sane fraction or via a time-lock.
+    Unbounded admin withdrawal is a treasury rug-pull.
+
+    '
+- id: APT39-governance-flashloan-vote
+  class: state_transition
+  severity: Critical
+  bug_class: governance-flashloan-vote
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every governance vote-weight read uses a historical snapshot at `proposal_created_at - 1` (or analogous), not current
+    state. Live-balance voting is flash-loan-manipulable.
+
+    '
+- id: APT40-proposal-replay
+  class: state_transition
+  severity: High
+  bug_class: proposal-replay
+  engine_function: ''
+  target_file: sources/*.move
+  claim: 'Every proposal execution transitions the proposal state from Queued to Executed atomically; second execution call
+    reverts.
+
+    '
+- id: APTL1-vault-core-sweep-reserve-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: treasury-drain
+  engine_function: sweep_reserve_to
+  target_file: sources/vault_core.move
+  claim: 'Every reserve-debiting function on the VaultCore module is gated by admin auth. `sweep_reserve_to(host, recipient,
+    amount)` is `public` with no `signer` parameter, no `require_manager` call, and no auth check. It debits `state.reserve_units`
+    by `amount` and credits an attacker-controlled `recipient` slot via `locate_or_append`. Any caller can sweep the entire
+    reserve into any address.
+
+    '
+- id: APTL2-treasury-collect-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: treasury-drain
+  engine_function: collect
+  target_file: sources/treasury.move
+  claim: 'Every Treasury balance mutation is gated by admin auth or driven by realized protocol revenue. `treasury::collect(host,
+    amount)` is `public` with no `signer` parameter and forwards directly to `credit(host, 0, amount)`. Any caller can inflate
+    Treasury slot 0 balance and `total_units` to `u64::MAX`, poisoning every downstream accounting consumer.
+
+    '
+- id: APTL3-fee-policy-unsafe-set-fee-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: unsafe_set_fee
+  target_file: sources/fee_policy.move
+  claim: 'Every modification to the protocol''s fee rate is gated by admin auth. `unsafe_set_fee(host, new_fee_bps)` is `public`
+    with no `signer` parameter, no auth check, and writes `state_mut.fee_bps = new_fee_bps` directly. Any caller can raise
+    fees to confiscatory values or zero them out to drain protocol revenue. The function name explicitly advertises the bug.
+
+    '
+- id: APTL4-initializer-reset-fee-policy-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: reset_fee_policy
+  target_file: sources/initializer.move
+  claim: 'Every cross-module setter that mutates an already-initialized module''s state must perform the downstream module''s
+    admin check. `reset_fee_policy(account, host, new_fee_bps)` takes `account` but only uses it for the cold-init path; in
+    the `is_initialized` branch it calls `fee_policy::unsafe_set_fee(host, new_fee_bps)` with no verification that `account`
+    matches the fee_policy admin. Combined with APTL3, any signer can reset any host''s fee.
+
+    '
+- id: APTL5-roles-grant-operator-without-owner-check
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: grant_operator_without_owner_check
+  target_file: sources/roles.move
+  claim: 'Every privilege-elevation function on the Roles module is gated by the existing admin/owner of the AdminCap. `grant_operator_without_owner_check(host,
+    operator, weight)` mutates `AdminCap.nonce` and grants `OperatorCap { admin: host, weight }` to an attacker-controlled
+    `operator` signer without verifying that the caller controls `host`. Any signer can mint themselves an OperatorCap for
+    any host. The function name explicitly advertises the bug.
+
+    '
+- id: APTL6-lending-pool-open-position-no-auth-credit-debt
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: open_position
+  target_file: sources/lending_pool.move
+  claim: 'Every loan origination on the LendingPool module binds `debt` to the borrower whose signer authorized the call.
+    `open_position(user, host, asset_id, collateral, debt)` accepts both `collateral` and `debt` as attacker-controlled `u64`
+    parameters and forwards them to `collateral_manager::credit` and `debt_accounting::credit` with no signer-to-borrower
+    binding. Anyone can call `open_position` to credit synthetic debt against any host''s accounting books while crediting
+    their own collateral slot.
+
+    '
+- id: APTL7-marketplace-settle-trade-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: settle_trade
+  target_file: sources/marketplace.move
+  claim: 'Every fill on the Marketplace''s order ledger is authenticated by the order''s recorded owner / matching engine.
+    `settle_trade(buyer, host, order_id, price, fee_bps)` takes `buyer` but reads `let _buyer_addr = signer::address_of(buyer)`
+    and discards it; `price` and `fee_bps` are attacker-controlled. The function inflates `balances[slot]`, `total_units`,
+    and `reserve_units` by arbitrary amounts. Any caller can credit any order slot with any value.
+
+    '
+- id: APTL8-marketplace-credit-debit-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/marketplace.move
+  claim: 'Every accounting mutation on the Marketplace ledger is gated by either admin auth or an internal cross-module call.
+    `marketplace::credit(host, id, amount)` and the parallel `debit(host, id, amount)` are `public` with no `signer` and no
+    auth check. Any caller can credit arbitrary balance to any slot or debit it to zero, breaking the `total_units` invariant
+    and enabling withdraw drains via the deposit-debit-withdraw chain.
+
+    '
+- id: APTL9-auction-house-credit-debit-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/auction_house.move
+  claim: 'Every accounting mutation on the AuctionHouse ledger is gated by admin auth or an internal cross-module call. `auction_house::credit(host,
+    id, amount)` and `debit(...)` are `public` with no `signer` and no auth check. Any caller can credit arbitrary balance
+    to any bidder slot, then call `withdraw` to drain corresponding `total_units`.
+
+    '
+- id: APTL10-escrow-house-credit-debit-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/escrow_house.move
+  claim: 'Every accounting mutation on the EscrowHouse ledger is gated by admin auth or an internal cross-module call. `escrow_house::credit(host,
+    id, amount)` and `debit(...)` are `public` with no `signer` and no auth check. Any caller can credit any escrow slot,
+    enabling forged escrow claims and dispute-court payouts (dispute_court::debit drains escrow).
+
+    '
+- id: APTL11-debt-accounting-credit-debit-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: debit
+  target_file: sources/debt_accounting.move
+  claim: 'Every reduction of an obligor''s recorded debt on the DebtAccounting ledger is gated by repayment (with funds) or
+    admin auth. `debt_accounting::debit(host, id, amount)` is `public` with no `signer` and no auth check. Any borrower can
+    zero out their own recorded debt without repayment, then withdraw their collateral with no remaining liability.
+
+    '
+- id: APTL12-collateral-manager-credit-debit-no-auth
+  class: authorization
+  severity: Critical
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/collateral_manager.move
+  claim: 'Every credit/debit on the CollateralManager ledger is gated by admin auth or an internal cross-module call from
+    lending_pool. `collateral_manager::credit(host, id, amount)` and `debit(...)` are `public` with no `signer` and no auth.
+    Any caller can inflate their recorded collateral, then borrow against it (combined with APTL6''s permissionless `open_position`),
+    or zero out a target''s collateral to force liquidation.
+
+    '
+- id: APTL13-price-oracle-credit-debit-no-auth
+  class: authorization
+  severity: High
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/price_oracle.move
+  claim: 'Every modification to the PriceOracle''s balance vector is gated by admin auth. `price_oracle::credit(registry,
+    asset_id, units)` and `debit(...)` are `public` with no `signer` and no auth check. The PriceOracle uses the same balances
+    vector as a price-feed in this engine, so any caller can move the reported price arbitrarily on any asset. Liquidation,
+    lending_pool, and risk_policy consumers downstream all trust these values.
+
+    '
+- id: APTL14-vault-core-credit-debit-no-auth
+  class: authorization
+  severity: High
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/vault_core.move
+  claim: 'Every credit/debit on the VaultCore module is gated by admin auth or driven by a sibling-module call. `vault_core::credit`
+    and `debit(...)` are `public` with no `signer` and no auth. Any caller can inflate VaultCore balance accounting; combined
+    with `sweep_reserve_to` (APTL1) the attacker has full read- write to vault accounting.
+
+    '
+- id: APTL15-roles-credit-debit-no-auth
+  class: authorization
+  severity: High
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/roles.move
+  claim: 'Every weighted-role balance mutation is gated by an existing admin/operator cap holder. `roles::credit(host, id,
+    amount)` and `debit(...)` are `public` with no `signer` and no auth. Combined with APTL5, an attacker grants themselves
+    an OperatorCap then inflates their `roles::balances[id]` weight to dominate any role-weighted decision downstream.
+
+    '
+- id: APTL16-governance-credit-debit-no-auth
+  class: authorization
+  severity: High
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/governance.move
+  claim: 'Every governance vote-weight mutation is gated by admin or stake-tracking logic. `governance::credit(host, id, amount)`
+    and `debit(...)` are `public` with no `signer` and no auth. Any caller can inflate their voting weight on any open proposal
+    slot, then `execute_all` (or any downstream tally consumer) reads the inflated weight.
+
+    '
+- id: APTL17-voting-credit-debit-no-auth
+  class: authorization
+  severity: High
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/voting.move
+  claim: 'Every voting-power mutation is gated by admin or by a sibling stake-binding module. `voting::credit(host, id, amount)`
+    and `debit(...)` are `public` with no `signer` and no auth. Any caller can inflate `voting::balances[id]` and dominate
+    the downstream `voting_power(host, voter)` consumer (which already ignores `voter` — see APTL30).
+
+    '
+- id: APTL18-proposal-store-credit-debit-no-auth
+  class: authorization
+  severity: High
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/proposal_store.move
+  claim: 'Every proposal-related balance mutation on the ProposalStore is gated by admin auth. `proposal_store::credit(host,
+    id, amount)` and `debit(...)` are `public` with no `signer` and no auth. Any caller can inflate proposal balance fields
+    used by downstream tally and execution paths.
+
+    '
+- id: APTL19-proposal-store-mark-ready-no-auth
+  class: authorization
+  severity: High
+  bug_class: missing-signer-check
+  engine_function: mark_ready
+  target_file: sources/proposal_store.move
+  claim: 'Every transition of a proposal-slot''s enabled flag to `true` is gated by admin auth or by passing-vote logic. `mark_ready(host,
+    id)` is `public` with no `signer` and no auth, and writes `*enabled_ref = true` for any slot id. Any caller can re-enable
+    a slot the admin just pruned via `prune_disabled`, restoring pruned balance/state and reverting admin cleanups.
+
+    '
+- id: APTL20-dispute-court-credit-debit-no-auth
+  class: authorization
+  severity: High
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/dispute_court.move
+  claim: 'Every payout on the DisputeCourt module is gated by judgment logic and admin auth. `dispute_court::credit(host,
+    id, amount)` and `debit(...)` are `public` with no `signer` and no auth. Any caller can inflate any party''s dispute balance
+    then withdraw it.
+
+    '
+- id: APTL21-asset-registry-credit-debit-no-auth
+  class: authorization
+  severity: High
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/asset_registry.move
+  claim: 'Every modification to a registered asset''s supply tracking is gated by admin auth. `asset_registry::credit(registry_addr,
+    asset_id, quantity)` and `debit(...)` are `public` with no `signer` and no auth. Any caller can inflate registered quantity
+    on any asset, breaking downstream cap accounting that relies on `total_units`.
+
+    '
+- id: APTL22-order-book-credit-debit-no-auth
+  class: authorization
+  severity: High
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/order_book.move
+  claim: 'Every order book balance mutation is gated by admin auth or cross-module matching engine. `order_book::credit(host,
+    id, amount)` and `debit(...)` are `public` with no `signer` and no auth. Any caller can inflate or zero out any order''s
+    recorded resting size.
+
+    '
+- id: APTL23-marketplace-deposit-non-admin-bypass-reserve
+  class: state_transition
+  severity: High
+  bug_class: invariant-violation
+  engine_function: deposit
+  target_file: sources/marketplace.move
+  claim: 'Every deposit on the Marketplace ledger contributes a fixed `reserve_fraction = amount / 10` to `state.reserve_units`
+    so withdrawal solvency tracks deposits. `deposit` only increments `reserve_units` when `state.admin == caller` (the `if
+    (state.admin != actor) { } else { ... reserve_units += ... }` branch). Non-admin deposits credit `balances` and `total_units`
+    but never bump `reserve_units`, structurally under-collateralizing the system: as withdraws use the same gating, the `utilization_bps`
+    invariant degrades and reserve- backed rebalances starve.
+
+    '
+- id: APTL24-marketplace-settle-trade-no-fee-bps-bound
+  class: arithmetic_overflow
+  severity: High
+  bug_class: integer-overflow
+  engine_function: settle_trade
+  target_file: sources/marketplace.move
+  claim: 'Every fee computation on the Marketplace uses an admin- controlled `fee_bps` clamped to a safe range (e.g. less
+    than 10000). `settle_trade(buyer, host, order_id, price, fee_bps)` takes `fee_bps` as an attacker-controlled `u64` and
+    computes `fee_units = (fee_bps * price) / 10000` directly. With `fee_bps = u64::MAX` and any non-zero `price`, the multiplication
+    overflows; with `fee_bps = u64::MAX / price + 1` arithmetic abort. With moderate values (e.g. `fee_bps = 10^6`) the resulting
+    `fee_units` credit to `reserve_units` is 100x the trade price, draining other slots via rebalance.
+
+    '
+- id: APTL25-ensure-slot-ignores-owner-key
+  class: authorization
+  severity: Medium
+  bug_class: signer-not-bound-to-resource
+  engine_function: ensure_slot
+  target_file: sources/marketplace.move
+  claim: 'Every per-owner slot allocation on the Marketplace binds the slot''s identity to the caller''s `owner_key`. `ensure_slot(book,
+    owner_key)` takes `owner_key: address`, immediately binds `let _owner_key = owner_key`, computes `next_id = 1 + vector::length(&book.ids)`,
+    and appends. The owner_key is never persisted. Every caller invoking the same slot index shares the same balance cell.
+    The same anti-pattern appears verbatim in auction_house, escrow_house, dispute_court, proposal_store, voting, asset_registry,
+    debt_accounting, collateral_manager, lending_pool, liquidation_engine, vault_core, vault_limits, fee_policy, order_book,
+    rewards, risk_policy, roles, router, treasury, governance, and price_oracle. Cross-module assumption that slot-id maps
+    to owner is structurally false.
+
+    '
+- id: APTL26-risk-policy-assert-borrow-overflow
+  class: arithmetic_overflow
+  severity: Medium
+  bug_class: integer-overflow
+  engine_function: assert_borrow_allowed
+  target_file: sources/risk_policy.move
+  claim: 'Every solvency check on the risk policy module evaluates `debt <= ltv_max * collateral / 10000` without overflow.
+    `assert_borrow_allowed(host, asset_id, collateral, debt)` computes `(cap * collateral) / 10000` where `cap` is the attacker-controllable
+    per-asset `limits[]` value (and can be `u64::MAX`, since `register_id` accepts arbitrary `limit`) and `collateral` is
+    an attacker-controlled `u64` parameter. The multiplication overflows for moderate inputs and aborts; for smaller `cap
+    * collateral` near `u64::MAX` it wraps. Combined with APTL12 (permissionless collateral_manager::credit) and APTL6 (permissionless
+    open_position), the LTV check is bypassable.
+
+    '
+- id: APTL27-governance-execute-all-clears-all-flags
+  class: state_transition
+  severity: Medium
+  bug_class: invariant-violation
+  engine_function: execute_all
+  target_file: sources/governance.move
+  claim: 'Every governance execution marks only the executed proposals as final. `execute_all(account, host, max_hint)` performs
+    `require_operator` (auth is enforced) but then iterates ALL flags and unconditionally writes `*flag_slot = false` for
+    every proposal regardless of vote outcome or `max_hint`. The `max_hint` parameter is added to `state.version` but never
+    bounds the loop. Every pending proposal is silently marked not-ready in one call.
+
+    '
+- id: APTL28-lending-pool-open-position-bypasses-pause
+  class: state_transition
+  severity: Medium
+  bug_class: invariant-violation
+  engine_function: open_position
+  target_file: sources/lending_pool.move
+  claim: 'Every entry function on the LendingPool that moves balance state respects the module''s `paused` flag. `open_position(user,
+    host, asset_id, collateral, debt)` calls `risk_policy::assert_borrow_allowed`, then `collateral_manager::credit`, `debt_accounting::credit`,
+    and `deposit(user, host, asset_id, collateral)`. The cross-module `credit` calls do not consult `paused` on lending_pool,
+    collateral_manager, or debt_accounting. Only the final `deposit` check would abort; by then accounting has already mutated,
+    leaving partial state on pause.
+
+    '
+- id: APTL29-rebalance-pause-bypass
+  class: state_transition
+  severity: Medium
+  bug_class: invariant-violation
+  engine_function: rebalance
+  target_file: sources/marketplace.move
+  claim: 'Every state-mutating entry on the Marketplace module that moves balance state respects the `paused` flag. `rebalance(account,
+    host, id, target)` calls `require_operator` but does NOT consult `state.paused` before mutating `balances[slot]` and `reserve_units`.
+    Admin can still drift reserves while ostensibly paused, defeating the pause-as-incident-response invariant. Identical
+    pattern in `prune_disabled` and `rotate_admin`. Same anti-pattern appears in every templated module.
+
+    '
+- id: APTL30-voting-power-ignores-voter
+  class: invariant_property
+  severity: Medium
+  bug_class: invariant-violation
+  engine_function: voting_power
+  target_file: sources/voting.move
+  claim: 'Every voting power query returns the requested voter''s stake- derived weight. `voting_power(host, voter)` reads
+    `let _ignored_voter = voter` and returns `balance_of(host, default_id = 0)` for any voter. Every address reports the same
+    voting power: balance of slot 0. Downstream governance tallies that trust this function treat all voters as having one
+    shared balance.
+
+    '
+- id: APTL31-router-credit-debit-no-auth
+  class: authorization
+  severity: Medium
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/router.move
+  claim: 'Every modification to Router accounting (cross-module transfer routing) is gated by admin auth or an internal cross-module
+    hook. `router::credit(host, id, amount)` and `debit(...)` are `public` with no `signer` and no auth. Severity lower than
+    peer modules because the Router slot semantics in this engine are abstract, but the surface lets any caller poison router
+    accounting.
+
+    '
+- id: APTL32-liquidation-engine-credit-debit-no-auth
+  class: authorization
+  severity: Medium
+  bug_class: missing-signer-check
+  engine_function: credit
+  target_file: sources/liquidation_engine.move
+  claim: 'Every liquidation accounting mutation is gated by admin auth or by the liquidation lifecycle (`assert_liquidatable`
+    + seize). `liquidation_engine::credit(host, id, amount)` and `debit(...)` are `public` with no `signer` and no auth. Any
+    caller can credit themselves liquidation rewards or debit another party''s liquidation queue entry to zero, although the
+    module''s outward observable effects are limited because no downstream module reads its balances in this engine.
+
+    '
+- id: APTL33-prune-disabled-credits-reserve-balance-cleared
+  class: state_transition
+  severity: Low
+  bug_class: event-emit-missing
+  engine_function: prune_disabled
+  target_file: sources/marketplace.move
+  claim: 'Every admin pruning of a disabled slot should either burn the cleared balance or transfer it to a known recovery
+    sink with an event. `prune_disabled(account, host, max)` clears the slot''s `balance_cell` to 0 but credits the full amount
+    to `state.reserve_units` with no event, no audit trail, and no sink-address record. Reserve gains become indistinguishable
+    from organic reserve accrual. Same anti-pattern appears in every templated module.
+
+    '
+- id: APTL34-utilization-bps-overflow-extreme-reserve
+  class: arithmetic_overflow
+  severity: Low
+  bug_class: integer-overflow
+  engine_function: utilization_bps
+  target_file: sources/marketplace.move
+  claim: 'Every utilization-ratio query returns a value in [0, 10000] bps. `utilization_bps(host)` computes `(10000 * reserve_units)
+    / total_units`. If `reserve_units` is set sufficiently high via the prune-credit path (APTL33) or via direct `credit`
+    (APTL8), the `10000 * reserve_units` multiplication overflows u64 and aborts; for moderately inflated reserve values `utilization_bps`
+    returns more than 10000, breaking the bps invariant. Same anti-pattern in every templated module.
+
+    '
+- id: APTL35-make-receipt-epoch-collision-id-plus-amount
+  class: invariant_property
+  severity: Low
+  bug_class: invariant-violation
+  engine_function: make_receipt
+  target_file: sources/marketplace.move
+  claim: 'Every issued receipt has a globally unique `epoch` for replay detection. `make_receipt(host, id, amount)` sets `epoch:
+    id + amount`. Two distinct (id, amount) pairs satisfying `id1 + amount1 == id2 + amount2` produce identical `epoch` fields.
+    Any downstream consumer that treats `epoch` as a receipt-uniqueness nonce admits forged-collision double-spend. Same anti-pattern
+    appears in every templated module''s `make_receipt`.
+
+    '

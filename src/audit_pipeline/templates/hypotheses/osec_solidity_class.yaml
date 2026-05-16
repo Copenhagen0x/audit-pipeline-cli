@@ -32,7 +32,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: reentrancy-classic
-    engine_function: withdraw
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every function that makes an external call (`.call`, `.transfer`,
@@ -49,7 +49,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: reentrancy-readonly
-    engine_function: getTotalAssets
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every `view` function whose output is consumed by other protocols
@@ -63,7 +63,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: reentrancy-cross-function
-    engine_function: depositTo
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every contract using a non-reentrant guard applies the guard to
@@ -76,7 +76,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: reentrancy-erc777
-    engine_function: depositERC20
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every ERC20 deposit/withdraw path is reentrancy-safe even if
@@ -90,7 +90,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: access-control-missing
-    engine_function: setAdmin
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every state-mutating function intended for admin/owner is guarded
@@ -103,7 +103,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: tx-origin-auth
-    engine_function: anyAuthed
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       No authorization check uses `tx.origin`. Phishing contracts can
@@ -114,7 +114,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: public-vs-external
-    engine_function: initialize
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every function intended to be externally-callable is declared
@@ -126,7 +126,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: initialize-frontrun
-    engine_function: initialize
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every `initialize()` function (proxy pattern) is protected
@@ -139,7 +139,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: uninit-implementation
-    engine_function: initialize
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every UUPS/Transparent proxy implementation contract has its
@@ -153,7 +153,7 @@ hypotheses:
     class: invariant_property
     severity: Critical
     bug_class: oracle-staleness
-    engine_function: getPrice
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every Chainlink-style price read checks the `updatedAt`
@@ -165,7 +165,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: oracle-bad-value
-    engine_function: getPrice
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every Chainlink-style price read checks `answer > 0` (the
@@ -177,7 +177,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: chainlink-decimals
-    engine_function: getPrice
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every multi-asset price normalization respects each feed's
@@ -189,7 +189,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: twap-flashloan-manipulation
-    engine_function: getPrice
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every price feed that consumes a Uniswap-v2 spot or short-window
@@ -203,7 +203,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Critical
     bug_class: erc4626-inflation
-    engine_function: deposit
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every ERC4626-style vault that mints shares from assets handles
@@ -217,7 +217,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: share-donation
-    engine_function: convertToShares
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every vault's share-conversion math is robust to direct token
@@ -229,7 +229,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: precision-loss-divide-first
-    engine_function: computeShares
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every multi-step ratio computation orders operations MULTIPLY-
@@ -242,7 +242,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: rounding-direction
-    engine_function: convertToShares
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every share-vault function rounds in the protocol's favor:
@@ -257,7 +257,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: slippage-missing
-    engine_function: swap
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every swap-like function accepts a `minAmountOut` / `maxAmountIn`
@@ -268,7 +268,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: missing-deadline
-    engine_function: swap
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every swap/permit/order-fill function accepts a `deadline`
@@ -280,7 +280,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: mev-sandwich
-    engine_function: rebalance
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every public rebalance/harvest function applies slippage
@@ -293,7 +293,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: unchecked-block-overflow
-    engine_function: accountSettle
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every `unchecked { ... }` block in 0.8+ solidity has a
@@ -305,7 +305,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: cast-truncation
-    engine_function: assignShares
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every narrowing cast (uint256 -> uint128, int256 -> int128)
@@ -317,7 +317,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: fee-overflow-100
-    engine_function: setFee
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every fee/percentage setter rejects values > 100% (in bps:
@@ -330,7 +330,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: approval-race
-    engine_function: approve
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every protocol that issues `approve(spender, n)` to external
@@ -342,7 +342,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: permit-frontrun
-    engine_function: depositWithPermit
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every `permit + transferFrom` composition handles the case
@@ -354,7 +354,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: non-standard-erc20
-    engine_function: transferERC20
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every `IERC20.transfer/transferFrom` call uses `SafeERC20`
@@ -367,7 +367,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: High
     bug_class: flashloan-fee-bypass
-    engine_function: flashLoan
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every flash-loan implementation enforces the post-condition
@@ -379,7 +379,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: flashloan-self-call
-    engine_function: flashLoan
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every flash-loan callback rejects re-entry into the loan
@@ -392,7 +392,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: signature-replay
-    engine_function: executeMetaTx
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every signature-based authorization (meta-tx, permit, off-chain
@@ -405,7 +405,7 @@ hypotheses:
     class: authorization
     severity: Medium
     bug_class: signature-malleability
-    engine_function: verifySignature
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every ECDSA verification rejects high-s signatures (constrains
@@ -416,7 +416,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: eip712-cross-chain
-    engine_function: verifySignature
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every EIP-712 domain separator includes BOTH `chainId` and
@@ -429,7 +429,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: governance-flashloan
-    engine_function: castVote
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every governance vote-weight computation uses a snapshot at
@@ -441,7 +441,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: proposal-execution-race
-    engine_function: executeProposal
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every queued proposal's execution path is gated by a state
@@ -455,7 +455,7 @@ hypotheses:
     class: state_transition
     severity: Critical
     bug_class: delegatecall-storage-collision
-    engine_function: upgradeImpl
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every storage layout used through delegatecall (UUPS proxy,
@@ -467,7 +467,7 @@ hypotheses:
     class: authorization
     severity: Critical
     bug_class: delegatecall-untrusted
-    engine_function: executeCall
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       No `delegatecall` is made to an untrusted/attacker-supplied
@@ -478,7 +478,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: selfdestruct-misuse
-    engine_function: destroy
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every `selfdestruct` is gated by strict admin auth and a
@@ -492,7 +492,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: withdraw-delay-bypass
-    engine_function: withdraw
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every withdrawal-delay timer is unstoppable — once requested,
@@ -504,7 +504,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: withdraw-readyat-zero
-    engine_function: withdraw
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every `withdrawalReadyAt[user] != 0` check is the gate; the
@@ -518,7 +518,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: returndata-bomb
-    engine_function: externalCall
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every external `.call` whose returndata is consumed (via abi.decode
@@ -529,7 +529,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: unbounded-loop
-    engine_function: distributeRewards
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       No state-mutating function iterates over an unbounded
@@ -541,7 +541,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: push-not-pull
-    engine_function: distributeShare
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every payout pattern is PULL (claimant pulls their share), not
@@ -554,7 +554,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: missing-pause-check
-    engine_function: deposit
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every state-changing user-facing function is gated by `whenNotPaused`
@@ -565,7 +565,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: pause-asymmetric
-    engine_function: withdraw
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Pause is APPLIED to both deposits and withdrawals consistently.
@@ -578,7 +578,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: fot-token-handling
-    engine_function: depositFromERC20
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every deposit-from-ERC20 path verifies the actual received
@@ -590,7 +590,7 @@ hypotheses:
     class: state_transition
     severity: Medium
     bug_class: rebase-token-handling
-    engine_function: trackBalance
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Vaults that hold rebasing tokens (stETH, aTokens) read the
@@ -602,7 +602,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: zero-address-checks
-    engine_function: setAdmin
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every setter that accepts an address (admin, oracle, fee
@@ -616,7 +616,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: total-supply-divergence
-    engine_function: invariant
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       For any token-like accounting (shares, points, votes), the
@@ -627,7 +627,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: counter-non-monotonic
-    engine_function: incrementCounter
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every counter declared monotonic (nonce, epoch, proposal_id)
@@ -638,7 +638,7 @@ hypotheses:
     class: invariant_property
     severity: High
     bug_class: share-balance-conservation
-    engine_function: transferShares
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every share-transfer/mint/burn path conserves the invariant
@@ -652,7 +652,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: immutable-overwrite
-    engine_function: configure
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       State that's logically immutable post-deployment (token address,
@@ -663,7 +663,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: constructor-vs-initialize
-    engine_function: initialize
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every UUPS/Transparent proxy contract uses `initialize` (not
@@ -676,7 +676,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: packed-encode-collision
-    engine_function: hashRecord
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every `abi.encodePacked(a, b)` with variable-length args (string,
@@ -690,7 +690,7 @@ hypotheses:
     class: state_transition
     severity: Low
     bug_class: stuck-eth
-    engine_function: depositETH
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every `payable` function that receives ETH either uses it (e.g.
@@ -701,7 +701,7 @@ hypotheses:
     class: state_transition
     severity: High
     bug_class: msg-value-in-loop
-    engine_function: multiDeposit
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every `payable` function that loops and credits `msg.value` per
@@ -715,7 +715,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: erc20-decimals-assumption
-    engine_function: depositToken
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every multi-token integration reads each token's `decimals()`,
@@ -726,7 +726,7 @@ hypotheses:
     class: arithmetic_overflow
     severity: Medium
     bug_class: bps-percent-mix
-    engine_function: computeFee
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every fee/ratio computation uses ONE unit consistently (bps,
@@ -740,7 +740,7 @@ hypotheses:
     class: invariant_property
     severity: Low
     bug_class: block-timestamp-precision
-    engine_function: scheduleAction
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every time-comparison check uses `>` / `>=` consistently and
@@ -752,7 +752,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: block-number-as-time
-    engine_function: emitRewards
+    engine_function: ""
     target_file: src/Contract*.sol
     claim: >
       Every long-window reward emission curve uses `block.timestamp`,
@@ -768,7 +768,7 @@ hypotheses:
     class: authorization
     severity: High
     bug_class: module-trust-boundary
-    engine_function: callModule
+    engine_function: ""
     target_file: src/modules/*.sol
     claim: >
       Every cross-module call validates the calling context. A module
@@ -782,7 +782,7 @@ hypotheses:
     class: invariant_property
     severity: Medium
     bug_class: library-external-storage
-    engine_function: libraryCall
+    engine_function: ""
     target_file: src/libraries/*.sol
     claim: >
       Every library function that touches storage via the calling

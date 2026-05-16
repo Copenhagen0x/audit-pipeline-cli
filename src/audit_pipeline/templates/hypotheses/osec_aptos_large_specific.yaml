@@ -1,0 +1,578 @@
+# OSec eval - Aptos . large
+#
+# Targeted hypothesis library for the `sahuang-osec/aptos-large`
+# engine, derived from manual source-read of 24 modules:
+#   asset_registry, auction_house, collateral_manager, debt_accounting,
+#   dispute_court, escrow_house, fee_policy, governance, initializer,
+#   lending_pool, liquidation_engine, marketplace, math_utils, order_book,
+#   price_oracle, proposal_store, rewards, risk_policy, roles, router,
+#   treasury, vault_core, vault_limits, voting.
+#
+# Pair this file with `osec_aptos_class.yaml` (the generic class library)
+# at hunt time. The large engine is templated: most modules are the same
+# Config skeleton with module-specific names. The high-value bugs are
+# (a) the unique non-template public functions, (b) public credit/debit
+# wrappers that bypass auth on every module, and (c) the systematic
+# ensure_slot helper that ignores the supplied owner_key.
+#
+# Severity tagged by manual eyeball read against the engine source.
+# Layer 1 recon agents will re-validate each invariant against the
+# actual source before any L2 PoC fires.
+
+hypotheses:
+
+  # =================== CRITICAL (12) ===================
+
+  - id: APTL1-vault-core-sweep-reserve-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: treasury-drain
+    engine_function: sweep_reserve_to
+    target_file: sources/vault_core.move
+    claim: >
+      Every reserve-debiting function on the VaultCore module is
+      gated by admin auth. `sweep_reserve_to(host, recipient, amount)`
+      is `public` with no `signer` parameter, no `require_manager`
+      call, and no auth check. It debits `state.reserve_units` by
+      `amount` and credits an attacker-controlled `recipient` slot
+      via `locate_or_append`. Any caller can sweep the entire
+      reserve into any address.
+
+  - id: APTL2-treasury-collect-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: treasury-drain
+    engine_function: collect
+    target_file: sources/treasury.move
+    claim: >
+      Every Treasury balance mutation is gated by admin auth or
+      driven by realized protocol revenue. `treasury::collect(host,
+      amount)` is `public` with no `signer` parameter and forwards
+      directly to `credit(host, 0, amount)`. Any caller can inflate
+      Treasury slot 0 balance and `total_units` to `u64::MAX`,
+      poisoning every downstream accounting consumer.
+
+  - id: APTL3-fee-policy-unsafe-set-fee-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: unsafe_set_fee
+    target_file: sources/fee_policy.move
+    claim: >
+      Every modification to the protocol's fee rate is gated by
+      admin auth. `unsafe_set_fee(host, new_fee_bps)` is `public`
+      with no `signer` parameter, no auth check, and writes
+      `state_mut.fee_bps = new_fee_bps` directly. Any caller can
+      raise fees to confiscatory values or zero them out to drain
+      protocol revenue. The function name explicitly advertises the
+      bug.
+
+  - id: APTL4-initializer-reset-fee-policy-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: reset_fee_policy
+    target_file: sources/initializer.move
+    claim: >
+      Every cross-module setter that mutates an already-initialized
+      module's state must perform the downstream module's admin
+      check. `reset_fee_policy(account, host, new_fee_bps)` takes
+      `account` but only uses it for the cold-init path; in the
+      `is_initialized` branch it calls
+      `fee_policy::unsafe_set_fee(host, new_fee_bps)` with no
+      verification that `account` matches the fee_policy admin.
+      Combined with APTL3, any signer can reset any host's fee.
+
+  - id: APTL5-roles-grant-operator-without-owner-check
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: grant_operator_without_owner_check
+    target_file: sources/roles.move
+    claim: >
+      Every privilege-elevation function on the Roles module is
+      gated by the existing admin/owner of the AdminCap.
+      `grant_operator_without_owner_check(host, operator, weight)`
+      mutates `AdminCap.nonce` and grants `OperatorCap { admin:
+      host, weight }` to an attacker-controlled `operator` signer
+      without verifying that the caller controls `host`. Any signer
+      can mint themselves an OperatorCap for any host. The function
+      name explicitly advertises the bug.
+
+  - id: APTL6-lending-pool-open-position-no-auth-credit-debt
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: open_position
+    target_file: sources/lending_pool.move
+    claim: >
+      Every loan origination on the LendingPool module binds `debt`
+      to the borrower whose signer authorized the call.
+      `open_position(user, host, asset_id, collateral, debt)`
+      accepts both `collateral` and `debt` as attacker-controlled
+      `u64` parameters and forwards them to
+      `collateral_manager::credit` and `debt_accounting::credit`
+      with no signer-to-borrower binding. Anyone can call
+      `open_position` to credit synthetic debt against any host's
+      accounting books while crediting their own collateral slot.
+
+  - id: APTL7-marketplace-settle-trade-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: settle_trade
+    target_file: sources/marketplace.move
+    claim: >
+      Every fill on the Marketplace's order ledger is authenticated
+      by the order's recorded owner / matching engine.
+      `settle_trade(buyer, host, order_id, price, fee_bps)` takes
+      `buyer` but reads `let _buyer_addr = signer::address_of(buyer)`
+      and discards it; `price` and `fee_bps` are
+      attacker-controlled. The function inflates
+      `balances[slot]`, `total_units`, and `reserve_units` by
+      arbitrary amounts. Any caller can credit any order slot with
+      any value.
+
+  - id: APTL8-marketplace-credit-debit-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/marketplace.move
+    claim: >
+      Every accounting mutation on the Marketplace ledger is gated
+      by either admin auth or an internal cross-module call.
+      `marketplace::credit(host, id, amount)` and the parallel
+      `debit(host, id, amount)` are `public` with no `signer` and
+      no auth check. Any caller can credit arbitrary balance to any
+      slot or debit it to zero, breaking the `total_units` invariant
+      and enabling withdraw drains via the deposit-debit-withdraw
+      chain.
+
+  - id: APTL9-auction-house-credit-debit-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/auction_house.move
+    claim: >
+      Every accounting mutation on the AuctionHouse ledger is gated
+      by admin auth or an internal cross-module call.
+      `auction_house::credit(host, id, amount)` and `debit(...)` are
+      `public` with no `signer` and no auth check. Any caller can
+      credit arbitrary balance to any bidder slot, then call
+      `withdraw` to drain corresponding `total_units`.
+
+  - id: APTL10-escrow-house-credit-debit-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/escrow_house.move
+    claim: >
+      Every accounting mutation on the EscrowHouse ledger is gated
+      by admin auth or an internal cross-module call.
+      `escrow_house::credit(host, id, amount)` and `debit(...)` are
+      `public` with no `signer` and no auth check. Any caller can
+      credit any escrow slot, enabling forged escrow claims and
+      dispute-court payouts (dispute_court::debit drains escrow).
+
+  - id: APTL11-debt-accounting-credit-debit-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: debit
+    target_file: sources/debt_accounting.move
+    claim: >
+      Every reduction of an obligor's recorded debt on the
+      DebtAccounting ledger is gated by repayment (with funds) or
+      admin auth. `debt_accounting::debit(host, id, amount)` is
+      `public` with no `signer` and no auth check. Any borrower can
+      zero out their own recorded debt without repayment, then
+      withdraw their collateral with no remaining liability.
+
+  - id: APTL12-collateral-manager-credit-debit-no-auth
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/collateral_manager.move
+    claim: >
+      Every credit/debit on the CollateralManager ledger is gated
+      by admin auth or an internal cross-module call from
+      lending_pool. `collateral_manager::credit(host, id, amount)`
+      and `debit(...)` are `public` with no `signer` and no auth.
+      Any caller can inflate their recorded collateral, then borrow
+      against it (combined with APTL6's permissionless
+      `open_position`), or zero out a target's collateral to force
+      liquidation.
+
+  # =================== HIGH (12) ===================
+
+  - id: APTL13-price-oracle-credit-debit-no-auth
+    class: authorization
+    severity: High
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/price_oracle.move
+    claim: >
+      Every modification to the PriceOracle's balance vector is
+      gated by admin auth. `price_oracle::credit(registry, asset_id,
+      units)` and `debit(...)` are `public` with no `signer` and
+      no auth check. The PriceOracle uses the same balances vector
+      as a price-feed in this engine, so any caller can move the
+      reported price arbitrarily on any asset. Liquidation,
+      lending_pool, and risk_policy consumers downstream all trust
+      these values.
+
+  - id: APTL14-vault-core-credit-debit-no-auth
+    class: authorization
+    severity: High
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/vault_core.move
+    claim: >
+      Every credit/debit on the VaultCore module is gated by admin
+      auth or driven by a sibling-module call. `vault_core::credit`
+      and `debit(...)` are `public` with no `signer` and no auth.
+      Any caller can inflate VaultCore balance accounting; combined
+      with `sweep_reserve_to` (APTL1) the attacker has full read-
+      write to vault accounting.
+
+  - id: APTL15-roles-credit-debit-no-auth
+    class: authorization
+    severity: High
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/roles.move
+    claim: >
+      Every weighted-role balance mutation is gated by an existing
+      admin/operator cap holder. `roles::credit(host, id, amount)`
+      and `debit(...)` are `public` with no `signer` and no auth.
+      Combined with APTL5, an attacker grants themselves an
+      OperatorCap then inflates their `roles::balances[id]` weight
+      to dominate any role-weighted decision downstream.
+
+  - id: APTL16-governance-credit-debit-no-auth
+    class: authorization
+    severity: High
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/governance.move
+    claim: >
+      Every governance vote-weight mutation is gated by admin or
+      stake-tracking logic. `governance::credit(host, id, amount)`
+      and `debit(...)` are `public` with no `signer` and no auth.
+      Any caller can inflate their voting weight on any open
+      proposal slot, then `execute_all` (or any downstream tally
+      consumer) reads the inflated weight.
+
+  - id: APTL17-voting-credit-debit-no-auth
+    class: authorization
+    severity: High
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/voting.move
+    claim: >
+      Every voting-power mutation is gated by admin or by a sibling
+      stake-binding module. `voting::credit(host, id, amount)` and
+      `debit(...)` are `public` with no `signer` and no auth. Any
+      caller can inflate `voting::balances[id]` and dominate the
+      downstream `voting_power(host, voter)` consumer (which
+      already ignores `voter` — see APTL30).
+
+  - id: APTL18-proposal-store-credit-debit-no-auth
+    class: authorization
+    severity: High
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/proposal_store.move
+    claim: >
+      Every proposal-related balance mutation on the ProposalStore
+      is gated by admin auth. `proposal_store::credit(host, id,
+      amount)` and `debit(...)` are `public` with no `signer` and
+      no auth. Any caller can inflate proposal balance fields used
+      by downstream tally and execution paths.
+
+  - id: APTL19-proposal-store-mark-ready-no-auth
+    class: authorization
+    severity: High
+    bug_class: missing-signer-check
+    engine_function: mark_ready
+    target_file: sources/proposal_store.move
+    claim: >
+      Every transition of a proposal-slot's enabled flag to
+      `true` is gated by admin auth or by passing-vote logic.
+      `mark_ready(host, id)` is `public` with no `signer` and no
+      auth, and writes `*enabled_ref = true` for any slot id. Any
+      caller can re-enable a slot the admin just pruned via
+      `prune_disabled`, restoring pruned balance/state and
+      reverting admin cleanups.
+
+  - id: APTL20-dispute-court-credit-debit-no-auth
+    class: authorization
+    severity: High
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/dispute_court.move
+    claim: >
+      Every payout on the DisputeCourt module is gated by judgment
+      logic and admin auth. `dispute_court::credit(host, id,
+      amount)` and `debit(...)` are `public` with no `signer` and
+      no auth. Any caller can inflate any party's dispute balance
+      then withdraw it.
+
+  - id: APTL21-asset-registry-credit-debit-no-auth
+    class: authorization
+    severity: High
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/asset_registry.move
+    claim: >
+      Every modification to a registered asset's supply tracking is
+      gated by admin auth. `asset_registry::credit(registry_addr,
+      asset_id, quantity)` and `debit(...)` are `public` with no
+      `signer` and no auth. Any caller can inflate registered
+      quantity on any asset, breaking downstream cap accounting
+      that relies on `total_units`.
+
+  - id: APTL22-order-book-credit-debit-no-auth
+    class: authorization
+    severity: High
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/order_book.move
+    claim: >
+      Every order book balance mutation is gated by admin auth or
+      cross-module matching engine. `order_book::credit(host, id,
+      amount)` and `debit(...)` are `public` with no `signer` and
+      no auth. Any caller can inflate or zero out any order's
+      recorded resting size.
+
+  - id: APTL23-marketplace-deposit-non-admin-bypass-reserve
+    class: state_transition
+    severity: High
+    bug_class: invariant-violation
+    engine_function: deposit
+    target_file: sources/marketplace.move
+    claim: >
+      Every deposit on the Marketplace ledger contributes a fixed
+      `reserve_fraction = amount / 10` to `state.reserve_units` so
+      withdrawal solvency tracks deposits. `deposit` only increments
+      `reserve_units` when `state.admin == caller` (the
+      `if (state.admin != actor) { } else { ... reserve_units += ...
+      }` branch). Non-admin deposits credit `balances` and
+      `total_units` but never bump `reserve_units`, structurally
+      under-collateralizing the system: as withdraws use the same
+      gating, the `utilization_bps` invariant degrades and reserve-
+      backed rebalances starve.
+
+  - id: APTL24-marketplace-settle-trade-no-fee-bps-bound
+    class: arithmetic_overflow
+    severity: High
+    bug_class: integer-overflow
+    engine_function: settle_trade
+    target_file: sources/marketplace.move
+    claim: >
+      Every fee computation on the Marketplace uses an admin-
+      controlled `fee_bps` clamped to a safe range (e.g. less than
+      10000). `settle_trade(buyer, host, order_id, price, fee_bps)`
+      takes `fee_bps` as an attacker-controlled `u64` and computes
+      `fee_units = (fee_bps * price) / 10000` directly. With
+      `fee_bps = u64::MAX` and any non-zero `price`, the
+      multiplication overflows; with `fee_bps = u64::MAX / price + 1`
+      arithmetic abort. With moderate values (e.g. `fee_bps = 10^6`)
+      the resulting `fee_units` credit to `reserve_units` is 100x
+      the trade price, draining other slots via rebalance.
+
+  # =================== MEDIUM (8) ===================
+
+  - id: APTL25-ensure-slot-ignores-owner-key
+    class: authorization
+    severity: Medium
+    bug_class: signer-not-bound-to-resource
+    engine_function: ensure_slot
+    target_file: sources/marketplace.move
+    claim: >
+      Every per-owner slot allocation on the Marketplace binds the
+      slot's identity to the caller's `owner_key`. `ensure_slot(book,
+      owner_key)` takes `owner_key: address`, immediately binds
+      `let _owner_key = owner_key`, computes `next_id = 1 +
+      vector::length(&book.ids)`, and appends. The owner_key is
+      never persisted. Every caller invoking the same slot index
+      shares the same balance cell. The same anti-pattern appears
+      verbatim in auction_house, escrow_house, dispute_court,
+      proposal_store, voting, asset_registry, debt_accounting,
+      collateral_manager, lending_pool, liquidation_engine,
+      vault_core, vault_limits, fee_policy, order_book, rewards,
+      risk_policy, roles, router, treasury, governance, and
+      price_oracle. Cross-module assumption that slot-id maps to
+      owner is structurally false.
+
+  - id: APTL26-risk-policy-assert-borrow-overflow
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: integer-overflow
+    engine_function: assert_borrow_allowed
+    target_file: sources/risk_policy.move
+    claim: >
+      Every solvency check on the risk policy module evaluates
+      `debt <= ltv_max * collateral / 10000` without overflow.
+      `assert_borrow_allowed(host, asset_id, collateral, debt)`
+      computes `(cap * collateral) / 10000` where `cap` is the
+      attacker-controllable per-asset `limits[]` value (and can be
+      `u64::MAX`, since `register_id` accepts arbitrary `limit`) and
+      `collateral` is an attacker-controlled `u64` parameter. The
+      multiplication overflows for moderate inputs and aborts; for
+      smaller `cap * collateral` near `u64::MAX` it wraps. Combined
+      with APTL12 (permissionless collateral_manager::credit) and
+      APTL6 (permissionless open_position), the LTV check is
+      bypassable.
+
+  - id: APTL27-governance-execute-all-clears-all-flags
+    class: state_transition
+    severity: Medium
+    bug_class: invariant-violation
+    engine_function: execute_all
+    target_file: sources/governance.move
+    claim: >
+      Every governance execution marks only the executed proposals
+      as final. `execute_all(account, host, max_hint)` performs
+      `require_operator` (auth is enforced) but then iterates ALL
+      flags and unconditionally writes `*flag_slot = false` for
+      every proposal regardless of vote outcome or `max_hint`. The
+      `max_hint` parameter is added to `state.version` but never
+      bounds the loop. Every pending proposal is silently marked
+      not-ready in one call.
+
+  - id: APTL28-lending-pool-open-position-bypasses-pause
+    class: state_transition
+    severity: Medium
+    bug_class: invariant-violation
+    engine_function: open_position
+    target_file: sources/lending_pool.move
+    claim: >
+      Every entry function on the LendingPool that moves balance
+      state respects the module's `paused` flag.
+      `open_position(user, host, asset_id, collateral, debt)` calls
+      `risk_policy::assert_borrow_allowed`, then
+      `collateral_manager::credit`, `debt_accounting::credit`, and
+      `deposit(user, host, asset_id, collateral)`. The
+      cross-module `credit` calls do not consult `paused` on
+      lending_pool, collateral_manager, or debt_accounting. Only
+      the final `deposit` check would abort; by then accounting has
+      already mutated, leaving partial state on pause.
+
+  - id: APTL29-rebalance-pause-bypass
+    class: state_transition
+    severity: Medium
+    bug_class: invariant-violation
+    engine_function: rebalance
+    target_file: sources/marketplace.move
+    claim: >
+      Every state-mutating entry on the Marketplace module that
+      moves balance state respects the `paused` flag.
+      `rebalance(account, host, id, target)` calls
+      `require_operator` but does NOT consult `state.paused` before
+      mutating `balances[slot]` and `reserve_units`. Admin can
+      still drift reserves while ostensibly paused, defeating the
+      pause-as-incident-response invariant. Identical pattern in
+      `prune_disabled` and `rotate_admin`. Same anti-pattern
+      appears in every templated module.
+
+  - id: APTL30-voting-power-ignores-voter
+    class: invariant_property
+    severity: Medium
+    bug_class: invariant-violation
+    engine_function: voting_power
+    target_file: sources/voting.move
+    claim: >
+      Every voting power query returns the requested voter's stake-
+      derived weight. `voting_power(host, voter)` reads
+      `let _ignored_voter = voter` and returns
+      `balance_of(host, default_id = 0)` for any voter. Every
+      address reports the same voting power: balance of slot 0.
+      Downstream governance tallies that trust this function
+      treat all voters as having one shared balance.
+
+  - id: APTL31-router-credit-debit-no-auth
+    class: authorization
+    severity: Medium
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/router.move
+    claim: >
+      Every modification to Router accounting (cross-module
+      transfer routing) is gated by admin auth or an internal
+      cross-module hook. `router::credit(host, id, amount)` and
+      `debit(...)` are `public` with no `signer` and no auth.
+      Severity lower than peer modules because the Router slot
+      semantics in this engine are abstract, but the surface lets
+      any caller poison router accounting.
+
+  - id: APTL32-liquidation-engine-credit-debit-no-auth
+    class: authorization
+    severity: Medium
+    bug_class: missing-signer-check
+    engine_function: credit
+    target_file: sources/liquidation_engine.move
+    claim: >
+      Every liquidation accounting mutation is gated by admin auth
+      or by the liquidation lifecycle (`assert_liquidatable` +
+      seize). `liquidation_engine::credit(host, id, amount)` and
+      `debit(...)` are `public` with no `signer` and no auth. Any
+      caller can credit themselves liquidation rewards or debit
+      another party's liquidation queue entry to zero, although
+      the module's outward observable effects are limited because
+      no downstream module reads its balances in this engine.
+
+  # =================== LOW / INFO (3) ===================
+
+  - id: APTL33-prune-disabled-credits-reserve-balance-cleared
+    class: state_transition
+    severity: Low
+    bug_class: event-emit-missing
+    engine_function: prune_disabled
+    target_file: sources/marketplace.move
+    claim: >
+      Every admin pruning of a disabled slot should either burn the
+      cleared balance or transfer it to a known recovery sink with
+      an event. `prune_disabled(account, host, max)` clears the
+      slot's `balance_cell` to 0 but credits the full amount to
+      `state.reserve_units` with no event, no audit trail, and no
+      sink-address record. Reserve gains become indistinguishable
+      from organic reserve accrual. Same anti-pattern appears in
+      every templated module.
+
+  - id: APTL34-utilization-bps-overflow-extreme-reserve
+    class: arithmetic_overflow
+    severity: Low
+    bug_class: integer-overflow
+    engine_function: utilization_bps
+    target_file: sources/marketplace.move
+    claim: >
+      Every utilization-ratio query returns a value in [0, 10000]
+      bps. `utilization_bps(host)` computes `(10000 *
+      reserve_units) / total_units`. If `reserve_units` is set
+      sufficiently high via the prune-credit path (APTL33) or via
+      direct `credit` (APTL8), the `10000 * reserve_units`
+      multiplication overflows u64 and aborts; for moderately
+      inflated reserve values `utilization_bps` returns more than
+      10000, breaking the bps invariant. Same anti-pattern in
+      every templated module.
+
+  - id: APTL35-make-receipt-epoch-collision-id-plus-amount
+    class: invariant_property
+    severity: Low
+    bug_class: invariant-violation
+    engine_function: make_receipt
+    target_file: sources/marketplace.move
+    claim: >
+      Every issued receipt has a globally unique `epoch` for replay
+      detection. `make_receipt(host, id, amount)` sets
+      `epoch: id + amount`. Two distinct (id, amount) pairs
+      satisfying `id1 + amount1 == id2 + amount2` produce identical
+      `epoch` fields. Any downstream consumer that treats `epoch`
+      as a receipt-uniqueness nonce admits forged-collision
+      double-spend. Same anti-pattern appears in every templated
+      module's `make_receipt`.

@@ -1,0 +1,584 @@
+# OtterSec evaluation — Solana/Anchor language hypothesis library.
+#
+# Designed for the sahuang-osec/solana-{small,medium,large} synthetic-bug
+# repos. Covers Solana-specific bug classes (Anchor account validation
+# footguns, PDA seed manipulation, AccountInfo-vs-Signer confusion,
+# missing has_one, CPI mis-signing) plus universal patterns (integer
+# overflow, oracle staleness, access-control bypass, reentrancy).
+#
+# Each hypothesis is a binary "is this invariant violated?" question.
+# L2 PoC uses `cargo test-bpf` / `solana-program-test` with bug-witness
+# inverted assertions. L3 uses Kani harnesses. L4 uses LiteSVM exploit
+# chains.
+#
+# Run with:
+#   audit-pipeline hunt \
+#     --hypotheses .../osec_solana_class.yaml \
+#     --language solana \
+#     --refinement-rounds 1 \
+#     --max-concurrent 4
+#
+# Solana/Anchor-specific notes:
+#   * Anchor's #[derive(Accounts)] auto-validates SOME constraints but
+#     ONLY when the right types/macros are used. `AccountInfo` skips
+#     ALL checks; `Signer` requires a signature; `Account<'info, T>`
+#     deserializes + checks discriminator; `has_one = X` checks struct
+#     field equality with the named context account.
+#   * PDAs need both `seeds = [...]` AND `bump` to validate canonical.
+#   * `invoke_signed` requires the program-derived signer seeds to
+#     match the calling program's PDA — mis-seeding breaks the sig.
+#   * Clock::get() returns current sysvar; checks like elapsed/
+#     timestamp depend on it.
+
+hypotheses:
+
+  # ─────────────────── Anchor account validation ───────────────────
+
+  - id: SOL1-account-info-instead-of-signer
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every privileged account in an instruction's accounts struct that
+      represents the authorized caller (admin, owner, authority) is
+      declared as `Signer<'info>`, NOT `AccountInfo<'info>` or
+      `UncheckedAccount<'info>`. Using `AccountInfo` skips the
+      signature check, so an attacker passes the privileged pubkey
+      without actually possessing the key.
+    relevant_instructions: |
+      withdraw, rotate_admin, set_authority, transfer_admin,
+      emergency_drain, pause/unpause, close
+
+  - id: SOL2-missing-has-one
+    class: authorization
+    severity: Critical
+    bug_class: missing-account-binding
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every `Account<'info, T>` in an instruction whose body trusts a
+      field like `stake.user` or `position.owner` to match a signer in
+      the same context has either a `has_one = <signer_name>` constraint
+      OR explicit equality check in the body. Without it, an attacker
+      passes another user's account and operates on it under their own
+      signature.
+    relevant_instructions: |
+      claim_rewards, withdraw_stake, close_position, update_user
+
+  - id: SOL3-missing-seeds-bump
+    class: account-validation
+    severity: High
+    bug_class: pda-not-canonical
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every `Account<'info, T>` that should be a PDA has the matching
+      `seeds = [...]` and `bump = stored_bump` constraints. Missing
+      seeds lets the attacker pass an account at any address; missing
+      bump validation lets them use a non-canonical bump (256 distinct
+      addresses for the same logical PDA).
+    relevant_instructions: |
+      any PDA-derived account: config, vault, stake, position
+
+  - id: SOL4-unchecked-account-ownership
+    class: account-validation
+    severity: High
+    bug_class: missing-program-ownership
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every `AccountInfo<'info>` field whose data is read or which
+      receives lamports either declares `owner = some_program_id` OR
+      explicitly checks `account.owner == &expected_program_id` in the
+      body. Without it, attacker passes a malicious-program-owned
+      account and the program reads attacker-controlled data.
+    relevant_instructions: |
+      transfer, parse account data, CPI to other programs
+
+  - id: SOL5-account-discriminator-skipped
+    class: account-validation
+    severity: High
+    bug_class: type-confusion
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every account read as a specific type uses `Account<'info, T>` or
+      explicit `T::try_from_slice` (not `AccountInfo` + manual offset
+      reads). The 8-byte discriminator prefix prevents type confusion;
+      bypassing it lets an attacker pass an account with the WRONG
+      type but matching size, where field offsets line up to a
+      privileged value.
+    relevant_instructions: |
+      privileged config reads, admin lookups, struct deserialization
+
+  # ─────────────────── Authorization gates ───────────────────
+
+  - id: SOL6-admin-check-from-instruction-data
+    class: authorization
+    severity: Critical
+    bug_class: auth-from-untrusted-source
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every admin/authority comparison reads the expected pubkey from
+      on-chain state (e.g. `config.admin`), NOT from instruction data
+      or `AccountInfo.key()` of a caller-provided account. Reading the
+      expected admin from a caller-supplied account makes the check
+      tautological.
+    relevant_instructions: |
+      assert_admin, require!, == comparisons in admin paths
+
+  - id: SOL7-permissionless-privileged-fn
+    class: authorization
+    severity: Critical
+    bug_class: missing-access-control
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every privileged operation (withdraw to admin, rotate admin,
+      pause, update parameters, emergency drain) has an explicit
+      signer-equals-stored-authority check at the top of the function
+      body. Functions that mutate privileged state without any auth
+      gate are universally exploitable.
+    relevant_instructions: |
+      withdraw, rotate_admin, set_params, pause, drain, close_vault
+
+  - id: SOL8-equality-not-strict
+    class: authorization
+    severity: High
+    bug_class: weak-equality
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every admin/authority equality check uses `==` on `Pubkey`, not
+      partial fields or string-converted comparison. Anchor's `Pubkey`
+      is 32 bytes; mixing it with `&[u8]` slices or comparing only
+      a prefix lets attackers craft collision pubkeys.
+    relevant_instructions: |
+      admin equality checks, Pubkey::from_str, partial slice cmp
+
+  # ─────────────────── PDA / signer-seeds ───────────────────
+
+  - id: SOL9-invoke-signed-wrong-seeds
+    class: cpi-correctness
+    severity: Critical
+    bug_class: pda-signer-mismatch
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every `invoke_signed` call passes seeds that exactly match the
+      PDA being acted on (program ID + same seed bytes used at
+      derivation). Mis-seeded `invoke_signed` either fails the CPI or
+      (worse) signs as a DIFFERENT PDA than expected.
+    relevant_instructions: |
+      invoke_signed, system_instruction::transfer, token::transfer
+
+  - id: SOL10-cpi-using-invoke-not-invoke-signed
+    class: cpi-correctness
+    severity: Critical
+    bug_class: missing-pda-sign
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every CPI that requires a PDA's signature uses `invoke_signed`,
+      NOT `invoke`. `invoke` succeeds only if the source account has a
+      user signature; calling `invoke` with a PDA source silently
+      fails (or worse, succeeds if the user happened to sign).
+    relevant_instructions: |
+      transfer from PDA vault, mint authority CPI, close account
+
+  - id: SOL11-pda-seeds-attacker-controlled
+    class: pda-derivation
+    severity: High
+    bug_class: predictable-pda
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every PDA used to gate privileged state derives its seeds from
+      stable on-chain identifiers (program ID, fixed string,
+      stored pubkey), NOT from instruction data that the attacker
+      controls. Attacker-controlled seeds let the attacker derive
+      arbitrary PDAs and impersonate them.
+    relevant_instructions: |
+      Pubkey::find_program_address, init seeds with ix data
+
+  # ─────────────────── Arithmetic ───────────────────
+
+  - id: SOL12-u64-overflow-arith
+    class: arithmetic
+    severity: High
+    bug_class: integer-overflow
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every arithmetic op on a u64 balance / counter that COULD overflow
+      uses `checked_add` / `checked_mul` / `checked_sub` or a wider
+      type. Raw `a + b` panics on overflow (DoS) but more importantly,
+      attackers can construct inputs that cause silent wraparound when
+      `wrapping_*` is used.
+    relevant_instructions: |
+      total_deposits +=, reward_rate * elapsed, balance arithmetic
+
+  - id: SOL13-saturating-sub-on-security
+    class: arithmetic
+    severity: High
+    bug_class: saturating-loses-signal
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every subtraction on a security-relevant balance (vault total,
+      user balance, locked stake) uses `checked_sub` to fail loudly
+      on underflow, NOT `saturating_sub` which silently caps at 0.
+      Saturating-on-underflow masks accounting bugs and lets
+      attackers withdraw more than they deposited.
+    relevant_instructions: |
+      total_deposits -= amount, stake.amount -= unstake_amount
+
+  - id: SOL14-divide-by-zero
+    class: arithmetic
+    severity: Medium
+    bug_class: divide-by-zero
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every division `a / b` where `b` is derived from input or
+      mutable state checks `b != 0` first. Division by zero is a
+      panic (DoS); also `a / b * c` ordering causes precision loss.
+    relevant_instructions: |
+      share / total_supply, payout / total_staked, fee math
+
+  - id: SOL15-cast-truncation
+    class: arithmetic
+    severity: Medium
+    bug_class: cast-truncation
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every narrowing cast (u128 -> u64, u64 -> u32, i64 -> i32) checks
+      bounds before casting. Rust's `as` is silent truncation; large
+      values silently lose high bits.
+    relevant_instructions: |
+      Clock::get().unix_timestamp as u64, u128 result as u64
+
+  - id: SOL16-rounding-direction
+    class: arithmetic
+    severity: Medium
+    bug_class: rounding-favors-user
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every share-vault function rounds in the protocol's favor: mint
+      rounds DOWN on shares minted (user pays more, gets less); burn
+      rounds DOWN on assets returned (user gets less back). Default
+      integer division rounds toward zero — fine for protocol-favor
+      paths, harmful when applied to user-favor paths.
+    relevant_instructions: |
+      shares = (deposit * total_shares) / total_assets,
+      assets = (shares * total_assets) / total_shares
+
+  # ─────────────────── State-machine / lifecycle ───────────────────
+
+  - id: SOL17-reinit-attack
+    class: lifecycle
+    severity: Critical
+    bug_class: missing-close-attribute
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every account that is destroyed (lamports drained, intended to
+      be closed) uses Anchor's `close = receiver` attribute (which
+      sets the account discriminator to CLOSED_ACCOUNT_DISCRIMINATOR
+      and prevents re-init in the same tx). Manual lamport drain
+      without `close` lets an attacker re-initialize the account in
+      the same tx with attacker-controlled state.
+    relevant_instructions: |
+      close_account, claim_and_close, withdraw_to_owner
+
+  - id: SOL18-initialize-twice
+    class: lifecycle
+    severity: High
+    bug_class: missing-init-guard
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every initialize function uses Anchor's `init` constraint (which
+      fails if the account already exists) OR checks `!exists(account)`
+      manually. Initialize-twice lets an attacker overwrite the
+      stored admin pubkey.
+    relevant_instructions: |
+      initialize, init_pool, setup_authority
+
+  - id: SOL19-double-claim
+    class: lifecycle
+    severity: High
+    bug_class: missing-claim-marker
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every reward / payout claim records a marker (last_claim_ts +=,
+      claimed[id] = true, paid_out += amount) BEFORE the transfer CPI
+      so re-entry can't double-claim. State-after-CPI patterns are
+      reentrancy-vulnerable; even on Solana (which prevents same-
+      program reentry), state-after-CPI is fragile under partial
+      execution.
+    relevant_instructions: |
+      claim_rewards, harvest, withdraw_yield
+
+  - id: SOL20-replay-allowed
+    class: lifecycle
+    severity: High
+    bug_class: missing-nonce
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every action that should be one-shot (one-time settle, one-time
+      execute) marks its done-flag (`completed = true`,
+      `state == Executed`) AND checks the flag at entry. Missing
+      check lets the attacker re-execute and double-spend.
+    relevant_instructions: |
+      escrow.cancel, escrow.take, proposal.execute, vesting.claim
+
+  # ─────────────────── Token-economics & math ───────────────────
+
+  - id: SOL21-fee-unbounded
+    class: token-economics
+    severity: Medium
+    bug_class: fee-bound-missing
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every fee setter (initialize / set_fee / update_fee) clamps the
+      new fee to a sane upper bound (e.g. < 10000 bps = 100%).
+      Otherwise admin or attacker can set fee == u64::MAX, causing
+      overflow on the first trade.
+    relevant_instructions: |
+      initialize(.., fee), set_fee_bps, update_fee_rate
+
+  - id: SOL22-share-inflation-first-depositor
+    class: token-economics
+    severity: High
+    bug_class: share-inflation
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every share-mint vault handles the first-depositor edge case:
+      either virtual shares (constant offset minted to dead address)
+      or a min-deposit floor. Without it, the first depositor mints 1
+      share, transfers a large amount to the vault directly, then
+      subsequent depositors get rounded to 0 shares.
+    relevant_instructions: |
+      mint_shares, deposit_for_shares, share calculation
+
+  - id: SOL23-slippage-missing
+    class: token-economics
+    severity: Medium
+    bug_class: missing-slippage
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every swap / redeem function accepts a min-out parameter and
+      enforces `actual_out >= min_out`. Otherwise MEV bots
+      arbitrage every swap by sandwiching with their own swaps.
+    relevant_instructions: |
+      swap_exact_in, redeem_shares, claim_rewards
+
+  - id: SOL24-deadline-missing
+    class: token-economics
+    severity: Low
+    bug_class: missing-deadline
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every off-chain-signed action (relayed tx, permit) has a
+      deadline timestamp and rejects past-deadline submissions.
+      Without one, MEV bots can hold a signed transaction and
+      submit it at a market price favorable to them.
+    relevant_instructions: |
+      permit, relay_tx, signed_swap
+
+  - id: SOL25-stake-pre-deposit-accrual
+    class: token-economics
+    severity: Medium
+    bug_class: reward-time-window
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every stake-and-claim flow accrues rewards from the DEPOSIT
+      time, not from the open-stake time. If `last_claim_ts` is set
+      at open_stake (when amount = 0), then a later deposit accrues
+      rewards over the entire elapsed period as if the deposit
+      existed from open_stake.
+    relevant_instructions: |
+      open_stake, deposit_stake, claim_rewards math
+
+  # ─────────────────── Oracle / time / clock ───────────────────
+
+  - id: SOL26-oracle-staleness
+    class: oracle
+    severity: Medium
+    bug_class: oracle-staleness
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every oracle price read checks the `updated_at` timestamp is
+      within a max-staleness window. Stale prices during outages let
+      attackers borrow against stale collateral.
+    relevant_instructions: |
+      pyth::get_price, oracle.last_update_slot, switchboard reads
+
+  - id: SOL27-oracle-zero-price
+    class: oracle
+    severity: Low
+    bug_class: oracle-zero
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every oracle price read rejects zero (or negative) prices. Zero
+      is a sentinel for "feed unavailable" — silently accepting it
+      means free borrows / infinite collateral value.
+    relevant_instructions: |
+      price comparison, ratio calculations, liquidation checks
+
+  - id: SOL28-clock-not-monotonic
+    class: oracle
+    severity: Low
+    bug_class: clock-decrease
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every time-elapsed calculation handles the case where the
+      current clock is LESS than the stored timestamp (clock drift,
+      sysvar replay). Naive `current - stored` underflows.
+    relevant_instructions: |
+      Clock::get().unix_timestamp - last_claim_ts
+
+  # ─────────────────── Closing / cleanup ───────────────────
+
+  - id: SOL29-close-without-zeroing
+    class: lifecycle
+    severity: High
+    bug_class: revival-via-realloc
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every account close (manual or `close = receiver`) sets
+      data[0..8] to CLOSED_ACCOUNT_DISCRIMINATOR before draining
+      lamports. Otherwise an attacker can fund the account back
+      to rent-exemption and re-use the old data.
+    relevant_instructions: |
+      close, manual lamport drain, account realloc
+
+  - id: SOL30-mut-on-immutable-account
+    class: account-validation
+    severity: Medium
+    bug_class: mut-flag-wrong
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every account that gets written to (state mutation, lamport
+      transfer) is marked `mut` in the Accounts struct. Anchor
+      will refuse the tx if `mut` is missing and the program tries
+      to mutate. A subtle bug: `mut` missing on the destination of
+      a transfer.
+    relevant_instructions: |
+      #[account(mut)] on transfer destinations, state updates
+
+  # ─────────────────── Sysvar / clock / rent ───────────────────
+
+  - id: SOL31-rent-not-paid
+    class: lifecycle
+    severity: Medium
+    bug_class: rent-exempt-missing
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every newly-created account is funded to rent-exemption (via
+      `init` constraint or manual transfer). Otherwise the account
+      can be garbage-collected mid-protocol-flow.
+    relevant_instructions: |
+      init constraint, manual create_account, lamport math
+
+  # ─────────────────── State integrity ───────────────────
+
+  - id: SOL32-bump-not-stored
+    class: pda-derivation
+    severity: Medium
+    bug_class: bump-not-canonical
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every PDA's canonical bump is stored on the account at init and
+      referenced via `bump = stored.bump` in subsequent instruction
+      accounts. Recomputing via `bump` (no `= value`) on each call
+      lets non-canonical bumps pass validation.
+    relevant_instructions: |
+      bump in #[account(...)], bump field on struct
+
+  - id: SOL33-empty-if-branch
+    class: logic
+    severity: Low
+    bug_class: empty-if-branch
+    engine_function: ""
+    target_file: programs/*/src/lib.rs
+    claim: >
+      Every `if condition { } else { ... }` pattern verifies the
+      semantics — the empty `if` branch is suspicious. If the
+      condition is "is admin" and the empty branch is the admin path,
+      the logic is inverted.
+    relevant_instructions: |
+      if X == Y { } else { abort }, inverted access control
+
+  # ─────────────────── Specific to small / vault / escrow / staking ───────────────────
+
+  - id: SOL34-vault-withdraw-no-signer
+    class: authorization
+    severity: Critical
+    bug_class: missing-signer-check
+    engine_function: ""
+    target_file: programs/vault/src/lib.rs
+    claim: >
+      vault::withdraw declares the admin account as `Signer<'info>`
+      (NOT `AccountInfo<'info>`), so a non-admin caller cannot pass
+      the admin pubkey and bypass the signature requirement. Anyone
+      who can construct an AccountInfo with the admin's pubkey
+      drains the vault.
+    relevant_instructions: |
+      vault::withdraw, Withdraw struct, admin field type
+
+  - id: SOL35-escrow-cancel-maker-not-validated
+    class: authorization
+    severity: Critical
+    bug_class: missing-account-binding
+    engine_function: ""
+    target_file: programs/escrow/src/lib.rs
+    claim: >
+      escrow::cancel verifies `ctx.accounts.maker.key() == escrow.maker`
+      OR declares `maker: Signer<'info>` with `has_one = maker` on
+      the escrow. Otherwise any caller passes their own pubkey as
+      `maker` and the vault PDA signs the transfer to the attacker.
+    relevant_instructions: |
+      escrow::cancel, Cancel struct, maker field type + has_one
+
+  - id: SOL36-staking-claim-stake-not-bound
+    class: authorization
+    severity: Critical
+    bug_class: missing-account-binding
+    engine_function: ""
+    target_file: programs/staking/src/lib.rs
+    claim: >
+      staking::claim's `stake: Account<'info, StakeAccount>` has
+      either `seeds = [b"stake", user.key().as_ref()]` OR
+      `has_one = user` to bind it to the signing user. Without that
+      constraint an attacker passes ANY user's stake account and
+      claims their rewards into their own user account.
+    relevant_instructions: |
+      staking::claim, Claim struct, stake field constraints
+
+  # ─────────────────── Closing notes ───────────────────
+
+  # The above 36 hypotheses cover the most common Anchor / Solana
+  # bug classes. For program-specific hypotheses (e.g. bugs unique
+  # to a particular CLMM curve formula), use a domain-class library
+  # in addition (clmm_class.yaml, lending_class.yaml, etc).
