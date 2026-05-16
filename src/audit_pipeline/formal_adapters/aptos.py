@@ -255,6 +255,45 @@ write a real spec:
             "Could not extract a Move spec from the LLM response."
         )
 
+
+    def validate_spec_body(self, body: str) -> tuple[bool, str | None]:
+        """Pre-prover syntax check.
+
+        Returns (ok, error_msg). Catches the most common LLM failure: producing
+        function-body code instead of spec blocks. Cheap to run, prevents wasting
+        the prover compile pass on obviously-wrong specs.
+        """
+        b = body.strip()
+        if not b:
+            return False, 'empty spec body'
+        if 'CANNOT_VERIFY' in b:
+            return True, None  # stub is acceptable
+        # Must contain at least one spec block
+        if 'spec ' not in b:
+            return False, (
+                'No spec block found. Output must contain spec module::X { spec fn { ... } } '
+                'NOT the raw function body. Wrap your invariants in spec blocks.'
+            )
+        # Reject obvious function-body leaks
+        bl = b.lstrip()
+        if bl.startswith('public ') or bl.startswith('fun ') or bl.startswith('entry '):
+            return False, (
+                'Output starts with function declaration (public/fun/entry). You reproduced the '
+                'function body instead of writing a spec. Start with: spec <address>::<module> { ... }'
+            )
+        if bl.startswith('let ') or bl.startswith('if ') or bl.startswith('while '):
+            return False, (
+                'Output starts with a Move statement (let/if/while). You wrote function code, not a '
+                'spec. Spec syntax: spec <address>::<module> { spec <fn_name> { requires X; ensures Y; aborts_if Z; } }'
+            )
+        # Must have at least one inner spec <function> { or invariant
+        if 'spec module' not in b and not re.search(r'spec\s+\w+\s*\{', b) and 'invariant' not in b:
+            return False, (
+                'Spec block contains no inner spec <function_name> {} or spec module {} block. '
+                'Add at least one: spec <fn_name> { requires ...; ensures ...; aborts_if ...; }'
+            )
+        return True, None
+
     def write_harness_file(
         self,
         workspace: Path,

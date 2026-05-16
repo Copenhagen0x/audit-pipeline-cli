@@ -149,31 +149,52 @@ def draft_cmd(
     # between them so the LLM can pinpoint which file/line to patch.
     # The LLM's context is 200K — concatenated Move source for a
     # whole engine package is ~10-30K tokens, well under the budget.
+    # Aptos-large 2026-05-15: 10/20 cluster-rep patches had literal
+    # `--- a/sources/*.move` paths — unappliable. Root cause: when
+    # target_file was a wildcard, the engine concatenated all matching
+    # files into target_source but passed the LITERAL WILDCARD as
+    # target_file_path to the LLM. LLM dutifully wrote
+    # `--- a/sources/*.move` because that's what we told it the path was.
+    #
+    # Fix: when target_file is a wildcard, resolve to ONE specific file
+    # based on the finding's hypothesis_id (e.g. APTL8-marketplace-...
+    # → sources/marketplace.move). This gives the LLM a real path AND
+    # focused source — both required for the diff to be apply-clean.
+    resolved_target_file = target_file or ""
     target_source = ""
     if target_file and engine_repo:
         is_glob = any(ch in target_file for ch in "*?[")
         if is_glob:
             matches = sorted(engine_repo.glob(target_file))
-            chunks = []
+            # Try to resolve to a SINGLE file based on the hypothesis_id.
+            # Hyp IDs are slugged like `APTL8-marketplace-credit-debit-no-auth`
+            # — the module name after the prefix code is the target.
+            hyp_id = (finding.get("hypothesis_id") or "").lower()
+            picked: Path | None = None
             for p in matches:
                 if not p.is_file():
                     continue
-                rel = p.relative_to(engine_repo)
+                stem = p.stem.lower()  # e.g. "marketplace"
+                if stem in hyp_id:
+                    picked = p
+                    break
+            if picked is None and matches:
+                # No module-name hit — fall back to first match
+                picked = next((p for p in matches if p.is_file()), None)
+            if picked is not None:
+                resolved_target_file = str(picked.relative_to(engine_repo))
                 try:
-                    body = p.read_text(encoding="utf-8", errors="replace")
+                    target_source = picked.read_text(encoding="utf-8", errors="replace")
+                    console.print(
+                        f"[green]glob-resolved[/green] {target_file} → "
+                        f"{resolved_target_file} ({len(target_source)} bytes)"
+                    )
                 except OSError:
-                    continue
-                chunks.append(f"// === FILE: {rel} ===\n{body}")
-            target_source = "\n\n".join(chunks)
-            if not target_source:
+                    target_source = ""
+            else:
                 console.print(
                     f"[yellow]warn:[/yellow] target_file glob "
                     f"{target_file!r} matched no files under {engine_repo}"
-                )
-            else:
-                console.print(
-                    f"[green]glob-expanded[/green] {target_file} → "
-                    f"{len(matches)} files, {len(target_source)} bytes"
                 )
         else:
             tpath = engine_repo / target_file
@@ -214,7 +235,7 @@ def draft_cmd(
             severity=finding.get("severity") or "Medium",
             title=finding.get("title") or "",
             poc_source=poc_source or "(PoC source not provided)",
-            target_file_path=target_file or "unknown",
+            target_file_path=resolved_target_file or "unknown",
             target_source=target_source,
         )
         if draft.diff:

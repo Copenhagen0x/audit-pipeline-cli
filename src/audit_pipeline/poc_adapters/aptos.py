@@ -75,6 +75,76 @@ def _detect_move_named_addresses(repo_root: Path) -> dict[str, str]:
     return dict(pairs)
 
 
+def _build_move_signature_index(repo_root: Path, max_bytes: int = 30_000) -> str:
+    """Extract exported function signatures from every module in sources/.
+
+    The L2/L4/P3 LLM authors regularly hallucinate cross-module function
+    signatures (wrong arg count, wrong types, non-existent functions).
+    On aptos-large 2026-05-15 this caused:
+      - 4 L4 harness compile errors
+      - 1 L2 PoC compile error (APTL28: risk_policy::initialize takes
+        2 args, author wrote 1)
+      - ~10 P3 patches with wildcard paths or corrupt line numbers
+
+    The fix is to inject a compact "use these EXACT signatures" index
+    so the LLM can ground every cross-module call against the real source
+    rather than guessing.
+
+    Returns a markdown-formatted block grouped by module, each module
+    listing one signature per line. Capped at max_bytes so the prompt
+    stays under the context budget. Skips test files.
+    """
+    sources = repo_root / "sources"
+    if not sources.is_dir():
+        return ""
+
+    # Anchor to start of line + match exactly one signature on that
+    # single line: optional public/entry, `fun NAME`, optional generic
+    # `<...>` (no newlines), arglist `(...)` (no newlines), optional
+    # return type. Stop before `{` or end-of-line. The earlier regex
+    # used `[^>]*` which greedily matched ACROSS newlines into the
+    # function body until the first `>` in code (e.g. `<u64>`), so
+    # signatures were polluted with body content.
+    sig_re = re.compile(
+        r"^\s*((?:public\s+)?(?:entry\s+)?fun\s+\w+"
+        r"(?:\s*<[^>\n]*>)?\s*\([^)\n]*\)"
+        r"(?:\s*:\s*[^{\n]+)?)",
+        re.MULTILINE,
+    )
+    module_re = re.compile(r"module\s+([\w]+)::([\w]+)\s*\{")
+
+    out: list[str] = []
+    used = 0
+    for move_file in sorted(sources.glob("*.move")):
+        try:
+            text = move_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        m = module_re.search(text)
+        if not m:
+            continue
+        addr_name, mod_name = m.group(1), m.group(2)
+        header = f"\n## {addr_name}::{mod_name}  ({move_file.name})"
+        if used + len(header) > max_bytes:
+            break
+        out.append(header)
+        used += len(header)
+        for fn_m in sig_re.finditer(text):
+            sig = " ".join(fn_m.group(1).split())
+            if "fun " not in sig:
+                continue
+            # Skip private internal helpers without `public`/`entry`
+            if not (sig.startswith("public") or sig.startswith("entry")):
+                continue
+            line = f"  {sig}"
+            if used + len(line) > max_bytes:
+                out.append("  ...(truncated)")
+                return "\n".join(out)
+            out.append(line)
+            used += len(line)
+    return "\n".join(out)
+
+
 class AptosAdapter(LanguagePocAdapter):
     """Aptos Move PoC adapter (`aptos move test`)."""
 
@@ -93,6 +163,14 @@ class AptosAdapter(LanguagePocAdapter):
         target_file = hyp.get("target_file", "")
         engine_function = hyp.get("engine_function", "")
         relevant = hyp.get("relevant_instructions") or ""
+
+        # Build cross-module signature index — prevents the LLM from
+        # hallucinating function signatures for modules other than
+        # target_file. Aptos-large 2026-05-15: APTL28 PoC author wrote
+        # `risk_policy::initialize(&admin)` (1 arg) but the real sig is
+        # `(account: &signer, fee_bps: u64)` (2 args) — test failed to
+        # compile, triage marked FALSE. Index fixes this.
+        sig_index = _build_move_signature_index(target_repo_root)
 
         # Parse the target repo's Move.toml so the LLM uses the actual
         # named addresses (not a hardcoded `mutatis` / `0x0`).
@@ -199,6 +277,18 @@ Relevant instructions: {relevant}
 # Grounded source
 
 {source_context}
+
+# Cross-module function signatures (USE THESE EXACT SIGNATURES)
+
+When your test calls a function in a module OTHER than the target file
+above, copy the EXACT signature from this index. Do NOT guess argument
+count, names, or types. The aptos-large 2026-05-15 cycle wasted L2
+spend on tests that called `risk_policy::initialize(&admin)` (1 arg)
+when the real signature is `(account: &signer, fee_bps: u64)` (2 args).
+
+```move
+{sig_index or "(signature index unavailable — proceed but expect cross-module compile errors)"}
+```
 
 # Repo layout
 

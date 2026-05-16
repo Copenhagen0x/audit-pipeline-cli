@@ -637,6 +637,28 @@ _BRIDGE_TAB_BAR_STYLE = """
   }
   .tab-bar .tab .badge.zero { opacity: 0.4; }
 
+  /* Status-modifier tints so the operator can see at a glance which
+     targets have been scanned (green outline + green dot) vs idle.
+     Active-tab styling still wins via cascade order (.tab.active rules
+     come after .tab.tab-scanned in the stylesheet). */
+  .tab-bar .tab.tab-scanned {
+    border-color: rgba(74,222,128,0.45);
+    box-shadow: inset 3px 0 0 0 var(--ok);
+  }
+  .tab-bar .tab.tab-scanned .size-name { color: var(--ok); }
+  .tab-bar .tab.tab-scanned:hover { border-color: var(--ok); }
+  .tab-bar .tab.tab-scanning {
+    border-color: rgba(245,184,0,0.45);
+    box-shadow: inset 3px 0 0 0 var(--amber);
+  }
+  .tab-bar .tab.tab-scanning .size-name { color: var(--amber); }
+  .tab-bar .tab.active.tab-scanned,
+  .tab-bar .tab.active.tab-scanning {
+    box-shadow: none;
+  }
+  .tab-bar .tab.active.tab-scanned .size-name,
+  .tab-bar .tab.active.tab-scanning .size-name { color: var(--bg); }
+
   /* The tab bar lives INSIDE main.bridge (after the health banner), so
      main.bridge keeps its standard 96px top padding (just clears the
      fixed nav). No extra space needed because the sticky tab bar takes
@@ -671,8 +693,13 @@ def _render_bridge_tab_bar(rollups: list[dict[str, Any]]) -> str:
             n = r["n_findings"]
             badge_class = "badge" if n > 0 else "badge zero"
             size = _size_for(r["name"]) or g
+            # Tabs get a status modifier so the bridge tab-bar paints
+            # completed targets green and in-flight ones amber. Without
+            # this every tab looks identical regardless of cycle state.
+            target_status = r.get("status") or "idle"
             parts.append(
-                f'<button class="tab" role="tab" data-target="{r["name"]}" '
+                f'<button class="tab tab-{target_status}" role="tab" '
+                f'data-target="{r["name"]}" '
                 f'aria-controls="tab-panel-{r["name"]}" data-group="{g}" '
                 f'title="{group_display} · {size}">'
                 f'<span class="group-name">{group_display}</span>'

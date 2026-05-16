@@ -40,6 +40,13 @@ class AptosRuntimeAdapter(LanguageRuntimeAdapter):
         claim = hyp.get("claim", "(no claim)")
         engine_function = hyp.get("engine_function", "")
 
+        # Cross-module signature index — same fix as L2 adapter.
+        # Aptos-large 2026-05-15: 4 L4 harnesses failed to compile
+        # (APT38, APTL4 etc.) because the LLM hallucinated function
+        # signatures for cross-module setup calls.
+        from audit_pipeline.poc_adapters.aptos import _build_move_signature_index
+        sig_index = _build_move_signature_index(target_repo_root)
+
         return f"""You are authoring a property-based Move test for the Jelleo audit engine.
 
 # Hypothesis under test
@@ -52,6 +59,18 @@ Slug (use this for module + function names): {hyp.get("_slug", hyp_id.lower().re
 # Grounded source
 
 {source_context}
+
+# Cross-module function signatures (USE THESE EXACT SIGNATURES)
+
+Setup code in property tests routinely calls `<module>::initialize(...)`,
+`<module>::register_id(...)`, etc. on modules other than the target.
+Use the EXACT signature from this index — do not guess argument count
+or types. Aptos-large 2026-05-15: 4 L4 harnesses failed to compile
+because the LLM hallucinated cross-module signatures.
+
+```move
+{sig_index or "(signature index unavailable — proceed but expect cross-module compile errors)"}
+```
 
 # Run command (the FILTER substring is fixed — your test function
 # MUST be named to match this exactly)

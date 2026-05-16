@@ -81,12 +81,69 @@ def color_html(s: Severity) -> str:
     }[s]
 
 
+# FIX 3 (2026-05-14): bug-class -> minimum-severity floor table.
+#
+# Operator caught severe under-rating on aptos-medium 2026-05-14:
+#   - APTM20 (user loses entire stake): LLM rated Low. Should be Critical.
+#   - APTM21 (full protocol admin takeover): LLM rated Low. Should be Critical.
+# After the LLM produces a verdict + we derive intrinsic severity, we
+# upgrade to MAX(intrinsic, floor[bug_class]) so the empirical signal
+# only raises severity, never lowers it. Keys are lowercased substring
+# matches against the hyp's `bug_class` field.
+#
+# borrow-global-no-auth is special-cased: Critical when target_file
+# mentions treasury/vault, else High. See severity_floor_for_bug_class.
+SEVERITY_FLOOR_BY_BUG_CLASS: dict[str, "Severity"] = {
+    "treasury-drain": Severity.CRITICAL,
+    "treasury_drain": Severity.CRITICAL,
+    "acl-mint-cap-permissionless": Severity.CRITICAL,
+    "acl_mint_cap_permissionless": Severity.CRITICAL,
+    "cap-leak": Severity.CRITICAL,
+    "cap_leak": Severity.CRITICAL,
+    "share-inflation-first-depositor": Severity.HIGH,
+    "share_inflation_first_depositor": Severity.HIGH,
+    "emergency-unstake-principal-lost": Severity.HIGH,
+    "emergency_unstake_principal_lost": Severity.HIGH,
+    "oracle-update-no-auth": Severity.HIGH,
+    "oracle_update_no_auth": Severity.HIGH,
+    "staking-fund-rewards-no-auth": Severity.HIGH,
+    "staking_fund_rewards_no_auth": Severity.HIGH,
+    "withdraw-delay-bypass": Severity.HIGH,
+    "withdraw_delay_bypass": Severity.HIGH,
+}
+
+
+def severity_floor_for_bug_class(
+    bug_class: str | None,
+    target_file: str | None = None,
+) -> "Severity | None":
+    """Return the minimum severity for a hyp given its bug_class.
+
+    Returns None if no floor applies (LLM rating stands).
+    """
+    if not bug_class:
+        return None
+    bc = str(bug_class).lower().strip()
+    # Special case: borrow-global-no-auth + treasury/vault target -> Critical.
+    if "borrow-global-no-auth" in bc or "borrow_global_no_auth" in bc:
+        tf = (target_file or "").lower()
+        if "treasury" in tf or "vault" in tf:
+            return Severity.CRITICAL
+        return Severity.HIGH
+    for key, floor in SEVERITY_FLOOR_BY_BUG_CLASS.items():
+        if key in bc:
+            return floor
+    return None
+
+
 def derive_severity(
     hypothesis_class: str,
     verdict: str,
     poc_fired: bool,
     debate_promoted: bool,
     explicit: str | None = None,
+    bug_class: str | None = None,
+    target_file: str | None = None,
 ) -> Severity:
     """Derive severity from hypothesis metadata + cycle outcome.
 
@@ -98,6 +155,10 @@ def derive_severity(
       5. Verdict TRUE / HIGH confidence (no PoC yet) -> MEDIUM
       6. Verdict NEEDS_LAYER_2 -> LOW
       7. Otherwise -> INFO
+
+    After the intrinsic derivation, the result is FLOOR-RAISED by the
+    `bug_class` table (FIX 3, 2026-05-14). The floor can only raise,
+    never lower, the LLM-derived rating.
     """
     # Cross-cutting audit Defect 04 (HIGH): previously an explicit
     # ``severity: Critical`` in the YAML short-circuited everything. A
@@ -127,7 +188,13 @@ def derive_severity(
         # claim more severity than the empirical signal supports).
         order = list(Severity)
         if order.index(requested) >= order.index(intrinsic):
-            return requested
-        # Tried to claim higher severity than evidence supports — clamp.
-        return intrinsic
+            intrinsic = requested
+        # else: tried to claim higher severity than evidence supports - keep intrinsic.
+
+    # FIX 3 (2026-05-14): raise to bug_class floor if applicable.
+    floor = severity_floor_for_bug_class(bug_class, target_file)
+    if floor is not None:
+        order = list(Severity)
+        if order.index(floor) < order.index(intrinsic):
+            return floor
     return intrinsic
