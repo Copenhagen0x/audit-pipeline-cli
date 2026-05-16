@@ -1355,6 +1355,94 @@ def _hunt_run(
                 f"[red]No L2 PoC adapter for language={language!r}; "
                 f"skipping Layer 2 entirely[/red]"
             )
+
+    # RESUME hook 2026-05-15: on --skip-poc resume, load the previous
+    # cycle's poc results from hunt_summary.json.pre-resume. The legacy
+    # fast-resume below only reads ``poc_adapter_done`` events from
+    # hunt.log.jsonl (emitted by non-Solana adapters); Solana cycles
+    # emit ``poc_test_run`` instead and would otherwise see an empty
+    # poc_results → L2.5 / L3 / L4 cascade against zero fires.
+    if skip_poc and resume_cycle and candidates:
+        _pre_resume = cycle_dir / "hunt_summary.json.pre-resume"
+        if _pre_resume.is_file():
+            try:
+                _pre = json.loads(_pre_resume.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                _pre = {}
+            _prev_poc = (_pre.get("poc") or {}) if isinstance(_pre, dict) else {}
+            _candidate_ids = {v["hypothesis_id"] for v in candidates}
+            _loaded = 0
+            for _hyp_id, _entry in _prev_poc.items():
+                if _hyp_id not in _candidate_ids or not isinstance(_entry, dict):
+                    continue
+                poc_results[_hyp_id] = dict(_entry)
+                poc_results[_hyp_id]["resumed"] = True
+                _loaded += 1
+            if _loaded:
+                _fires = sum(1 for r in poc_results.values() if r.get("fired"))
+                log("l2_skipped_resume_from_summary",
+                    n_loaded=_loaded, n_fired=_fires)
+                console.print(
+                    f"[yellow]Layer 2 SKIPPED — loaded {_loaded} poc_results "
+                    f"from hunt_summary.json.pre-resume ({_fires} fired)[/yellow]"
+                )
+
+    # FAST-RESUME PATH: when --skip-poc on a resume, load poc_results
+    # directly from prior poc_adapter_done events in hunt.log.jsonl.
+    # Without this, --skip-poc leaves poc_results empty → L2.5 gate
+    # `any(pr.get("fired") for pr in poc_results.values())` is False
+    # → triage skipped → L3 never runs. Same per-hyp logic as the
+    # legacy in-loop branch (line ~1397) but executes once for all
+    # candidates so the whole L2 stage can be skipped.
+    if skip_poc and resume_cycle and candidates:
+        _log_path = cycle_dir / "hunt.log.jsonl"
+        if _log_path.exists():
+            _candidate_ids = {v["hypothesis_id"] for v in candidates}
+            _latest: dict[str, dict[str, Any]] = {}
+            try:
+                with _log_path.open("r", encoding="utf-8") as _f:
+                    for _line in _f:
+                        if '"poc_adapter_done"' not in _line:
+                            continue
+                        try:
+                            _evt = json.loads(_line)
+                        except json.JSONDecodeError:
+                            continue
+                        _hyp_id = _evt.get("hypothesis_id")
+                        if _hyp_id and _hyp_id in _candidate_ids:
+                            _latest[_hyp_id] = _evt
+            except OSError:
+                _latest = {}
+            for _hyp_id, _evt in _latest.items():
+                _slug = _slugify(_hyp_id)
+                _runlog = cycle_dir / "poc" / f"runlog_{_slug}.log"
+                poc_results[_hyp_id] = {
+                    "scaffold_path": _evt.get("scaffold_path"),
+                    "scaffold_rc": 0,
+                    "compile_test_rc": None,
+                    "fired": bool(_evt.get("fired", False)),
+                    "outcome": (
+                        "test_failed_bug_reproduced"
+                        if _evt.get("fired")
+                        else "test_passed_no_bug"
+                    ),
+                    "cargo_log_path": str(_runlog) if _runlog.exists() else None,
+                    "authoring_mode": f"adapter:{language}",
+                    "framework": _evt.get("framework"),
+                    "reason": _evt.get("reason"),
+                    "duration_s": 0,
+                    "resumed": True,
+                }
+            _n_fired = sum(1 for r in poc_results.values() if r.get("fired"))
+            log("l2_skipped_fast_resume",
+                n_loaded=len(_latest),
+                n_fired=_n_fired)
+            console.print(
+                f"[yellow]Layer 2 SKIPPED (fast resume) — loaded "
+                f"{len(_latest)} poc_results from log "
+                f"({_n_fired} fired)[/yellow]"
+            )
+
     if not skip_poc and candidates:
         console.print()
         console.print(
@@ -1712,37 +1800,62 @@ def _hunt_run(
             if cargo_log_complete:
                 log("poc_resumed_from_existing", hypothesis_id=hyp_id,
                     finding=finding_name)
-                # Phase B 12-audit fix: replace substring classifier with
-                # structured per-test parse. An `assertion failed` substring
-                # in an unrelated test's panic message used to spoof "fired"
-                # here; `test result: ok` from a sibling binary used to
-                # spoof "passed". The structured parser attributes only to
-                # the specific test_<finding_name> target.
-                from audit_pipeline.utils.cargo_text import parse_test_outcome
-                _outcome = parse_test_outcome(combined, f"test_{finding_name}")
-                if _outcome.status == "compile_failed":
-                    fired, outcome = False, "compile_error"
-                elif _outcome.status == "fired":
-                    fired, outcome = True, "test_failed_bug_reproduced"
-                elif _outcome.status == "passed":
-                    fired, outcome = False, "test_passed_no_bug"
-                elif _outcome.status == "ignored":
-                    fired, outcome = False, "test_ignored_no_witness"
-                elif _outcome.status == "not_run":
-                    fired, outcome = False, "test_not_in_binary"
+                # Rustc-standalone logs (single-PoC binary) carry an
+                # explicit marker. They contain only ONE test function
+                # so the binary-level summary IS the per-test verdict —
+                # avoid parse_test_outcome's strict name match because
+                # the LLM author's fn naming drifts (test_<f>_fires vs
+                # <f>_fires) and would always read as "not_run".
+                _is_rustc_standalone_log = "=== rustc compile" in combined
+                if _is_rustc_standalone_log:
+                    if (
+                        "error: could not compile" in combined
+                        or re.search(r"^error\[E\d+\]", combined, re.MULTILINE)
+                    ):
+                        fired, outcome = False, "compile_error"
+                        _compile_test_rc = 101
+                    elif "test result: FAILED" in combined:
+                        fired, outcome = True, "test_failed_bug_reproduced"
+                        _compile_test_rc = 101
+                    elif "test result: ok" in combined and "0 failed" in combined:
+                        fired, outcome = False, "test_passed_no_bug"
+                        _compile_test_rc = 0
+                    else:
+                        fired, outcome = False, "unknown_resumed"
+                        _compile_test_rc = -1
                 else:
-                    fired, outcome = False, "unknown_resumed"
+                    # Phase B 12-audit fix: structured per-test parse for
+                    # legacy cargo-against-target logs (multi-test
+                    # binary; need the strict per-test name filter).
+                    from audit_pipeline.utils.cargo_text import parse_test_outcome
+                    _outcome = parse_test_outcome(combined, f"test_{finding_name}")
+                    if _outcome.status == "compile_failed":
+                        fired, outcome = False, "compile_error"
+                    elif _outcome.status == "fired":
+                        fired, outcome = True, "test_failed_bug_reproduced"
+                    elif _outcome.status == "passed":
+                        fired, outcome = False, "test_passed_no_bug"
+                    elif _outcome.status == "ignored":
+                        fired, outcome = False, "test_ignored_no_witness"
+                    elif _outcome.status == "not_run":
+                        fired, outcome = False, "test_not_in_binary"
+                    else:
+                        fired, outcome = False, "unknown_resumed"
+                    _compile_test_rc = (
+                        101 if _outcome.status == "compile_failed" else 0
+                    )
                 poc_results[hyp_id] = {
                     "scaffold_path": str(scaffold_path),
                     "scaffold_rc": 0,
-                    # FIX: was referencing undefined `looks_compile_failed` (legacy
-                    # refactor leftover). Derive from structured outcome instead —
-                    # compile_failed status maps to rc=101, every other status to 0.
-                    "compile_test_rc": 101 if _outcome.status == "compile_failed" else 0,
+                    "compile_test_rc": _compile_test_rc,
                     "fired": fired,
                     "outcome": outcome,
                     "cargo_log_path": str(cargo_log_path),
                     "authoring_mode": "resumed",
+                    "runner": (
+                        "rustc-standalone" if _is_rustc_standalone_log
+                        else "cargo-against-target"
+                    ),
                 }
                 # Don't bill flat-rate cost on resumed PoC — no LLM call made.
                 continue
@@ -1810,75 +1923,194 @@ def _hunt_run(
             log("poc_scaffold", hypothesis_id=hyp_id, finding=finding_name,
                 returncode=rc, mode=poc_mode)
 
-            if scaffold_path.exists() and (engine_dir / "Cargo.toml").exists():
-                test_dest = engine_dir / "tests" / f"test_{finding_name}.rs"
-                try:
-                    test_dest.write_text(
-                        scaffold_path.read_text(encoding="utf-8"),
-                        encoding="utf-8",
+            if scaffold_path.exists():
+                # ISOLATED L2 runner (2026-05-15): when the PoC has no
+                # external crate imports (e.g. Anchor structural /
+                # empirical-reconstruction tests), compile + run it via
+                # `rustc --test` inside cycle_dir/poc/. Zero contact with
+                # the audit target. Replaces the prior path which (a)
+                # wrote test files into engine_dir/tests/ (audit-integrity
+                # hazard — modifying the audited code) and (b) couldn't
+                # run if the target's cargo workspace was malformed (e.g.
+                # OSec Solana eval repos ship `members = [..., "tests"]`
+                # without a tests/Cargo.toml — workspace load fails).
+                #
+                # Legacy cargo-against-target path remains for PoCs that
+                # DO need the engine crate (Percolator's `use percolator::*`).
+                import re as _re_runner
+                _scaffold_src = scaffold_path.read_text(
+                    encoding="utf-8", errors="replace"
+                )
+                _has_external_imports = bool(
+                    _re_runner.search(
+                        r"^\s*use\s+(?!std::|core::|alloc::|self::|super::|crate::)",
+                        _scaffold_src,
+                        _re_runner.MULTILINE,
                     )
-                    # FIX C3: Capture output and distinguish compile failure
-                    # from test assertion failure. cargo's exit code is non-zero
-                    # for BOTH cases. Without this distinction, every malformed
-                    # LLM-authored PoC reads as a "confirmed bug" and triggers
-                    # P2/P3 chain. Parse the output to find the actual outcome.
-                    test_log = (cycle_dir / "poc" / f"cargo_{finding_name}.log")
-                    cargo_proc = subprocess.run(
-                        ["cargo", "test", "--features", "test", "--test",
-                         f"test_{finding_name}"],
-                        cwd=str(engine_dir),
-                        capture_output=True,
-                        text=True,
-                        timeout=600,  # raised from 300 to handle cold builds
-                    )
-                    cargo_rc = cargo_proc.returncode
-                    combined = (cargo_proc.stdout or "") + "\n" + (cargo_proc.stderr or "")
-                    test_log.write_text(combined, encoding="utf-8")
+                ) or bool(_re_runner.search(
+                    r"^\s*extern\s+crate\b", _scaffold_src, _re_runner.MULTILINE,
+                ))
 
-                    # Phase B 12-audit fix: structured per-test parse.
-                    # Substring classifier could attribute a sibling test's
-                    # `panicked at` to the target test (false-fire) or
-                    # accept an unrelated `test result: ok` as proof the
-                    # target passed (false-confirm). The structured parse
-                    # looks for ONE specific `test test_<finding_name> ...
-                    # <result>` line and classifies on that alone.
-                    from audit_pipeline.utils.cargo_text import parse_test_outcome
-                    _outcome = parse_test_outcome(combined, f"test_{finding_name}")
-                    if _outcome.status == "compile_failed":
-                        outcome = "compile_error"
-                        fired = False
-                    elif _outcome.status == "fired":
-                        outcome = "test_failed_bug_reproduced"
-                        fired = True
-                    elif _outcome.status == "passed":
-                        outcome = "test_passed_no_bug"
-                        fired = False
-                    elif _outcome.status == "ignored":
-                        # L1.5+L2 audit Defect 02: `#[ignore]`d tests
-                        # used to silently fold into pass/fail counts.
-                        outcome = "test_ignored_no_witness"
-                        fired = False
-                    elif _outcome.status == "not_run":
-                        # Test name not in this binary — typically a
-                        # PoC author who wrote a `fn` with the wrong name
-                        # (slugify mismatch — L1.5+L2 audit Defect 03).
-                        outcome = "test_not_in_binary"
-                        fired = False
-                    else:
-                        outcome = f"unknown_rc_{cargo_rc}"
-                        fired = False  # Don't escalate unknowns to P2/P3
+                test_log = (cycle_dir / "poc" / f"cargo_{finding_name}.log")
 
-                    poc_results[hyp_id]["compile_test_rc"] = cargo_rc
-                    poc_results[hyp_id]["fired"] = fired
-                    poc_results[hyp_id]["outcome"] = outcome
-                    poc_results[hyp_id]["cargo_log_path"] = str(test_log)
-                    log("poc_test_run", hypothesis_id=hyp_id, cargo_rc=cargo_rc,
-                        outcome=outcome, fired=fired)
-                except subprocess.TimeoutExpired:
-                    poc_results[hyp_id]["outcome"] = "timeout"
-                    log("poc_test_timeout", hypothesis_id=hyp_id)
-                except Exception as e:  # noqa: BLE001
-                    log("poc_test_error", hypothesis_id=hyp_id, error=str(e))
+                if not _has_external_imports:
+                    # ----- rustc-standalone (isolated, no target contact) -----
+                    try:
+                        import shutil as _shutil_runner
+                        _rustc_bin = _shutil_runner.which("rustc") or "rustc"
+                        _bin_path = (cycle_dir / "poc" / f"_bin_test_{finding_name}")
+                        _rustc_proc = subprocess.run(
+                            [
+                                _rustc_bin, "--test", "--edition=2021",
+                                "-A", "warnings",
+                                "-o", str(_bin_path),
+                                str(scaffold_path),
+                            ],
+                            capture_output=True, text=True, timeout=300,
+                        )
+                        _compile_log = (
+                            (_rustc_proc.stdout or "") + "\n"
+                            + (_rustc_proc.stderr or "")
+                        )
+                        if _rustc_proc.returncode != 0:
+                            combined = (
+                                f"=== rustc compile failed (rc={_rustc_proc.returncode}) ===\n"
+                                f"{_compile_log}\n"
+                                f"error: could not compile\n"
+                            )
+                            cargo_rc = 101
+                        else:
+                            _run_proc = subprocess.run(
+                                [str(_bin_path), "--nocapture", "--test-threads=1"],
+                                capture_output=True, text=True, timeout=120,
+                            )
+                            _run_log = (
+                                (_run_proc.stdout or "") + "\n"
+                                + (_run_proc.stderr or "")
+                            )
+                            combined = (
+                                f"=== rustc compile ok ===\n{_compile_log}\n"
+                                f"=== test binary run (rc={_run_proc.returncode}) ===\n"
+                                f"{_run_log}\n"
+                            )
+                            cargo_rc = _run_proc.returncode
+                            try:
+                                _bin_path.unlink()
+                            except OSError:
+                                pass
+                        test_log.write_text(combined, encoding="utf-8")
+
+                        # Classify from the binary-level summary line —
+                        # for a single-PoC binary the summary IS the verdict,
+                        # so we avoid the per-test-name match in
+                        # parse_test_outcome (the LLM author's fn naming
+                        # convention drifts: `test_<f>_fires`, `<f>_fires`,
+                        # etc. — all valid; all break a strict name match).
+                        if (
+                            "error: could not compile" in combined
+                            or _re_runner.search(r"^error\[E\d+\]:", combined, _re_runner.MULTILINE)
+                        ):
+                            outcome, fired = "compile_error", False
+                        elif "test result: FAILED" in combined:
+                            outcome, fired = "test_failed_bug_reproduced", True
+                        elif (
+                            "test result: ok" in combined
+                            and "0 failed" in combined
+                        ):
+                            outcome, fired = "test_passed_no_bug", False
+                        else:
+                            outcome, fired = f"unknown_rc_{cargo_rc}", False
+
+                        poc_results[hyp_id]["compile_test_rc"] = cargo_rc
+                        poc_results[hyp_id]["fired"] = fired
+                        poc_results[hyp_id]["outcome"] = outcome
+                        poc_results[hyp_id]["cargo_log_path"] = str(test_log)
+                        poc_results[hyp_id]["runner"] = "rustc-standalone"
+                        log(
+                            "poc_test_run",
+                            hypothesis_id=hyp_id,
+                            cargo_rc=cargo_rc,
+                            outcome=outcome,
+                            fired=fired,
+                            runner="rustc-standalone",
+                        )
+                    except subprocess.TimeoutExpired:
+                        poc_results[hyp_id]["outcome"] = "timeout"
+                        log("poc_test_timeout", hypothesis_id=hyp_id)
+                    except Exception as e:  # noqa: BLE001
+                        log("poc_test_error", hypothesis_id=hyp_id, error=str(e))
+
+                elif (engine_dir / "Cargo.toml").exists():
+                    # ----- Legacy cargo-against-target (Percolator-style) -----
+                    test_dest = engine_dir / "tests" / f"test_{finding_name}.rs"
+                    try:
+                        test_dest.write_text(
+                            scaffold_path.read_text(encoding="utf-8"),
+                            encoding="utf-8",
+                        )
+                        # FIX C3: Capture output and distinguish compile failure
+                        # from test assertion failure. cargo's exit code is non-zero
+                        # for BOTH cases. Without this distinction, every malformed
+                        # LLM-authored PoC reads as a "confirmed bug" and triggers
+                        # P2/P3 chain. Parse the output to find the actual outcome.
+                        cargo_proc = subprocess.run(
+                            ["cargo", "test", "--features", "test", "--test",
+                             f"test_{finding_name}"],
+                            cwd=str(engine_dir),
+                            capture_output=True,
+                            text=True,
+                            timeout=600,  # raised from 300 to handle cold builds
+                        )
+                        cargo_rc = cargo_proc.returncode
+                        combined = (cargo_proc.stdout or "") + "\n" + (cargo_proc.stderr or "")
+                        test_log.write_text(combined, encoding="utf-8")
+
+                        # Phase B 12-audit fix: structured per-test parse.
+                        # Substring classifier could attribute a sibling test's
+                        # `panicked at` to the target test (false-fire) or
+                        # accept an unrelated `test result: ok` as proof the
+                        # target passed (false-confirm). The structured parse
+                        # looks for ONE specific `test test_<finding_name> ...
+                        # <result>` line and classifies on that alone.
+                        from audit_pipeline.utils.cargo_text import parse_test_outcome
+                        _outcome = parse_test_outcome(combined, f"test_{finding_name}")
+                        if _outcome.status == "compile_failed":
+                            outcome = "compile_error"
+                            fired = False
+                        elif _outcome.status == "fired":
+                            outcome = "test_failed_bug_reproduced"
+                            fired = True
+                        elif _outcome.status == "passed":
+                            outcome = "test_passed_no_bug"
+                            fired = False
+                        elif _outcome.status == "ignored":
+                            # L1.5+L2 audit Defect 02: `#[ignore]`d tests
+                            # used to silently fold into pass/fail counts.
+                            outcome = "test_ignored_no_witness"
+                            fired = False
+                        elif _outcome.status == "not_run":
+                            # Test name not in this binary — typically a
+                            # PoC author who wrote a `fn` with the wrong name
+                            # (slugify mismatch — L1.5+L2 audit Defect 03).
+                            outcome = "test_not_in_binary"
+                            fired = False
+                        else:
+                            outcome = f"unknown_rc_{cargo_rc}"
+                            fired = False  # Don't escalate unknowns to P2/P3
+
+                        poc_results[hyp_id]["compile_test_rc"] = cargo_rc
+                        poc_results[hyp_id]["fired"] = fired
+                        poc_results[hyp_id]["outcome"] = outcome
+                        poc_results[hyp_id]["cargo_log_path"] = str(test_log)
+                        poc_results[hyp_id]["runner"] = "cargo-against-target"
+                        log("poc_test_run", hypothesis_id=hyp_id, cargo_rc=cargo_rc,
+                            outcome=outcome, fired=fired,
+                            runner="cargo-against-target")
+                    except subprocess.TimeoutExpired:
+                        poc_results[hyp_id]["outcome"] = "timeout"
+                        log("poc_test_timeout", hypothesis_id=hyp_id)
+                    except Exception as e:  # noqa: BLE001
+                        log("poc_test_error", hypothesis_id=hyp_id, error=str(e))
 
     # ---------- Layer 2.5: fire triage (STRONG / SOFT / FALSE / LOST) ----------
     # Productized from the manual STRONG/SOFT/FALSE bucket-sort that
@@ -1899,6 +2131,98 @@ def _hunt_run(
     narrative_results: dict[str, str] = {}
     layer3_dispatch_filter: set[str] | None = None
     triage_summary: dict[str, Any] | None = None
+
+    # RESUME hook 2026-05-15: when re-running ONE layer of a partially
+    # completed cycle (e.g. firing L4 only after L1/L2/L2.5/L3 ran in
+    # a prior pass), the previous layers' result dicts are not in
+    # memory. Without them, the final hunt_summary.json's
+    # `confirmed[].kani` and `confirmed[].litesvm` slots come back
+    # empty, silently losing earlier work. Load all three result dicts
+    # from .pre-resume so they survive across single-layer fires.
+    if resume_cycle and (cycle_dir / "hunt_summary.json.pre-resume").is_file():
+        try:
+            _prior = json.loads(
+                (cycle_dir / "hunt_summary.json.pre-resume").read_text(
+                    encoding="utf-8"
+                )
+            )
+        except (OSError, json.JSONDecodeError):
+            _prior = {}
+        if isinstance(_prior, dict):
+            _prior_kani = _prior.get("kani") or {}
+            _prior_lite = _prior.get("litesvm") or {}
+            _prior_narr = _prior.get("narrative") or {}
+            if isinstance(_prior_kani, dict):
+                kani_results = {
+                    k: dict(v) for k, v in _prior_kani.items()
+                    if isinstance(v, dict)
+                }
+            if isinstance(_prior_lite, dict):
+                litesvm_results = {
+                    k: dict(v) for k, v in _prior_lite.items()
+                    if isinstance(v, dict)
+                }
+            if isinstance(_prior_narr, dict):
+                narrative_results = {
+                    k: v for k, v in _prior_narr.items() if isinstance(v, str)
+                }
+            log("prior_layer_results_resumed",
+                kani=len(kani_results),
+                litesvm=len(litesvm_results),
+                narrative=len(narrative_results))
+
+    # RESUME hook 2026-05-15: when L2.5 is skipped (--no-triage-fires)
+    # on a resume cycle, load the STRONG dispatch set from the existing
+    # triage.jsonl so L3/L4 still target the right subset instead of
+    # falling back to "all fires" (which costs more and re-runs OK fires).
+    if (
+        not triage_fires
+        and resume_cycle
+        and (cycle_dir / "triage.jsonl").is_file()
+    ):
+        _existing_triage: list[dict[str, Any]] = []
+        try:
+            with (cycle_dir / "triage.jsonl").open("r", encoding="utf-8") as _tf:
+                for _line in _tf:
+                    _line = _line.strip()
+                    if not _line:
+                        continue
+                    try:
+                        _existing_triage.append(json.loads(_line))
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            _existing_triage = []
+        _strong_reps = {
+            r["hyp_id"] for r in _existing_triage
+            if r.get("classification") == "STRONG"
+            and r.get("is_representative")
+            and r.get("hyp_id")
+        }
+        if _strong_reps:
+            layer3_dispatch_filter = _strong_reps
+            triage_summary = {
+                "counts": {
+                    "STRONG": sum(1 for r in _existing_triage if r.get("classification") == "STRONG"),
+                    "SOFT":   sum(1 for r in _existing_triage if r.get("classification") == "SOFT"),
+                    "FALSE":  sum(1 for r in _existing_triage if r.get("classification") == "FALSE"),
+                    "LOST":   sum(1 for r in _existing_triage if r.get("classification") == "LOST"),
+                },
+                "n_clusters": len({r.get("cluster_id") for r in _existing_triage if r.get("cluster_id")}),
+                "n_llm_calls": 0,
+                "layer3_dispatch_set": sorted(_strong_reps),
+                "clusters": [],
+                "results": _existing_triage,
+                "resumed_from_disk": True,
+            }
+            log("triage_resumed_from_disk",
+                strong=len(_strong_reps),
+                total=len(_existing_triage))
+            console.print(
+                f"[yellow]Layer 2.5 SKIPPED — loaded STRONG dispatch set "
+                f"({len(_strong_reps)}) from existing triage.jsonl[/yellow]"
+            )
+
     if triage_fires and any(pr.get("fired") for pr in poc_results.values()):
         from audit_pipeline.layer25_triage import triage_cycle as _triage
         console.print()
@@ -2086,59 +2410,295 @@ def _hunt_run(
                     compile_error=bool(_meta.get("compile_error")))
         # Non-Solana L3 done — skip the Solana Kani section below.
     elif not skip_kani and fired_for_kani and daily_cap.remaining_today() > 0.50:
-        console.print()
-        console.print(
-            f"[bold]Layer 3 - Kani harness synthesis on "
-            f"{len(fired_for_kani)} PoC-fired findings[/bold]"
+        # Detect Anchor workspace (same heuristic as L4): if target has
+        # programs/<name>/Cargo.toml, route through the isolated Anchor
+        # Kani runner. Each finding's harness lives in its own sidecar
+        # crate under <cycle>/kani/<slug>/ — nothing is ever written into
+        # the audited repo. Built 2026-05-15.
+        _anchor_programs_dir_l3 = engine_dir_for_cargo / "programs"
+        _is_anchor_workspace_l3 = (
+            _anchor_programs_dir_l3.is_dir()
+            and any(
+                (p / "Cargo.toml").is_file()
+                for p in _anchor_programs_dir_l3.iterdir()
+                if p.is_dir()
+            )
         )
-        kani_out = cycle_dir / "kani"
-        kani_out.mkdir(parents=True, exist_ok=True)
 
-        for v in fired_for_kani:
-            if daily_cap.remaining_today() < 0.50:
-                log("kani_halted_daily_cap", spent=daily_cap.today_spend())
-                break
-            hyp_id = v["hypothesis_id"]
-            meta = hyp_meta.get(hyp_id, {})
-            invariant = meta.get("claim", f"invariant for {hyp_id}")[:500]
-            engine_function = meta.get("engine_function", "absorb_protocol_loss")
-            harness_name = f"{_slugify(hyp_id)}_invariant"
-            kani_file = kani_out / f"proofs_{harness_name}.rs"
-            # RESUME: if the Kani harness file already exists from a prior
-            # run, skip the synth-kani LLM call + cargo kani re-run. cargo
-            # kani is expensive (5-30 min per harness) so this is the most
-            # important skip.
-            if resume_cycle and kani_file.exists():
-                log("kani_resumed_from_existing", hypothesis_id=hyp_id,
-                    harness_name=harness_name)
+        if _is_anchor_workspace_l3:
+            from audit_pipeline.anchor_kani_runner import (
+                build_anchor_l3_prompt as _build_l3_prompt,
+                build_kani_compile_fix_prompt as _build_l3_fix_prompt,
+                parse_llm_response as _parse_l3_response,
+                write_kani_sidecar as _write_kani_sidecar,
+                run_kani_proof as _run_kani_proof,
+                parse_kani_outcome as _parse_kani_outcome,
+                is_cannot_verify as _is_cannot_verify,
+                _slugify as _kani_slugify,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                _gather_program_source as _l3_gather_source,
+                resolve_program_for_hyp as _l3_resolve_program,
+            )
+            from audit_pipeline.anchor_builder import (
+                list_anchor_programs as _l3_list_anchor_programs,
+            )
+            from audit_pipeline.utils import complete as _l3_complete
+            _l3_anchor_programs_list = _l3_list_anchor_programs(
+                engine_dir_for_cargo,
+            )
+
+            console.print()
+            console.print(
+                f"[bold]Layer 3 - Anchor Kani formal verification on "
+                f"{len(fired_for_kani)} PoC-fired findings (isolated)[/bold]"
+            )
+            kani_out = cycle_dir / "kani"
+            kani_out.mkdir(parents=True, exist_ok=True)
+
+            for v in fired_for_kani:
+                if daily_cap.remaining_today() < 0.50:
+                    log("kani_halted_daily_cap", spent=daily_cap.today_spend())
+                    break
+                hyp_id = v["hypothesis_id"]
+                meta = hyp_meta.get(hyp_id, {})
+                slug = _kani_slugify(hyp_id)
+                harness_name = f"proof_{slug}"
+                sidecar_dir = kani_out / slug
+
+                # RESUME: if the sidecar's proofs.rs + log file are
+                # present from a prior run, reload the outcome without
+                # re-spending the LLM author and the (slow) cargo kani.
+                final_log_path = sidecar_dir / f"{harness_name}.log"
+                if (
+                    resume_cycle
+                    and final_log_path.is_file()
+                    and final_log_path.stat().st_size > 50
+                ):
+                    _existing_log = final_log_path.read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                    proved, counterexample, reason = _parse_kani_outcome(_existing_log)
+                    kani_results[hyp_id] = {
+                        "returncode": 0,
+                        "harness_dir": str(sidecar_dir),
+                        "proved": proved,
+                        "counterexample": counterexample,
+                        "reason": reason,
+                        "resumed": True,
+                        "runner": "anchor-kani-isolated",
+                    }
+                    log("l3_anchor_resumed_from_existing",
+                        hypothesis_id=hyp_id, proved=proved,
+                        counterexample=counterexample)
+                    continue
+
+                # Resolve program crate via the same chain L4 uses:
+                # 1) fully-qualified target_file, 2) most-cited
+                # programs/<name>/ reference in the L2 PoC body. L3
+                # uses program source for prompt context — when the
+                # resolver can't pin a specific program (truly
+                # unresolved class-level hyp with no PoC body), fall
+                # back to "first program in the repo" so the prompt
+                # at least has SOME source context to ground stubs.
+                target_file = (meta.get("target_file") or "").replace("\\", "/")
+                _l3_scaffold = poc_results.get(hyp_id, {}).get("scaffold_path")
+                _l3_scaffold_p = Path(_l3_scaffold) if _l3_scaffold else None
+                program_name, _resolve_src = _l3_resolve_program(
+                    target_file=target_file,
+                    scaffold_path=_l3_scaffold_p,
+                    anchor_programs=_l3_anchor_programs_list,
+                )
+                if program_name is None:
+                    program_name = (
+                        _l3_anchor_programs_list[0]
+                        if _l3_anchor_programs_list else "unknown"
+                    )
+                    _resolve_src = "first_in_repo_fallback"
+                log("l3_anchor_program_resolved",
+                    hypothesis_id=hyp_id,
+                    program=program_name,
+                    resolve_source=_resolve_src)
+
+                program_src = engine_dir_for_cargo / "programs" / program_name
+                program_source = (
+                    _l3_gather_source(program_src) if program_src.is_dir() else ""
+                )
+
+                # LLM author + compile-iterate loop (3 attempts)
+                prompt = _build_l3_prompt(
+                    hyp_id=hyp_id,
+                    claim=str(meta.get("claim", ""))[:500],
+                    bug_class=meta.get("bug_class", "unknown"),
+                    target_file=target_file,
+                    program_name=program_name,
+                    program_source=program_source,
+                    harness_name=harness_name,
+                )
+                try:
+                    resp = _l3_complete(prompt)
+                    body = _parse_l3_response(getattr(resp, "text", str(resp)))
+                except Exception as e:  # noqa: BLE001
+                    log("l3_anchor_author_error",
+                        hypothesis_id=hyp_id, error=str(e)[:200])
+                    kani_results[hyp_id] = {
+                        "returncode": -1,
+                        "harness_dir": str(sidecar_dir),
+                        "proved": False,
+                        "counterexample": False,
+                        "reason": f"author error: {e}",
+                        "runner": "anchor-kani-isolated",
+                    }
+                    continue
+                daily_cap.record_spend(0.25)
+                total_cost += 0.25
+
+                cannot, _cannot_reason = _is_cannot_verify(body)
+                if cannot:
+                    sidecar_dir.mkdir(parents=True, exist_ok=True)
+                    (sidecar_dir / f"{harness_name}.log").write_text(
+                        f"CANNOT_VERIFY: {_cannot_reason}\n", encoding="utf-8",
+                    )
+                    kani_results[hyp_id] = {
+                        "returncode": 0,
+                        "harness_dir": str(sidecar_dir),
+                        "proved": False,
+                        "counterexample": False,
+                        "cannot_verify": True,
+                        "reason": _cannot_reason or
+                            "Kani cannot model this bug class without runtime stub",
+                        "runner": "anchor-kani-isolated",
+                    }
+                    log("l3_anchor_cannot_verify",
+                        hypothesis_id=hyp_id, reason=_cannot_reason)
+                    continue
+
+                MAX_ATTEMPTS = 3
+                final_rc = -1
+                final_log = ""
+                for attempt in range(1, MAX_ATTEMPTS + 1):
+                    _write_kani_sidecar(
+                        sidecar_dir=sidecar_dir,
+                        slug=slug,
+                        harness_body=body,
+                    )
+                    try:
+                        final_rc, final_log = _run_kani_proof(
+                            sidecar_dir=sidecar_dir,
+                            harness_name=f"proofs::{harness_name}",
+                            timeout_s=1800,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        log("l3_anchor_run_error",
+                            hypothesis_id=hyp_id,
+                            attempt=attempt, error=str(e)[:200])
+                        final_log = f"kani runner crashed: {e}"
+                        break
+                    (sidecar_dir / f"{harness_name}.attempt{attempt}.log").write_text(
+                        final_log, encoding="utf-8",
+                    )
+                    if "VERIFICATION:" in final_log:
+                        break
+                    is_compile_fail = (
+                        "error: could not compile" in final_log
+                        or (
+                            re.search(r"^error\[E\d+\]", final_log, re.MULTILINE)
+                            and "VERIFICATION:" not in final_log
+                        )
+                    )
+                    if not is_compile_fail or attempt == MAX_ATTEMPTS:
+                        break
+                    try:
+                        fix_prompt = _build_l3_fix_prompt(
+                            original_prompt=prompt,
+                            previous_attempt=body,
+                            compile_log=final_log,
+                        )
+                        fix_resp = _l3_complete(fix_prompt)
+                        body = _parse_l3_response(
+                            getattr(fix_resp, "text", str(fix_resp))
+                        )
+                        cannot, _cannot_reason = _is_cannot_verify(body)
+                        if cannot:
+                            break
+                        daily_cap.record_spend(0.15)
+                        total_cost += 0.15
+                    except Exception as e:  # noqa: BLE001
+                        log("l3_anchor_fix_error",
+                            hypothesis_id=hyp_id, error=str(e)[:200])
+                        break
+
+                (sidecar_dir / f"{harness_name}.log").write_text(
+                    final_log, encoding="utf-8",
+                )
+                proved, counterexample, reason = _parse_kani_outcome(final_log)
                 kani_results[hyp_id] = {
-                    "returncode": 0,
-                    "harness_dir": str(kani_out),
-                    "resumed": True,
+                    "returncode": final_rc,
+                    "harness_dir": str(sidecar_dir),
+                    "proved": proved,
+                    "counterexample": counterexample,
+                    "reason": reason,
+                    "runner": "anchor-kani-isolated",
                 }
-                continue
-            # FIX 4: synth-kani --auto authors the harness AND runs `cargo check`
-            # to compile-verify. With --run-kani it ALSO runs `cargo kani` to
-            # actually formally verify (5-30 min per harness; budget ~$0.50
-            # API spend + compute time).
-            rc = _run([
-                _audit_pipeline_bin(), "--workspace", str(workspace),
-                "synth-kani",
-                "--invariant", invariant,
-                "--engine-function", engine_function,
-                "--harness-name", f"{_slugify(hyp_id)}_invariant",
-                "--output", str(kani_out),
-                "--auto",
-                "--run-kani",
-            ], timeout=1800)  # 30 min per harness
-            kani_results[hyp_id] = {
-                "returncode": rc,
-                "harness_dir": str(kani_out),
-            }
-            log("kani_one", hypothesis_id=hyp_id, returncode=rc)
-            # synth-kani is iterative; budget ~$0.50 per attempt
-            daily_cap.record_spend(0.50)
-            total_cost += 0.50
+                log("l3_anchor_done",
+                    hypothesis_id=hyp_id, program=program_name,
+                    proved=proved, counterexample=counterexample,
+                    reason=reason[:160])
+        else:
+            # ----- LEGACY Percolator synth-kani path (unchanged) -----
+            console.print()
+            console.print(
+                f"[bold]Layer 3 - Kani harness synthesis on "
+                f"{len(fired_for_kani)} PoC-fired findings[/bold]"
+            )
+            kani_out = cycle_dir / "kani"
+            kani_out.mkdir(parents=True, exist_ok=True)
+
+            for v in fired_for_kani:
+                if daily_cap.remaining_today() < 0.50:
+                    log("kani_halted_daily_cap", spent=daily_cap.today_spend())
+                    break
+                hyp_id = v["hypothesis_id"]
+                meta = hyp_meta.get(hyp_id, {})
+                invariant = meta.get("claim", f"invariant for {hyp_id}")[:500]
+                engine_function = meta.get("engine_function", "absorb_protocol_loss")
+                harness_name = f"{_slugify(hyp_id)}_invariant"
+                kani_file = kani_out / f"proofs_{harness_name}.rs"
+                # RESUME: if the Kani harness file already exists from a prior
+                # run, skip the synth-kani LLM call + cargo kani re-run. cargo
+                # kani is expensive (5-30 min per harness) so this is the most
+                # important skip.
+                if resume_cycle and kani_file.exists():
+                    log("kani_resumed_from_existing", hypothesis_id=hyp_id,
+                        harness_name=harness_name)
+                    kani_results[hyp_id] = {
+                        "returncode": 0,
+                        "harness_dir": str(kani_out),
+                        "resumed": True,
+                    }
+                    continue
+                # FIX 4: synth-kani --auto authors the harness AND runs `cargo check`
+                # to compile-verify. With --run-kani it ALSO runs `cargo kani` to
+                # actually formally verify (5-30 min per harness; budget ~$0.50
+                # API spend + compute time).
+                rc = _run([
+                    _audit_pipeline_bin(), "--workspace", str(workspace),
+                    "synth-kani",
+                    "--invariant", invariant,
+                    "--engine-function", engine_function,
+                    "--harness-name", f"{_slugify(hyp_id)}_invariant",
+                    "--output", str(kani_out),
+                    "--auto",
+                    "--run-kani",
+                ], timeout=1800)  # 30 min per harness
+                kani_results[hyp_id] = {
+                    "returncode": rc,
+                    "harness_dir": str(kani_out),
+                }
+                log("kani_one", hypothesis_id=hyp_id, returncode=rc)
+                # synth-kani is iterative; budget ~$0.50 per attempt
+                daily_cap.record_spend(0.50)
+                total_cost += 0.50
 
     # ---------- Layer 4: LiteSVM / runtime fuzz (PoC-fired + triage-filtered) ----------
     # PHASE 1h: language-aware. Solana keeps LiteSVM (existing path).
@@ -2298,55 +2858,319 @@ def _hunt_run(
                     n_fail=len(_l4_meta.get("fail_lines") or []))
         # Non-Solana L4 done — skip the Solana LiteSVM section below.
     elif not skip_litesvm and fired_for_litesvm:
-        console.print()
-        console.print(
-            f"[bold]Layer 4 - LiteSVM exploit-chain authoring + dispatch on "
-            f"{len(fired_for_litesvm)} PoC-fired findings[/bold]"
+        # Detect Anchor workspace shape: target_repo has programs/<name>/
+        # with a Cargo.toml. If so, route through the isolated Anchor
+        # LiteSVM runner (built 2026-05-15) which:
+        #   1. Copies each program crate into <cycle>/build/<name>/
+        #      and runs `cargo build-sbf` there. Never touches the
+        #      audit target's workspace.
+        #   2. Authors a per-finding LiteSVM test via LLM.
+        #   3. Compile-iterates up to 4 attempts, feeding cargo errors
+        #      back to the LLM for self-correction.
+        #   4. Runs the test, classifies fire/passed/compile_error.
+        # The legacy Percolator dispatch_litesvm.sh path stays for
+        # non-Anchor Solana cycles.
+        _anchor_programs_dir = engine_dir_for_cargo / "programs"
+        _is_anchor_workspace_l4 = (
+            _anchor_programs_dir.is_dir()
+            and any(
+                (p / "Cargo.toml").is_file()
+                for p in _anchor_programs_dir.iterdir()
+                if p.is_dir()
+            )
         )
-        litesvm_out = cycle_dir / "litesvm"
-        litesvm_out.mkdir(parents=True, exist_ok=True)
-        # FIX 3: After authoring, actually invoke dispatch_litesvm.sh to run
-        # the LiteSVM test. Pass the actual wrapper path (workspace config)
-        # so the script does NOT depend on /tmp/audit symlinks. If vps.host
-        # is null (running on the VPS itself), use "-" "-" to skip SSH.
-        vps_host = config.get("vps", {}).get("host") or "-"
-        vps_key = config.get("vps", {}).get("ssh_key") or "-"
-        from audit_pipeline import __file__ as pkg_init_path
-        dispatch_script = Path(pkg_init_path).parent / "scripts" / "dispatch_litesvm.sh"
-        wrapper_dir = workspace / config.get("wrapper", {}).get("local", "target/wrapper")
-        for v in fired_for_litesvm:
-            hyp_id = v["hypothesis_id"]
-            finding_name = _slugify(hyp_id)
-            litesvm_file = litesvm_out / f"test_{finding_name}_bound_analysis.rs"
-            if resume_cycle and litesvm_file.exists():
-                log("litesvm_resumed_from_existing", hypothesis_id=hyp_id)
-                rc_author = 0
-            else:
-                rc_author = _run([
-                    _audit_pipeline_bin(), "--workspace", str(workspace),
-                    "litesvm", "author",
-                    "--finding", finding_name,
-                    "--template", "litesvm_bound_analysis",
-                    "--output", str(litesvm_out),
-                ])
-            dispatch_rc: int | None = None
-            if rc_author == 0 and dispatch_script.exists():
-                test_name = f"test_{finding_name}_bound_analysis"
-                dispatch_rc = _run(
-                    [
-                        "bash", str(dispatch_script),
-                        vps_host, vps_key, test_name, str(wrapper_dir),
-                    ],
-                    timeout=600,
+
+        if _is_anchor_workspace_l4:
+            from audit_pipeline.anchor_builder import (
+                build_anchor_program as _build_anchor_program,
+                AnchorBuildResult as _AnchorBuildResult,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                build_anchor_l4_prompt as _build_l4_prompt,
+                build_compile_fix_prompt as _build_l4_fix_prompt,
+                parse_llm_response as _parse_l4_response,
+                write_sidecar_workspace as _write_sidecar,
+                run_sidecar_test as _run_sidecar,
+                parse_litesvm_outcome as _parse_l4_outcome,
+                resolve_program_for_hyp as _l4_resolve_program,
+                _detect_program_id as _l4_detect_program_id,
+                _gather_program_source as _l4_gather_source,
+            )
+            from audit_pipeline.anchor_builder import (
+                list_anchor_programs as _l4_list_anchor_programs,
+            )
+            _anchor_programs_list = _l4_list_anchor_programs(engine_dir_for_cargo)
+            from audit_pipeline.utils import complete as _l4_complete
+
+            console.print()
+            console.print(
+                f"[bold]Layer 4 - Anchor LiteSVM runtime witness on "
+                f"{len(fired_for_litesvm)} PoC-fired findings (isolated)[/bold]"
+            )
+            litesvm_out = cycle_dir / "litesvm"
+            litesvm_out.mkdir(parents=True, exist_ok=True)
+
+            # Cache program builds — each Anchor program crate compiles
+            # once per cycle regardless of how many findings reference it.
+            _program_build_cache: dict[str, "_AnchorBuildResult"] = {}
+
+            for v in fired_for_litesvm:
+                hyp_id = v["hypothesis_id"]
+                meta = hyp_meta.get(hyp_id, {})
+                finding_name = _slugify(hyp_id)
+                test_fn_name = f"test_{finding_name}_litesvm"
+                sidecar_dir = litesvm_out / finding_name
+                test_path = sidecar_dir / f"{test_fn_name}.rs"
+
+                if resume_cycle and test_path.is_file():
+                    log("l4_anchor_resumed_from_existing", hypothesis_id=hyp_id)
+                    litesvm_results[hyp_id] = {
+                        "scaffold_dir": str(sidecar_dir),
+                        "test_path": str(test_path),
+                        "resumed": True,
+                    }
+                    continue
+
+                # Resolve the program crate for this hyp. Chain:
+                # 1) fully-qualified target_file (programs/<name>/...)
+                # 2) most-cited programs/<name>/ reference in the L2
+                #    PoC body — class-level hyps with target_file=
+                #    "programs/*/src/lib.rs" rely on this fallback
+                #    because the L2 PoC author always cites the
+                #    specific program where the bug was witnessed.
+                # 3) unresolved → record the skip with provenance.
+                target_file = (meta.get("target_file") or "").replace("\\", "/")
+                _scaffold = poc_results.get(hyp_id, {}).get("scaffold_path")
+                _scaffold_p = Path(_scaffold) if _scaffold else None
+                program_name, _resolve_src = _l4_resolve_program(
+                    target_file=target_file,
+                    scaffold_path=_scaffold_p,
+                    anchor_programs=_anchor_programs_list,
                 )
-                log("litesvm_dispatched", hypothesis_id=hyp_id,
-                    test=test_name, returncode=dispatch_rc)
-            litesvm_results[hyp_id] = {
-                "returncode": rc_author,
-                "dispatch_returncode": dispatch_rc,
-                "scaffold_dir": str(litesvm_out),
-            }
-            log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc_author)
+                if program_name is None:
+                    log("l4_anchor_skipped_no_program",
+                        hypothesis_id=hyp_id,
+                        target_file=target_file,
+                        resolve_source=_resolve_src)
+                    litesvm_results[hyp_id] = {
+                        "skipped": True,
+                        "reason": (
+                            f"could not resolve program crate "
+                            f"(target_file={target_file!r}, "
+                            f"scaffold={_scaffold!r})"
+                        ),
+                    }
+                    continue
+                log("l4_anchor_program_resolved",
+                    hypothesis_id=hyp_id,
+                    program=program_name,
+                    resolve_source=_resolve_src)
+
+                # Build the program in isolation (cached per program)
+                if program_name not in _program_build_cache:
+                    log("l4_anchor_build_start", program=program_name)
+                    _build = _build_anchor_program(
+                        cycle_dir=cycle_dir,
+                        target_repo=engine_dir_for_cargo,
+                        program_name=program_name,
+                    )
+                    _program_build_cache[program_name] = _build
+                    log("l4_anchor_build_done",
+                        program=program_name,
+                        ok=_build.ok,
+                        rc=_build.returncode,
+                        so_path=str(_build.so_path) if _build.so_path else None)
+                _build = _program_build_cache[program_name]
+                if not _build.ok or _build.so_path is None:
+                    litesvm_results[hyp_id] = {
+                        "compile_rc": _build.returncode,
+                        "fired": False,
+                        "outcome": "build_failed",
+                        "reason": _build.error or "program build failed",
+                        "scaffold_dir": str(sidecar_dir),
+                    }
+                    log("l4_anchor_build_failed",
+                        hypothesis_id=hyp_id, program=program_name,
+                        rc=_build.returncode)
+                    continue
+
+                program_src = engine_dir_for_cargo / "programs" / program_name
+                program_id = (
+                    _l4_detect_program_id(program_src)
+                    or "11111111111111111111111111111111"
+                )
+                program_source = _l4_gather_source(program_src)
+
+                # LLM author + compile-iterate loop
+                prompt = _build_l4_prompt(
+                    hyp_id=hyp_id,
+                    claim=str(meta.get("claim", "")) [:500],
+                    bug_class=meta.get("bug_class", "unknown"),
+                    target_file=target_file,
+                    program_name=program_name,
+                    program_id=program_id,
+                    so_abs_path=str(_build.so_path),
+                    program_source=program_source,
+                    test_fn_name=test_fn_name,
+                )
+                try:
+                    resp = _l4_complete(prompt)
+                    body = _parse_l4_response(getattr(resp, "text", str(resp)))
+                except Exception as e:  # noqa: BLE001
+                    log("l4_anchor_author_error",
+                        hypothesis_id=hyp_id, error=str(e)[:200])
+                    litesvm_results[hyp_id] = {
+                        "compile_rc": None,
+                        "fired": False,
+                        "outcome": "author_failed",
+                        "reason": f"{type(e).__name__}: {e}",
+                        "scaffold_dir": str(sidecar_dir),
+                    }
+                    continue
+                # ~$0.25 per author + each iterate adds ~$0.15; cap at
+                # 4 attempts so the per-finding floor is bounded.
+                daily_cap.record_spend(0.25)
+                total_cost += 0.25
+                if not body or "CANNOT_TEST" in body[:200]:
+                    litesvm_results[hyp_id] = {
+                        "compile_rc": None,
+                        "fired": False,
+                        "outcome": "cannot_test_declined",
+                        "reason": (body[:200] if body else "empty author output"),
+                        "scaffold_dir": str(sidecar_dir),
+                    }
+                    log("l4_anchor_cannot_test", hypothesis_id=hyp_id)
+                    continue
+
+                sidecar_dir.mkdir(parents=True, exist_ok=True)
+                MAX_ATTEMPTS = 4
+                final_rc = -1
+                final_log = ""
+                for attempt in range(1, MAX_ATTEMPTS + 1):
+                    test_path.write_text(body, encoding="utf-8")
+                    _write_sidecar(
+                        sidecar_dir=sidecar_dir,
+                        test_specs=[(test_fn_name, test_path)],
+                    )
+                    try:
+                        final_rc, final_log = _run_sidecar(
+                            sidecar_dir=sidecar_dir,
+                            test_name=test_fn_name,
+                            timeout_s=900,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        log("l4_anchor_run_error",
+                            hypothesis_id=hyp_id, attempt=attempt,
+                            error=str(e)[:200])
+                        final_log = f"runner crashed: {e}"
+                        break
+                    (sidecar_dir / f"{test_fn_name}.attempt{attempt}.log").write_text(
+                        final_log, encoding="utf-8",
+                    )
+                    is_compile_fail = (
+                        "error: could not compile" in final_log
+                        or (
+                            re.search(r"^error\[E\d+\]", final_log, re.MULTILINE)
+                            and "test result:" not in final_log
+                        )
+                    )
+                    if not is_compile_fail or attempt == MAX_ATTEMPTS:
+                        break
+                    # Compile failed — ask LLM to fix and retry
+                    try:
+                        fix_prompt = _build_l4_fix_prompt(
+                            original_prompt=prompt,
+                            previous_attempt=body,
+                            compile_log=final_log,
+                        )
+                        fix_resp = _l4_complete(fix_prompt)
+                        body = _parse_l4_response(
+                            getattr(fix_resp, "text", str(fix_resp))
+                        )
+                        daily_cap.record_spend(0.15)
+                        total_cost += 0.15
+                        log("l4_anchor_fix_attempt",
+                            hypothesis_id=hyp_id, attempt=attempt + 1)
+                    except Exception as e:  # noqa: BLE001
+                        log("l4_anchor_fix_error",
+                            hypothesis_id=hyp_id, error=str(e)[:200])
+                        break
+
+                # Final log persisted alongside the test for triage
+                final_log_path = sidecar_dir / f"{test_fn_name}.log"
+                final_log_path.write_text(final_log, encoding="utf-8")
+
+                fired, outcome, reason = _parse_l4_outcome(
+                    final_log, test_fn_name,
+                )
+                litesvm_results[hyp_id] = {
+                    "compile_rc": final_rc,
+                    "fired": fired,
+                    "outcome": outcome,
+                    "reason": reason,
+                    "scaffold_dir": str(sidecar_dir),
+                    "test_path": str(test_path),
+                    "log_path": str(final_log_path),
+                    "program_name": program_name,
+                    "program_so": str(_build.so_path),
+                }
+                log("l4_anchor_done",
+                    hypothesis_id=hyp_id,
+                    program=program_name,
+                    fired=fired,
+                    outcome=outcome,
+                    reason=reason[:160])
+        else:
+            # ----- LEGACY Percolator template path (unchanged) -----
+            console.print()
+            console.print(
+                f"[bold]Layer 4 - LiteSVM exploit-chain authoring + dispatch on "
+                f"{len(fired_for_litesvm)} PoC-fired findings[/bold]"
+            )
+            litesvm_out = cycle_dir / "litesvm"
+            litesvm_out.mkdir(parents=True, exist_ok=True)
+            # FIX 3: After authoring, actually invoke dispatch_litesvm.sh to run
+            # the LiteSVM test. Pass the actual wrapper path (workspace config)
+            # so the script does NOT depend on /tmp/audit symlinks. If vps.host
+            # is null (running on the VPS itself), use "-" "-" to skip SSH.
+            vps_host = config.get("vps", {}).get("host") or "-"
+            vps_key = config.get("vps", {}).get("ssh_key") or "-"
+            from audit_pipeline import __file__ as pkg_init_path
+            dispatch_script = Path(pkg_init_path).parent / "scripts" / "dispatch_litesvm.sh"
+            wrapper_dir = workspace / config.get("wrapper", {}).get("local", "target/wrapper")
+            for v in fired_for_litesvm:
+                hyp_id = v["hypothesis_id"]
+                finding_name = _slugify(hyp_id)
+                litesvm_file = litesvm_out / f"test_{finding_name}_bound_analysis.rs"
+                if resume_cycle and litesvm_file.exists():
+                    log("litesvm_resumed_from_existing", hypothesis_id=hyp_id)
+                    rc_author = 0
+                else:
+                    rc_author = _run([
+                        _audit_pipeline_bin(), "--workspace", str(workspace),
+                        "litesvm", "author",
+                        "--finding", finding_name,
+                        "--template", "litesvm_bound_analysis",
+                        "--output", str(litesvm_out),
+                    ])
+                dispatch_rc: int | None = None
+                if rc_author == 0 and dispatch_script.exists():
+                    test_name = f"test_{finding_name}_bound_analysis"
+                    dispatch_rc = _run(
+                        [
+                            "bash", str(dispatch_script),
+                            vps_host, vps_key, test_name, str(wrapper_dir),
+                        ],
+                        timeout=600,
+                    )
+                    log("litesvm_dispatched", hypothesis_id=hyp_id,
+                        test=test_name, returncode=dispatch_rc)
+                litesvm_results[hyp_id] = {
+                    "returncode": rc_author,
+                    "dispatch_returncode": dispatch_rc,
+                    "scaffold_dir": str(litesvm_out),
+                }
+                log("litesvm_authored", hypothesis_id=hyp_id, returncode=rc_author)
 
     # ---------- Synthesis: build the cycle report + write to DB ----------
     elapsed = time.time() - started_at
