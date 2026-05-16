@@ -3,263 +3,228 @@
     "id": "ottersec",
     "name": "OtterSec",
     "protocol_name": "Vendor evaluation",
-    "since": "2026-05-13",
     "tier": "Production",
-    "view_kind": "customer-private"
+    "since": "2026-05-13"
   },
-  "cycles_total": 1,
-  "generated_at": "2026-05-14T05:12:10+00:00",
-  "generated_at_ms": 1778735530258,
-  "loop_uptime_human": "4h 8m",
-  "loop_uptime_source": "jelleo-shadow.service",
-  "platform": "jelleo",
-  "propagation_stats": {
-    "bug_classes_seen": 5,
-    "chain_links": [],
-    "findings_with_bug_class": 5,
-    "fix_bundle_counts": {},
-    "fix_bundles": [],
-    "propagation_reports": 0,
-    "sibling_files": 0
+  "branding": {
+    "hero_title": "OtterSec \u00d7 Jelleo \u00b7 Vendor Evaluation",
+    "footer_text": "Confidential \u2014 OtterSec multi-vendor benchmark, do not redistribute",
+    "pdf_watermark": "Confidential \u2014 OtterSec evaluation",
+    "logo_path": "customers/ottersec/branding/logo.svg"
   },
-  "public_findings": [
-    {
-      "bug_class": "cap-leak",
-      "cycle_id": "20260513-191318",
-      "disclosure_url": null,
-      "hypothesis_id": "APT4-capability-stored-not-consumed",
-      "id": 74,
-      "n_siblings": 0,
-      "poc_fired": true,
-      "severity": "High",
-      "status": "triaged",
-      "target_id": 10,
-      "title": "Every privileged capability with `store` ability is given out under a finite, intentional issuance plan (one cap per adm",
-      "updated_at": "2026-05-14T03:50:13+00:00",
-      "verdict": "TRUE"
-    },
-    {
-      "bug_class": "acl-bypass-entry",
-      "cycle_id": "20260513-191318",
-      "disclosure_url": null,
-      "hypothesis_id": "APT5-acl-bypass-via-direct-entry",
-      "id": 76,
-      "n_siblings": 0,
-      "poc_fired": true,
-      "severity": "Critical",
-      "status": "triaged",
-      "target_id": 10,
-      "title": "Every access-control-gated module function is reached ONLY through the gated entry. Adding a direct `public entry fun` t",
-      "updated_at": "2026-05-14T03:50:13+00:00",
-      "verdict": "TRUE"
-    },
-    {
-      "bug_class": "borrow-global-no-auth",
-      "cycle_id": "20260513-191318",
-      "disclosure_url": null,
-      "hypothesis_id": "APT1-borrow-global-no-auth",
-      "id": 41,
-      "n_siblings": 0,
-      "poc_fired": true,
-      "severity": "Critical",
-      "status": "confirmed",
-      "target_id": 10,
-      "title": "Every `borrow_global_mut<T>(addr)` operation on a privileged resource is gated by an auth check that the caller is the o",
-      "updated_at": "2026-05-14T03:45:27+00:00",
-      "verdict": "TRUE"
-    },
-    {
-      "bug_class": "treasury-drain",
-      "cycle_id": "20260513-191318",
-      "disclosure_url": null,
-      "hypothesis_id": "APT38-treasury-drain",
-      "id": 72,
-      "n_siblings": 0,
-      "poc_fired": true,
-      "severity": "Critical",
-      "status": "confirmed",
-      "target_id": 10,
-      "title": "Every treasury-withdrawal function checks admin auth AND limits the amount to a sane fraction or via a time-lock. Unboun",
-      "updated_at": "2026-05-14T03:45:27+00:00",
-      "verdict": "TRUE"
-    },
-    {
-      "bug_class": "event-emit-missing",
-      "cycle_id": "20260513-191318",
-      "disclosure_url": null,
-      "hypothesis_id": "APT9-event-emit-missing",
-      "id": 80,
-      "n_siblings": 0,
-      "poc_fired": true,
-      "severity": "Low",
-      "status": "triaged",
-      "target_id": 10,
-      "title": "Every state-mutating function emits an event with the relevant fields. Auditability requires events on transfers, role c",
-      "updated_at": "2026-05-14T03:44:29+00:00",
-      "verdict": "TRUE"
-    }
-  ],
-  "receipts_signed": 17,
-  "recent_cycles": [
-    {
-      "cycle_id": "20260513-191318",
-      "engine_sha": "e926fabc95",
-      "finished_at": "2026-05-14T02:39:32+00:00",
-      "n_confirmed": 7,
-      "n_contested": 14,
-      "n_debate_done": 40,
-      "n_dispatched": 40,
-      "n_kani_harnesses": 0,
-      "n_litesvm": 4,
-      "n_poc_logs": 39,
-      "n_true_layer1": 14,
-      "progress_pct": 100.0,
-      "receipt_fingerprint": null,
-      "started_at": "2026-05-13T19:13:18+00:00",
-      "target_id": 10,
-      "triage_counts": {
-        "FALSE": 2,
-        "LOST": 0,
-        "SOFT": 1,
-        "STRONG": 4
-      }
-    }
-  ],
-  "services": [
-    {
-      "key": "shadow",
-      "last_tick_ms": 1778720625000,
-      "state": "up",
-      "unit": "jelleo-shadow.service"
-    },
-    {
-      "key": "watch",
-      "last_tick_ms": 1778720625000,
-      "state": "up",
-      "unit": "jelleo-watch.service"
-    },
-    {
-      "key": "scheduler-24h",
-      "last_tick_ms": 1778662903000,
-      "state": "up",
-      "unit": "jelleo-scheduler-24h.timer"
-    },
-    {
-      "key": "scheduler-weekly",
-      "last_tick_ms": 1778490944000,
-      "state": "stale",
-      "unit": "jelleo-scheduler-weekly.timer"
-    },
-    {
-      "key": "scheduler-monthly",
-      "last_tick_ms": 1778175216000,
-      "state": "stale",
-      "unit": "jelleo-scheduler-monthly.timer"
-    },
-    {
-      "key": "snapshot",
-      "last_tick_ms": 1778735507000,
-      "state": "up",
-      "unit": "jelleo-snapshot.timer"
-    },
-    {
-      "key": "backup",
-      "last_tick_ms": 1778733065000,
-      "state": "up",
-      "unit": "jelleo-backup.timer"
-    },
-    {
-      "key": "health",
-      "last_tick_ms": 1778735528000,
-      "state": "up",
-      "unit": "jelleo-health.timer"
-    },
-    {
-      "key": "heartbeat",
-      "last_tick_ms": 1778735521000,
-      "state": "up",
-      "unit": "jelleo-heartbeat.timer"
-    }
-  ],
-  "stats": {
-    "by_severity_disclosed": {
-      "Critical": 0,
-      "High": 0,
-      "Info": 0,
-      "Low": 0,
-      "Medium": 0
-    },
-    "by_severity_in_progress": {
-      "Critical": 3,
-      "High": 1,
-      "Info": 0,
-      "Low": 1,
-      "Medium": 0
-    },
-    "n_cycles": 1,
-    "n_findings_total": 5
+  "services": {
+    "hunt_loop": "running",
+    "snapshot_writer": "running",
+    "heartbeat": "running"
   },
+  "cycles_total": 0,
+  "loop_uptime_human": "active",
+  "recent_cycles": [],
+  "public_findings": [],
   "targets": [
     {
-      "engine_repo": "sahuang-osec/aptos-large",
       "id": 12,
-      "name": "osec-aptos-large"
+      "name": "osec-aptos-large",
+      "status": "scanned",
+      "n_findings": 10,
+      "severity_counts": {
+        "Critical": 4,
+        "High": 2,
+        "Medium": 4,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": "20260514-233645",
+      "last_cycle_at": "2026-05-15T12:52:07+00:00",
+      "engine_sha": "5f7bff30e6"
     },
     {
-      "engine_repo": "sahuang-osec/aptos-medium",
       "id": 11,
-      "name": "osec-aptos-medium"
+      "name": "osec-aptos-medium",
+      "status": "scanned",
+      "n_findings": 5,
+      "severity_counts": {
+        "Critical": 2,
+        "High": 2,
+        "Medium": 0,
+        "Low": 1,
+        "Info": 0
+      },
+      "last_cycle_id": "20260514-151541",
+      "last_cycle_at": "2026-05-14T20:36:06+00:00",
+      "engine_sha": "5527255c10"
     },
     {
-      "engine_repo": "sahuang-osec/aptos-small",
       "id": 10,
-      "name": "osec-aptos-small"
+      "name": "osec-aptos-small",
+      "status": "scanned",
+      "n_findings": 5,
+      "severity_counts": {
+        "Critical": 3,
+        "High": 1,
+        "Medium": 0,
+        "Low": 1,
+        "Info": 0
+      },
+      "last_cycle_id": "20260513-191318",
+      "last_cycle_at": "2026-05-14T02:39:32+00:00",
+      "engine_sha": "e926fabc95"
     },
     {
-      "engine_repo": "sahuang-osec/c-large",
       "id": 6,
-      "name": "osec-c-large"
+      "name": "osec-c-large",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
     },
     {
-      "engine_repo": "sahuang-osec/c-medium",
       "id": 5,
-      "name": "osec-c-medium"
+      "name": "osec-c-medium",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
     },
     {
-      "engine_repo": "sahuang-osec/c-small",
       "id": 4,
-      "name": "osec-c-small"
+      "name": "osec-c-small",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
     },
     {
-      "engine_repo": "sahuang-osec/solana-large",
       "id": 3,
-      "name": "osec-solana-large"
+      "name": "osec-solana-large",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
     },
     {
-      "engine_repo": "sahuang-osec/solana-medium",
       "id": 2,
-      "name": "osec-solana-medium"
+      "name": "osec-solana-medium",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
     },
     {
-      "engine_repo": "sahuang-osec/solana-small",
       "id": 1,
-      "name": "osec-solana-small"
+      "name": "osec-solana-small",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
     },
     {
-      "engine_repo": "sahuang-osec/solidity-large",
       "id": 9,
-      "name": "osec-solidity-large"
+      "name": "osec-solidity-large",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
     },
     {
-      "engine_repo": "sahuang-osec/solidity-medium",
       "id": 8,
-      "name": "osec-solidity-medium"
+      "name": "osec-solidity-medium",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
     },
     {
-      "engine_repo": "sahuang-osec/solidity-small",
       "id": 7,
-      "name": "osec-solidity-small"
+      "name": "osec-solidity-small",
+      "status": "idle",
+      "n_findings": 0,
+      "severity_counts": {
+        "Critical": 0,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": null,
+      "last_cycle_at": null,
+      "engine_sha": ""
     }
   ],
-  "version": "v0.1"
+  "totals": {
+    "n_targets": 12,
+    "n_findings": 20,
+    "by_severity": {
+      "Critical": 9,
+      "High": 5,
+      "Medium": 4,
+      "Low": 2,
+      "Info": 0
+    }
+  },
+  "generated_at": "2026-05-15T19:18:42.320270+00:00"
 }

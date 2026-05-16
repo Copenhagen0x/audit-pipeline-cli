@@ -1074,6 +1074,28 @@ main.bridge {
   }
   .tab-bar .tab .badge.zero { opacity: 0.4; }
 
+  /* Status-modifier tints so the operator can see at a glance which
+     targets have been scanned (green outline + green dot) vs idle.
+     Active-tab styling still wins via cascade order (.tab.active rules
+     come after .tab.tab-scanned in the stylesheet). */
+  .tab-bar .tab.tab-scanned {
+    border-color: rgba(74,222,128,0.45);
+    box-shadow: inset 3px 0 0 0 var(--ok);
+  }
+  .tab-bar .tab.tab-scanned .size-name { color: var(--ok); }
+  .tab-bar .tab.tab-scanned:hover { border-color: var(--ok); }
+  .tab-bar .tab.tab-scanning {
+    border-color: rgba(245,184,0,0.45);
+    box-shadow: inset 3px 0 0 0 var(--amber);
+  }
+  .tab-bar .tab.tab-scanning .size-name { color: var(--amber); }
+  .tab-bar .tab.active.tab-scanned,
+  .tab-bar .tab.active.tab-scanning {
+    box-shadow: none;
+  }
+  .tab-bar .tab.active.tab-scanned .size-name,
+  .tab-bar .tab.active.tab-scanning .size-name { color: var(--bg); }
+
   /* The tab bar lives INSIDE main.bridge (after the health banner), so
      main.bridge keeps its standard 96px top padding (just clears the
      fixed nav). No extra space needed because the sticky tab bar takes
@@ -1083,24 +1105,24 @@ main.bridge {
 <div class="tab-bar" id="tab-bar" role="tablist" aria-label="Audit targets">
 <span class="label">Targets</span>
 <div class="tab-group">
-<button class="tab" role="tab" data-target="osec-solana-small" aria-controls="tab-panel-osec-solana-small" data-group="solana" title="Solana · small"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-solana-medium" aria-controls="tab-panel-osec-solana-medium" data-group="solana" title="Solana · medium"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-solana-large" aria-controls="tab-panel-osec-solana-large" data-group="solana" title="Solana · large"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
+<button class="tab tab-scanned" role="tab" data-target="osec-solana-small" aria-controls="tab-panel-osec-solana-small" data-group="solana" title="Solana · small"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge">7</span></button>
+<button class="tab tab-idle" role="tab" data-target="osec-solana-medium" aria-controls="tab-panel-osec-solana-medium" data-group="solana" title="Solana · medium"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
+<button class="tab tab-idle" role="tab" data-target="osec-solana-large" aria-controls="tab-panel-osec-solana-large" data-group="solana" title="Solana · large"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
 </div>
 <div class="tab-group">
-<button class="tab" role="tab" data-target="osec-solidity-small" aria-controls="tab-panel-osec-solidity-small" data-group="solidity" title="Solidity · small"><span class="group-name">Solidity</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-solidity-medium" aria-controls="tab-panel-osec-solidity-medium" data-group="solidity" title="Solidity · medium"><span class="group-name">Solidity</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-solidity-large" aria-controls="tab-panel-osec-solidity-large" data-group="solidity" title="Solidity · large"><span class="group-name">Solidity</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
+<button class="tab tab-idle" role="tab" data-target="osec-solidity-small" aria-controls="tab-panel-osec-solidity-small" data-group="solidity" title="Solidity · small"><span class="group-name">Solidity</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
+<button class="tab tab-idle" role="tab" data-target="osec-solidity-medium" aria-controls="tab-panel-osec-solidity-medium" data-group="solidity" title="Solidity · medium"><span class="group-name">Solidity</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
+<button class="tab tab-idle" role="tab" data-target="osec-solidity-large" aria-controls="tab-panel-osec-solidity-large" data-group="solidity" title="Solidity · large"><span class="group-name">Solidity</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
 </div>
 <div class="tab-group">
-<button class="tab" role="tab" data-target="osec-c-small" aria-controls="tab-panel-osec-c-small" data-group="c" title="C · small"><span class="group-name">C</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-c-medium" aria-controls="tab-panel-osec-c-medium" data-group="c" title="C · medium"><span class="group-name">C</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-c-large" aria-controls="tab-panel-osec-c-large" data-group="c" title="C · large"><span class="group-name">C</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
+<button class="tab tab-idle" role="tab" data-target="osec-c-small" aria-controls="tab-panel-osec-c-small" data-group="c" title="C · small"><span class="group-name">C</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
+<button class="tab tab-idle" role="tab" data-target="osec-c-medium" aria-controls="tab-panel-osec-c-medium" data-group="c" title="C · medium"><span class="group-name">C</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
+<button class="tab tab-idle" role="tab" data-target="osec-c-large" aria-controls="tab-panel-osec-c-large" data-group="c" title="C · large"><span class="group-name">C</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
 </div>
 <div class="tab-group">
-<button class="tab" role="tab" data-target="osec-aptos-small" aria-controls="tab-panel-osec-aptos-small" data-group="aptos" title="Aptos · small"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-aptos-medium" aria-controls="tab-panel-osec-aptos-medium" data-group="aptos" title="Aptos · medium"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-aptos-large" aria-controls="tab-panel-osec-aptos-large" data-group="aptos" title="Aptos · large"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
+<button class="tab tab-scanned" role="tab" data-target="osec-aptos-small" aria-controls="tab-panel-osec-aptos-small" data-group="aptos" title="Aptos · small"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge">5</span></button>
+<button class="tab tab-scanned" role="tab" data-target="osec-aptos-medium" aria-controls="tab-panel-osec-aptos-medium" data-group="aptos" title="Aptos · medium"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge">5</span></button>
+<button class="tab tab-scanned" role="tab" data-target="osec-aptos-large" aria-controls="tab-panel-osec-aptos-large" data-group="aptos" title="Aptos · large"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge">10</span></button>
 </div>
 </div>
 
@@ -1158,33 +1180,56 @@ main.bridge {
   });
 })();
 
-/* Multi-target Bridge state filter — listens for jelleo:target-switched
-   and hides ROW elements whose data-target attribute doesn't match.
-   IMPORTANT: scopes out the tab-bar itself (tab buttons carry
-   data-target too; without this guard the filter would hide every
-   tab except the active one — operator saw only "C small" visible). */
+/* === Multi-target Bridge state filter ===
+   The tab bar dispatches `jelleo:target-switched` whenever the user
+   picks a different target. Without a listener, the Bridge panels
+   would keep showing aggregated state across all targets — which on
+   the OSec eval looks like findings from solana-small intermixed
+   with solidity-large, totally useless for "what did Jelleo find on
+   THIS specific repo".
+
+   This listener filters every Bridge panel's DOM rows by their
+   data-target attribute (which the Python writer stamps on each
+   row at render time). It runs once on first paint AND on every
+   tab switch. It deliberately keeps the SSE event stream intact —
+   incoming events still update all targets' caches; the filter
+   only changes what's *visible*.
+*/
 (function () {
-  if (!document.getElementById('tab-bar')) return;
+  if (!document.getElementById('tab-bar')) return; // single-target pages
+  // CRITICAL FIX 2026-05-13: scope the filter to ROW elements only. The
+  // tab buttons in #tab-bar themselves carry data-target attrs (the
+  // tab-bar wiring uses them to know which tab is selected) — without
+  // this scoping, the filter would hide 11 of the 12 tabs and leave
+  // only the active one visible (operator reported seeing only "C
+  // small" with all other tabs gone).
   function applyFilter(target) {
     if (!target) return;
+    // Content rows stamp data-target; exclude the tab-bar itself + any
+    // descendants of it (those are navigation, always visible).
     const tabBar = document.getElementById('tab-bar');
     document.querySelectorAll('[data-target]').forEach((el) => {
-      if (tabBar && tabBar.contains(el)) return;  // skip tab navigation
+      // Skip tab-bar nodes (the tab buttons themselves)
+      if (tabBar && tabBar.contains(el)) return;
       const owner = el.dataset.target;
       if (!owner) return;
       el.style.display = (owner === target) ? '' : 'none';
     });
+    // Update any "(N findings on <target>)" counters
     document.querySelectorAll('[data-target-counter]').forEach((el) => {
       const visible = document.querySelectorAll(
         '[data-target="' + target + '"][data-counter-row="' + el.dataset.targetCounter + '"]'
       ).length;
       el.textContent = String(visible);
     });
+    // Update any "(N findings on <target>)" labels
     document.querySelectorAll('[data-target-label]').forEach((el) => {
       el.textContent = target;
     });
   }
+  // Initial apply
   applyFilter(window.JELLEO_ACTIVE_TARGET);
+  // React to future switches
   window.addEventListener('jelleo:target-switched', (e) => {
     applyFilter(e.detail && e.detail.target);
   });
@@ -1211,7 +1256,7 @@ main.bridge {
       </span>
       <span class="bridge-cost">
         <span id="cost-now">$ 0.000</span>
-        <span class="cap">this cycle · <span id="cost-session">$ 0.000</span> session</span>
+        <span class="cap">/ $ <span id="cost-cap">—</span> today</span>
         <span class="bridge-cost-bar"><div id="cost-bar-fill" style="width: 0%"></div></span>
       </span>
     </div>
@@ -1259,10 +1304,9 @@ main.bridge {
     <!-- LEFT: findings waterfall + counters -->
     <aside class="bridge-side">
       <div class="bridge-section-label">Findings <span class="count" id="findings-count">0</span></div>
-      <div class="side-stat"><span>Critical · confirmed</span><span class="val crit" id="ct-crit">0</span></div>
-      <div class="side-stat"><span>High · confirmed</span><span class="val amber" id="ct-high">0</span></div>
+      <div class="side-stat"><span>Critical · open</span><span class="val crit" id="ct-crit">0</span></div>
+      <div class="side-stat"><span>High · open</span><span class="val amber" id="ct-high">0</span></div>
       <div class="side-stat"><span>Confirmed total</span><span class="val" id="ct-confirmed">0</span></div>
-      <div class="side-stat"><span>Targets scanned</span><span class="val" id="ct-targets-scanned">0 / 12</span></div>
       <div class="side-stat"><span>Cycles signed</span><span class="val" id="ct-cycles">0</span></div>
       <div class="side-divider"></div>
       <div class="findings-stream" id="findings-stream">
@@ -1384,8 +1428,8 @@ main.bridge {
        ═══════════════════════════════════════════════════════════════════ -->
   <div class="bridge-actions">
     <a class="primary" href="/cycles/">Cycle archive ↗</a>
-    <a href="./manifest.json" target="_blank" rel="noopener">snapshot.json ↗</a>
-    <a href="./heartbeat.json" target="_blank" rel="noopener">heartbeat.json ↗</a>
+    <a href="https://api.jelleo.com/customer/ottersec/manifest.json" target="_blank" rel="noopener">snapshot.json ↗</a>
+    <a href="https://api.jelleo.com/customer/ottersec/heartbeat.json" target="_blank" rel="noopener">heartbeat.json ↗</a>
     <a href="/keys/jelleo.ed25519.pub" target="_blank" rel="noopener">Public key ↗</a>
     <a href="/customer/ottersec/">Lobby view ←</a>
     <a href="mailto:kirill@jelleo.com">Account manager</a>
@@ -1414,10 +1458,6 @@ main.bridge {
     return;
   }
 
-  // Live data feeds — served from api.jelleo.com (VPS regenerates these
-  // every 60s from the OtterSec workspace's findings.db). Netlify-static
-  // sibling files are NOT used because they would freeze at deploy time
-  // and never reflect cycle progress.
   const SNAPSHOT_URL = 'https://api.jelleo.com/customer/ottersec/manifest.json';
   const MANIFEST_URL = 'https://api.jelleo.com/customer/ottersec/manifest.json';
   const HEARTBEAT_URL = 'https://api.jelleo.com/customer/ottersec/heartbeat.json';
@@ -1674,48 +1714,6 @@ main.bridge {
     }
   }
 
-  // ───── Multi-layer activity tracker (cycle 20260514-151541 fix) ─────
-  //
-  // Before this helper, the top-row sparkline counters (tokens/s,
-  // hyps/min) were ONLY fed from recon_hyp_done (L1) and the hyp
-  // grid tile states ONLY updated from L1 verdicts. Result: after
-  // L1 finished, every metric on the dashboard froze even while
-  // L1.5 / L2 / L2.5 / L3 / L4 were actively running. Operator quote:
-  //   "top row - tokens, hyps, tools - they all dead after L1"
-  //
-  // _trackLayerEvent unifies the bookkeeping. Every per-layer
-  // completion event passes through here so:
-  //   * spark-tokens reflects token use from EVERY layer, not just L1
-  //   * spark-hyps reflects completions across all layers
-  //   * hyp grid tile colors update as a hyp progresses L1 → L1.5 → L2 → L2.5
-  //
-  // tileState is layer-specific:
-  //   L1 done:      'fire' | 'ok'        (set from verdict)
-  //   L1.5 done:    null (no color change — debate is judgement, not state)
-  //   L2 fired:     'fire' (overrides L1, empirical)
-  //   L2 not fired: 'ok'   (overrides L1, empirical)
-  //   L2.5 STRONG:  'confirmed'
-  //   L3 proved:    'confirmed'
-  //   L4 crash:     'confirmed'
-  function _trackLayerEvent(ev, tileState) {
-    state.hypsDoneThisMinute.push(Date.now());
-    if (typeof ev.input_tokens === 'number') {
-      state.tokensThisSec.push({
-        ts: Date.now(),
-        tokens: ev.input_tokens + (ev.output_tokens || 0),
-      });
-    } else if (ev.token_usage && typeof ev.token_usage.input_tokens === 'number') {
-      state.tokensThisSec.push({
-        ts: Date.now(),
-        tokens: ev.token_usage.input_tokens + (ev.token_usage.output_tokens || 0),
-      });
-    }
-    const hid = ev.hyp_id || ev.hypothesis_id;
-    if (hid && tileState !== undefined) {
-      setHypTileState(hid, tileState);
-    }
-  }
-
   // ───── Findings waterfall ─────
   function upsertFinding(f) {
     const fid = f.id != null ? String(f.id) : (f.hypothesis_id + '-' + (f.cycle_id || ''));
@@ -1776,28 +1774,9 @@ main.bridge {
     } else {
       argStr = ev.path || ev.pattern || ev.name || '';
     }
-    // Multi-layer tablet (2026-05-14): tag each tool-call row with the
-    // emitting layer so the tablet doesn't look L1-only. Derive layer
-    // from the event's `_phase` field when present (cycle_log_writer
-    // tags it), otherwise from the currently-active layer in
-    // state.layerState as a fallback. Defaults to L? if neither.
-    let phaseLabel = ev._phase || ev.phase || null;
-    if (!phaseLabel && state.layerState) {
-      const active = Object.entries(state.layerState).find(([_, v]) => v === 'active');
-      if (active) phaseLabel = active[0];
-    }
-    const PHASE_TO_TAG = {
-      'recon': 'L1', 'L1': 'L1',
-      'debate': 'L1.5', 'L1.5': 'L1.5',
-      'poc': 'L2', 'L2': 'L2',
-      'l25_triage': 'L2.5', 'triage': 'L2.5', 'L2.5': 'L2.5',
-      'kani': 'L3', 'formal': 'L3', 'L3': 'L3',
-      'litesvm': 'L4', 'fuzz': 'L4', 'L4': 'L4',
-    };
-    const layerTag = PHASE_TO_TAG[phaseLabel] || phaseLabel || 'L?';
     row.innerHTML =
       '<span class="ts">' + ts.toTimeString().slice(0, 8) + '</span>' +
-      '<span class="hid">[' + safeStr(layerTag, 5) + '] ' + safeStr(ev.hyp_id || '—', 16) + '</span>' +
+      '<span class="hid">' + safeStr(ev.hyp_id || '—', 16) + '</span>' +
       '<span class="args"><span class="tool">' + safeStr(ev.tool || 'tool', 14) + '</span> ' + safeStr(argStr, 200) + '</span>';
     body.prepend(row);
     setTimeout(() => row.classList.remove('fresh'), 800);
@@ -1817,22 +1796,7 @@ main.bridge {
         term.firstChild.querySelector('.kind').textContent === 'init') {
       term.innerHTML = '';
     }
-    // ts can be:
-    //   - a number (Unix seconds, e.g. from SSE recon events)
-    //   - an ISO 8601 string (e.g. from hunt.log.jsonl-tailed events
-    //     like "2026-05-13T20:34:43+00:00")
-    //   - undefined → fall back to "now"
-    // The old code did `ts * 1000` which gives NaN for strings →
-    // "Invalid Date" in the timestamp column. Handle both shapes.
-    let t;
-    if (typeof ts === 'number') {
-      t = new Date(ts * 1000);
-    } else if (typeof ts === 'string') {
-      t = new Date(ts);
-    } else {
-      t = new Date();
-    }
-    if (isNaN(t.getTime())) t = new Date();
+    const t = new Date((ts || Date.now() / 1000) * 1000);
     let cls = '';
     if (kind === 'cycle_complete' || kind === 'hunt_complete' || kind === 'cycle_active') cls = 'ok';
     if (kind === 'finding_persisted') cls = 'crit';
@@ -1859,15 +1823,7 @@ main.bridge {
     const bar = row.querySelector('.bar > div');
     if (bar) {
       if (cls === 'active' && progressPct != null) {
-        // Was: row.style.setProperty('--p', ...) — wrote a CSS custom
-        // property that nothing else reads, so the active-phase
-        // progress bar never advanced visually. Set the actual width
-        // on the inner div like the done/skipped branches do.
-        bar.style.width = Math.min(100, Math.max(0, progressPct)) + '%';
-      } else if (cls === 'active') {
-        // active with no percent → use indeterminate marker (10%)
-        // so the bar at least animates rather than reading 0%.
-        bar.style.width = '10%';
+        row.style.setProperty('--p', Math.min(100, Math.max(0, progressPct)) + '%');
       } else if (cls === 'done') {
         bar.style.width = '100%';
       } else if (cls === 'skipped') {
@@ -1926,86 +1882,22 @@ main.bridge {
     el.textContent = fmt ? fmt(val) : val;
   }
 
-  // ───── Cycle-cost ticker (live from SSE recon_hyp_done events) ─────
-  // The OLD code lied: it claimed "/ $800 today" was a real budget cap
-  // and read d.spend.today_usd which was rarely populated. Now we
-  // accumulate the actual per-hyp spend from recon_hyp_done SSE events
-  // for the ACTIVE CYCLE only — every hyp emits input_tokens +
-  // output_tokens which we convert to USD at the Sonnet 4.6 rate.
-  // Resets to 0 on every cycle_active event.
-  state.cycleSpendUsd = 0;
-  function setCost(now) {
+  // ───── Cost ticker (with digit-roll animation feel via transition) ─────
+  function setCost(now, cap) {
     if (typeof now === 'number') {
       state.costNow = now;
       $('cost-now').textContent = '$ ' + now.toFixed(3);
     }
-    // No fixed cap — bar shows progress toward a soft $25 reference
-    // line so the visual gives a sense of scale without claiming a
-    // hard limit (the engine runs uncapped today per operator request).
-    const softRef = 25;
-    const pct = Math.min(100, (state.costNow / softRef) * 100);
+    if (typeof cap === 'number' && cap > 0) {
+      state.costCap = cap;
+      $('cost-cap').textContent = cap.toFixed(0);
+    }
+    const pct = state.costCap > 0
+      ? Math.min(100, (state.costNow / state.costCap) * 100)
+      : 0;
     $('cost-bar-fill').style.width = pct + '%';
   }
-  setCost(0);
-
-  // Sonnet 4.6 pricing — input $3/M, output $15/M tokens.
-  function _tokenCostUsd(inputTokens, outputTokens) {
-    return ((inputTokens || 0) / 1e6) * 3 + ((outputTokens || 0) / 1e6) * 15;
-  }
-
-  // ───── Per-tab target↔cycle maps (populated from manifest) ─────
-  // These let us slice global manifest/SSE data by the active tab so
-  // switching tabs shows truly independent per-target state.
-  state.targetIdByName = {};
-  state.targetNameById = {};
-  state.cycleIdToTargetId = {};
-  // cycle_id → finished_at (string or null). Lets cycle_active SSE
-  // handler detect stale on-connect emissions for already-finished
-  // cycles and avoid painting "L1 running" on a done cycle.
-  state.cycleFinishedAt = {};
-
-  function activeTargetId() {
-    const name = window.JELLEO_ACTIVE_TARGET;
-    return name ? state.targetIdByName[name] : null;
-  }
-
-  // Derive target_name from SSE-supplied workspace path. The OSec eval
-  // convention is workspace `/root/audit_runs/ottersec-eval/workspaces/<cell>`
-  // ↔ target_name `osec-<cell>`. Percolator: workspace `percolator-live`
-  // ↔ target_name `percolator`. Falls back to last path component.
-  function _targetNameFromWorkspace(wsPath) {
-    if (!wsPath || typeof wsPath !== 'string') return null;
-    const parts = wsPath.split('/').filter(Boolean);
-    const last = parts[parts.length - 1];
-    if (!last) return null;
-    if (wsPath.indexOf('/ottersec-eval/workspaces/') >= 0) return 'osec-' + last;
-    if (last === 'percolator-live') return 'percolator';
-    return last;
-  }
-
-  function eventBelongsToActiveTab(ev) {
-    // No active tab → show everything (single-target view)
-    const activeId = activeTargetId();
-    if (activeId == null) return true;
-    // Map event._cycle (cycle name) → target_id via cache
-    const cycleId = ev._cycle || ev.cycle;
-    if (!cycleId) return true; // events without a cycle ref (e.g. sse_connected) are global
-    let evTargetId = state.cycleIdToTargetId[cycleId];
-    // RACE FIX: if cycle_active carries `workspace`, derive target_id
-    // directly from path without waiting for manifest refresh. Closes
-    // the 5-second window where events leaked across tabs.
-    if (evTargetId == null && ev.workspace) {
-      const tname = _targetNameFromWorkspace(ev.workspace);
-      if (tname && state.targetIdByName[tname] != null) {
-        evTargetId = state.targetIdByName[tname];
-        state.cycleIdToTargetId[cycleId] = evTargetId;
-      }
-    }
-    // Unknown cycle AND no workspace hint → show by default so we
-    // don't drop events that arrive before manifest finishes loading
-    if (evTargetId == null) return true;
-    return evTargetId === activeId;
-  }
+  setCost(0, 800);
 
   // ───── SSE event router ─────
   function handleEvent(ev) {
@@ -2021,60 +1913,14 @@ main.bridge {
       return;
     }
 
-    // Per-tab filtering — drop events that don't belong to the active
-    // tab. sse_connected handled above so the connection banner always
-    // fires regardless of tab.
-    if (!eventBelongsToActiveTab(ev)) return;
-
     if (k === 'cycle_active') {
-      // GUARD: the SSE service emits cycle_active on connect for the
-      // LATEST cycle in the customer's workspace — even if that cycle
-      // is already finished. Treating that as "L1 running" left the
-      // waterfall stuck after every page refresh on a completed cycle.
-      //
-      // Decide if the cycle is actually in progress by checking the
-      // manifest cache. If we already have the cycle in
-      // state.cycleIdToTargetId from a prior manifest fetch AND that
-      // cycle's recent_cycles entry says finished_at != null, treat
-      // this as a stale on-connect emission: only push the event log
-      // and let the manifest paint the "Last cycle" stage / done
-      // waterfall.
-      const cycleEntry = state.cycleIdToTargetId[ev.cycle];
-      // We need the full cycle record to check finished_at — cache it
-      // when refreshSnapshot/refreshManifest populate the maps.
-      const cycleFinished = (state.cycleFinishedAt && state.cycleFinishedAt[ev.cycle]) ? true : false;
-      if (cycleFinished) {
-        // Push to event terminal so the operator sees the SSE arrived,
-        // but DON'T paint stale "running" state.
-        pushEvent('cycle_active', 'cycle ' + ev.cycle + ' (already finished)', ev.ts);
-        return;
-      }
-
-      // PHASE 2 (2026-05-14) — track session-start timestamp for
-      // history-event filtering. Every SSE handler that PAINTS a layer
-      // state (L3 done, L4 done, etc.) must check the event's ts
-      // against state.sessionStartedAt. Events older than the current
-      // session are from prior runs against this same cycle id —
-      // they're already reflected in the manifest's n_kani_runs /
-      // n_litesvm_runs counters; the SSE handler must not double-paint
-      // them or override the manifest's authoritative state.
-      //
-      // ev.ts is the SSE service's broadcast time (time.time() Unix
-      // seconds). Normalise to milliseconds for comparison with
-      // Date.now() / new Date().getTime() elsewhere.
-      let _sessTs = ev.ts;
-      if (typeof _sessTs === 'number') {
-        _sessTs = _sessTs * 1000;
-      } else if (typeof _sessTs === 'string') {
-        _sessTs = Date.parse(_sessTs);
-      } else {
-        _sessTs = Date.now();
-      }
-      state.sessionStartedAt = _sessTs || Date.now();
-
       // POST-AUDIT FIX (2026-05-12 re-audit catch): reset per-cycle state
       // before populating. Without this, state.hyps + state.hypsOrder
-      // accumulated entries across every cycle the browser tab observed.
+      // accumulated entries across every cycle the browser tab observed
+      // — a long-running tab watching N cycles ended up with N * H tiles
+      // in the grid (and N * H DOM nodes), most marked done from a prior
+      // cycle. Now we wipe the grid + the maps on cycle_active so each
+      // cycle paints from a clean slate.
       try {
         const grid = $('hyp-grid');
         if (grid) {
@@ -2091,36 +1937,14 @@ main.bridge {
       const gridTotal = $('grid-total');
       if (gridTotal) gridTotal.textContent = '0';
 
-      // Bug fix (cycle 20260514-151541): differentiate "genuinely new
-      // cycle" from "SSE reconnect replay of in-progress cycle". The
-      // SSE service emits cycle_active on every connect, so a page
-      // refresh during a paused/layer-by-layer run triggers this
-      // handler with the SAME ev.cycle as state.activeCycle. Without
-      // this guard we (a) zeroed the cost display until the next 30s
-      // heartbeat overwrote it, and (b) forced L1 back to "running"
-      // even when L1 already finished, fighting with the manifest's
-      // paintLayerWaterfallFromCycle output and flickering the
-      // waterfall on every refresh.
-      const isNewCycle = state.activeCycle !== ev.cycle;
       state.activeCycle = ev.cycle;
+      state.cycleStartedAt = Date.now();
       $('active-cycle').textContent = safeStr(ev.cycle, 28);
+      $('cycle-started').textContent = fmtTime(Date.now());
+      setStage('Cycle active', `Cycle <span class="accent">${safeStr(ev.cycle, 28)}</span> is running`);
       pushEvent('cycle_active', 'cycle ' + ev.cycle, ev.ts);
-      if (isNewCycle) {
-        state.cycleStartedAt = Date.now();
-        // Reset cycle-cost accumulator — every new cycle starts at $0
-        state.cycleSpendUsd = 0;
-        setCost(0);
-        $('cycle-started').textContent = fmtTime(Date.now());
-        setStage('Cycle active', `Cycle <span class="accent">${safeStr(ev.cycle, 28)}</span> is running`);
-        setLayer('L0', 'done', '✓');
-        setLayer('L1', 'active', 'running', 5);
-      } else {
-        // Reconnect/replay: leave cost + layer state alone — heartbeat
-        // poll + manifest preload already painted authoritative values,
-        // and forcing L1=active here would clobber a layer that may
-        // already be done in a paused layer-by-layer run.
-        pushEvent('cycle_active', 'reconnect replay ' + ev.cycle + ' (no reset)', ev.ts);
-      }
+      setLayer('L0', 'done', '✓');
+      setLayer('L1', 'active', 'running', 5);
       return;
     }
 
@@ -2156,12 +1980,6 @@ main.bridge {
       state.hypsDoneThisMinute.push(Date.now());
       if (typeof ev.input_tokens === 'number') {
         state.tokensThisSec.push({ts: Date.now(), tokens: (ev.input_tokens + (ev.output_tokens || 0))});
-        // Accumulate REAL cycle cost from per-hyp token counts at
-        // Sonnet 4.6 pricing. Replaces the lying "$0.000 / $800 today"
-        // display with actual spend that ticks up live as each hyp
-        // completes.
-        state.cycleSpendUsd += _tokenCostUsd(ev.input_tokens, ev.output_tokens);
-        setCost(state.cycleSpendUsd);
       }
       pushEvent('recon_hyp', 'done ' + ev.hyp_id + ' → ' + (v || '—') + ' / ' + (ev.confidence || ''), ev.ts);
       return;
@@ -2179,165 +1997,13 @@ main.bridge {
       else if (cls === 'FALSE')  state.triage.false_++;
       else if (cls === 'LOST')   state.triage.lost++;
       renderTriage();
-      // Multi-layer wiring (2026-05-14): feed counters + tile state
-      _trackLayerEvent(ev, cls === 'STRONG' ? 'confirmed' : (cls === 'FALSE' ? 'ok' : undefined));
       pushEvent('triage', ev.hyp_id + ' → ' + cls, ev.ts);
       return;
     }
 
     if (k === 'triage_done') {
-      // PHASE 2 — also commit the totals into state.triage so the
-      // triage bar stays accurate against the engine's authoritative
-      // counts (the per-fire triage_one events should already match,
-      // but this fixes any drift from missed events).
-      if (typeof ev.strong === 'number') {
-        state.triage = {
-          strong: ev.strong || 0,
-          soft:   ev.soft   || 0,
-          false_: ev.false  || 0,
-          lost:   ev.lost   || 0,
-        };
-        renderTriage();
-      }
       setLayer('L2.5', 'done', '✓');
       pushEvent('triage_done', `STRONG=${ev.strong} SOFT=${ev.soft} FALSE=${ev.false} LOST=${ev.lost}`, ev.ts);
-      return;
-    }
-
-    // ───── L1.5 / L2 / L3 / L4 / bundle / narrative SSE handlers ─────
-    //
-    // Previously these events fell through to the generic fallback at
-    // the bottom of this dispatcher → waterfall waited ~5s for the
-    // next manifest tick to repaint. Operator saw "L1 running" on
-    // screen while the engine had already advanced to L3 / L4.
-    // Now each handler drives the waterfall directly so the layer
-    // rows flip the moment the engine emits the event.
-    //
-    // Helper: return true if the event is from THIS session (newer
-    // than the most recent cycle_active we observed). Events older
-    // than state.sessionStartedAt are stale — from prior runs against
-    // the same cycle id. They're already reflected in the manifest's
-    // counters; the SSE handler must not double-paint them.
-    function _eventInCurrentSession(ev) {
-      const sess = state.sessionStartedAt || 0;
-      if (!sess) return true; // no session anchor yet — accept
-      let ts = ev.ts;
-      if (typeof ts === 'number') ts = ts * 1000;
-      else if (typeof ts === 'string') ts = Date.parse(ts);
-      else return true; // no ts — can't compare, accept defensively
-      if (isNaN(ts)) return true;
-      // 5s slack: allow events slightly older than the session anchor,
-      // covers SSE service ordering jitter vs cycle_active emission.
-      return ts >= (sess - 5000);
-    }
-
-    if (k === 'debate_progress') {
-      // Per-debate token + completion event (emitted by debate.py
-      // after each challenger LLM call). Carries input_tokens and
-      // output_tokens so the top-row sparklines stay alive during
-      // L1.5. Cycle 20260514-151541 fix: hunt.py's debate_one event
-      // has no token info, so we couldn't feed spark-tokens from
-      // L1.5 without this companion event.
-      _trackLayerEvent(ev, undefined);
-      return;
-    }
-
-    if (k === 'debate_one' || k === 'debate_done') {
-      // Debate batch — mark L1 done (recon must have completed) and
-      // L1.5 active. The triage_done event later flips L1.5 → done.
-      setLayer('L1', 'done', '✓');
-      setLayer('L1.5', 'active', 'running');
-      if (k === 'debate_done') {
-        setLayer('L1.5', 'done', '✓');
-      }
-      // Multi-layer wiring (2026-05-14): feed sparkline counters from
-      // debate completions too. Tile state unchanged — challenger
-      // verdict is opinion, not empirical state transition.
-      if (k === 'debate_one') {
-        _trackLayerEvent(ev, undefined);
-      }
-      pushEvent(k, ev.hypothesis_id || ev.hyp_id || '?', ev.ts);
-      return;
-    }
-
-    if (k === 'poc_test_run' || k === 'poc_adapter_done' ||
-        k === 'poc_adapter_resumed_from_existing' || k === 'poc_llm_authored') {
-      // L2 PoC dispatch — push L1.5 done if still queued, light up L2.
-      const r15 = document.querySelector('.layer-row[data-layer="L1.5"]');
-      if (r15 && !r15.classList.contains('done')) setLayer('L1.5', 'done', '✓');
-      setLayer('L2', 'active', 'running');
-      const fired = (ev.fired === true);
-      // Multi-layer wiring (2026-05-14): L2 PoC is empirical so it
-      // overrides L1's tile color. fired=true → 'fire', else 'ok'.
-      _trackLayerEvent(ev, fired ? 'fire' : 'ok');
-      pushEvent('L2 ' + k, (ev.hypothesis_id || ev.hyp_id || '?') + (fired ? ' 🔥' : ''), ev.ts);
-      return;
-    }
-
-    if (k === 'l3_adapter_done' || k === 'kani_one' || k === 'kani_resumed_from_existing') {
-      // L3 formal verification result. The l3_adapter_done event now
-      // carries `infra_error` / `compile_error` / `reason` markers
-      // (see formal_adapters/aptos.py recent commit) so an operator
-      // can tell a real "indeterminate" outcome from a tooling
-      // failure without having to ssh into the cycle dir.
-      if (!_eventInCurrentSession(ev)) {
-        // Stale event from a prior run on this cycle id. Already
-        // counted in the manifest's n_kani_harnesses / n_kani_runs.
-        // Don't double-paint.
-        pushEvent('L3 (history)', (ev.hypothesis_id || ev.hyp_id || '?'), ev.ts);
-        return;
-      }
-      const r25 = document.querySelector('.layer-row[data-layer="L2.5"]');
-      if (r25 && !r25.classList.contains('done')) setLayer('L2.5', 'done', '✓');
-      setLayer('L3', 'active', 'running');
-      let label = ev.hypothesis_id || ev.hyp_id || '?';
-      if (ev.infra_error) label += ' ⚠ infra-error';
-      else if (ev.compile_error) label += ' ⚠ spec-compile-error';
-      else if (ev.proved === true) label += ' ✓ proved';
-      else if (ev.counterexample === true) label += ' ✗ counterexample';
-      else if (ev.proved === false && ev.counterexample === false) label += ' ? indeterminate';
-      // Multi-layer wiring (2026-05-14): L3 formal verification result
-      // promotes tile to 'confirmed' on proved-true.
-      _trackLayerEvent(ev, ev.proved === true ? 'confirmed' : undefined);
-      pushEvent('L3', label, ev.ts);
-      return;
-    }
-
-    if (k === 'l4_adapter_done' || k === 'litesvm_authored' ||
-        k === 'litesvm_dispatched' || k === 'litesvm_resumed_from_existing') {
-      // L4 runtime fuzz / LiteSVM result. crash_found=true means the
-      // fuzz tripped a new crash (real bug signal). ran_clean=true
-      // means the fuzz session executed without infra failure.
-      if (!_eventInCurrentSession(ev)) {
-        pushEvent('L4 (history)', (ev.hypothesis_id || ev.hyp_id || '?'), ev.ts);
-        return;
-      }
-      const r3 = document.querySelector('.layer-row[data-layer="L3"]');
-      if (r3 && !r3.classList.contains('done')) setLayer('L3', 'done', '✓');
-      setLayer('L4', 'active', 'running');
-      let label = ev.hypothesis_id || ev.hyp_id || '?';
-      if (ev.crash_found === true) label += ' 🔥 crash';
-      else if (ev.ran_clean === true) label += ' ✓ clean';
-      else if (ev.ran_clean === false) label += ' ⚠ unclean';
-      // Multi-layer wiring (2026-05-14): L4 fuzz crash promotes tile
-      // to 'confirmed' (empirical exploit reproduction).
-      _trackLayerEvent(ev, ev.crash_found === true ? 'confirmed' : undefined);
-      pushEvent('L4', label, ev.ts);
-      return;
-    }
-
-    if (k === 'narrative_generated') {
-      if (!_eventInCurrentSession(ev)) {
-        pushEvent('narrative (history)', (ev.hypothesis_id || '?'), ev.ts);
-        return;
-      }
-      pushEvent('narrative', (ev.hypothesis_id || '?') + ' rc=' + (ev.returncode ?? '?'), ev.ts);
-      return;
-    }
-
-    if (k === 'bundle_done') {
-      pushEvent('bundle', '#' + (ev.finding_id ?? '?') + ' draft=' + (ev.draft_rc ?? '?') +
-        ' verify=' + (ev.verify_rc ?? '?'), ev.ts);
       return;
     }
 
@@ -2350,38 +2016,8 @@ main.bridge {
 
     if (k === 'cycle_complete' || k === 'hunt_complete') {
       state.lastCycleAt = Date.now();
-      // Cache the cycle as finished so subsequent stale cycle_active
-      // events on this cycle id don't paint "L1 running" again.
-      //
-      // Use ev.ts (the actual event timestamp, set by the engine) —
-      // NOT new Date() (page-local clock). On --resume-cycle, the
-      // resume's cycle_active event arrives with the SAME cycle id
-      // that was previously stamped finished here. If we used
-      // new Date() we'd then re-stamp it with NOW, but the engine's
-      // resume cycle_active event has an EARLIER ts, so a string
-      // compare on those would say "still finished" even though the
-      // resume cleared finished_at server-side. Use ev.ts so we
-      // can compare apples to apples against subsequent ev.ts values.
-      if (ev.cycle) {
-        let finTs = ev.ts;
-        if (typeof finTs === 'number') {
-          // Unix-second timestamp → ISO so the value type matches the
-          // manifest's finished_at string format.
-          finTs = new Date(finTs * 1000).toISOString();
-        }
-        state.cycleFinishedAt[ev.cycle] = finTs || new Date().toISOString();
-      }
-      const completedCycle = state.activeCycle;
-      // Only paint layers that we KNOW ran on every cycle (L0..L2.5).
-      // L3 (Kani/formal) and L4 (LiteSVM/fuzz) are language-dependent:
-      // Aptos doesn't run either. The SSE cycle_complete event doesn't
-      // carry n_kani_harnesses / n_litesvm, so leave L3/L4 untouched
-      // here — the next manifest snapshot tick (~5s) will repaint them
-      // accurately via paintLayerWaterfallFromCycle, which DOES have
-      // the per-language counts.
-      setLayer('L0', 'done', '✓');
       setLayer('L1', 'done', '✓');
-      ['L1.5','L2','L2.5'].forEach(L => {
+      ['L1.5','L2','L2.5','L3','L4'].forEach(L => {
         const r = document.querySelector('.layer-row[data-layer="' + L + '"]');
         if (r && !r.classList.contains('done') && !r.classList.contains('skipped')) {
           setLayer(L, 'done', '✓');
@@ -2389,16 +2025,10 @@ main.bridge {
       });
       setStage(
         'Cycle complete',
-        `Cycle <span class="accent">${safeStr(completedCycle || '—', 28)}</span> finished. <span class="dim">Watching upstream for next commit.</span>`,
+        `Cycle <span class="accent">${safeStr(state.activeCycle || '—', 28)}</span> finished. <span class="dim">Watching upstream for next commit.</span>`,
         null
       );
-      pushEvent('cycle_complete', 'cycle ' + completedCycle, ev.ts);
-      // Clear active-cycle markers so the rAF tick stops showing
-      // "Cycle for X" and flips to "Idle for X". Without this the
-      // cycle elapsed timer kept ticking after completion.
-      state.activeCycle = null;
-      state.cycleStartedAt = null;
-      $('cycle-elapsed').textContent = '—';
+      pushEvent('cycle_complete', 'cycle ' + state.activeCycle, ev.ts);
       scheduleRefetch();
       return;
     }
@@ -2452,57 +2082,24 @@ main.bridge {
   // We only have n_dispatched + n_true_layer1 (not per-hyp IDs), so
   // tiles are anonymous. Still gives the customer the "look how many
   // hyps got audited" visual.
-  //
-  // PHASE 2 — fixes:
-  //   * Old guard ``state.hyps.size > 0`` prevented repaint, so the
-  //     fire-tile count never advanced as new TRUE verdicts landed
-  //     mid-cycle. Now: ONLY skip-if-populated when we're looking at
-  //     the SAME cycle and the cached counts are unchanged.
-  //   * Old comment said "last nC of those as confirmed" but the
-  //     loop marked the FIRST nC. The actual semantic is "of the nT
-  //     fire tiles, nC are confirmed" — first-nC-of-nT is a fine
-  //     stable choice as long as the code MATCHES the comment.
-  //   * setHypTileState() removed the 'confirmed' class before adding
-  //     'fire', which then got immediately overridden by adding
-  //     'confirmed' back. Now: paint fire first, then add confirmed
-  //     in a single classList op so 'confirmed' isn't dropped.
   function paintGridFromCycle(cycle) {
-    if (!cycle) return;
-    // Bug fix (cycle 20260514-151541): skip painting anonymous
-    // placeholder tiles when the cycle is in-progress. SSE will
-    // deliver real hyp_ids via recon_hyp_start — painting both
-    // creates phantom-tile inflation (e.g. 41 anonymous tiles
-    // named "<cycle>#1..#41" + N real tiles named "APT1..." =
-    // operator sees 67 in a 61-hyp cycle).
-    if (cycle.in_progress) return;
+    if (!cycle || state.hyps.size > 0) return; // don't repaint if already populated
     const n  = cycle.n_dispatched | 0;
     const nT = cycle.n_true_layer1 | 0;
     const nC = cycle.n_confirmed | 0;
     if (n <= 0) return;
-    // Cache the last-painted (cycle_id, n, nT, nC) tuple — repaint
-    // ONLY when one of those changed. Lets the grid track live
-    // mid-cycle progress without flickering on every refresh tick.
-    const sig = (cycle.cycle_id || 'C') + ':' + n + ':' + nT + ':' + nC;
-    if (state._lastGridSig === sig) return;
-    state._lastGridSig = sig;
     for (let i = 0; i < n; i++) {
       const hid = `${cycle.cycle_id || 'C'}#${i + 1}`;
       ensureHypTile(hid);
     }
+    // Mark first nT tiles as fire, last nC of those as confirmed.
     const ids = state.hypsOrder;
-    // Pass 1: clear-then-paint every tile to its baseline (fire vs ok).
     for (let i = 0; i < Math.min(nT, ids.length); i++) {
       setHypTileState(ids[i], 'fire');
+      if (i < nC) state.hyps.get(ids[i]).classList.add('confirmed');
     }
     for (let i = nT; i < ids.length; i++) {
       setHypTileState(ids[i], 'ok');
-    }
-    // Pass 2: of the fire tiles, mark the first nC as confirmed.
-    // Doing this AFTER setHypTileState ensures the 'confirmed' class
-    // isn't wiped by the state setter.
-    for (let i = 0; i < Math.min(nC, nT, ids.length); i++) {
-      const tile = state.hyps.get(ids[i]);
-      if (tile) tile.classList.add('confirmed');
     }
   }
 
@@ -2523,145 +2120,6 @@ main.bridge {
         null
       );
     }
-    // Also paint the layer waterfall from manifest data so the
-    // waterfall reflects state on page load WITHOUT waiting for the
-    // next SSE event (was: layers stuck at "queued" if user loaded
-    // mid-cycle, since waterfall was SSE-driven only).
-    paintLayerWaterfallFromCycle(cycle);
-  }
-
-  // Translate manifest phase + phase_done/phase_total → layer-row state.
-  // Phases used by the engine: recon, debate, poc, l25_triage, kani,
-  // litesvm, publishing. Map each to its L# row and mark earlier
-  // layers as done, current as active, later as queued.
-  function paintLayerWaterfallFromCycle(cycle) {
-    if (!cycle) return;
-    const phase = (cycle.phase || '').toLowerCase();
-    const done = cycle.phase_done;
-    const total = cycle.phase_total;
-    const pct = cycle.progress_pct;
-    const ALL_LAYERS = ['L0','L1','L1.5','L2','L2.5','L3','L4'];
-
-    // Phase → L# label. Used while cycle is in_progress.
-    const PHASE_TO_LAYER = {
-      'recon':       'L1',
-      'debate':      'L1.5',
-      'poc':         'L2',
-      'l25_triage':  'L2.5',
-      'triage':      'L2.5',
-      'kani':        'L3',
-      'formal':      'L3',
-      'litesvm':     'L4',
-      'fuzz':        'L4',
-      'publishing':  null,  // all layers done
-    };
-
-    // ── FINISHED-CYCLE PATH ──
-    // Detect "cycle is done" by EITHER:
-    //   1. finished_at is set in manifest (DB-finished)
-    //   2. phase is null/empty AND in_progress is false/null (filesystem
-    //      heuristic exhausted)
-    //   3. phase == 'publishing' (hunt_summary.json present)
-    // In all three, paint each layer accurately — L0/L1/L1.5/L2/L2.5
-    // ran on every cycle so they get ✓. L3 (Kani/formal) and L4
-    // (LiteSVM/fuzz) are language-dependent: Aptos uses neither (no
-    // Kani backend for Move, and the move runner already covers
-    // LiteSVM's role), so n_kani_harnesses=0 and n_litesvm=0 on every
-    // Aptos cycle. Paint those as "skipped" so the operator can see
-    // they didn't run rather than misreading them as completed.
-    // Operator caught this: "after L2 was completed, all other layers
-    // checked out as completed" — for Aptos that's wrong, L3/L4 were
-    // never executed.
-    const isFinished = (
-      cycle.finished_at != null
-      || (phase === '' && !cycle.in_progress)
-      || phase === 'publishing'
-    );
-    if (isFinished) {
-      // L0 (prompt build) and L1 (recon) ran on every cycle that
-      // reached the publish stage. Mark unconditionally done.
-      setLayer('L0', 'done', '✓');
-      setLayer('L1', 'done', '✓');
-      // Bug fix (cycle 20260514-151541): L1.5 / L2 / L2.5 / L3 / L4
-      // can ALL be skipped per the operator's --skip-* flags. Mark
-      // each based on whether the manifest has positive evidence
-      // they ran. n_confirmed > 0 implies L2 + L2.5 + L1.5 ran (a
-      // bug confirmed for the customer only after passing each).
-      // Standalone signals: n_debate_runs / n_poc_fired / n_triage.
-      // None of these have manifest fields today, so we fall back
-      // on the n_confirmed implication. Without it we mark
-      // "skipped" so the operator sees the partial-cycle truth
-      // rather than reading false "completed" greens.
-      const ran125 = (cycle.n_confirmed || 0) > 0
-                   || (cycle.n_debate_runs || 0) > 0
-                   || (cycle.n_poc_fired || 0) > 0;
-      setLayer('L1.5', ran125 ? 'done' : 'skipped', ran125 ? '✓' : 'n/a');
-      setLayer('L2',   ran125 ? 'done' : 'skipped', ran125 ? '✓' : 'n/a');
-      setLayer('L2.5', ran125 ? 'done' : 'skipped', ran125 ? '✓' : 'n/a');
-      const l3Ran = (cycle.n_kani_harnesses || 0) > 0;
-      const l4Ran = (cycle.n_litesvm || 0) > 0;
-      setLayer('L3', l3Ran ? 'done' : 'skipped', l3Ran ? '✓' : 'n/a');
-      setLayer('L4', l4Ran ? 'done' : 'skipped', l4Ran ? '✓' : 'n/a');
-      return;
-    }
-
-    // ── UNKNOWN PHASE PATH ──
-    const activeLayer = PHASE_TO_LAYER[phase];
-    if (activeLayer == null) {
-      // No phase info yet — leave as-is for SSE/next manifest to update.
-      return;
-    }
-
-    // ── IN-PROGRESS PATH ──
-    //
-    // Manifest is the SOURCE OF TRUTH for layer state here. The old
-    // reset loop preserved any layer the SSE handler had previously
-    // painted "done" or "skipped" — which meant L3/L4 paints from
-    // stale events (from a previous run on the same cycle id) stuck
-    // forever even after the hunt was killed. Operator caught this
-    // on cycle 20260513-191318: L3/L4 showed "completed" with no
-    // hunt running.
-    //
-    // New rule: every manifest tick fully reconciles the waterfall
-    // against authoritative manifest data. Later layers get force-
-    // reset to queued regardless of what SSE may have painted —
-    // except when manifest's own counters back them up:
-    //   * L3 stays done if cycle.n_kani_harnesses > 0
-    //   * L4 stays done if cycle.n_litesvm > 0
-    // (Live SSE events still update these in real time during a
-    // hunt — the manifest tick that follows just confirms.)
-    setLayer('L0', 'done', '✓');
-    const activeIdx = ALL_LAYERS.indexOf(activeLayer);
-    for (let i = 1; i < activeIdx; i++) {
-      setLayer(ALL_LAYERS[i], 'done', '✓');
-    }
-    const label = (done != null && total)
-      ? (done + '/' + total)
-      : 'running';
-    setLayer(activeLayer, 'active', label, pct != null ? pct : 5);
-    const l3Done = (cycle.n_kani_harnesses || 0) > 0;
-    const l4Done = (cycle.n_litesvm || 0) > 0;
-    for (let i = activeIdx + 1; i < ALL_LAYERS.length; i++) {
-      const L = ALL_LAYERS[i];
-      if (L === 'L3' && l3Done) {
-        setLayer('L3', 'done', '✓');
-        continue;
-      }
-      if (L === 'L4' && l4Done) {
-        setLayer('L4', 'done', '✓');
-        continue;
-      }
-      // Force-reset (no `if !done && !skipped` guard) — stale SSE
-      // paints from prior runs lose to authoritative manifest data.
-      const row = document.querySelector('.layer-row[data-layer="' + L + '"]');
-      if (row) {
-        row.classList.remove('active', 'done', 'skipped');
-        const s = row.querySelector('.status');
-        if (s) s.textContent = 'queued';
-        const b = row.querySelector('.bar > div');
-        if (b) b.style.width = '0%';
-      }
-    }
   }
 
   // ───── snapshot.json (public aggregate) ─────
@@ -2672,18 +2130,9 @@ main.bridge {
   async function refreshSnapshot() {
     const d = await fetchJson(SNAPSHOT_URL);
     if (!d) return;
-    // cycles-signed counter — PER-TAB count (was: global d.cycles_total
-    // which showed customer-wide total on every tab, misleading). When
-    // an active tab is selected, count cycles whose target_id matches.
-    const activeIdForCt = activeTargetId();
-    if (Array.isArray(d.recent_cycles)) {
-      const ctMatches = activeIdForCt == null
-        ? d.recent_cycles.length
-        : d.recent_cycles.filter(c => c.target_id === activeIdForCt).length;
-      $('ct-cycles').textContent = ctMatches;
-    } else if (d.cycles_total != null) {
-      $('ct-cycles').textContent = d.cycles_total;
-    }
+    // cycles total — informational counter in right rail
+    if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
+    if (d.stats && d.stats.n_cycles != null) $('ct-cycles').textContent = d.stats.n_cycles;
     // services — count those in "up" state from the services[] array
     if (Array.isArray(d.services)) {
       const up = d.services.filter(s => (s.state || '').toLowerCase() === 'up').length;
@@ -2691,123 +2140,28 @@ main.bridge {
     }
     // uptime — use loop_uptime_human (snapshot's real field name)
     if (d.loop_uptime_human) $('loop-uptime').textContent = d.loop_uptime_human;
-    // Spend is now driven by SSE recon_hyp_done events (per-hyp tokens
-    // × Sonnet 4.6 price), reset on cycle_active. The d.spend manifest
-    // field was unreliable (rarely populated, no cap to compare to)
-    // and showed a confusing "/ $800 today" lie. Drop it.
-    // Cache target_id ↔ target_name + cycle_id → target_id maps so
-    // per-tab filtering can answer "is this cycle/event for my tab?"
-    if (Array.isArray(d.targets)) {
-      d.targets.forEach(t => {
-        if (t.name && t.id != null) {
-          state.targetIdByName[t.name] = t.id;
-          state.targetNameById[t.id] = t.name;
-        }
-      });
+    // spend — snapshot exposes today_usd + total_usd. Daily cap isn't in
+    // the API; default to $800 (recon's default --budget-cap-usd × ~3).
+    if (d.spend) {
+      const today = d.spend.today_usd != null ? d.spend.today_usd : 0;
+      setCost(today, state.costCap || 800);
     }
-    if (Array.isArray(d.recent_cycles)) {
-      d.recent_cycles.forEach(c => {
-        if (c.cycle_id && c.target_id != null) {
-          state.cycleIdToTargetId[c.cycle_id] = c.target_id;
-        }
-        if (c.cycle_id) {
-          // Track finished_at so the cycle_active SSE handler can
-          // tell stale on-connect emissions apart from real new
-          // cycles. null/undefined means "still in progress".
-          state.cycleFinishedAt[c.cycle_id] = c.finished_at || null;
-        }
-      });
-    }
-
-    // recent_cycles — pick the cycle that matches the ACTIVE tab. If
-    // no cycle exists for the active tab, clear the stage so the user
-    // sees an honest "no active cycle for <tab>" instead of the wrong
-    // tab's cycle bleeding through.
-    if (Array.isArray(d.recent_cycles)) {
-      const activeId = activeTargetId();
-      const matching = activeId == null
-        ? d.recent_cycles
-        : d.recent_cycles.filter(c => c.target_id === activeId);
-      if (matching.length > 0) {
-        const latest = matching[0];
-        paintStageFromCycle(latest);
-        paintGridFromCycle(latest);
-        // The active-cycle id pinning:
-        //   in_progress=true → set state.activeCycle so elapsed timer runs
-        //   in_progress=false (finished) → clear state.activeCycle so the
-        //     elapsed timer flips to "Idle for X", AND populate
-        //     state.lastCycleAt from finished_at so the idle counter
-        //     measures from a real timestamp.
-        // Persisted triage counts from hunt_summary.json — replay
-        // the panel on every manifest tick so a page refresh on a
-        // finished cycle still shows STRONG/SOFT/FALSE/LOST instead
-        // of resetting to zeros.
-        //
-        // PHASE 2 — ONLY clobber state.triage when the live counts
-        // are zero OR less than the manifest's. Live SSE triage_one
-        // events maintain higher-resolution counts than the manifest
-        // (which lags by ~5s); if the manifest tick comes in with
-        // an OLDER snapshot we'd roll the live counts back. So
-        // accept the manifest only when it's strictly fresher
-        // (sum strictly greater) OR live counts are empty.
-        if (latest.triage_counts && typeof latest.triage_counts === 'object') {
-          const tc = latest.triage_counts;
-          const manifestTotal =
-            (tc.STRONG || 0) + (tc.SOFT || 0) + (tc.FALSE || 0) + (tc.LOST || 0);
-          const liveTotal =
-            (state.triage.strong || 0) + (state.triage.soft || 0)
-            + (state.triage.false_ || 0) + (state.triage.lost || 0);
-          if (manifestTotal > liveTotal) {
-            state.triage = {
-              strong: tc.STRONG || 0,
-              soft:   tc.SOFT   || 0,
-              false_: tc.FALSE  || 0,
-              lost:   tc.LOST   || 0,
-            };
-            if (typeof renderTriage === 'function') renderTriage();
+    // recent_cycles — golden data. Pre-paint grid + stage from cycle[0].
+    if (Array.isArray(d.recent_cycles) && d.recent_cycles.length > 0) {
+      const latest = d.recent_cycles[0];
+      paintStageFromCycle(latest);
+      paintGridFromCycle(latest);
+      // Track the most-recent cycle id even if SSE didn't say so yet
+      if (latest.cycle_id && !state.activeCycle && latest.in_progress) {
+        state.activeCycle = latest.cycle_id;
+        $('active-cycle').textContent = safeStr(latest.cycle_id, 28);
+        if (latest.started_at) {
+          const t = Date.parse(latest.started_at);
+          if (!isNaN(t)) {
+            state.cycleStartedAt = t;
+            $('cycle-started').textContent = fmtTime(t);
           }
         }
-        if (latest.in_progress) {
-          state.activeCycle = latest.cycle_id;
-          $('active-cycle').textContent = safeStr(latest.cycle_id, 28);
-          if (latest.started_at) {
-            const t = Date.parse(latest.started_at);
-            if (!isNaN(t)) {
-              state.cycleStartedAt = t;
-              $('cycle-started').textContent = fmtTime(t);
-            }
-          }
-        } else {
-          // Cycle is FINISHED for this tab. Clear active markers so
-          // the elapsed timer doesn't keep ticking on a dead cycle.
-          state.activeCycle = null;
-          state.cycleStartedAt = null;
-          $('active-cycle').textContent = safeStr(latest.cycle_id, 28);
-          $('cycle-elapsed').textContent = '—';
-          if (latest.finished_at) {
-            const ft = Date.parse(latest.finished_at);
-            if (!isNaN(ft)) state.lastCycleAt = ft;
-          }
-        }
-      } else if (activeId != null) {
-        // Active tab has no cycle yet — show honest empty state
-        setStage('No active cycle',
-          `<span class="dim">${safeStr(window.JELLEO_ACTIVE_TARGET, 40)} hasn't started a cycle yet</span>`,
-          null);
-        state.activeCycle = null;
-        state.cycleStartedAt = null;
-        $('active-cycle').textContent = '—';
-        // Also reset waterfall to all queued — no cycle means no layers active
-        ['L0','L1','L1.5','L2','L2.5','L3','L4'].forEach(L => {
-          const row = document.querySelector('.layer-row[data-layer="' + L + '"]');
-          if (row) {
-            row.classList.remove('active', 'done', 'skipped');
-            const s = row.querySelector('.status');
-            if (s) s.textContent = 'queued';
-            const b = row.querySelector('.bar > div');
-            if (b) b.style.width = '0%';
-          }
-        });
       }
     }
   }
@@ -2820,81 +2174,29 @@ main.bridge {
       const nameEl = document.querySelector('.bridge-customer-tag .name');
       if (nameEl) nameEl.textContent = d.customer.name;
     }
-    // Same map population as refreshSnapshot — manifest may arrive first
-    if (Array.isArray(d.targets)) {
-      d.targets.forEach(t => {
-        if (t.name && t.id != null) {
-          state.targetIdByName[t.name] = t.id;
-          state.targetNameById[t.id] = t.name;
-        }
-      });
-    }
-    if (Array.isArray(d.recent_cycles)) {
-      d.recent_cycles.forEach(c => {
-        if (c.cycle_id && c.target_id != null) {
-          state.cycleIdToTargetId[c.cycle_id] = c.target_id;
-        }
-        if (c.cycle_id) {
-          // Track finished_at so the cycle_active SSE handler can
-          // tell stale on-connect emissions apart from real new
-          // cycles. null/undefined means "still in progress".
-          state.cycleFinishedAt[c.cycle_id] = c.finished_at || null;
-        }
-      });
-    }
-
-    // Findings filtered by active tab so each tab shows its own.
-    const allFindings = (d.findings || d.public_findings || []);
-    const activeId = activeTargetId();
-    const findings = activeId == null
-      ? allFindings
-      : allFindings.filter(f => f.target_id === activeId);
-    // Count Critical / High only when the finding has REACHED A PUBLIC
-    // STATUS (confirmed / disclosed / fixed / verified). A "triaged"
-    // STRONG-duplicate or SOFT-classified fire is NOT an independent
-    // Critical — it's a copy of one. This keeps the lobby's headline
-    // counts in sync with the per-cycle PDF's cover page.
-    const REAL_STATUSES = new Set([
-      'confirmed', 'disclosed', 'fixed', 'verified',
-    ]);
+    // Findings — manifest doesn't have a `findings` key today; uses
+    // `public_findings` (same shape as snapshot). When customer-private
+    // findings ship, this code path picks them up via either key.
+    const findings = (d.findings || d.public_findings || []);
     let crit = 0, high = 0, conf = 0;
     findings.forEach(f => {
       const sev = f.severity || f.sev || '';
+      if (sev === 'Critical') crit++;
+      if (sev === 'High') high++;
       const st = f.status || '';
-      const real = REAL_STATUSES.has(st);
-      if (sev === 'Critical' && real) crit++;
-      if (sev === 'High' && real) high++;
-      if (real) conf++;
+      if (st === 'confirmed' || st === 'disclosed' || st === 'fixed' || st === 'verified') conf++;
     });
     $('ct-crit').textContent = crit;
     $('ct-high').textContent = high;
     $('ct-confirmed').textContent = conf;
     $('findings-count').textContent = findings.length;
-
-    // Targets-scanned counter: of the 12 OSec eval tabs, how many have
-    // produced at least one confirmed/disclosed/fixed/verified finding?
-    // That's the right denominator — a target hasn't been "scanned to
-    // a result" until the pipeline produces real signal on it.
-    try {
-      const scannedTargetIds = new Set();
-      allFindings.forEach(f => {
-        if (REAL_STATUSES.has(f.status || '') && f.target_id != null) {
-          scannedTargetIds.add(f.target_id);
-        }
-      });
-      const totalTargets = Array.isArray(d.targets) ? d.targets.length : 12;
-      const tsEl = document.getElementById('ct-targets-scanned');
-      if (tsEl) tsEl.textContent = scannedTargetIds.size + ' / ' + totalTargets;
-    } catch (_e) { /* non-fatal */ }
     clearFindingsLoadingMsg();
     if (findings.length === 0) {
       const stream = $('findings-stream');
       if (stream && stream.children.length === 0) {
         const empty = document.createElement('div');
         empty.style.cssText = 'color: var(--ink-4); font-family: var(--mono); font-size: 10px; padding: 20px 0; text-align: center; letter-spacing: 0.18em; text-transform: uppercase;';
-        empty.textContent = activeId == null
-          ? 'no findings yet · awaiting first cycle'
-          : 'no findings on ' + safeStr(window.JELLEO_ACTIVE_TARGET, 40) + ' yet';
+        empty.textContent = 'no open findings · last cycle clean';
         stream.appendChild(empty);
       }
     } else {
@@ -2903,18 +2205,13 @@ main.bridge {
         if (!state.findings.has(fid)) upsertFinding(f);
       });
     }
-    // Pre-paint grid + stage from active-tab cycle + ct-cycles count
-    if (Array.isArray(d.recent_cycles)) {
-      const matching = activeId == null
-        ? d.recent_cycles
-        : d.recent_cycles.filter(c => c.target_id === activeId);
-      // PER-TAB cycle count (not customer-wide)
-      $('ct-cycles').textContent = matching.length;
-      if (matching.length > 0) {
-        const latest = matching[0];
-        paintStageFromCycle(latest);
-        paintGridFromCycle(latest);
-      }
+    // Pre-paint grid + stage from recent_cycles[0] if we have it
+    // (manifest mirrors snapshot today; covers the case where snapshot
+    // fetch was slower or failed).
+    if (Array.isArray(d.recent_cycles) && d.recent_cycles.length > 0) {
+      const latest = d.recent_cycles[0];
+      paintStageFromCycle(latest);
+      paintGridFromCycle(latest);
     }
   }
 
@@ -2925,28 +2222,13 @@ main.bridge {
       state.heartbeatTs = Date.parse(d.generated_at);
     }
     if (d.engine_sha) setEngineSha(d.engine_sha);
-    // ct-cycles is set by refreshSnapshot/refreshManifest with the
-    // PER-TAB count. Don't overwrite here with the customer-wide
-    // d.cycles_total (was leaking the global count onto every tab).
+    if (d.cycles_total != null) $('ct-cycles').textContent = d.cycles_total;
     if (d.last_cycle_ts) {
       const t = Date.parse(d.last_cycle_ts);
       if (!isNaN(t)) {
         state.lastCycleAt = t;
         $('last-cycle-rel').textContent = fmtRel(t);
       }
-    }
-    // PERSISTENT spend display — driven by heartbeat, NOT only by
-    // in-page SSE accumulation. Survives page refresh because the
-    // server recomputes from hunt.log.jsonl every snapshot tick.
-    // - $X.XXX this cycle    ← active cycle spend
-    // - $X.XXX session        ← cumulative across every cycle for this customer
-    if (typeof d.active_cycle_spend_usd === 'number') {
-      state.cycleSpendUsd = d.active_cycle_spend_usd;
-      setCost(d.active_cycle_spend_usd);
-    }
-    if (typeof d.session_total_spend_usd === 'number') {
-      const el = $('cost-session');
-      if (el) el.textContent = '$ ' + d.session_total_spend_usd.toFixed(3);
     }
     // service_summary is an object; count active.
     if (d.service_summary && typeof d.service_summary === 'object') {
@@ -3011,24 +2293,11 @@ main.bridge {
     const dt = nowMs - lastTickMs;
     lastTickMs = nowMs;
 
-    // Cycle / idle timer: if a cycle is running, show how long it's
-    // been running (label flips to "Cycle for"). If between cycles,
-    // show idle time since last cycle. If neither, dash.
-    const idleEl = $('idle-since');
-    const idleLabel = idleEl ? idleEl.parentElement.querySelector('.label') : null;
-    if (state.activeCycle && state.cycleStartedAt) {
-      if (idleLabel) idleLabel.textContent = 'Cycle for';
-      idleEl.textContent = fmtDur(Date.now() - state.cycleStartedAt);
-    } else if (state.lastCycleAt) {
-      if (idleLabel) idleLabel.textContent = 'Idle for';
-      idleEl.textContent = fmtDur(Date.now() - state.lastCycleAt);
-    } else {
-      if (idleLabel) idleLabel.textContent = 'Idle for';
-      idleEl.textContent = '—';
-    }
-    if (state.cycleStartedAt) {
-      const el = $('cycle-elapsed');
-      if (el) el.textContent = fmtDur(Date.now() - state.cycleStartedAt);
+    // Idle-since timer: always counting up
+    if (state.lastCycleAt) {
+      $('idle-since').textContent = fmtDur(Date.now() - state.lastCycleAt);
+    } else if (state.cycleStartedAt) {
+      $('cycle-elapsed').textContent = fmtDur(Date.now() - state.cycleStartedAt);
     }
 
     // Heartbeat age display
@@ -3119,108 +2388,6 @@ main.bridge {
       });
     });
   }
-
-  // ───── Tab-switch reset: wipe per-cycle state + refresh ─────
-  // When the operator clicks a different tab, the Bridge panels must
-  // re-evaluate their content for the NEW active target. Without this,
-  // switching from "Aptos · small" to "C · small" would leave the
-  // aptos cycle id painted on the stage. We:
-  //   1. clear in-memory per-cycle state (findings cache, hyp grid)
-  //   2. blank the stage banner ("loading <target>...")
-  //   3. trigger a fresh refreshAll() which repaints from manifest
-  //      filtered by the new active target
-  window.addEventListener('jelleo:target-switched', (e) => {
-    const newTarget = e.detail && e.detail.target;
-
-    // -- Findings cache + stream
-    state.findings.clear();
-    const fstream = $('findings-stream');
-    if (fstream) fstream.innerHTML = '';
-
-    // -- Hypothesis grid
-    const grid = $('hyp-grid');
-    if (grid) {
-      state.hyps.forEach(tile => {
-        if (tile && tile.parentNode === grid) grid.removeChild(tile);
-      });
-    }
-    state.hyps.clear();
-    state.hypsOrder.length = 0;
-    const gridTotal = $('grid-total');
-    if (gridTotal) gridTotal.textContent = '0';
-
-    // -- Cycle pointers
-    state.activeCycle = null;
-    state.cycleStartedAt = null;
-    state.activeHypId = null;
-    state.activeHypProgress = null;
-    // NOTE: do NOT clear state.lastCycleAt here. refreshSnapshot will
-    // overwrite it from the new tab's per-target finished_at if a
-    // finished cycle exists, but if it stays null in the meantime the
-    // rAF tick can't compute "Idle for X" — better to leave the prior
-    // value briefly than show "—" until the manifest fetch returns.
-    $('active-cycle').textContent = '—';
-    $('cycle-started').textContent = '—';
-    $('cycle-elapsed').textContent = '—';
-
-    // -- Cost ticker (per-cycle, resets on tab switch since each tab
-    //    tracks its own cycle's spend)
-    state.cycleSpendUsd = 0;
-    setCost(0);
-
-    // -- Sparkline rolling-window buffers (tokens/s, hyps/min,
-    //    tools/min). Without clearing, the new tab inherits the
-    //    previous tab's recent token bursts and reports nonsense.
-    state.tokensThisSec.length = 0;
-    state.hypsDoneThisMinute.length = 0;
-    state.toolCallsThisMinute.length = 0;
-    $('spark-tokens-val').textContent = '0';
-    $('spark-hyps-val').textContent = '0';
-    $('spark-tools-val').textContent = '0';
-    const sparkTokens = $('spark-tokens');
-    const sparkHyps = $('spark-hyps');
-    const sparkTools = $('spark-tools');
-    if (sparkTokens) sparkTokens.setAttribute('points', '');
-    if (sparkHyps) sparkHyps.setAttribute('points', '');
-    if (sparkTools) sparkTools.setAttribute('points', '');
-
-    // -- Layer waterfall (L0..L4) reset to queued; new tab's events
-    //    will repaint as they arrive
-    ['L0','L1','L1.5','L2','L2.5','L3','L4'].forEach(L => {
-      const row = document.querySelector('.layer-row[data-layer="' + L + '"]');
-      if (row) {
-        row.classList.remove('active', 'done', 'skipped');
-        const status = row.querySelector('.status');
-        if (status) status.textContent = 'queued';
-        const bar = row.querySelector('.bar > div');
-        if (bar) bar.style.width = '0%';
-      }
-    });
-
-    // -- Source-grounding tool calls (live event terminal): clear so
-    //    the new tab starts fresh, not with prior-tab's tool calls
-    const eterm = $('event-terminal-body');
-    if (eterm) eterm.innerHTML = '';
-
-    // -- Per-tab counter chips (Critical/High/Confirmed/Cycles).
-    //    refreshManifest will recompute these from filtered findings,
-    //    but clear the displayed values first so the user sees the
-    //    transition rather than stale numbers.
-    $('ct-crit').textContent = '0';
-    $('ct-high').textContent = '0';
-    $('ct-confirmed').textContent = '0';
-    $('ct-cycles').textContent = '0';
-    $('findings-count').textContent = '0';
-
-    // -- Stage banner
-    setStage('Switching tab',
-      `<span class="dim">Loading state for ${safeStr(newTarget, 40)}...</span>`, null);
-
-    // Pull fresh data for the new tab — refreshSnapshot/refreshManifest
-    // populate from manifest filtered by activeTargetId(), and the
-    // SSE stream will deliver new per-tab events going forward.
-    refreshAll();
-  });
 
   // ───── Bootstrap ─────
   function start() {
