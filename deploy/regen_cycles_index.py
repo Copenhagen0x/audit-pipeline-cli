@@ -99,6 +99,22 @@ def _scan_cycles(cycles_dir: Path) -> list[dict[str, str]]:
             child.name.upper().startswith("RETRACTED-")
             or (child / "retraction.json").is_file()
         )
+        # Read target name from hunt_summary.json if present so the
+        # cycles archive can label each cycle by its audit target
+        # (e.g. `osec-aptos-large`, `percolator`). Without this every
+        # row looks identical to a reader who doesn't know cycle IDs.
+        target = ""
+        for summary_name in ("hunt_summary.json",):
+            summary_path = child / summary_name
+            if summary_path.is_file():
+                try:
+                    import json as _json
+                    summary = _json.loads(summary_path.read_text(encoding="utf-8"))
+                    target = (summary.get("target") or "").strip()
+                    if target:
+                        break
+                except (OSError, ValueError):
+                    pass
         out.append({
             "cycle_id":  child.name,
             "signed_at": _read_signed_at(sig) or "",
@@ -107,6 +123,7 @@ def _scan_cycles(cycles_dir: Path) -> list[dict[str, str]]:
             "pdf_name":  pdf_name,
             "sig_name":  sig_name,
             "retracted": "y" if retracted else "n",
+            "target":    target,
         })
     # Disclosure audit Defect 08: sort by parsed signed_at timestamp,
     # NOT by directory name. A ``RETRACTED-`` prefix would otherwise
@@ -140,13 +157,24 @@ def _row_html(row: dict[str, str]) -> str:
         if row.get("retracted") == "y" else ""
     )
     row_class = ' class="cyc-retracted"' if row.get("retracted") == "y" else ""
+    target = _esc(row.get("target") or "")
+    target_cell = (
+        f'<td><code class="cyc-target">{target}</code></td>'
+        if target else '<td class="cyc-muted">—</td>'
+    )
     return (
         f'<tr{row_class}>'
         f'<td><a class="cyc-row-link" href="{cid}/{_esc(row["html_name"])}">{label}</a>{retracted_badge}</td>'
+        f'{target_cell}'
         f'<td class="cyc-muted">{signed_at}</td>'
         f'<td><a class="cyc-link" href="{cid}/{_esc(row["html_name"])}">HTML</a></td>'
         f'<td>{pdf_cell}</td>'
         f'<td><a class="cyc-link" href="{cid}/{_esc(row["sig_name"])}">sig</a></td>'
+        # Pubkey link is platform-wide — every row points at the same
+        # canonical key on api.jelleo.com. Surfaced per-row so a reviewer
+        # has the full `audit-pipeline sign verify` triple
+        # (file + .sig + .pub) without leaving the cycles index.
+        f'<td><a class="cyc-link" href="https://api.jelleo.com/keys/jelleo.ed25519.pub">.pub</a></td>'
         '</tr>'
     )
 
@@ -175,7 +203,7 @@ def _render_cycles_body(rows: list[dict[str, str]]) -> str:
     typography across the table."""
     n = len(rows)
     body = "\n          ".join(_row_html(r) for r in rows) if rows else (
-        '<tr><td colspan="5" class="cyc-muted">no signed cycles yet</td></tr>'
+        '<tr><td colspan="7" class="cyc-muted">no signed cycles yet</td></tr>'
     )
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     return f"""<main id="main">
@@ -230,7 +258,7 @@ def _render_cycles_body(rows: list[dict[str, str]]) -> str:
   <div class="cyc-table-wrap">
     <table class="cyc-table">
       <thead>
-        <tr><th>Cycle</th><th>Signed at</th><th>HTML</th><th>PDF</th><th>Sig</th></tr>
+        <tr><th>Cycle</th><th>Target</th><th>Signed at</th><th>HTML</th><th>PDF</th><th>Sig</th><th>Pubkey</th></tr>
       </thead>
       <tbody>
         {body}
@@ -269,7 +297,7 @@ def _render_index(rows: list[dict[str, str]], chrome_dir: Path = DEFAULT_CHROME_
     # Fallback (no chrome partials available — shouldn't happen on the VPS)
     n = len(rows)
     rows_html = "\n          ".join(_row_html(r) for r in rows) if rows else (
-        '<tr><td colspan="5" class="muted">no signed cycles yet</td></tr>'
+        '<tr><td colspan="7" class="muted">no signed cycles yet</td></tr>'
     )
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     return f"""<!doctype html>
@@ -484,7 +512,7 @@ footer a:hover {{ color: var(--amber); border-bottom-color: var(--amber); }}
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Cycle</th><th>Signed at</th><th>HTML</th><th>PDF</th><th>Sig</th></tr>
+        <tr><th>Cycle</th><th>Target</th><th>Signed at</th><th>HTML</th><th>PDF</th><th>Sig</th><th>Pubkey</th></tr>
       </thead>
       <tbody>
         {body}

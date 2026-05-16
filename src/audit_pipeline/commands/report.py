@@ -460,10 +460,16 @@ def _detect_language(workspace: Path, cycle_id: str) -> str:
 def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
     """Table of audit-artifact paths so a reviewer can verify the work.
 
-    Lists every file or directory the report references — PoCs, Move
-    Prover specs, fuzz harnesses, bundles, merkle root, signed reports
-    — relative to the workspace root. Existence-checked so absent
+    Lists every file or directory the report references — PoCs, formal
+    specs, fuzz harnesses, bundles, merkle root, signed reports —
+    relative to the workspace root. Existence-checked so absent
     artifacts render dimmed with a "(missing)" marker.
+
+    Per-language branching (2026-05-15): Solana cycles render with
+    Solana paths (`hunts/<cycle>/poc/test_*.rs`, `hunts/<cycle>/kani`,
+    `hunts/<cycle>/litesvm`, `hunts/<cycle>/bundles/*`). Aptos cycles
+    keep the legacy Move-prover / fuzz directory layout. Without this
+    branch the appendix on a Solana cycle still claimed Aptos paths.
 
     Entry: ``(label, displayed_path, abs_path, fallback_note)`` —
     fallback_note replaces the "(absent in this cycle)" marker when
@@ -471,6 +477,22 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
     Ed25519 public key is platform-wide, served from jelleo.com/keys/).
     """
     cycle_dir = workspace / "hunts" / cycle_id
+    language = _detect_language(workspace, cycle_id)
+    is_aptos = language == "aptos"
+
+    # Resolve the actual findings.db that hunt.py wrote to: prefer
+    # workspace-local, then the parent ``workspaces/`` dir, then the
+    # eval-suite root (where the shared DB lives for OSec cycles).
+    findings_db_candidates = [
+        workspace / "findings.db",
+        workspace.parent / "findings.db",
+        workspace.parent.parent / "findings.db",
+    ]
+    findings_db_path = next(
+        (p for p in findings_db_candidates if p.is_file()),
+        workspace / "findings.db",
+    )
+
     entries: list[tuple[str, str, Path, str]] = [
         ("Cycle summary (manifest of every step)",
          "hunts/<cycle>/hunt_summary.json",
@@ -481,21 +503,57 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
         ("Layer 2.5 triage verdicts",
          "hunts/<cycle>/triage.jsonl",
          cycle_dir / "triage.jsonl", ""),
-        ("Layer 2 PoC sources (Move)",
-         "tests/aptos/test_<slug>.move",
-         workspace / "tests" / "aptos", ""),
-        ("Layer 2 PoC run logs",
-         "hunts/<cycle>/poc/runlog_<slug>.log",
-         cycle_dir / "poc", ""),
-        ("Layer 3 Move Prover specs",
-         "formal/aptos/spec_<slug>_invariant.move",
-         workspace / "formal" / "aptos", ""),
-        ("Layer 4 property-fuzz harnesses",
-         "fuzz/aptos/property_<slug>.move",
-         workspace / "fuzz" / "aptos", ""),
-        ("Layer P3 fix bundles (patch.diff + writeup.md + meta.json)",
-         "recon/bundles/<finding_id>/",
-         workspace / "recon" / "bundles", ""),
+    ]
+
+    if is_aptos:
+        entries.extend([
+            ("Layer 2 PoC sources (Move)",
+             "tests/aptos/test_<slug>.move",
+             workspace / "tests" / "aptos", ""),
+            ("Layer 2 PoC run logs",
+             "hunts/<cycle>/poc/runlog_<slug>.log",
+             cycle_dir / "poc", ""),
+            ("Layer 3 Move Prover specs",
+             "formal/aptos/spec_<slug>_invariant.move",
+             workspace / "formal" / "aptos", ""),
+            ("Layer 4 property-fuzz harnesses",
+             "fuzz/aptos/property_<slug>.move",
+             workspace / "fuzz" / "aptos", ""),
+        ])
+    else:
+        # Solana cycle artifacts. The isolated L3 (Kani) and L4
+        # (LiteSVM) runners shipped 2026-05-15 stash their sidecar
+        # workspaces under ``hunts/<cycle>/kani/<slug>/`` and
+        # ``hunts/<cycle>/litesvm/<slug>/``.
+        entries.extend([
+            ("Layer 2 PoC sources (Rust)",
+             "hunts/<cycle>/poc/test_<slug>.rs",
+             cycle_dir / "poc", ""),
+            ("Layer 2 PoC run logs",
+             "hunts/<cycle>/poc/cargo_<slug>.log",
+             cycle_dir / "poc", ""),
+            ("Layer 3 Kani harnesses + verdicts",
+             "hunts/<cycle>/kani/<slug>/",
+             cycle_dir / "kani", ""),
+            ("Layer 4 LiteSVM exploit tests",
+             "hunts/<cycle>/litesvm/<slug>/",
+             cycle_dir / "litesvm", ""),
+        ])
+
+    # Disclosure bundles are language-agnostic; both Aptos and Solana
+    # cycles now ship bundles under hunts/<cycle>/bundles/ (the older
+    # recon/bundles/ path is legacy Percolator).
+    bundles_path = cycle_dir / "bundles"
+    if not bundles_path.is_dir():
+        bundles_path = workspace / "recon" / "bundles"
+        bundle_rel = "recon/bundles/<finding_id>/"
+    else:
+        bundle_rel = "hunts/<cycle>/bundles/<finding_id>/"
+
+    entries.extend([
+        ("Layer P3 fix bundles (patch.diff + evidence/ + manifest.json)",
+         bundle_rel,
+         bundles_path, ""),
         ("Narrative writeups (per finding)",
          "hunts/<cycle>/narratives/<hyp_id>.md",
          cycle_dir / "narratives", ""),
@@ -504,7 +562,7 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
          cycle_dir / "merkle.json", ""),
         ("Findings DB (SQLite)",
          "findings.db",
-         workspace / "findings.db", ""),
+         findings_db_path, ""),
         ("Ed25519 public key for receipt verification",
          "https://jelleo.com/keys/jelleo.ed25519.pub",
          # Resolve to the first existing location: workspace → eval-suite
@@ -519,7 +577,7 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
              workspace / "keys" / "jelleo.ed25519.pub",
          ),
          "(platform-wide key &mdash; served from jelleo.com/keys/)"),
-    ]
+    ])
     rows = []
     for label, rel, abs_path, fallback_note in entries:
         exists = abs_path.exists() or bool(fallback_note)
@@ -698,7 +756,24 @@ def _scope_section(
         return ""
     engine_sha_full = (cycle.get("engine_sha") or "").strip()
     engine_sha_short = engine_sha_full[:10] if engine_sha_full else "—"
+
+    # Locate the engine source tree. Prefer the legacy ``workspace/engine``
+    # symlink (Percolator), fall back to the workspace.json's
+    # ``engine.local`` relative path (OSec eval cycles point at
+    # ``../../../../ottersec-eval/repos/<target>``).
+    import json as _json_scope
     engine_root = workspace / "engine"
+    if not engine_root.is_dir():
+        try:
+            _ws_cfg = _json_scope.loads(
+                (workspace / "workspace.json").read_text(encoding="utf-8")
+            )
+        except (OSError, _json_scope.JSONDecodeError):
+            _ws_cfg = {}
+        _engine_rel = (_ws_cfg.get("engine") or {}).get("local")
+        if _engine_rel:
+            engine_root = (workspace / _engine_rel).resolve()
+
     sources: list[str] = []
     if language == "aptos":
         for sub in ("sources",):
@@ -709,6 +784,7 @@ def _scope_section(
                     for p in sorted(d.glob("*.move"))
                 )
     else:
+        # Percolator workspace: src/*.rs at engine root.
         for sub in ("src",):
             d = engine_root / sub
             if d.is_dir():
@@ -716,6 +792,17 @@ def _scope_section(
                     str(p.relative_to(engine_root))
                     for p in sorted(d.glob("*.rs"))
                 )
+        # Anchor workspace: programs/<name>/src/*.rs for each program.
+        programs_dir = engine_root / "programs"
+        if programs_dir.is_dir():
+            for prog in sorted(programs_dir.iterdir()):
+                if prog.is_dir() and (prog / "Cargo.toml").is_file():
+                    src_dir = prog / "src"
+                    if src_dir.is_dir():
+                        sources.extend(
+                            str(p.relative_to(engine_root))
+                            for p in sorted(src_dir.glob("*.rs"))
+                        )
     if not sources:
         sources = ["(engine source enumeration unavailable in this build)"]
 
@@ -1068,6 +1155,107 @@ _BUG_CLASS_PROSE: dict[str, tuple[str, str]] = {
         "function) as the reward computation, not deferred to a separate "
         "settlement step.",
     ),
+    # ----- Anchor / Solana bug classes (added 2026-05-15) -----
+    "anchor_account_validation_signer_missing": (
+        "A privileged account field is declared as `AccountInfo<'info>` instead of "
+        "`Signer<'info>`. Anchor performs no signature check on AccountInfo, so "
+        "any caller who knows the privileged pubkey can pass it without holding "
+        "the private key. Combined with a downstream pubkey-equality guard, this "
+        "lets anyone impersonate the privileged role and execute the gated "
+        "instruction — typically a full drain of whatever vault the role controls.",
+        "Change the field to `Signer<'info>` so the Solana runtime verifies the "
+        "ed25519 signature before the instruction body executes. Pair it with "
+        "an `#[account(address = ... @ ErrCode)]` constraint to enforce the "
+        "pubkey match at the framework level. Drop the body-level pubkey-equality "
+        "branch once the framework-level checks are in place — they become dead "
+        "code.",
+    ),
+    "anchor_account_validation_has_one_missing": (
+        "An account on a privileged instruction is declared without a "
+        "`has_one = <field>` constraint binding it to a signer or stored "
+        "authority. Any caller can pass an arbitrary pubkey in that slot; the "
+        "instruction body then trusts the unauthenticated value and (typically) "
+        "transfers funds to it via `invoke_signed`. This is a permissionless "
+        "drain of whatever vault the instruction controls.",
+        "Add `has_one = <authority_field> @ ErrCode::Unauthorized` to the "
+        "account constraint. Make the authority field a `Signer<'info>` so a "
+        "real signature is required. Anchor will then enforce both the "
+        "signature and the pubkey-equality with the stored authority at the "
+        "framework level, before the instruction body runs.",
+    ),
+    "anchor_account_validation_seeds_missing": (
+        "A program-owned account on a privileged instruction is declared "
+        "without `seeds = [...]` + `bump = ...` constraints. Anchor does not "
+        "derive or check the account's PDA; the caller can pass any "
+        "`Account<'info, T>` with the right discriminator, including one "
+        "belonging to a different user. The instruction then reads/writes the "
+        "wrong user's state. For reward-claim flows this means an attacker "
+        "claims arbitrary users' accrued rewards into the attacker's wallet.",
+        "Add `seeds = [b\"<tag>\", <signer>.key().as_ref()]` and `bump = "
+        "<account>.bump` to the account constraint so Anchor derives the "
+        "canonical PDA from the signer's key. Optionally also add `has_one = "
+        "<signer>` for defense in depth. The framework rejects any account "
+        "whose address doesn't match the derived PDA.",
+    ),
+    "state_machine_clock_monotonicity": (
+        "A state-machine update reads `Clock::get()?.unix_timestamp` and writes "
+        "the value back into a stored timestamp field without checking that "
+        "the new value is monotonically greater than the prior one. A "
+        "`saturating_sub`-based elapsed-time calculation silently clamps to "
+        "zero on regression but the program still overwrites the checkpoint, "
+        "permanently lowering it. A subsequent legitimate update then "
+        "computes elapsed-time across the regression window, paying out "
+        "inflated rewards.",
+        "Reject any call where `current_time < stored_timestamp` via "
+        "`require!(current_time >= stored_timestamp, ErrCode::ClockRegression)` "
+        "BEFORE computing elapsed-time and BEFORE writing the new checkpoint. "
+        "Add `ClockRegression` to the error enum. On mainnet validator clocks "
+        "are practically monotonic; the guard is defense-in-depth against "
+        "test/dev environments and any future runtime change that loosens "
+        "monotonicity.",
+    ),
+    "anchor_close_constraint_missing": (
+        "An instruction marks an account as completed/finalised but does not "
+        "use Anchor's `close = <receiver>` constraint. The account stays "
+        "on-chain forever with its discriminator intact: rent reserves are "
+        "permanently locked, the `(maker, id)` tuple can never be reused "
+        "because Anchor's `init` refuses to recreate an existing PDA, and "
+        "the stale state is readable by any future instruction that "
+        "references the PDA.",
+        "Add `close = <receiver>` to the account constraint in the instruction "
+        "that finalises the lifecycle. Anchor will return the rent to "
+        "`<receiver>` and set the discriminator to "
+        "`CLOSED_ACCOUNT_DISCRIMINATOR` (eight 0xFF bytes) atomically, "
+        "freeing the address for future reuse and preventing revival-via-"
+        "realloc attacks.",
+    ),
+    "arithmetic_saturating_sub_silent_clamp": (
+        "A balance-or-counter update uses `saturating_sub` instead of "
+        "`checked_sub`. On underflow the value silently clamps to zero with "
+        "no error, allowing the on-chain counter to drift out of sync with "
+        "the actual lamports balance. Direct exploitability requires another "
+        "path to the over-withdrawal (e.g. an admin-auth bypass), but the "
+        "silent counter desync also breaks integrators who treat the counter "
+        "as authoritative for off-chain accounting.",
+        "Replace `saturating_sub` with `.checked_sub(amount).ok_or(ErrCode::"
+        "Underflow)?` and add `Underflow` to the error enum so any "
+        "inconsistency aborts loudly. Alternatively, remove the counter "
+        "entirely if it duplicates information already trackable via the "
+        "vault's lamports balance.",
+    ),
+    "build_hygiene_workspace_member_missing_manifest": (
+        "The root `Cargo.toml` declares a workspace member that has no "
+        "`Cargo.toml` of its own. `cargo build` and `cargo test` both abort "
+        "with `error: failed to load manifest for workspace member` on a "
+        "fresh clone. Downstream auditors, CI pipelines, and integrators "
+        "cannot build the repo as shipped — a reproducibility / supply-chain "
+        "hygiene defect rather than a runtime vulnerability.",
+        "Either remove the empty member from `members = [...]` (recommended "
+        "if the directory contains script-style integration tests with their "
+        "own invocation), or add a real `Cargo.toml` to the member crate so "
+        "Cargo can load it as a workspace member. Verify with `cargo build` "
+        "on a fresh clone before tagging the next release.",
+    ),
 }
 
 
@@ -1258,9 +1446,14 @@ def _hunt_funnel_section(
         except OSError:
             pass
 
+    # Count anything that's progressed to a publishable lifecycle state
+    # (confirmed → disclosed → fixed → verified). The funnel cell labels
+    # this "Confirmed · reach this report" — any of those four states
+    # have reached the public surface for THIS cycle.
+    _funnel_states = {"confirmed", "disclosed", "fixed", "verified"}
     n_confirmed = sum(
         1 for f in findings
-        if (f.get("status") or "") == "confirmed"
+        if (f.get("status") or "") in _funnel_states
         and (f.get("cycle_id") or "") == cycle_id
     )
 
@@ -1445,7 +1638,15 @@ def _findings_writeup(
     cycle_dir = workspace / "hunts" / cycle_id
     poc_dir = cycle_dir / "poc"
     litesvm_dir = cycle_dir / "litesvm"
-    bundles_dir = workspace / "recon" / "bundles"
+    # Bundles moved from the legacy ``workspace/recon/bundles/`` (the
+    # Percolator-era P3 location) to the per-cycle
+    # ``hunts/<cycle>/bundles/`` slot as of 2026-05-15. Prefer the
+    # per-cycle path when it exists; fall back to the legacy location
+    # for cycles that haven't been remastered.
+    _hunt_bundles = cycle_dir / "bundles"
+    bundles_dir = _hunt_bundles if _hunt_bundles.is_dir() else (
+        workspace / "recon" / "bundles"
+    )
     # Aptos workspaces keep the PoC source under workspace/tests/aptos/
     # (not the per-cycle poc/ dir, which only stores runlogs). Resolve once.
     aptos_tests_dir = workspace / "tests" / "aptos"
@@ -1659,16 +1860,72 @@ def _findings_writeup(
                     lt = litesvm_log.read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     continue
-                if (f"panicked at tests/litesvm_{hyp_slug[:40]}" in lt
-                        or "BUG" in lt and "CONFIRMED" in lt):
+
+                # Bug-witness phrase set covers the Anchor-isolated L4
+                # runner's panic format ("SOL34: exploit tx should have
+                # been rejected", "post-patch invariant violated") plus
+                # the legacy Percolator "BUG ... CONFIRMED" format.
+                _bug_witness = any(
+                    p in lt for p in (
+                        "post-patch invariant violated",
+                        "BUG WITNESS:",
+                        "exploit tx should have been rejected",
+                        "exploit should have been rejected",
+                        "state diverged",
+                        "silently capped",
+                        "silently returns",
+                        "silently set",
+                        "writes a SMALLER timestamp",
+                        "corrupting time-accounting",
+                    )
+                ) or ("BUG" in lt and "CONFIRMED" in lt)
+                # Also accept ``<HYP_ID>: <something>`` panic-message
+                # prefixes — the Anchor LiteSVM author uses
+                # ``SOL13: saturating_sub silently capped ...``,
+                # ``SOL28: when current_time < last_claim_ts ...``,
+                # ``F1: ...`` etc. The hyp_id in the renderer may be
+                # the F-finding ID (F1, F4) or the original L2 hyp
+                # (SOL13, SOL28) depending on whether the L4 sidecar
+                # was symlinked or built directly; recognise both.
+                if not _bug_witness and re.search(
+                    r"^[A-Z]{1,5}\d+[A-Z0-9-]*:\s+\S",
+                    lt,
+                    re.MULTILINE,
+                ):
+                    _bug_witness = True
+                _legacy_panic_at = f"panicked at tests/litesvm_{hyp_slug[:40]}" in lt
+                _modern_panic_at = (
+                    f"panicked at test_{hyp_slug[:60]}" in lt
+                )
+
+                if _bug_witness or _legacy_panic_at or _modern_panic_at:
                     l4_status = "✓ Reproduced through deployed BPF instructions"
-                    # Extract the BUG ... CONFIRMED line as witness
-                    for line in lt.splitlines():
-                        if "BUG" in line and ("CONFIRMED" in line or "FIRES" in line or "DETECTED" in line):
-                            l4_witness = line.strip()[:500]
-                            break
+                    # Pull a witness line — prefer the panic body that
+                    # carries the bug-witness phrase, falling back to the
+                    # legacy CONFIRMED/FIRES/DETECTED keywords.
+                    panic_idx = lt.find("panicked at")
+                    if panic_idx >= 0:
+                        # The line immediately AFTER `panicked at ...:N:M:`
+                        # is the assertion message.
+                        nl = lt.find("\n", panic_idx)
+                        if nl >= 0:
+                            msg_start = nl + 1
+                            msg_end = lt.find("\n", msg_start)
+                            if msg_end < 0:
+                                msg_end = msg_start + 500
+                            l4_witness = lt[msg_start:msg_end].strip()[:500]
+                    if not l4_witness:
+                        for line in lt.splitlines():
+                            if "BUG" in line and any(
+                                k in line for k in ("CONFIRMED", "FIRES", "DETECTED", "WITNESS")
+                            ):
+                                l4_witness = line.strip()[:500]
+                                break
                 elif "test result: ok" in lt:
-                    l4_status = "Not reproduced (wrapper-side defenses caught it OR test setup didn't reach buggy state)"
+                    l4_status = (
+                        "Not reproduced (wrapper-side defenses caught it OR "
+                        "test setup didn't reach buggy state)"
+                    )
                 else:
                     l4_status = "Inconclusive"
                 break
@@ -1686,6 +1943,27 @@ def _findings_writeup(
                 try:
                     raw = patch_p.read_text(encoding="utf-8", errors="replace")
                     parts = raw.splitlines()
+                    # Strip the leading shell-command preamble emitted by
+                    # ``diff -ruN`` (the first line is a verbatim copy of
+                    # the diff invocation, including absolute sandbox
+                    # paths that are noise in the customer report). Drop
+                    # any line that doesn't start with ``-``, ``+``, ``@@``,
+                    # ``---``, ``+++`` or a space (the legal first chars
+                    # of a unified diff hunk).
+                    _diff_first_char = re.compile(r"^(?:diff\s+[-]ruN|=|\?)\s")
+                    _kept_parts: list[str] = []
+                    _saw_hunk_header = False
+                    for ln in parts:
+                        if _diff_first_char.match(ln):
+                            continue
+                        if not _saw_hunk_header and ln.startswith("diff "):
+                            continue
+                        # Keep ``---``/``+++`` file headers, ``@@`` hunk
+                        # headers, and ``-``/``+``/`` `` body lines.
+                        _kept_parts.append(ln)
+                        if ln.startswith("@@"):
+                            _saw_hunk_header = True
+                    parts = _kept_parts
                     if len(parts) > 16:
                         p3_patch = "\n".join(parts[:16]) + "\n@@ …truncated for brevity @@"
                     else:
