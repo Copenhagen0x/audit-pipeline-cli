@@ -503,7 +503,7 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
                 duration_s=duration,
                 verifier=self.verifier,
                 reason=f"Halmos found counterexample{(': ' + (ce_text or first_failed_name or '?')[:120]) if (ce_text or first_failed_name) else ''}",
-                metadata={"counterexample": ce_text, "failed_count": failed_count, "first_failed": first_failed_name},
+                metadata={"counterexample": ce_text, "failed_count": len(fail_lines) if 'fail_lines' in locals() else 0, "first_failed": first_failed_name},
             )
 
         if proved_count > 0:
