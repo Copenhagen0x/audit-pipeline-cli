@@ -308,7 +308,8 @@ def test_run_all_gates_writes_verification_json(tmp_path: Path) -> None:
     assert v["gates"]["poc_fails_pre_patch"]["passed"] is None
 
 
-def test_patch_well_formed_rejects_multi_file_patch(tmp_path: Path) -> None:
+def test_patch_well_formed_rejects_multi_crate_patch(tmp_path: Path) -> None:
+    """Bundles can span files within one crate but not across crates."""
     from audit_pipeline.bundle.assembly import write_meta, write_patch
     from audit_pipeline.bundle.verifier import _gate_patch_well_formed
     fid = 4
@@ -316,14 +317,32 @@ def test_patch_well_formed_rejects_multi_file_patch(tmp_path: Path) -> None:
         tmp_path, finding_id=fid, engine_sha="a" * 40, bug_class="x",
         hypothesis_id="y", severity="Low", title="t", template_used="generic",
     )
+    cross_crate = (
+        "--- a/programs/foo/src/lib.rs\n+++ b/programs/foo/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n"
+        "--- a/programs/bar/src/lib.rs\n+++ b/programs/bar/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n"
+    )
+    write_patch(tmp_path, fid, cross_crate)
+    g = _gate_patch_well_formed(tmp_path, fid)
+    assert g.passed is False
+    assert "multiple crates" in g.reason
+
+
+def test_patch_well_formed_accepts_multi_file_in_one_crate(tmp_path: Path) -> None:
+    """Two files in the same `programs/<crate>/` are allowed."""
+    from audit_pipeline.bundle.assembly import write_meta, write_patch
+    from audit_pipeline.bundle.verifier import _gate_patch_well_formed
+    fid = 5
+    write_meta(
+        tmp_path, finding_id=fid, engine_sha="a" * 40, bug_class="x",
+        hypothesis_id="y", severity="Low", title="t", template_used="generic",
+    )
     multi = (
-        "--- a/file1.rs\n+++ b/file1.rs\n@@ -1 +1 @@\n-x\n+y\n"
-        "--- a/file2.rs\n+++ b/file2.rs\n@@ -1 +1 @@\n-x\n+y\n"
+        "--- a/programs/foo/src/lib.rs\n+++ b/programs/foo/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n"
+        "--- a/programs/foo/src/state.rs\n+++ b/programs/foo/src/state.rs\n@@ -1 +1 @@\n-a\n+b\n"
     )
     write_patch(tmp_path, fid, multi)
     g = _gate_patch_well_formed(tmp_path, fid)
-    assert g.passed is False
-    assert "2 files" in g.reason or "one-file-per-patch" in g.reason
+    assert g.passed is True
 
 
 # ─────────────────── patcher ───────────────────
