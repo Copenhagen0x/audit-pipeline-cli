@@ -145,6 +145,41 @@ def _cargo_test_argv(engine_repo: Path, *extra: str) -> list[str]:
     return argv
 
 
+def _detect_engine_language(engine_repo: Path) -> str:
+    """Inspect the repo root for the toolchain marker. Returns the language
+    tag used by the adapter modules: "rust" | "solidity" | "move" | "unknown".
+
+    Used by the test-suite gate to dispatch the right runner (cargo /
+    forge / aptos move test). Order matters — Solidity repos often
+    coexist with a Cargo.toml from a side tool, but foundry.toml is
+    the strongest signal that the audit target is Solidity."""
+    if (engine_repo / "foundry.toml").is_file():
+        return "solidity"
+    if (engine_repo / "Move.toml").is_file():
+        return "move"
+    if (engine_repo / "Cargo.toml").is_file():
+        return "rust"
+    return "unknown"
+
+
+def _have_forge() -> bool:
+    return shutil.which("forge") is not None
+
+
+def _engine_test_argv(engine_repo: Path) -> list[str]:
+    """Return the test-suite command argv for the target's language.
+
+    For Solidity (foundry.toml present): `forge test`. For Rust / Anchor
+    (Cargo.toml): `cargo test [--features test]`. The full-suite gate
+    runs whichever the language requires; downstream parsing of
+    pass/fail is language-agnostic at the returncode level."""
+    lang = _detect_engine_language(engine_repo)
+    if lang == "solidity":
+        return ["forge", "test"]
+    # Default: rust / anchor / unknown all go to cargo
+    return _cargo_test_argv(engine_repo)
+
+
 def _find_standalone_poc_log(workspace: Path, poc_test_name: str) -> Path | None:
     """Locate the L2 cargo log for a rustc-standalone PoC, if one exists.
 
@@ -722,10 +757,17 @@ def _gate_tests_pass_post_patch(
     engine_repo: Path | None,
 ) -> GateResult:
     t0 = time.time()
-    if not _have_cargo():
-        return GateResult(None, "skipped — cargo not in PATH", time.time() - t0)
     if engine_repo is None or not engine_repo.is_dir():
         return GateResult(None, "skipped — no engine_repo provided", time.time() - t0)
+
+    # Dispatch the right test runner for the target's language.
+    lang = _detect_engine_language(engine_repo)
+    if lang == "solidity":
+        if not _have_forge():
+            return GateResult(None, "skipped — forge not in PATH (Solidity target needs Foundry)", time.time() - t0)
+    else:
+        if not _have_cargo():
+            return GateResult(None, "skipped — cargo not in PATH", time.time() - t0)
 
     p = patch_path(workspace, finding_id)
     if not p.is_file():
@@ -736,15 +778,16 @@ def _gate_tests_pass_post_patch(
     if not ok:
         return GateResult(False, f"could not apply patch: {err}", time.time() - t0)
 
+    argv = _engine_test_argv(engine_repo)
     try:
         proc = subprocess.run(
-            _cargo_test_argv(engine_repo),
+            argv,
             cwd=str(engine_repo),
             capture_output=True, text=True, timeout=1800,
         )
     except subprocess.TimeoutExpired:
         _unapply_patch(engine_repo, patch_text)
-        return GateResult(False, "full cargo test timed out (>1800s)", time.time() - t0)
+        return GateResult(False, f"full {argv[0]} test timed out (>1800s)", time.time() - t0)
     finally:
         _unapply_patch(engine_repo, patch_text)
 
@@ -753,11 +796,11 @@ def _gate_tests_pass_post_patch(
         tail = (proc.stderr or "")[-400:]
         return GateResult(
             False,
-            f"existing test suite regressed post-patch (exit {proc.returncode}). "
+            f"existing test suite regressed post-patch ({argv[0]} exit {proc.returncode}). "
             f"tail: {tail}",
             time.time() - t0,
         )
-    return GateResult(True, "full test suite passed post-patch", time.time() - t0)
+    return GateResult(True, f"full test suite passed post-patch ({argv[0]})", time.time() - t0)
 
 
 def _gate_kani_proof_holds(

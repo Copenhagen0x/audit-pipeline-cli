@@ -617,6 +617,248 @@ BUNDLE_TEMPLATES: dict[str, BundleTemplate] = {
             "rerun full test suite",
         ),
     ),
+
+    # ───────── Solidity / EVM templates ─────────
+
+    "reentrancy-cei-violation": BundleTemplate(
+        headline="Apply CEI ordering ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: state writes after external call\n\n"
+            "`{handler_function}` performs an external token transfer "
+            "BEFORE decrementing the caller's accounting state. A "
+            "malicious token (ERC777 with `_callTokensReceived`, fee-"
+            "on-transfer, rebase with hooks) can re-enter the function "
+            "while the caller's balance is still full and drain the "
+            "contract.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` deploys a malicious "
+            "token that re-enters during transfer.\n\n"
+            "# Fix\n\nMove ALL state writes (balance / supply / nonce) "
+            "BEFORE the external transfer. Optionally add OpenZeppelin's "
+            "`ReentrancyGuard` `nonReentrant` modifier as defense in "
+            "depth.\n\n"
+            "# Verification\n\nReentrant call sees decremented state, "
+            "fails the balance check.\n"
+        ),
+        patch_intent=(
+            "Reorder the function body so state mutations on caller / "
+            "totals run before any external `transfer` / `call` / "
+            "`approve`. Do not change the transfer logic itself."
+        ),
+        verification_hints=(
+            "rerun PoC: reentrant attack must fail",
+            "rerun benign-token tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
+
+    "share-inflation": BundleTemplate(
+        headline="Block first-depositor share inflation ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: floor division on donation-inflatable balance\n\n"
+            "`{handler_function}` computes shares as "
+            "`(totalShares * amount) / asset.balanceOf(this)`. An "
+            "attacker who is the first depositor donates a large "
+            "amount directly to the vault address, then any victim "
+            "deposit smaller than the donation rounds to 0 shares — "
+            "the victim's principal is confiscated.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` performs the donation "
+            "+ victim-deposit sequence.\n\n"
+            "# Fix\n\nApply one of the canonical mitigations: (a) "
+            "permanent virtual shares burned at deployment (OZ ERC4626 "
+            "decimalsOffset pattern), (b) revert when computed shares "
+            "round to 0, or (c) bootstrap with a permanently-locked "
+            "first deposit. Option (b) is the smallest scoped fix.\n\n"
+            "# Verification\n\nDonation attack now reverts on victim "
+            "deposit.\n"
+        ),
+        patch_intent=(
+            "Add a `require(shares != 0, ZeroShares)` check immediately "
+            "after the `toShares` computation. Keep the rest of deposit "
+            "untouched."
+        ),
+        verification_hints=(
+            "rerun PoC: donation attack must revert",
+            "rerun normal-deposit tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
+
+    "missing-access-control": BundleTemplate(
+        headline="Add missing access-control modifier ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: privileged setter callable by anyone\n\n"
+            "`{handler_function}` mutates state that gates "
+            "authorization or pricing decisions but lacks the "
+            "`onlyOwner` (or equivalent role) modifier used by every "
+            "other setter on the contract.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` calls the function as "
+            "an unprivileged signer.\n\n"
+            "# Fix\n\nAdd the `onlyOwner` (or `onlyRole(ADMIN_ROLE)`) "
+            "modifier to the function declaration, matching the "
+            "pattern used by sibling setters on the same contract.\n\n"
+            "# Verification\n\nUnprivileged caller now reverts with "
+            "`Unauthorized`.\n"
+        ),
+        patch_intent=(
+            "Add the canonical access-control modifier to the function "
+            "signature. Do not change the body."
+        ),
+        verification_hints=(
+            "rerun PoC: unprivileged caller must revert",
+            "rerun owner-flow tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
+
+    "overcharge-on-cap": BundleTemplate(
+        headline="Use capped amount for transfer ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: cap computed but uncapped value transferred\n\n"
+            "`{handler_function}` computes a capped `applied = "
+            "min(amount, max)` for accounting, but the subsequent "
+            "`transferFrom(msg.sender, …, amount)` pulls the UNCAPPED "
+            "amount. The excess is stuck in the contract with no "
+            "recovery path; the user overpays.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` repays with an amount "
+            "greater than outstanding debt.\n\n"
+            "# Fix\n\nReplace the uncapped `amount` argument in the "
+            "transfer with the capped `applied` variable already "
+            "computed two lines above.\n\n"
+            "# Verification\n\nUser pays exactly `min(amount, debt)`; "
+            "excess is no longer pulled.\n"
+        ),
+        patch_intent=(
+            "Change the `transferFrom` (or `transfer`) argument from "
+            "the raw input amount to the locally-capped variable. Only "
+            "the one transfer call should change."
+        ),
+        verification_hints=(
+            "rerun PoC: overpayment case must transfer exactly `min`",
+            "rerun exact-amount tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
+
+    "tx-origin-auth": BundleTemplate(
+        headline="Replace `tx.origin` with `msg.sender` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: tx.origin used for authentication\n\n"
+            "`{handler_function}` authenticates with `tx.origin == "
+            "owner`. An attacker who tricks the owner into calling ANY "
+            "function on a malicious contract can have that contract "
+            "invoke this function — `tx.origin` is still the owner.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` deploys a malicious "
+            "proxy contract and has the victim-as-owner call it.\n\n"
+            "# Fix\n\nReplace `tx.origin == owner` with `msg.sender == "
+            "owner` (or apply the contract's existing `onlyOwner` "
+            "modifier). Never use `tx.origin` for auth.\n\n"
+            "# Verification\n\nMalicious-proxy attack now reverts.\n"
+        ),
+        patch_intent=(
+            "Replace `tx.origin` with `msg.sender` in the auth check. "
+            "If an `onlyOwner` modifier exists on sibling functions, "
+            "use it for consistency."
+        ),
+        verification_hints=(
+            "rerun PoC: proxy-attack must revert",
+            "rerun direct-owner-call tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
+
+    "flash-loan-governance": BundleTemplate(
+        headline="Snapshot vote weight at proposal-creation ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: vote weight read live from balanceOf\n\n"
+            "`{handler_function}` reads voter weight as "
+            "`token.balanceOf(msg.sender)` at vote time. An attacker "
+            "flash-loans the governance token, votes with arbitrary "
+            "weight, and repays in the same transaction — passing any "
+            "proposal regardless of legitimate holdings.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` exercises the flash-"
+            "loan / vote / repay sequence in a single tx.\n\n"
+            "# Fix\n\nSnapshot the token balance at proposal creation "
+            "(or use OpenZeppelin's `ERC20Votes` with checkpoint-based "
+            "`getPastVotes(proposalSnapshot)`). The vote weight read "
+            "must come from a state SNAPSHOT BEFORE the proposal "
+            "exists.\n\n"
+            "# Verification\n\nFlash-loaned tokens now provide zero "
+            "voting weight.\n"
+        ),
+        patch_intent=(
+            "Replace the `balanceOf(msg.sender)` read with a "
+            "checkpoint lookup keyed by the proposal's "
+            "`snapshotBlock`. Add the checkpointing on the token "
+            "contract if it doesn't exist."
+        ),
+        verification_hints=(
+            "rerun PoC: flash-loan vote must accrue 0 weight",
+            "rerun legitimate-holder vote tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
+
+    "signature-replay": BundleTemplate(
+        headline="Bind signed digest to nonce + chainId + deadline ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: signed digest lacks nonce / chainId / deadline\n\n"
+            "`{handler_function}` recovers a signer from a digest that "
+            "does NOT include a per-account nonce, the chainId, or a "
+            "deadline. Any valid signature can be replayed forever AND "
+            "replayed on any forked chain with the same contract "
+            "address (CREATE2 / L2 / hard-fork risk).\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` submits the same "
+            "signed message twice.\n\n"
+            "# Fix\n\nAdopt EIP-712 with a domain separator that "
+            "includes `block.chainid` + this contract's address, a "
+            "per-account `nonces[account]` mapping incremented on "
+            "use, and an explicit `deadline` parameter checked "
+            "against `block.timestamp`.\n\n"
+            "# Verification\n\nReplay attempt reverts on the nonce "
+            "check; cross-chain replay reverts on the domain mismatch.\n"
+        ),
+        patch_intent=(
+            "Replace the `keccak256(abi.encodePacked(...))` digest "
+            "with an EIP-712 typed-data hash including chainId, "
+            "nonce, and deadline. Bump nonce on successful verify."
+        ),
+        verification_hints=(
+            "rerun PoC: second use of same sig must revert",
+            "rerun fresh-sig tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
+
+    "dos-on-batch-transfer": BundleTemplate(
+        headline="Use pull-based claim, not push batch ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: batch transfer reverts on single failure\n\n"
+            "`{handler_function}` loops over recipients and reverts "
+            "the entire batch if any single `transfer` returns false "
+            "(or a recipient contract reverts on receive). One "
+            "griefing recipient — denylisted address, contract with "
+            "reverting fallback, or token with blocklist — freezes "
+            "the whole distribution.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` adds a malicious "
+            "recipient and shows the batch reverts.\n\n"
+            "# Fix\n\nReplace push-based distribution with a pull-"
+            "based claim: store per-recipient pending balances in a "
+            "mapping; recipients call `claim()` themselves. A failed "
+            "claim affects only that recipient, not the batch.\n\n"
+            "# Verification\n\nGriefer no longer DoSes other "
+            "recipients.\n"
+        ),
+        patch_intent=(
+            "Replace the loop with `pending[recipient] += amount` "
+            "assignments + a new `claim()` function recipients call. "
+            "Keep the funder-side semantics identical."
+        ),
+        verification_hints=(
+            "rerun PoC: griefer no longer blocks other claims",
+            "rerun normal-claim tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
 }
 
 
