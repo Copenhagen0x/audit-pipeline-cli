@@ -100,6 +100,17 @@ def main(ctx: click.Context, workspace: str) -> None:
     """
     ctx.ensure_object(dict)
     ctx.obj["workspace"] = workspace
+    # P5 live-event-stream fix: every emit_event call in any
+    # subcommand needs JELLEO_WORKSPACE to resolve the active
+    # cycle log. Setting it here once from --workspace means
+    # standalone invocations (`audit-pipeline -w X debate ...`,
+    # `... poc ...`, `... bundle ...`) emit events into the same
+    # hunt.log.jsonl that jelleo-sse.service tails — bridge view
+    # live panels (hyp grid, finding waterfall, tool calls) stay
+    # live across every layer, not just L1.
+    import os as _os
+    if workspace and not _os.environ.get("JELLEO_WORKSPACE"):
+        _os.environ["JELLEO_WORKSPACE"] = str(workspace)
 
 
 # Subcommands — core pipeline (Layers 0–6)
