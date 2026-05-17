@@ -216,13 +216,33 @@ def _gate_patch_well_formed(workspace: Path, finding_id: int) -> GateResult:
     touched = files_touched(text)
     if not touched:
         return GateResult(False, "patch touches no files (no +++ b/ headers)", time.time() - t0)
-    if len(touched) > 1:
+    # A legitimate structural fix can span a few files within one crate
+    # (e.g. state schema change + the handlers that use it). Cap at 5
+    # files and require all paths share the same `programs/<name>/`
+    # crate root so a patch can't accidentally cross crate boundaries.
+    MAX_FILES_PER_BUNDLE = 5
+    if len(touched) > MAX_FILES_PER_BUNDLE:
         return GateResult(
             False,
-            f"patch touches {len(touched)} files: {touched}. "
-            f"Bundle policy is one-file-per-patch.",
+            f"patch touches {len(touched)} files (>{MAX_FILES_PER_BUNDLE}): {touched}. "
+            f"Bundles are scoped to at most {MAX_FILES_PER_BUNDLE} files within one crate.",
             time.time() - t0,
         )
+    if len(touched) > 1:
+        crate_roots = set()
+        for f in touched:
+            parts = f.split("/")
+            if len(parts) >= 2 and parts[0] == "programs":
+                crate_roots.add(parts[1])
+            else:
+                crate_roots.add("__root__")
+        if len(crate_roots) > 1:
+            return GateResult(
+                False,
+                f"patch touches multiple crates {sorted(crate_roots)}: {touched}. "
+                f"Bundles are scoped to a single crate.",
+                time.time() - t0,
+            )
     # FIX B-#10: reject LLM-authored patches that touch paths outside the
     # engine repo (path traversal via `+++ b/../../etc/passwd` or absolute
     # paths). git apply IS mostly safe, but defense-in-depth: reject any
