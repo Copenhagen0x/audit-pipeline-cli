@@ -163,9 +163,18 @@ def derive_severity(
     # Cross-cutting audit Defect 04 (HIGH): previously an explicit
     # ``severity: Critical`` in the YAML short-circuited everything. A
     # hypothesis with verdict=REJECTED + poc_fired=False could still
-    # surface as Critical on the cover page and customer manifests. Now
-    # we cap the explicit override by the derived severity — author can
-    # only LOWER, never raise above what the empirical signal supports.
+    # surface as Critical on the cover page and customer manifests. The
+    # cap below stops authors over-claiming when there's no empirical
+    # backing.
+    #
+    # Refinement (2026-05-17, sol-large audit): the cap was too aggressive
+    # when poc_fired=True. PoC firing IS empirical evidence of a real
+    # exploit chain, so an explicit Critical claim grounded in a PoC
+    # should be honored even when the hypothesis_class is not in the
+    # priv-classes set. Otherwise SOL51 (state-machine takeover) and
+    # SOL61 (logic inversion) get silently downgraded to High despite
+    # both having Layer 4 LiteSVM runtime reproductions. The cap still
+    # applies when poc_fired=False.
 
     def _derive_intrinsic() -> Severity:
         if poc_fired:
@@ -183,13 +192,16 @@ def derive_severity(
     intrinsic = _derive_intrinsic()
     if explicit:
         requested = Severity.parse(explicit)
-        # Severity order: Critical (0) > High > Medium > Low > Info (4).
-        # `requested` overrides only if it's <= intrinsic (i.e., does not
-        # claim more severity than the empirical signal supports).
         order = list(Severity)
-        if order.index(requested) >= order.index(intrinsic):
+        if poc_fired:
+            # Empirical PoC backs the claim — honor explicit verbatim.
+            # Author can raise to Critical or lower to Medium / Low; the
+            # PoC artifact is the audit trail justifying the choice.
             intrinsic = requested
-        # else: tried to claim higher severity than evidence supports - keep intrinsic.
+        elif order.index(requested) >= order.index(intrinsic):
+            # No PoC: cap explicit to intrinsic (author can only LOWER).
+            intrinsic = requested
+        # else: no PoC and tried to claim higher than evidence supports — keep intrinsic.
 
     # FIX 3 (2026-05-14): raise to bug_class floor if applicable.
     floor = severity_floor_for_bug_class(bug_class, target_file)
