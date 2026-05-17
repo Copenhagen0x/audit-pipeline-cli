@@ -16,5 +16,13 @@ https://www.jelleo.com/*    https://jelleo.com/:splat    301!
 # rewrite (proxy), not a redirect: the browser stays on jelleo.com.
 /cycles/*    https://api.jelleo.com/cycles/:splat    200!
 
+# P4 attestation: live heartbeat + dashboard snapshot live on the VPS
+# (written by jelleo-heartbeat.timer + jelleo-snapshot.timer). Proxy via
+# api.jelleo.com so anyone visiting jelleo.com can verify the platform
+# is alive without knowing the api.jelleo.com host.
+/heartbeat.json        https://api.jelleo.com/heartbeat.json        200!
+/heartbeat.json.sig    https://api.jelleo.com/heartbeat.json.sig    200!
+/snapshot.json         https://api.jelleo.com/snapshot.json         200!
+
 # Catch-all 404
 /*    /404.html    404
