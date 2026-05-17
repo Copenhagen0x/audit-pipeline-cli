@@ -269,6 +269,23 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
             except OSError:
                 pass
 
+        # Also wipe forge's build cache for L3 tests. Halmos discovers
+        # contracts from the build output (out/<file>/<contract>.json)
+        # NOT from .t.sol source — so even after we delete the source,
+        # halmos still picks up cached compiled artifacts. Wipe the
+        # entire out/<jelleo_l3_*.t.sol>/ subtree.
+        build_out_dir = target_repo_root / "out"
+        if build_out_dir.is_dir():
+            import shutil
+            for stale_cache in build_out_dir.glob("jelleo_l3_*.t.sol"):
+                try:
+                    if stale_cache.is_dir():
+                        shutil.rmtree(stale_cache, ignore_errors=True)
+                    else:
+                        stale_cache.unlink()
+                except OSError:
+                    pass
+
         deployed = repo_test_dir / f"jelleo_l3_{harness_name}.t.sol"
         deployed.write_text(body, encoding="utf-8")
 
