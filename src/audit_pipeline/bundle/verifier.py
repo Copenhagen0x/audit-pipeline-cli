@@ -183,15 +183,26 @@ def _find_standalone_poc_log(workspace: Path, poc_test_name: str) -> Path | None
 
 
 def _standalone_poc_fired(log_path: Path, poc_test_name: str) -> bool:
-    """Parse a rustc-standalone cargo log; True if the named test failed."""
+    """Parse a rustc-standalone cargo log; True if the named test failed.
+
+    libtest emits either `test <name> ... FAILED` (bare test fn) or
+    `test <module>::<name> ... FAILED` (test fn inside a module). Match
+    both forms.
+    """
     try:
         body = log_path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
-    # Standard libtest output: `test <name> ... FAILED` then `test result: FAILED`
-    if "test result: FAILED" in body and f"test {poc_test_name}" in body:
-        return True
-    return False
+    if "test result: FAILED" not in body:
+        return False
+    # Anchor on word boundary so partial-name matches don't falsely fire:
+    # match `test <maybe::path>name ... FAILED` where the named test fn
+    # appears at the end of the cargo line.
+    pat = re.compile(
+        rf"^test\s+(?:[A-Za-z0-9_]+::)*{re.escape(poc_test_name)}\s+\.\.\.\s+FAILED",
+        re.MULTILINE,
+    )
+    return pat.search(body) is not None
 
 
 def _gate_patch_well_formed(workspace: Path, finding_id: int) -> GateResult:

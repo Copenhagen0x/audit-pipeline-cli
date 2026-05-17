@@ -3403,7 +3403,12 @@ def _hunt_run(
     #    authorization — engine never auto-opens; user explicitly authorizes).
     #  - P4 merkle compute --sign: produce signed attestation for this cycle
     pillar_results: dict[str, Any] = {"propagate": {}, "bundle": {}, "merkle": None}
-    med_plus_severities = {"Critical", "High", "Medium"}
+    # P3 bundles every confirmed finding regardless of severity. Earlier
+    # we excluded "Low" to save LLM cost on noise, but OtterSec-style
+    # evaluations want fixes for every confirmed bug. A Low-sev finding
+    # is still a real bug; downstream prioritization happens at PR-merge
+    # time, not at bundle-author time.
+    med_plus_severities = {"Critical", "High", "Medium", "Low"}
 
     def _confirmed_med_plus() -> list[dict[str, Any]]:
         med_plus = []
