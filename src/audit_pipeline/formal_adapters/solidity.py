@@ -1,33 +1,35 @@
-"""L3 formal-verification adapter for Solidity — solc SMTChecker.
+"""L3 formal-verification adapter for Solidity — Halmos symbolic executor.
 
-The Solidity compiler ships with a built-in SMTChecker that can prove
-or disprove safety properties on the AST level using CHC (Constrained
-Horn Clauses, the default) or BMC engines, backed by Z3 / Eldarica /
-CVC4.
+Halmos is a symbolic execution tool designed for Foundry tests. It
+exhaustively explores function inputs using SMT-backed reasoning,
+finding inputs that violate `assert(...)` statements or proving none
+exist within bounded loop unrolling.
 
-Approach: the LLM-authored Solidity harness contains:
+Compared to solc's built-in SMTChecker (which we used through
+2026-05-17), Halmos:
+  * Handles multi-contract harnesses (mock token + vault + attacker)
+    where SMTChecker times out.
+  * Reads Foundry test conventions natively (`check_*` functions,
+    `vm.assume`, `vm.prank` cheatcodes, `forge-std/Test.sol`).
+  * Produces structured JSON output we can parse without regex.
 
-  * An `import` of the contract under test
-  * A wrapper contract that exposes the function under test through
-    `__VERIFIER` entry points
-  * `assert(invariant)` statements expressing what should hold
-  * Optional `require(...)` to bound the input space (e.g. balance < 1e30)
+Operator switched on 2026-05-17 after SMTChecker returned
+"indeterminate" for all 12 solidity-small harnesses (CHC solver
+couldn't converge on protocol-level state spaces).
 
-solc with `--model-checker-engine chc --model-checker-targets all`
-will report:
+Invocation:
+    halmos --root <repo> --match-test '^check_' \\
+        --json-output <out.json> \\
+        --solver-timeout-assertion 60000
 
-  * `Warning: CHC: Assertion violation happens here. <counterexample>`
-    → bug constructively proven (counterexample = True)
-  * `Info: CHC: 0 verification conditions remained` (or all
-    assertions proved) → invariant holds (proved = True)
-  * Timeout / unsupported → neither flag set
-
-SMTChecker is unique because it's BUILT INTO the compiler — no
-separate install. Just call `solc` with the right flags.
+A failing `check_*` function = bug constructively proven
+(counterexample = True). A passing `check_*` function = invariant
+holds within the bounded exploration (proved = True).
 """
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import time
@@ -37,12 +39,30 @@ from typing import Any
 from audit_pipeline.formal_adapters.base import FormalOutcome, LanguageFormalAdapter
 
 
+def _detect_foundry_test_dir(repo_root: Path) -> Path:
+    """Read foundry.toml `test = "..."` key. Defaults to test/.
+
+    Halmos auto-discovers test contracts in this dir.
+    """
+    manifest = repo_root / "foundry.toml"
+    if not manifest.is_file():
+        return repo_root / "test"
+    try:
+        text = manifest.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return repo_root / "test"
+    m = re.search(r"^\s*test\s*=\s*['\"]([^'\"]+)['\"]", text, re.MULTILINE)
+    if m:
+        return repo_root / m.group(1)
+    return repo_root / "test"
+
+
 class SolidityFormalAdapter(LanguageFormalAdapter):
-    """Solidity formal-verification adapter (solc SMTChecker)."""
+    """Solidity formal-verification adapter (Halmos symbolic executor)."""
 
     language = "solidity"
     harness_file_extension = ".sol"
-    verifier = "smtchecker"
+    verifier = "halmos"
 
     def build_harness_prompt(
         self,
@@ -54,21 +74,21 @@ class SolidityFormalAdapter(LanguageFormalAdapter):
         claim = hyp.get("claim", "(no claim)")
         engine_function = hyp.get("engine_function", "")
 
-        return f"""You are authoring a Solidity SMTChecker harness for the Jelleo audit engine.
+        return f"""You are authoring a Halmos symbolic-execution harness for the Jelleo audit engine.
 
-The Solidity compiler's built-in SMTChecker proves or disproves
-safety properties via CHC. It runs via:
+Halmos is a Foundry-compatible symbolic executor that:
+  * Exhaustively explores function inputs via SMT solving.
+  * Discovers test contracts by class name + functions starting with `check_`.
+  * Reads `vm.assume(...)`, `vm.prank(...)`, `vm.warp(...)` cheatcodes
+    natively (use `import "forge-std/Test.sol"; contract X is Test`).
+  * Reports a `Counterexample` when it finds inputs that violate
+    `assert(...)`, and `[PASS]` when no such inputs exist within
+    bounded loop unrolling (default 2 iterations).
 
-  solc \\
-    --model-checker-engine chc \\
-    --model-checker-targets all \\
-    --model-checker-timeout 30000 \\
-    --model-checker-show-unproved \\
-    harness_<name>.sol
+Invocation (already wired by the engine):
 
-SMTChecker reports:
-  * "CHC: Assertion violation happens here" → counterexample found
-  * "CHC: 0 verification conditions remained" → all assertions proved
+  halmos --root <repo> --match-test '^check_' \\
+      --json-output <out.json>
 
 # Hypothesis under test
 
@@ -80,52 +100,87 @@ Function under test: {engine_function}
 
 {source_context}
 
+# Repo conventions
+
+Imports use `@src/` remapping (per foundry.toml). Example:
+    `import "@src/ContractA.sol";`
+    `import "@src/vendor/openzeppelin/token/ERC20/IERC20.sol";`
+    `import "@src/interfaces/ExternalInterfaces.sol";` (IOracle, IBridgeAdapter)
+
 # Your task
 
-Write a single Solidity file `harness_<finding_name>.sol` that:
+Write a Halmos symbolic harness named `harness_<finding_name>.sol` that:
 
-1. Uses `pragma solidity ^0.8.20;`
-2. Uses `@src/...` remapped imports if you need to reference the
-   contract under test — but PREFER a MINIMAL inlined copy of just
-   the function/struct/storage under test. SMTChecker times out on
-   full-contract harnesses with vendor chains. Inline the smallest
-   self-contained version that exhibits the bug.
-3. Defines a `contract Harness` that:
-     (a) Has state variables matching the protocol's relevant state.
-     (b) Has functions exercising the bug-claim path. Each function:
-         - Uses `require(precondition)` to bound the input space.
-         - Calls the function under test.
-         - Asserts the invariant via `assert(invariant_holds)`.
-4. Express the invariant as the OPPOSITE of the bug — if SMTChecker
-   finds a counterexample, the bug is real.
-5. KEEP THE HARNESS SMALL — under ~80 lines. CHC scales poorly with
-   state space size. No vendor imports. No unrelated functions.
-   Translate the relevant slice of the bug into pure assertions.
+1. Uses `pragma solidity ^0.8.20;` + `import "forge-std/Test.sol";`
+2. Defines a contract that inherits from `Test`.
+3. Has at least one function with the name prefix `check_<short_label>(...)`
+   that takes the symbolic inputs you want Halmos to enumerate.
+4. Uses `vm.assume(...)` for preconditions (bounds, non-zero, etc).
+5. Calls the function under test (or replicates its logic in a minimal
+   in-harness form — preferred when the real contract has too many
+   external dependencies for halmos).
+6. Asserts the invariant via `assert(invariant_holds)`. Halmos finds
+   a counterexample if the assertion is violated for any admitted input.
 
-# Examples of invariants
+# Patterns
 
-  * Conservation: `assert(totalDeposits == sumOfBalances);`
-  * Auth: `assert(msg.sender == owner || !privilegedAction);`
-  * Arithmetic: `assert(newBalance <= oldBalance + deposited);`
-  * Reentrancy: `assert(_locked || !inAction);`
+```solidity
+// Pattern A: minimal in-harness model (preferred — exhaustive enumeration)
+contract Harness is Test {{
+    function check_dustLoss(uint256 total, uint256 n) public pure {{
+        vm.assume(n > 0 && n <= 16);
+        vm.assume(total > 0 && total <= type(uint128).max);
+        uint256 perVoter = total / n;
+        uint256 paidOut = perVoter * n;
+        // Invariant: no dust. Halmos finds total=1, n=2 → paidOut=0 != total=1.
+        assert(paidOut == total);
+    }}
+}}
 
-# Important
+// Pattern B: call into real contract (only if minimal model isn't possible)
+contract Harness is Test {{
+    ContractA vault;
+    function setUp() public {{
+        vault = new ContractA(...);
+    }}
+    function check_authBypass(address attacker, uint256 newOracle) public {{
+        vm.assume(attacker != address(0));
+        vm.assume(attacker != owner);  // bug: any non-owner should fail
+        vm.prank(attacker);
+        vault.setOracle(IOracle(address(uint160(newOracle))));
+        // Bug: setOracle has NO access control. assertion fails → CE.
+        assert(false);  // if we reach here, the call didn't revert → bug
+    }}
+}}
+```
 
-* SMTChecker is most effective with SIMPLE state spaces. Keep the
-  harness contract minimal — don't import the entire vendor tree.
-* Use `require(...)` to bound `block.timestamp` and balance values.
-* Add `pragma experimental SMTChecker;` only if the contract uses
-  pre-0.8 syntax (most don't).
-* Loops are unrolled — keep loop counts bounded by `require(i < 16)`.
+# Halmos vs SMTChecker — key differences
+
+* Halmos uses Foundry's test format. SMTChecker was raw solc.
+* Use `check_*` prefix (not `test_*` or `prove_*`).
+* Loops are bounded by `--loop 2` default. Use `vm.assume(i < 8)` if more iterations needed.
+* External calls to symbolic addresses return symbolic data — usually fine.
+* Halmos handles `keccak256(abi.encodePacked(...))` better than SMTChecker.
+
+# Minimal-harness rule (CRITICAL)
+
+PREFER the minimal in-harness model (Pattern A) over Pattern B whenever
+the bug can be expressed as pure arithmetic / authorization / signature
+math. Halmos converges on small state spaces; full-contract harnesses
+with mock tokens etc may time out.
 
 # Output format
 
-Output ONLY a single ```solidity ... ``` fenced code block. If you can't
-write a real harness:
+Output ONLY a single ```solidity ... ``` fenced code block.
 
-  // CANNOT_VERIFY: <one-line reason>
+If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
+
+  // CANNOT_VERIFY: <reason>
   pragma solidity ^0.8.20;
-  contract NoOpHarness {{ }}
+  import "forge-std/Test.sol";
+  contract NoOpHarness is Test {{
+      function check_noop() public pure {{ }}
+  }}
 """
 
     def parse_harness_body(self, llm_response: str) -> str:
@@ -169,7 +224,7 @@ write a real harness:
         )
         if not harness_path.is_file():
             raise FileNotFoundError(
-                f"SMTChecker harness not found at {harness_path}."
+                f"Halmos harness not found at {harness_path}."
             )
 
         body = harness_path.read_text(encoding="utf-8", errors="replace")
@@ -186,64 +241,31 @@ write a real harness:
                 reason="harness stub (CANNOT_VERIFY)",
             )
 
-        # Deploy harness into a SCRATCH dir, not the target repo's src/.
-        # Two reasons:
-        #   1. The src/ dir is part of the audited surface — anything we
-        #      write there would be picked up by every subsequent
-        #      forge build and recon pass, polluting findings.
-        #   2. solc resolves imports against --allow-paths, so we can
-        #      reference src/<Real.sol> from a scratch directory just
-        #      as easily.
-        scratch_dir = workspace / "formal" / "solidity" / "scratch"
-        scratch_dir.mkdir(parents=True, exist_ok=True)
-        deployed = scratch_dir / f"jelleo_l3_{harness_name}.sol"
+        # Deploy harness into the foundry project's test dir so halmos
+        # auto-discovers it. The repo's test dir is configured in
+        # foundry.toml; honor that path so this works against OSec
+        # repos (tests/) and Foundry default (test/) alike.
+        repo_test_dir = _detect_foundry_test_dir(target_repo_root)
+        repo_test_dir.mkdir(parents=True, exist_ok=True)
+        deployed = repo_test_dir / f"jelleo_l3_{harness_name}.t.sol"
         deployed.write_text(body, encoding="utf-8")
 
-        # SMTChecker via raw solc. forge doesn't expose --model-checker-*
-        # flags directly, so we call solc and let it resolve imports via
-        # --allow-paths + remappings. The timeout is in MILLISECONDS,
-        # capped to fit within our wall-clock budget minus a safety margin.
-        # Cap the SMTChecker internal timeout at 180s (was 60s). On
-        # harnesses with multi-contract state spaces (vault + mock token
-        # + attacker contract for reentrancy proofs, gov + voters[] for
-        # quorum proofs) the CHC solver needs >60s to either find a CE
-        # or saturate. 60s was leaving every complex harness at
-        # "indeterminate". 180s lets most converge; the rest are
-        # honestly out of CHC's scope.
-        smt_timeout_ms = max(5_000, min(timeout_s * 1000 - 5_000, 180_000))
+        # Halmos auto-discovers contract names. We pre-build the project
+        # with forge so halmos doesn't re-compile every time.
+        json_out = harness_path.with_suffix(".halmos.json")
+        if json_out.exists():
+            json_out.unlink()
 
-        # Read foundry.toml to pick up the project's remappings (e.g.
-        # `@src/=src/`). The LLM harness imports use these aliases, but
-        # raw solc doesn't read foundry.toml — we have to pass them as
-        # positional `prefix=path` args before the source file.
-        remappings: list[str] = []
-        foundry_toml = target_repo_root / "foundry.toml"
-        if foundry_toml.is_file():
-            try:
-                ft_text = foundry_toml.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                ft_text = ""
-            # Match `remappings = ["@src/=src/", ...]` (list of strings)
-            m_block = re.search(r"remappings\s*=\s*\[([\s\S]*?)\]", ft_text)
-            if m_block:
-                for entry in re.findall(r"['\"]([^'\"]+)['\"]", m_block.group(1)):
-                    if "=" in entry and not entry.startswith("forge-std"):
-                        prefix, _, rhs = entry.partition("=")
-                        # Resolve rhs relative to repo root if relative
-                        rhs_path = (target_repo_root / rhs).resolve() if not rhs.startswith("/") else Path(rhs)
-                        remappings.append(f"{prefix}={rhs_path}")
-
-        cmd = ["solc"]
-        cmd.extend(remappings)
-        cmd.extend([
-            "--model-checker-engine", "chc",
-            "--model-checker-targets", "all",
-            "--model-checker-timeout", str(smt_timeout_ms),
-            "--model-checker-show-unproved",
-            "--allow-paths", f"{target_repo_root},{scratch_dir}",
-            "--base-path", str(target_repo_root),
-            str(deployed),
-        ])
+        cmd = [
+            "halmos",
+            "--root", str(target_repo_root),
+            "--match-test", "^check_",
+            "--match-contract", f"^.*$",  # match any contract — we filter by test func name
+            "--json-output", str(json_out),
+            "--solver-timeout-assertion", "60000",  # 60s per assertion
+            "--solver-timeout-branching", "1000",
+            "--early-exit",  # stop at first counterexample per function
+        ]
 
         t0 = time.time()
         try:
@@ -258,18 +280,15 @@ write a real harness:
                 counterexample=False,
                 harness_path=harness_path,
                 stdout="",
-                stderr="solc not installed",
+                stderr="halmos not installed",
                 returncode=-3,
                 duration_s=time.time() - t0,
                 verifier=self.verifier,
-                reason="toolchain missing: solc",
+                reason="toolchain missing: halmos",
                 metadata={"infra_error": True},
             )
         except subprocess.TimeoutExpired as e:
             deployed.unlink(missing_ok=True)
-            # Preserve any partial stdout/stderr that solc emitted
-            # before the kill — CHC sometimes prints the CE seconds
-            # before saturating, which is what we want to surface.
             partial_out = ""
             partial_err = ""
             try:
@@ -280,7 +299,7 @@ write a real harness:
             except Exception:  # noqa: BLE001
                 pass
             try:
-                log_path = harness_path.with_suffix(".solc.log")
+                log_path = harness_path.with_suffix(".halmos.log")
                 log_path.write_text(
                     f"=== TIMED OUT AFTER {timeout_s}s ===\n"
                     f"=== STDOUT (partial, {len(partial_out)} bytes) ===\n{partial_out}\n"
@@ -294,109 +313,137 @@ write a real harness:
                 counterexample=False,
                 harness_path=harness_path,
                 stdout=partial_out[:8000],
-                stderr=(partial_err or "solc SMTChecker timed out")[:8000],
+                stderr=(partial_err or "halmos timed out")[:8000],
                 returncode=-5,
                 duration_s=time.time() - t0,
                 verifier=self.verifier,
-                reason="SMTChecker timeout after {}s (partial output saved to .solc.log)".format(timeout_s),
+                reason=f"halmos timeout after {timeout_s}s (partial output saved to .halmos.log)",
             )
         finally:
             deployed.unlink(missing_ok=True)
 
         duration = time.time() - t0
-        # CRITICAL: do NOT truncate stderr here. SMTChecker can emit
-        # tens of KB of leading warnings (unused-var, SPDX, state-
-        # mutability) before the "CHC: Assertion violation happens"
-        # signal. The previous 4000-byte cap silently hid CEs from
-        # complex harnesses, causing every L3 run to report
-        # "inconclusive" even when SMTChecker had found the bug.
-        # Operator caught this 2026-05-17 after L3 hunt v2 and v3
-        # both produced 12 indeterminate verdicts for verified-good
-        # harnesses.
-        stdout_full = proc.stdout
-        stderr_full = proc.stderr
-        combined = stdout_full + "\n" + stderr_full
+        stdout = proc.stdout
+        stderr = proc.stderr
 
-        # Also persist the full output next to the harness so a
-        # downstream "why did L3 fail?" investigation has the raw
-        # solc message instead of just a 200-char reason summary.
+        # Persist full output for post-cycle inspection.
         try:
-            log_path = harness_path.with_suffix(".solc.log")
+            log_path = harness_path.with_suffix(".halmos.log")
             log_path.write_text(
-                f"=== STDOUT ({len(stdout_full)} bytes) ===\n{stdout_full}\n"
-                f"=== STDERR ({len(stderr_full)} bytes) ===\n{stderr_full}\n"
+                f"=== STDOUT ({len(stdout)} bytes) ===\n{stdout}\n"
+                f"=== STDERR ({len(stderr)} bytes) ===\n{stderr}\n"
                 f"=== RETURNCODE: {proc.returncode} ===\n",
                 encoding="utf-8",
             )
         except OSError:
             pass
 
-        # Truncate ONLY for the FormalOutcome string fields (DB row
-        # size). Detection still uses the full untruncated strings.
-        stdout = stdout_full[:8000]
-        stderr = stderr_full[:8000]
+        # Parse halmos JSON output. Schema (typical):
+        # {"test_results": [{"name": "...", "passed": true/false,
+        #                    "counter_example": ..., "error": "..."}],
+        #  ...}
+        ce_found = False
+        proved_count = 0
+        failed_count = 0
+        ce_text: str | None = None
+        first_failed_name: str | None = None
+        if json_out.exists():
+            try:
+                data = json.loads(json_out.read_text(encoding="utf-8", errors="replace"))
+                # data may be a list of contract results or have a "test_results" key
+                contracts = data if isinstance(data, list) else [data]
+                for contract_entry in contracts:
+                    if not isinstance(contract_entry, dict):
+                        continue
+                    results = (
+                        contract_entry.get("test_results")
+                        or contract_entry.get("tests")
+                        or contract_entry.get("results")
+                        or []
+                    )
+                    if not isinstance(results, list):
+                        continue
+                    for t in results:
+                        if not isinstance(t, dict):
+                            continue
+                        name = t.get("name") or t.get("test_name") or "?"
+                        # Halmos uses "exitcode" or "passed" depending on version
+                        passed_field = t.get("passed")
+                        exitcode = t.get("exitcode")
+                        if passed_field is True or exitcode == 0:
+                            proved_count += 1
+                        elif passed_field is False or (exitcode is not None and exitcode != 0):
+                            failed_count += 1
+                            ce_found = True
+                            if first_failed_name is None:
+                                first_failed_name = name
+                            ce = t.get("counter_example") or t.get("counterexample") or t.get("model")
+                            if ce and ce_text is None:
+                                ce_text = str(ce)[:500]
+            except (OSError, ValueError, json.JSONDecodeError):
+                pass
 
-        # SMTChecker output patterns
-        violation_found = (
-            "CHC: Assertion violation happens" in combined
-            or "BMC: Assertion violation" in combined
-            or "Assertion violation found" in combined
-        )
-        # Counterexample line follows the violation
-        ce_match = re.search(
-            r"Counterexample:\s*\n([\s\S]+?)(?:\n\n|\Z)",
-            combined,
-        )
+        # Fallback: parse stdout text if JSON missing
+        if not ce_found and proved_count == 0:
+            combined = stdout + "\n" + stderr
+            if "Counterexample" in combined or "[FAIL]" in combined or "[ERROR]" in combined:
+                ce_found = True
+                m = re.search(r"Counterexample[:\s]*\n?([\s\S]+?)(?:\n\n|\Z)", combined)
+                if m:
+                    ce_text = m.group(1).strip()[:500]
+            elif "[PASS]" in combined or "passed" in combined.lower():
+                proved_count = 1
 
-        if violation_found:
-            ce_text = ce_match.group(1)[:500] if ce_match else "(no counterexample text)"
+        if ce_found:
             return FormalOutcome(
                 proved=False,
                 counterexample=True,
                 harness_path=harness_path,
-                stdout=stdout,
-                stderr=stderr,
+                stdout=stdout[:8000],
+                stderr=stderr[:8000],
                 returncode=proc.returncode,
                 duration_s=duration,
                 verifier=self.verifier,
-                reason=f"SMTChecker found assertion violation: {ce_text[:120]}",
-                metadata={"counterexample": ce_text},
+                reason=f"Halmos found counterexample{(': ' + (ce_text or first_failed_name or '?')[:120]) if (ce_text or first_failed_name) else ''}",
+                metadata={"counterexample": ce_text, "failed_count": failed_count, "first_failed": first_failed_name},
             )
 
-        # SMTChecker prints info messages on successful proofs. The
-        # operator-precedence around the second clause was a bug —
-        # `A or B and C` evaluates as `A or (B and C)`, so the original
-        # signal "CHC: All X verified" only fired when BOTH literals
-        # appeared in the output. We make the AND explicit with parens
-        # and ALSO check for the newer "all checks were verified" form
-        # introduced in solc 0.8.20+.
-        proved_signal = (
-            "CHC: 0 verification conditions remained" in combined
-            or ("CHC: All " in combined and "verified" in combined)
-            or "CHC: All assertions in this contract are proved" in combined
-            or "all checks were verified" in combined.lower()
-        )
-        if proved_signal:
+        if proved_count > 0:
             return FormalOutcome(
                 proved=True,
                 counterexample=False,
                 harness_path=harness_path,
-                stdout=stdout,
-                stderr=stderr,
+                stdout=stdout[:8000],
+                stderr=stderr[:8000],
                 returncode=proc.returncode,
                 duration_s=duration,
                 verifier=self.verifier,
-                reason="SMTChecker proved all assertions",
+                reason=f"Halmos proved invariant (no counterexample within bounded exploration; {proved_count} test(s) passed)",
+            )
+
+        # Compile error or other infra issue
+        if "Error" in stderr or "error" in stderr.lower():
+            return FormalOutcome(
+                proved=False,
+                counterexample=False,
+                harness_path=harness_path,
+                stdout=stdout[:8000],
+                stderr=stderr[:8000],
+                returncode=proc.returncode,
+                duration_s=duration,
+                verifier=self.verifier,
+                reason="halmos compile or runtime error (see .halmos.log)",
+                metadata={"compile_error": True},
             )
 
         return FormalOutcome(
             proved=False,
             counterexample=False,
             harness_path=harness_path,
-            stdout=stdout,
-            stderr=stderr,
+            stdout=stdout[:8000],
+            stderr=stderr[:8000],
             returncode=proc.returncode,
             duration_s=duration,
             verifier=self.verifier,
-            reason="SMTChecker inconclusive (likely timeout, unsupported feature, or compile error)",
+            reason="halmos inconclusive (no test results parsed; see .halmos.log)",
         )
