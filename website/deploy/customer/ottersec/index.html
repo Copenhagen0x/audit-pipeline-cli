@@ -679,45 +679,88 @@ section.dash { padding: 100px 0 60px; }
 </style>
 <div class="dash-section-label">01 · Targets</div>
 <h2 class="dash-section-title">Engagement scope</h2>
-<div class="dash-section-sub">12 targets under continuous audit. Click any tile to open the Bridge view with that target pre-selected.</div>
+<div class="dash-section-sub" id="target-grid-sub">12 targets under continuous audit. Click any tile to open the Bridge view with that target pre-selected.</div>
 
-<div class="target-grid">
+<div class="target-grid" id="target-grid" data-fallback="hidden">
+  <!-- Static fallback rendered server-side from manifest. The JS at the
+       bottom of this file re-renders this block from ./manifest.json on
+       load + every 60s. If JS is disabled / fetch fails, this static
+       version is what users see. -->
 <div class="target-group">
   <div class="target-group-label">Solana</div>
   <div class="target-row">
     <a class="target-card-tile" href="/customer/ottersec/full.html#osec-solana-small" aria-label="Open Bridge view for osec-solana-small">
   <span class="arrow">→</span>
   <div class="name">Solana · small</div>
-  <span class="status-chip idle">idle</span>
+  <span class="status-chip scanned">done</span>
   <div class="sev-mini">
-    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
-    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group crit"><span class="n">2</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">2</span><span class="label">high</span></span>
     <span class="group med"><span class="n">0</span><span class="label">med</span></span>
-    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+    <span class="group low"><span class="n">1</span><span class="label">low</span></span>
   </div>
-  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+  <div class="meta">engine <span style="color:var(--ink-2); background:rgba(245,184,0,0.06); padding:1px 6px; border-radius:2px; border:1px solid rgba(245,184,0,0.18);">5527255c10</span></div>
 </a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-solana-medium" aria-label="Open Bridge view for osec-solana-medium">
   <span class="arrow">→</span>
   <div class="name">Solana · medium</div>
-  <span class="status-chip idle">idle</span>
+  <span class="status-chip scanned">done</span>
   <div class="sev-mini">
-    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
-    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
-    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group crit"><span class="n">3</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">5</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">2</span><span class="label">med</span></span>
     <span class="group low"><span class="n">0</span><span class="label">low</span></span>
   </div>
-  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+  <div class="meta">engine <span style="color:var(--ink-2); background:rgba(245,184,0,0.06); padding:1px 6px; border-radius:2px; border:1px solid rgba(245,184,0,0.18);">54036c39b9</span></div>
 </a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-solana-large" aria-label="Open Bridge view for osec-solana-large">
   <span class="arrow">→</span>
   <div class="name">Solana · large</div>
-  <span class="status-chip idle">idle</span>
+  <span class="status-chip scanned">done</span>
   <div class="sev-mini">
-    <span class="group crit"><span class="n">0</span><span class="label">crit</span></span>
+    <span class="group crit"><span class="n">4</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">2</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">1</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">1</span><span class="label">low</span></span>
+  </div>
+  <div class="meta">engine <span style="color:var(--ink-2); background:rgba(245,184,0,0.06); padding:1px 6px; border-radius:2px; border:1px solid rgba(245,184,0,0.18);">55bb98f670</span></div>
+</a>
+  </div>
+</div>
+<div class="target-group">
+  <div class="target-group-label">Aptos</div>
+  <div class="target-row">
+    <a class="target-card-tile" href="/customer/ottersec/full.html#osec-aptos-small" aria-label="Open Bridge view for osec-aptos-small">
+  <span class="arrow">→</span>
+  <div class="name">Aptos · small</div>
+  <span class="status-chip scanned">done</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">2</span><span class="label">crit</span></span>
     <span class="group high"><span class="n">0</span><span class="label">high</span></span>
     <span class="group med"><span class="n">0</span><span class="label">med</span></span>
     <span class="group low"><span class="n">0</span><span class="label">low</span></span>
   </div>
-  <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
+  <div class="meta">engine <span style="color:var(--ink-2); background:rgba(245,184,0,0.06); padding:1px 6px; border-radius:2px; border:1px solid rgba(245,184,0,0.18);">e926fabc95</span></div>
+</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-aptos-medium" aria-label="Open Bridge view for osec-aptos-medium">
+  <span class="arrow">→</span>
+  <div class="name">Aptos · medium</div>
+  <span class="status-chip scanned">done</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">3</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">0</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">2</span><span class="label">low</span></span>
+  </div>
+  <div class="meta">engine <span style="color:var(--ink-2); background:rgba(245,184,0,0.06); padding:1px 6px; border-radius:2px; border:1px solid rgba(245,184,0,0.18);">f280ea8a83</span></div>
+</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-aptos-large" aria-label="Open Bridge view for osec-aptos-large">
+  <span class="arrow">→</span>
+  <div class="name">Aptos · large</div>
+  <span class="status-chip scanned">done</span>
+  <div class="sev-mini">
+    <span class="group crit"><span class="n">4</span><span class="label">crit</span></span>
+    <span class="group high"><span class="n">2</span><span class="label">high</span></span>
+    <span class="group med"><span class="n">4</span><span class="label">med</span></span>
+    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
+  </div>
+  <div class="meta">engine <span style="color:var(--ink-2); background:rgba(245,184,0,0.06); padding:1px 6px; border-radius:2px; border:1px solid rgba(245,184,0,0.18);">5f7bff30e6</span></div>
 </a>
   </div>
 </div>
@@ -796,45 +839,6 @@ section.dash { padding: 100px 0 60px; }
     <span class="group low"><span class="n">0</span><span class="label">low</span></span>
   </div>
   <div class="meta"><span style="color: var(--ink-4); font-style: italic;">no cycles yet</span></div>
-</a>
-  </div>
-</div>
-<div class="target-group">
-  <div class="target-group-label">Aptos</div>
-  <div class="target-row">
-    <a class="target-card-tile" href="/customer/ottersec/full.html#osec-aptos-small" aria-label="Open Bridge view for osec-aptos-small">
-  <span class="arrow">→</span>
-  <div class="name">Aptos · small</div>
-  <span class="status-chip scanned">scanned</span>
-  <div class="sev-mini">
-    <span class="group crit"><span class="n">3</span><span class="label">crit</span></span>
-    <span class="group high"><span class="n">1</span><span class="label">high</span></span>
-    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
-    <span class="group low"><span class="n">1</span><span class="label">low</span></span>
-  </div>
-  <div class="meta">engine <span style="color:var(--ink-2); background:rgba(245,184,0,0.06); padding:1px 6px; border-radius:2px; border:1px solid rgba(245,184,0,0.18);">e926fabc95</span></div>
-</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-aptos-medium" aria-label="Open Bridge view for osec-aptos-medium">
-  <span class="arrow">→</span>
-  <div class="name">Aptos · medium</div>
-  <span class="status-chip scanned">scanned</span>
-  <div class="sev-mini">
-    <span class="group crit"><span class="n">2</span><span class="label">crit</span></span>
-    <span class="group high"><span class="n">2</span><span class="label">high</span></span>
-    <span class="group med"><span class="n">0</span><span class="label">med</span></span>
-    <span class="group low"><span class="n">1</span><span class="label">low</span></span>
-  </div>
-  <div class="meta">engine <span style="color:var(--ink-2); background:rgba(245,184,0,0.06); padding:1px 6px; border-radius:2px; border:1px solid rgba(245,184,0,0.18);">5527255c10</span></div>
-</a><a class="target-card-tile" href="/customer/ottersec/full.html#osec-aptos-large" aria-label="Open Bridge view for osec-aptos-large">
-  <span class="arrow">→</span>
-  <div class="name">Aptos · large</div>
-  <span class="status-chip scanned">scanned</span>
-  <div class="sev-mini">
-    <span class="group crit"><span class="n">4</span><span class="label">crit</span></span>
-    <span class="group high"><span class="n">2</span><span class="label">high</span></span>
-    <span class="group med"><span class="n">4</span><span class="label">med</span></span>
-    <span class="group low"><span class="n">0</span><span class="label">low</span></span>
-  </div>
-  <div class="meta">engine <span style="color:var(--ink-2); background:rgba(245,184,0,0.06); padding:1px 6px; border-radius:2px; border:1px solid rgba(245,184,0,0.18);">5f7bff30e6</span></div>
 </a>
   </div>
 </div>
@@ -934,12 +938,88 @@ section.dash { padding: 100px 0 60px; }
     if (el && value != null) el.textContent = value;
   }
 
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function tileFor(t) {
+    // t: target row from manifest. Renders one anchor tile matching the
+    // static fallback markup so styles stay identical.
+    const name = (t.name || '').replace(/^osec-/, '').replace('-', ' · ');
+    const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+    const isDone = !!t.last_cycle_id;
+    const chipClass = isDone ? 'scanned' : (t.status === 'scanning' ? 'scanning' : 'idle');
+    const chipText  = isDone ? 'done' : (t.status === 'scanning' ? 'scanning' : 'idle');
+    const sev = t.severity_counts || {};
+    const meta = isDone
+      ? ('engine <span style="color:var(--ink-2); background:rgba(245,184,0,0.06); padding:1px 6px; border-radius:2px; border:1px solid rgba(245,184,0,0.18);">' + escapeHtml(t.engine_sha || '') + '</span>')
+      : '<span style="color: var(--ink-4); font-style: italic;">no cycles yet</span>';
+    return (
+      '<a class="target-card-tile" href="/customer/ottersec/full.html#' + escapeHtml(t.name) + '" aria-label="Open Bridge view for ' + escapeHtml(t.name) + '">' +
+      '<span class="arrow">&rarr;</span>' +
+      '<div class="name">' + escapeHtml(displayName) + '</div>' +
+      '<span class="status-chip ' + chipClass + '">' + chipText + '</span>' +
+      '<div class="sev-mini">' +
+        '<span class="group crit"><span class="n">' + (sev.Critical || 0) + '</span><span class="label">crit</span></span>' +
+        '<span class="group high"><span class="n">' + (sev.High || 0) + '</span><span class="label">high</span></span>' +
+        '<span class="group med"><span class="n">'  + (sev.Medium || 0)  + '</span><span class="label">med</span></span>' +
+        '<span class="group low"><span class="n">'  + (sev.Low || 0)     + '</span><span class="label">low</span></span>' +
+      '</div>' +
+      '<div class="meta">' + meta + '</div>' +
+      '</a>'
+    );
+  }
+
+  function renderTargetGrid(targets) {
+    const grid = $('target-grid');
+    if (!grid) return;
+    // Group by language family. The "Aptos / Solana / Solidity / C"
+    // groupings reflect the OtterSec multi-vendor benchmark layout.
+    const groupOrder = ['Solana', 'Aptos', 'Solidity', 'C'];
+    const groupOf = (name) => {
+      const n = (name || '').toLowerCase();
+      if (n.includes('solana'))   return 'Solana';
+      if (n.includes('aptos'))    return 'Aptos';
+      if (n.includes('solidity')) return 'Solidity';
+      if (n.includes('-c-'))      return 'C';
+      return 'Other';
+    };
+    const sizeRank = (name) => {
+      if (name.endsWith('-small'))  return 0;
+      if (name.endsWith('-medium')) return 1;
+      if (name.endsWith('-large'))  return 2;
+      return 3;
+    };
+    const byGroup = {};
+    for (const t of targets) {
+      const g = groupOf(t.name);
+      (byGroup[g] = byGroup[g] || []).push(t);
+    }
+    for (const g of Object.keys(byGroup)) {
+      byGroup[g].sort((a, b) => sizeRank(a.name) - sizeRank(b.name));
+    }
+    const html = groupOrder
+      .filter(g => byGroup[g])
+      .map(g =>
+        '<div class="target-group">' +
+          '<div class="target-group-label">' + escapeHtml(g) + '</div>' +
+          '<div class="target-row">' +
+            byGroup[g].map(tileFor).join('') +
+          '</div>' +
+        '</div>'
+      ).join('');
+    grid.innerHTML = html;
+  }
+
   function render(snap) {
     const cust    = snap.customer || {};
     const totals  = snap.totals   || {};
     const targets = snap.targets  || [];
     const sev     = totals.by_severity || {};
     const scannedTargets = targets.filter(t => t.last_cycle_id);
+    renderTargetGrid(targets);
 
     // Header line: "Engagement since <since> · <N> targets · <M> open findings"
     // dash-cycles-count is repurposed as the target count (the surrounding

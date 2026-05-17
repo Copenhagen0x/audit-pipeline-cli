@@ -247,7 +247,13 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
         # Halmos needs an absolute --root and uses os.path.join with
         # its own cwd-resolving logic that doesn't normalize `..`
         # segments correctly — so we resolve here.
+        import os
+        import sys
+        print(f"[L3 adapter] target_repo_root in: {target_repo_root!r}", file=sys.stderr, flush=True)
+        print(f"[L3 adapter] cwd: {os.getcwd()}", file=sys.stderr, flush=True)
         target_repo_root = Path(target_repo_root).resolve()
+        print(f"[L3 adapter] target_repo_root resolved: {target_repo_root}", file=sys.stderr, flush=True)
+        print(f"[L3 adapter] (target/out exists): {(target_repo_root / 'out').is_dir()}", file=sys.stderr, flush=True)
 
         # Deploy harness into the foundry project's test dir so halmos
         # auto-discovers it. The repo's test dir is configured in

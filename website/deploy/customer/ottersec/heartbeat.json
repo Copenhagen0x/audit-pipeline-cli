@@ -1,26 +1,19 @@
 {
   "customer_id": "ottersec",
-  "generated_at": "2026-05-15T19:18:42.321199+00:00",
-  "engine_sha": "5f7bff30e6",
-  "cycles_total": 3,
-  "last_cycle_ts": "2026-05-15T12:52:07+00:00",
+  "generated_at": "2026-05-17T17:53:00+00:00",
+  "engine_sha": "55bb98f670",
+  "cycles_total": 6,
+  "last_cycle_ts": "2026-05-17T17:52:04+00:00",
+  "last_cycle_id": "20260517-014506",
+  "last_cycle_target": "osec-solana-large",
   "service_summary": {
     "hunt_loop": "active",
     "snapshot_writer": "active",
     "heartbeat": "active"
   },
   "services": [
-    {
-      "name": "hunt_loop",
-      "state": "up"
-    },
-    {
-      "name": "snapshot_writer",
-      "state": "up"
-    },
-    {
-      "name": "heartbeat",
-      "state": "up"
-    }
+    {"name": "hunt_loop", "state": "up"},
+    {"name": "snapshot_writer", "state": "up"},
+    {"name": "heartbeat", "state": "up"}
   ]
 }

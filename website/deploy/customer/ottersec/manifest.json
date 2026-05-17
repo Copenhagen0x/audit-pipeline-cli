@@ -7,9 +7,9 @@
     "since": "2026-05-13"
   },
   "branding": {
-    "hero_title": "OtterSec \u00d7 Jelleo \u00b7 Vendor Evaluation",
-    "footer_text": "Confidential \u2014 OtterSec multi-vendor benchmark, do not redistribute",
-    "pdf_watermark": "Confidential \u2014 OtterSec evaluation",
+    "hero_title": "OtterSec × Jelleo · Vendor Evaluation",
+    "footer_text": "Confidential — OtterSec multi-vendor benchmark, do not redistribute",
+    "pdf_watermark": "Confidential — OtterSec evaluation",
     "logo_path": "customers/ottersec/branding/logo.svg"
   },
   "services": {
@@ -17,9 +17,16 @@
     "snapshot_writer": "running",
     "heartbeat": "running"
   },
-  "cycles_total": 0,
+  "cycles_total": 6,
   "loop_uptime_human": "active",
-  "recent_cycles": [],
+  "recent_cycles": [
+    {"cycle_id": "20260517-014506", "target": "osec-solana-large", "n_confirmed": 8, "started_at": "2026-05-17T01:45:06+00:00", "engine_sha": "55bb98f670"},
+    {"cycle_id": "20260516-030436", "target": "osec-solana-medium", "n_confirmed": 10, "started_at": "2026-05-16T03:04:36+00:00", "engine_sha": "54036c39b9"},
+    {"cycle_id": "20260515-192131", "target": "osec-aptos-medium", "n_confirmed": 7, "started_at": "2026-05-15T19:21:31+00:00", "engine_sha": "f280ea8a83"},
+    {"cycle_id": "20260514-233645", "target": "osec-aptos-large", "n_confirmed": 10, "started_at": "2026-05-14T23:36:45+00:00", "engine_sha": "5f7bff30e6"},
+    {"cycle_id": "20260514-151541", "target": "osec-solana-small", "n_confirmed": 5, "started_at": "2026-05-14T15:15:41+00:00", "engine_sha": "5527255c10"},
+    {"cycle_id": "20260513-191318", "target": "osec-aptos-small", "n_confirmed": 2, "started_at": "2026-05-13T19:13:18+00:00", "engine_sha": "e926fabc95"}
+  ],
   "public_findings": [],
   "targets": [
     {
@@ -27,13 +34,7 @@
       "name": "osec-aptos-large",
       "status": "scanned",
       "n_findings": 10,
-      "severity_counts": {
-        "Critical": 4,
-        "High": 2,
-        "Medium": 4,
-        "Low": 0,
-        "Info": 0
-      },
+      "severity_counts": {"Critical": 4, "High": 2, "Medium": 4, "Low": 0, "Info": 0},
       "last_cycle_id": "20260514-233645",
       "last_cycle_at": "2026-05-15T12:52:07+00:00",
       "engine_sha": "5f7bff30e6"
@@ -42,32 +43,20 @@
       "id": 11,
       "name": "osec-aptos-medium",
       "status": "scanned",
-      "n_findings": 5,
-      "severity_counts": {
-        "Critical": 2,
-        "High": 2,
-        "Medium": 0,
-        "Low": 1,
-        "Info": 0
-      },
-      "last_cycle_id": "20260514-151541",
-      "last_cycle_at": "2026-05-14T20:36:06+00:00",
-      "engine_sha": "5527255c10"
+      "n_findings": 7,
+      "severity_counts": {"Critical": 3, "High": 0, "Medium": 0, "Low": 2, "Info": 2},
+      "last_cycle_id": "20260515-192131",
+      "last_cycle_at": "2026-05-16T22:26:08+00:00",
+      "engine_sha": "f280ea8a83"
     },
     {
       "id": 10,
       "name": "osec-aptos-small",
       "status": "scanned",
-      "n_findings": 5,
-      "severity_counts": {
-        "Critical": 3,
-        "High": 1,
-        "Medium": 0,
-        "Low": 1,
-        "Info": 0
-      },
+      "n_findings": 2,
+      "severity_counts": {"Critical": 2, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
       "last_cycle_id": "20260513-191318",
-      "last_cycle_at": "2026-05-14T02:39:32+00:00",
+      "last_cycle_at": "2026-05-17T00:30:55+00:00",
       "engine_sha": "e926fabc95"
     },
     {
@@ -75,13 +64,7 @@
       "name": "osec-c-large",
       "status": "idle",
       "n_findings": 0,
-      "severity_counts": {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Info": 0
-      },
+      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
       "last_cycle_id": null,
       "last_cycle_at": null,
       "engine_sha": ""
@@ -91,13 +74,7 @@
       "name": "osec-c-medium",
       "status": "idle",
       "n_findings": 0,
-      "severity_counts": {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Info": 0
-      },
+      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
       "last_cycle_id": null,
       "last_cycle_at": null,
       "engine_sha": ""
@@ -107,13 +84,7 @@
       "name": "osec-c-small",
       "status": "idle",
       "n_findings": 0,
-      "severity_counts": {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Info": 0
-      },
+      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
       "last_cycle_id": null,
       "last_cycle_at": null,
       "engine_sha": ""
@@ -121,63 +92,39 @@
     {
       "id": 3,
       "name": "osec-solana-large",
-      "status": "idle",
-      "n_findings": 0,
-      "severity_counts": {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Info": 0
-      },
-      "last_cycle_id": null,
-      "last_cycle_at": null,
-      "engine_sha": ""
+      "status": "scanned",
+      "n_findings": 8,
+      "severity_counts": {"Critical": 4, "High": 2, "Medium": 1, "Low": 1, "Info": 0},
+      "last_cycle_id": "20260517-014506",
+      "last_cycle_at": "2026-05-17T17:52:04+00:00",
+      "engine_sha": "55bb98f670"
     },
     {
       "id": 2,
       "name": "osec-solana-medium",
-      "status": "idle",
-      "n_findings": 0,
-      "severity_counts": {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Info": 0
-      },
-      "last_cycle_id": null,
-      "last_cycle_at": null,
-      "engine_sha": ""
+      "status": "scanned",
+      "n_findings": 10,
+      "severity_counts": {"Critical": 3, "High": 5, "Medium": 2, "Low": 0, "Info": 0},
+      "last_cycle_id": "20260516-030436",
+      "last_cycle_at": "2026-05-16T21:54:52+00:00",
+      "engine_sha": "54036c39b9"
     },
     {
       "id": 1,
       "name": "osec-solana-small",
-      "status": "idle",
-      "n_findings": 0,
-      "severity_counts": {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Info": 0
-      },
-      "last_cycle_id": null,
-      "last_cycle_at": null,
-      "engine_sha": ""
+      "status": "scanned",
+      "n_findings": 5,
+      "severity_counts": {"Critical": 2, "High": 2, "Medium": 0, "Low": 1, "Info": 0},
+      "last_cycle_id": "20260514-151541",
+      "last_cycle_at": "2026-05-17T00:06:07+00:00",
+      "engine_sha": "5527255c10"
     },
     {
       "id": 9,
       "name": "osec-solidity-large",
       "status": "idle",
       "n_findings": 0,
-      "severity_counts": {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Info": 0
-      },
+      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
       "last_cycle_id": null,
       "last_cycle_at": null,
       "engine_sha": ""
@@ -187,13 +134,7 @@
       "name": "osec-solidity-medium",
       "status": "idle",
       "n_findings": 0,
-      "severity_counts": {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Info": 0
-      },
+      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
       "last_cycle_id": null,
       "last_cycle_at": null,
       "engine_sha": ""
@@ -203,13 +144,7 @@
       "name": "osec-solidity-small",
       "status": "idle",
       "n_findings": 0,
-      "severity_counts": {
-        "Critical": 0,
-        "High": 0,
-        "Medium": 0,
-        "Low": 0,
-        "Info": 0
-      },
+      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
       "last_cycle_id": null,
       "last_cycle_at": null,
       "engine_sha": ""
@@ -217,14 +152,9 @@
   ],
   "totals": {
     "n_targets": 12,
-    "n_findings": 20,
-    "by_severity": {
-      "Critical": 9,
-      "High": 5,
-      "Medium": 4,
-      "Low": 2,
-      "Info": 0
-    }
+    "n_targets_done": 6,
+    "n_findings": 42,
+    "by_severity": {"Critical": 18, "High": 11, "Medium": 7, "Low": 4, "Info": 2}
   },
-  "generated_at": "2026-05-15T19:18:42.320270+00:00"
+  "generated_at": "2026-05-17T17:53:00+00:00"
 }

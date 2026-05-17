@@ -1074,6 +1074,28 @@ main.bridge {
   }
   .tab-bar .tab .badge.zero { opacity: 0.4; }
 
+  /* Done targets: cycle completed, findings published. Green left border
+     + green badge — readable at a glance against the amber active state. */
+  .tab-bar .tab.done {
+    border-color: rgba(74,222,128,0.32);
+    box-shadow: inset 3px 0 0 0 rgba(74,222,128,0.85);
+  }
+  .tab-bar .tab.done .size-name { color: var(--ink); }
+  .tab-bar .tab.done .badge {
+    background: rgba(74,222,128,0.16);
+    color: #4ade80;
+    opacity: 1;
+  }
+  /* When a done tab is ALSO the active tab the amber fill still wins
+     (active state must stay visually dominant); restore badge contrast. */
+  .tab-bar .tab.done.active {
+    box-shadow: inset 3px 0 0 0 rgba(5,5,4,0.45);
+  }
+  .tab-bar .tab.done.active .badge {
+    background: rgba(5,5,4,0.22);
+    color: var(--bg);
+  }
+
   /* The tab bar lives INSIDE main.bridge (after the health banner), so
      main.bridge keeps its standard 96px top padding (just clears the
      fixed nav). No extra space needed because the sticky tab bar takes
@@ -1083,9 +1105,9 @@ main.bridge {
 <div class="tab-bar" id="tab-bar" role="tablist" aria-label="Audit targets">
 <span class="label">Targets</span>
 <div class="tab-group">
-<button class="tab" role="tab" data-target="osec-solana-small" aria-controls="tab-panel-osec-solana-small" data-group="solana" title="Solana · small"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-solana-medium" aria-controls="tab-panel-osec-solana-medium" data-group="solana" title="Solana · medium"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-solana-large" aria-controls="tab-panel-osec-solana-large" data-group="solana" title="Solana · large"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
+<button class="tab done" role="tab" data-target="osec-solana-small" aria-controls="tab-panel-osec-solana-small" data-group="solana" title="Solana · small · 5 findings (cycle 20260514-151541)"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge">5</span></button>
+<button class="tab done" role="tab" data-target="osec-solana-medium" aria-controls="tab-panel-osec-solana-medium" data-group="solana" title="Solana · medium · 10 findings (cycle 20260516-030436)"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge">10</span></button>
+<button class="tab done" role="tab" data-target="osec-solana-large" aria-controls="tab-panel-osec-solana-large" data-group="solana" title="Solana · large · 8 findings (cycle 20260517-014506)"><span class="group-name">Solana</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge">8</span></button>
 </div>
 <div class="tab-group">
 <button class="tab" role="tab" data-target="osec-solidity-small" aria-controls="tab-panel-osec-solidity-small" data-group="solidity" title="Solidity · small"><span class="group-name">Solidity</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
@@ -1098,9 +1120,9 @@ main.bridge {
 <button class="tab" role="tab" data-target="osec-c-large" aria-controls="tab-panel-osec-c-large" data-group="c" title="C · large"><span class="group-name">C</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
 </div>
 <div class="tab-group">
-<button class="tab" role="tab" data-target="osec-aptos-small" aria-controls="tab-panel-osec-aptos-small" data-group="aptos" title="Aptos · small"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-aptos-medium" aria-controls="tab-panel-osec-aptos-medium" data-group="aptos" title="Aptos · medium"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge zero">0</span></button>
-<button class="tab" role="tab" data-target="osec-aptos-large" aria-controls="tab-panel-osec-aptos-large" data-group="aptos" title="Aptos · large"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge zero">0</span></button>
+<button class="tab done" role="tab" data-target="osec-aptos-small" aria-controls="tab-panel-osec-aptos-small" data-group="aptos" title="Aptos · small · 2 findings (cycle 20260513-191318)"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">small</span><span class="badge">2</span></button>
+<button class="tab done" role="tab" data-target="osec-aptos-medium" aria-controls="tab-panel-osec-aptos-medium" data-group="aptos" title="Aptos · medium · 7 findings (cycle 20260515-192131)"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">medium</span><span class="badge">7</span></button>
+<button class="tab done" role="tab" data-target="osec-aptos-large" aria-controls="tab-panel-osec-aptos-large" data-group="aptos" title="Aptos · large · 10 findings (cycle 20260514-233645)"><span class="group-name">Aptos</span><span class="group-sep">·</span><span class="size-name">large</span><span class="badge">10</span></button>
 </div>
 </div>
 
@@ -3359,12 +3381,16 @@ main.bridge {
 </script>
 
 <script>
-/* OSec lobby tab reactivity (added 2026-05-17): drive each tab's
-   tab-scanned / tab-idle class + badge count from snapshot.targets[]
-   instead of the deploy-time hardcoded values. Runs once on load and
-   re-runs every 60s so future cycles auto-update the tab badges. */
+/* Bridge tab reactivity (rev 2026-05-17): drive each target tab's
+   class + badge count from the LOCAL customer manifest.json. The
+   previous version fetched the global api.jelleo.com/snapshot.json
+   and used `n_findings_disclosed`, which is 0 for any cycle whose
+   findings haven't been emailed yet — wiping the deploy-time
+   hardcoded counts and stripping the `done` class. Now we read the
+   same file the lobby reads, use `n_findings` (total confirmed),
+   and apply `done` so the green-bar treatment survives the refresh. */
 (function () {
-  const SNAPSHOT_URL = "https://api.jelleo.com/snapshot.json";
+  const MANIFEST_URL = "./manifest.json";
   function refreshTabs(snap) {
     const byTarget = {};
     (snap.targets || []).forEach(t => { if (t.name) byTarget[t.name] = t; });
@@ -3372,23 +3398,34 @@ main.bridge {
       const tgt = tab.dataset.target;
       const data = byTarget[tgt];
       if (!data) return;
-      const disclosed = data.n_findings_disclosed || 0;
-      tab.classList.remove("tab-idle", "tab-scanned", "tab-scanning");
-      tab.classList.add(disclosed > 0 ? "tab-scanned" : "tab-idle");
+      const total = data.n_findings || 0;
+      const isDone = !!data.last_cycle_id;
+      // Clear legacy + new state classes, then re-apply.
+      tab.classList.remove(
+        "tab-idle", "tab-scanned", "tab-scanning",
+        "done", "scanning", "idle"
+      );
+      if (isDone) {
+        tab.classList.add("done");
+      } else if (data.status === "scanning") {
+        tab.classList.add("scanning");
+      } else {
+        tab.classList.add("idle");
+      }
       const badge = tab.querySelector(".badge");
       if (badge) {
-        badge.textContent = String(disclosed);
-        badge.classList.toggle("zero", disclosed === 0);
+        badge.textContent = String(total);
+        badge.classList.toggle("zero", total === 0);
       }
     });
   }
   async function tick() {
     try {
-      const r = await fetch(SNAPSHOT_URL, { cache: "no-store" });
+      const r = await fetch(MANIFEST_URL, { cache: "no-store" });
       if (!r.ok) return;
       const snap = await r.json();
       refreshTabs(snap);
-    } catch (e) { /* swallow - keep hardcoded state on failure */ }
+    } catch (e) { /* swallow — keep deploy-time hardcoded state */ }
   }
   tick();
   setInterval(tick, 60_000);
