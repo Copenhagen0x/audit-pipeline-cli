@@ -17,11 +17,17 @@ Gates (in order, fail-fast):
   4. tests_pass_post_patch — running the full existing test suite against
                             the patched repo passes (no new regressions)
 
-Optional gate (runs when registered):
+Optional gates (run when registered):
 
-  5. kani_proof_holds    — re-runs the registered Kani harness for this
-                            bug class against the patched code and
-                            confirms the invariant still verifies
+  5. kani_proof_holds            — re-runs the registered Kani harness for this
+                                    bug class against the patched code and
+                                    confirms the invariant still verifies
+  6. litesvm_exploit_neutralized — re-runs the registered LiteSVM exploit
+                                    test against the patched code; pre-patch
+                                    the test FAILS (exploit fires), post-patch
+                                    it must PASS (Solana BPF runtime evidence
+                                    that the fix actually closes the hole, not
+                                    just that Kani's SMT can't find a CEX)
 
 Each gate has a `passed: bool` + `reason: str` + `duration_s: float`.
 The verification.json shape:
@@ -620,6 +626,59 @@ def _gate_kani_proof_holds(
                       time.time() - t0)
 
 
+def _gate_litesvm_exploit_neutralized(
+    workspace: Path,
+    finding_id: int,
+    engine_repo: Path | None,
+    litesvm_test_name: str | None,
+) -> GateResult:
+    """Apply patch, run the LiteSVM test, expect it to PASS (exploit no longer fires).
+
+    LiteSVM is Solana's BPF runtime simulator. Pre-patch, the harness asserts the
+    exploit invariant is violated (`test result: FAILED`). Post-patch the same
+    harness must report `test result: ok` — the on-chain runtime evidence that
+    the fix actually neutralizes the exploit, not just that Kani's SMT solver
+    couldn't find a counterexample to a possibly-incorrect harness.
+    """
+    t0 = time.time()
+    if engine_repo is None or not engine_repo.is_dir():
+        return GateResult(None, "skipped — no engine_repo provided", time.time() - t0)
+    if not litesvm_test_name:
+        return GateResult(None, "skipped — no litesvm_test_name registered for this bug class",
+                          time.time() - t0)
+
+    p = patch_path(workspace, finding_id)
+    if not p.is_file():
+        return GateResult(False, "no patch.diff to apply", time.time() - t0)
+
+    patch_text = p.read_text(encoding="utf-8", errors="replace")
+    ok, err = _apply_patch(engine_repo, patch_text)
+    if not ok:
+        return GateResult(False, f"could not apply patch: {err}", time.time() - t0)
+
+    try:
+        proc = subprocess.run(
+            ["cargo", "test", litesvm_test_name, "--", "--nocapture", "--test-threads=1"],
+            cwd=str(engine_repo),
+            capture_output=True, text=True, timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        _unapply_patch(engine_repo, patch_text)
+        return GateResult(False, "litesvm test timed out (>600s)", time.time() - t0)
+    finally:
+        _unapply_patch(engine_repo, patch_text)
+
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    if "test result: ok" in combined:
+        return GateResult(True, f"litesvm test {litesvm_test_name} passes post-patch (exploit neutralized)",
+                          time.time() - t0)
+    if "test result: FAILED" in combined:
+        return GateResult(False, f"litesvm test {litesvm_test_name} still FAILS post-patch — exploit not fixed",
+                          time.time() - t0)
+    return GateResult(False, f"litesvm test {litesvm_test_name} produced no recognizable verdict",
+                      time.time() - t0)
+
+
 def run_all_gates(
     workspace: Path,
     finding_id: int,
@@ -628,6 +687,7 @@ def run_all_gates(
     engine_repo: Path | None = None,
     poc_test_name: str | None = None,
     kani_harness: str | None = None,
+    litesvm_test_name: str | None = None,
 ) -> dict:
     """Run all gates and persist the result to verification.json."""
     bdir = bundle_dir(workspace, finding_id)
@@ -645,10 +705,13 @@ def run_all_gates(
             workspace, finding_id, engine_repo)
         gates["kani_proof_holds"] = _gate_kani_proof_holds(
             workspace, finding_id, engine_repo, kani_harness)
+        gates["litesvm_exploit_neutralized"] = _gate_litesvm_exploit_neutralized(
+            workspace, finding_id, engine_repo, litesvm_test_name)
     else:
         # Skip downstream gates if the patch is malformed
         for gate_name in ("poc_fails_pre_patch", "poc_passes_post_patch",
-                           "tests_pass_post_patch", "kani_proof_holds"):
+                           "tests_pass_post_patch", "kani_proof_holds",
+                           "litesvm_exploit_neutralized"):
             gates[gate_name] = GateResult(
                 None, "skipped — patch_well_formed failed", 0.0)
 

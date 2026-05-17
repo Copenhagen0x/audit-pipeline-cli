@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from audit_pipeline.bundle.templates import template_for
+from audit_pipeline.bundle.sig_index import build_sig_index
 from audit_pipeline.utils import LLMUnavailable, complete, is_available
 
 
@@ -66,6 +68,8 @@ for context lines, `+` for added lines, `-` for removed lines.
 ```rust
 {target_source}
 ```
+
+{sig_index_section}
 
 # Output requirements
 
@@ -137,6 +141,7 @@ def author_patch(
     poc_source: str,
     target_file_path: str,
     target_source: str,
+    engine_repo: Path | None = None,
     model: str = "claude-sonnet-4-6",
     max_tokens: int = 4000,
 ) -> PatchDraft:
@@ -148,6 +153,12 @@ def author_patch(
     from memory — patches were unanchored and `git apply --recount` couldn't
     recover them. With full source, hunk headers cite the real line numbers
     and the surrounding context matches verbatim.
+
+    When `engine_repo` is provided, the prompt also includes a cross-module
+    signature index so the LLM can call real helpers in other files instead
+    of inventing function names or arities. Without this index, structural
+    fixes that touch shared utilities tend to produce diffs referencing
+    non-existent functions.
     """
     template = template_for(bug_class)
 
@@ -166,6 +177,10 @@ def author_patch(
         f"{i+1:5}: {line}" for i, line in enumerate(target_source.splitlines())
     )
 
+    sig_index_section = ""
+    if engine_repo is not None:
+        sig_index_section = build_sig_index(engine_repo, target_file_path)
+
     prompt = PATCH_AUTHORSHIP_PROMPT.format(
         hypothesis_id=hypothesis_id,
         bug_class=bug_class,
@@ -175,6 +190,7 @@ def author_patch(
         poc_source=poc_source,
         target_file_path=target_file_path,
         target_source=target_source_numbered,
+        sig_index_section=sig_index_section,
     )
 
     try:

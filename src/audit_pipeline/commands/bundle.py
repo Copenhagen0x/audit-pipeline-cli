@@ -237,6 +237,7 @@ def draft_cmd(
             poc_source=poc_source or "(PoC source not provided)",
             target_file_path=resolved_target_file or "unknown",
             target_source=target_source,
+            engine_repo=engine_repo,
         )
         if draft.diff:
             write_patch(workspace, finding_id, draft.diff)
@@ -290,13 +291,15 @@ def draft_cmd(
               help="Cargo test name (e.g. test_f7_residual)")
 @click.option("--kani-harness", type=str, default=None,
               help="Optional Kani harness name to re-prove post-patch")
+@click.option("--litesvm-test-name", type=str, default=None,
+              help="Optional LiteSVM test name; expects test to PASS post-patch (was FAIL pre-patch)")
 @click.pass_context
 def verify_cmd(
     ctx: click.Context, finding_id: int,
     engine_repo: Path | None, poc_test_name: str | None,
-    kani_harness: str | None,
+    kani_harness: str | None, litesvm_test_name: str | None,
 ) -> None:
-    """Run the 4-5 machine verification gates and persist verification.json."""
+    """Run the 4-6 machine verification gates and persist verification.json."""
     workspace = _ws(ctx)
     if not bpaths.patch_path(workspace, finding_id).is_file():
         raise click.ClickException(
@@ -304,13 +307,14 @@ def verify_cmd(
         )
 
     # Load engine_sha + persisted draft-time params from meta. Fall back so
-    # the operator doesn't have to re-pass --poc-test-name / --kani-harness
-    # if they were already given at draft time.
+    # the operator doesn't have to re-pass --poc-test-name / --kani-harness /
+    # --litesvm-test-name if they were already given at draft time.
     mp = bpaths.meta_path(workspace, finding_id)
     meta = json.loads(mp.read_text(encoding="utf-8")) if mp.is_file() else {}
     engine_sha = meta.get("engine_sha", "")
     effective_poc_test = poc_test_name or meta.get("poc_test_name")
     effective_kani = kani_harness or meta.get("kani_harness")
+    effective_litesvm = litesvm_test_name or meta.get("litesvm_test_name")
 
     result = run_all_gates(
         workspace, finding_id,
@@ -318,6 +322,7 @@ def verify_cmd(
         engine_repo=engine_repo,
         poc_test_name=effective_poc_test,
         kani_harness=effective_kani,
+        litesvm_test_name=effective_litesvm,
     )
 
     # Render gate result table
