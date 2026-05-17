@@ -51,6 +51,12 @@ console = Console()
                    "<workspace>/hunts/<cycle-id>/merkle.json to <cycles-dir>/<root>.merkle.json "
                    "where <root> is the cycle's Merkle root. Lets /cycles/<root>/ detail pages "
                    "and the public verify-offline command actually resolve.")
+@click.option("--extra-db", "extra_dbs", type=click.Path(path_type=Path),
+              multiple=True,
+              help="ALSO merge findings/cycles from this DB into the snapshot. "
+                   "Can be repeated. Use when the primary workspace is one tenant "
+                   "(e.g. percolator-live) and additional DBs hold other customers' "
+                   "data (e.g. ottersec-eval) that should appear on the public dashboard.")
 @click.option("--serve", is_flag=True, help="Serve via http.server after writing")
 @click.option("--port", type=int, default=8765, show_default=True)
 @click.option("--auto-refresh", type=int, default=60, show_default=True,
@@ -62,6 +68,7 @@ def dashboard_cmd(
     snapshot_json: Path | None,
     customer_manifest_dir: Path | None,
     cycles_dir: Path | None,
+    extra_dbs: tuple[Path, ...],
     serve: bool,
     port: int,
     auto_refresh: int,
@@ -95,8 +102,21 @@ def dashboard_cmd(
     if snapshot_json:
         snapshot_path = Path(snapshot_json)
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        # Build primary snapshot, then merge in each --extra-db. The
+        # merge unions: by_target, public_findings, recent_cycles,
+        # cycle_merkle_roots, and sums cycles_total / receipts_signed.
+        snap = _build_snapshot(db, workspace)
+        for extra_db_path in extra_dbs:
+            try:
+                extra_db = FindingsDB(Path(extra_db_path))
+            except Exception as e:
+                console.print(f"[yellow]skip --extra-db {extra_db_path}: {e}[/yellow]")
+                continue
+            snap_x = _build_snapshot(extra_db, None)
+            snap = _merge_snapshots(snap, snap_x)
+            console.print(f"[green]merged[/green] extra-db {extra_db_path}")
         snapshot_path.write_text(
-            json.dumps(_build_snapshot(db, workspace), indent=2, sort_keys=True),
+            json.dumps(snap, indent=2, sort_keys=True),
             encoding="utf-8",
         )
         console.print(f"[green]wrote[/green] {snapshot_path}")
@@ -189,6 +209,58 @@ def _publish_cycle_sidecars(workspace: Path, cycles_dir: Path) -> tuple[int, int
     return (n_published, n_skipped)
 
 
+def _merge_snapshots(primary: dict, extra: dict) -> dict:
+    """Union the public-relevant lists from two snapshots.
+
+    Cycles + findings keep distinct entries (cycle_id and (target_id,id)
+    are stable across DBs). Targets dedup by name. Top-level counts
+    are summed. Used by ``dashboard --extra-db`` to surface
+    multi-tenant data on a single public snapshot.
+    """
+    out = dict(primary)
+    out["public_findings"] = list(primary.get("public_findings", [])) + list(extra.get("public_findings", []))
+    seen_cycles: set[str] = set()
+    merged_recent = []
+    for c in list(primary.get("recent_cycles", [])) + list(extra.get("recent_cycles", [])):
+        cid = c.get("cycle_id") or ""
+        if cid and cid in seen_cycles:
+            continue
+        seen_cycles.add(cid)
+        merged_recent.append(c)
+    merged_recent.sort(
+        key=lambda x: (x.get("started_at") or x.get("finished_at") or ""),
+        reverse=True,
+    )
+    out["recent_cycles"] = merged_recent[:20]
+    seen_roots: set[str] = set()
+    merged_roots = []
+    for r in list(primary.get("cycle_merkle_roots", [])) + list(extra.get("cycle_merkle_roots", [])):
+        cid = r.get("cycle_id") or ""
+        if cid and cid in seen_roots:
+            continue
+        seen_roots.add(cid)
+        merged_roots.append(r)
+    out["cycle_merkle_roots"] = merged_roots
+    seen_targets: set[str] = set()
+    merged_targets = []
+    for t in list(primary.get("targets", [])) + list(extra.get("targets", [])):
+        nm = t.get("name") or ""
+        if nm and nm in seen_targets:
+            continue
+        seen_targets.add(nm)
+        merged_targets.append(t)
+    out["targets"] = merged_targets
+    out["cycles_total"] = (primary.get("cycles_total") or 0) + (extra.get("cycles_total") or 0)
+    out["receipts_signed"] = (primary.get("receipts_signed") or 0) + (extra.get("receipts_signed") or 0)
+    pstats = dict(primary.get("stats") or {})
+    estats = (extra.get("stats") or {})
+    for k, v in estats.items():
+        if isinstance(v, (int, float)) and isinstance(pstats.get(k), (int, float)):
+            pstats[k] = pstats[k] + v
+    out["stats"] = pstats
+    return out
+
+
 def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
     """Serialize the DB state into a stable, public-safe JSON shape.
 
@@ -226,6 +298,10 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
     targets = db.list_targets()
     cycles = db.list_cycles(limit=20)
     findings = db.list_findings(limit=200)
+    # id→name lookup so every finding + cycle entry can ship a
+    # target_name string (the multi-target bridge view filters by
+    # data-target which expects the name, not the numeric id).
+    _target_name_by_id = {t["id"]: t.get("name") for t in targets}
 
     by_target = []
     for t in targets:
@@ -277,6 +353,7 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
         public_findings.append({
             "id": f["id"],
             "target_id": f["target_id"],
+            "target_name": _target_name_by_id.get(f["target_id"]) or "",
             "cycle_id": f.get("cycle_id"),
             "hypothesis_id": f.get("hypothesis_id"),
             "title": f.get("title"),
@@ -295,11 +372,17 @@ def _build_snapshot(db: FindingsDB, workspace: Path | None = None) -> dict:
         entry = {
             "cycle_id": c.get("cycle_id"),
             "target_id": c.get("target_id"),
+            "target_name": _target_name_by_id.get(c.get("target_id")) or "",
             "engine_sha": (c.get("engine_sha") or "")[:10],
             "started_at": c.get("started_at"),
             "finished_at": c.get("finished_at"),
             "n_dispatched": c.get("n_dispatched"),
             "n_confirmed": c.get("n_confirmed"),
+            # cost_usd surfaces the per-cycle LLM spend so the bridge
+            # view can compute per-tab spend (sum cycles by target_name).
+            # Without this, the cost row stays pinned at $ 0.000 / $ 800
+            # because the manifest carries no spend data at all.
+            "cost_usd": c.get("total_cost_usd") or 0,
             "receipt_fingerprint": _read_receipt_fingerprint(c.get("cycle_id")),
         }
         # Triage counts from hunt_summary.json — persisted across refresh.
@@ -818,6 +901,11 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
 
     # Enrich each finding with the same envelope as the public snapshot,
     # but here title + hyp_id are always included (customer owns the data).
+    # Build id→name map for owned targets so each finding can carry the
+    # full target_name string (matches the multi-target bridge view's
+    # tab `data-target` values; without target_name the JS can't filter
+    # findings per tab and they all collapse into a single shared view).
+    _target_name_by_id = {t["id"]: t.get("name") for t in owned_targets}
     customer_findings = []
     for f in findings:
         details = {}
@@ -833,6 +921,7 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         customer_findings.append({
             "id": f["id"],
             "target_id": f["target_id"],
+            "target_name": _target_name_by_id.get(f["target_id"]) or "",
             "cycle_id": f.get("cycle_id"),
             "hypothesis_id": f.get("hypothesis_id"),
             "title": f.get("title"),
@@ -869,11 +958,17 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         entry = {
             "cycle_id": c.get("cycle_id"),
             "target_id": c.get("target_id"),
+            "target_name": _target_name_by_id.get(c.get("target_id")) or "",
             "engine_sha": (c.get("engine_sha") or "")[:10],
             "started_at": c.get("started_at"),
             "finished_at": c.get("finished_at"),
             "n_dispatched": c.get("n_dispatched"),
             "n_confirmed": c.get("n_confirmed"),
+            # cost_usd surfaces the per-cycle LLM spend so the bridge
+            # view can compute per-tab spend (sum cycles by target_name).
+            # Without this, the cost row stays pinned at $ 0.000 / $ 800
+            # because the manifest carries no spend data at all.
+            "cost_usd": c.get("total_cost_usd") or 0,
             "receipt_fingerprint": _read_receipt_fingerprint(c.get("cycle_id")),
         }
         # Triage counts from hunt_summary.json — persisted across refresh.

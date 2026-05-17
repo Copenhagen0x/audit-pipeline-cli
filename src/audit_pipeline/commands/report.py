@@ -408,6 +408,7 @@ def _table_of_contents(
             engine_function=engine_function,
             hypothesis_id=hyp_id,
             hyp_yaml=hyp_yaml,
+            db_title=f.get("title"),
         )
         # Strip backticks from TOC entries (no nested <code> inside <a>);
         # the function name stays inline.
@@ -483,14 +484,19 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
     # Resolve the actual findings.db that hunt.py wrote to: prefer
     # workspace-local, then the parent ``workspaces/`` dir, then the
     # eval-suite root (where the shared DB lives for OSec cycles).
+    # Use absolute paths because ``Path(".").parent == Path(".")`` —
+    # relative-path traversal silently no-ops, which made the artifacts
+    # table render "absent in this cycle" even when the customer DB
+    # existed two levels up.
+    abs_workspace = workspace.resolve()
     findings_db_candidates = [
-        workspace / "findings.db",
-        workspace.parent / "findings.db",
-        workspace.parent.parent / "findings.db",
+        abs_workspace / "findings.db",
+        abs_workspace.parent / "findings.db",
+        abs_workspace.parent.parent / "findings.db",
     ]
     findings_db_path = next(
         (p for p in findings_db_candidates if p.is_file()),
-        workspace / "findings.db",
+        abs_workspace / "findings.db",
     )
 
     entries: list[tuple[str, str, Path, str]] = [
@@ -686,6 +692,7 @@ def _executive_summary_section(
         hyp_yaml = hyp_library.get(hid, {}) if hid else {}
         ef = (hyp_yaml.get("engine_function") or "").strip()
         short = _short_finding_title(
+            db_title=f.get("title"),
             bug_class=bc, engine_function=ef,
             hypothesis_id=hid, hyp_yaml=hyp_yaml,
         )
@@ -704,7 +711,7 @@ def _executive_summary_section(
             ) + "."
 
     formal_phrase = (
-        "a Move Prover counterexample where the formal layer ran"
+        "an authored Move Prover spec (Boogie/Z3/CVC5 not deployed on this VPS)"
         if language == "aptos"
         else "a Kani-bounded model-checker proof where the formal layer ran"
     )
@@ -718,8 +725,8 @@ def _executive_summary_section(
         f"cycle run by Jelleo against the <code>{html.escape(target_name)}</code> "
         f"workspace on {html.escape(date_label) if date_label else 'the date noted on the cover'}. "
         f"The cycle identified {sev_phrase} after Layer 2.5 triage and root-cause "
-        f"clustering.{findings_summary} Each finding includes a "
-        f"{('Move-VM-executed' if language == 'aptos' else 'engine-direct')} "
+        f"clustering.{findings_summary} Each finding includes "
+        f"{('a Move-VM-executed' if language == 'aptos' else 'an engine-direct')} "
         f"proof-of-concept, {formal_phrase}, {fuzz_phrase}, "
         f"and an LLM-authored structural fix patch."
     )
@@ -829,7 +836,7 @@ def _scope_section(
       <tr><td style="width:160px;color:var(--text-3)">Target workspace</td>
           <td><code>{html.escape(target_name)}</code></td></tr>
       <tr><td style="color:var(--text-3)">Protocol</td>
-          <td>{html.escape(protocol_label)} ({"Move smart-contract framework" if language == "aptos" else "Solana BPF program"})</td></tr>
+          <td>{"Move smart-contract framework (Aptos)" if language == "aptos" else "Solana BPF program"}</td></tr>
       <tr><td style="color:var(--text-3)">Engine commit</td>
           <td><code>{html.escape(engine_sha_short)}</code> {('<span style="color:var(--text-3);font-size:11px">(' + html.escape(engine_sha_full) + ')</span>') if engine_sha_full and len(engine_sha_full) > 10 else ''}</td></tr>
       <tr><td style="color:var(--text-3)">Source files</td>
@@ -837,7 +844,7 @@ def _scope_section(
       <tr><td style="color:var(--text-3)">Hypothesis library</td>
           <td>{n_hyps_in_library} invariant claim(s) covering authorization, arithmetic safety, accounting consistency, capability handling, event auditability, and oracle / time freshness</td></tr>
       <tr><td style="color:var(--text-3)">Out of scope</td>
-          <td style="color:var(--text-2)">Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>Move.toml</code> / <code>Cargo.toml</code> beyond their declared interfaces.</td></tr>
+          <td style="color:var(--text-2)">Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>{"Move.toml" if language == "aptos" else "Cargo.toml"}</code> beyond their declared interfaces.</td></tr>
     </tbody>
   </table>
 """
@@ -1005,6 +1012,10 @@ _BUG_CLASS_TITLES: dict[str, str] = {
     "insurance-counter-vault-divergence": "Insurance / vault accounting divergence in `{fn}`",
     "implicit_invariant":      "Implicit invariant violated in `{fn}`",
     "invariant_property":      "Invariant property violated in `{fn}`",
+
+    # Solana / Anchor PDA family (uppercased acronym)
+    "predictable-pda":         "Predictable PDA from attacker-controlled seed in `{fn}`",
+    "pda-not-canonical":       "PDA not canonical in `{fn}` (missing seeds / bump)",
 }
 
 
@@ -1032,6 +1043,7 @@ def _short_finding_title(
     engine_function: str,
     hypothesis_id: str,
     hyp_yaml: dict | None = None,
+    db_title: str | None = None,
 ) -> str:
     """Build a 5-9 word descriptive heading for a finding.
 
@@ -1045,6 +1057,10 @@ def _short_finding_title(
          fallback for unknown bug classes.
       4. The bare hypothesis_id — last resort when no metadata is available.
     """
+    # 1. Operator-curated DB title wins (e.g. backfilled for aptos-large
+    #    findings where the hypothesis library has no engine_function).
+    if db_title and db_title.strip() and db_title.strip() != "—":
+        return db_title.strip()
     yaml_title = (hyp_yaml or {}).get("title") if hyp_yaml else None
     if yaml_title:
         return str(yaml_title).strip()
@@ -1412,6 +1428,7 @@ def _hunt_funnel_section(
     n_fires = "?"
     total_cost_usd: float | None = None
     elapsed_seconds: float | None = None
+    started_at_iso: str | None = None
     if summary_path.is_file():
         try:
             s = _json.loads(summary_path.read_text(encoding="utf-8"))
@@ -1424,7 +1441,32 @@ def _hunt_funnel_section(
             n_fires = s.get("n_poc_fired", "?")
             total_cost_usd = s.get("total_cost_usd")
             elapsed_seconds = s.get("elapsed_seconds")
+            started_at_iso = s.get("started_at")
         except (OSError, ValueError):
+            pass
+
+    # Wall-clock fallback: if elapsed_seconds is missing or zero (happens
+    # when a cycle gets resumed multiple times — the timer resets), derive
+    # it from started_at -> finished_at, or started_at -> now if not finished.
+    if (not elapsed_seconds) and started_at_iso:
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            t0 = _dt.fromisoformat(started_at_iso.replace("Z", "+00:00"))
+            # Pick the freshest disk-mtime under the cycle dir as the
+            # effective "last activity" timestamp — more accurate than
+            # 'now' for a finished cycle.
+            try:
+                latest_mt = max(
+                    p.stat().st_mtime for p in cycle_dir.rglob("*")
+                    if p.is_file()
+                )
+                t1 = _dt.fromtimestamp(latest_mt, tz=_tz.utc)
+            except (OSError, ValueError):
+                t1 = _dt.now(tz=_tz.utc)
+            delta = (t1 - t0).total_seconds()
+            if delta > 0:
+                elapsed_seconds = delta
+        except (ValueError, OSError):
             pass
 
     counts = {"STRONG": 0, "SOFT": 0, "FALSE": 0, "LOST": 0}
@@ -1511,8 +1553,14 @@ def _hunt_funnel_section(
         + _arrow()
         + _cell(
             "Root causes",
-            str(len(clusters) or n_confirmed),
-            f"{counts['STRONG']} STRONG → {len(clusters) or n_confirmed} cluster(s)",
+            # Curator's confirmed count takes precedence over triage's raw
+            # cluster count. Triage clusters by (engine_function, target_file)
+            # at L2.5, but the operator's later disposition (rejected /
+            # withdrawn / out-of-scope) can override membership — so when
+            # the two diverge, show the curated number to match the §01
+            # body and the cover-page summary.
+            str(n_confirmed or len(clusters)),
+            f"{counts['STRONG']} STRONG → {n_confirmed or len(clusters)} after curation",
         )
         + _arrow()
         + _cell("Confirmed", str(n_confirmed), "reach this report")
@@ -1543,29 +1591,20 @@ def _hunt_funnel_section(
             + '</p>'
         )
 
-    # Cost + elapsed pill row
+    # Wall-clock pill row (cost intentionally omitted)
     cost_elapsed = ""
-    if total_cost_usd is not None or elapsed_seconds is not None:
-        cost_str = f"${total_cost_usd:.2f}" if total_cost_usd is not None else "—"
+    if elapsed_seconds is not None:
         elapsed_str = (
             f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60)}s"
-            if elapsed_seconds is not None else "—"
         )
         cost_elapsed = (
             '<p style="color:var(--text-3);font-size:11.5px;margin:6px 0 14px;'
             'font-family:var(--mono);letter-spacing:.06em">'
-            f'<strong style="color:var(--text-3);font-size:10.5px;'
-            f'letter-spacing:.12em;text-transform:uppercase;margin-right:8px">'
-            f'Cycle economics</strong>'
-            f'LLM spend: <code>{cost_str}</code> &middot; '
-            f'wall-clock: <code>{elapsed_str}</code> &middot; '
-            f'per-hypothesis amortized: <code>'
-            f'${total_cost_usd / int(n_hypotheses):.3f}</code>'
-            if (total_cost_usd is not None and str(n_hypotheses).isdigit()
-                and int(n_hypotheses) > 0)
-            else f'LLM spend: <code>{cost_str}</code> &middot; '
-                 f'wall-clock: <code>{elapsed_str}</code>'
-            + '</p>'
+            '<strong style="color:var(--text-3);font-size:10.5px;'
+            'letter-spacing:.12em;text-transform:uppercase;margin-right:8px">'
+            'Cycle wall-clock</strong>'
+            f'<code>{elapsed_str}</code>'
+            '</p>'
         )
 
     caption = (
@@ -1714,6 +1753,7 @@ def _findings_writeup(
             engine_function=engine_function,
             hypothesis_id=hyp_id,
             hyp_yaml=hyp_yaml,
+            db_title=f.get("title"),
         )
 
         # ── L2 PoC excerpt (language-dependent file extension + body shape) ──
@@ -1782,40 +1822,64 @@ def _findings_writeup(
                     l2_excerpt = _cap_with_firing_tail(m.group(1) if m else pt)
                 except OSError:
                     pass
-            l2_lang = "rust"  # Prism doesn't ship `move`; rust highlight is closest
+            l2_lang = "move"  # honest label; Prism may not highlight (no `move` grammar)
         else:
+            # Prefer the Layer 4 LiteSVM test source over the Layer 2 PoC
+            # excerpt when present. Rationale: L2 PoCs are LLM-authored against
+            # the hypothesis claim and can drift to a different function or
+            # leave template placeholders unfilled (sol-medium cycle observed:
+            # SOL39 / SOL40 L2 PoCs were unfilled templates; SOL30's L2 PoC
+            # cited the wrong file; SOL6's L2 PoC cited vault_router while the
+            # patch targets oracle_board). The L4 LiteSVM tests are hand-
+            # verified against the patched .so for every confirmed finding
+            # (14/14 PATCH_KILLS_EXPLOIT), so they're the authoritative
+            # exploit demonstration for the customer report.
+            litesvm_path = (cycle_dir / "litesvm" / hyp_slug
+                            / f"test_{hyp_slug}_litesvm.rs")
             poc_path = poc_dir / f"test_{hyp_slug}.rs"
-            if poc_path.is_file():
+            source_text = None
+            if litesvm_path.is_file():
                 try:
-                    poc_text = poc_path.read_text(encoding="utf-8", errors="replace")
-                    # Pull the fires function body — start at `#[test]\nfn ..._fires`
-                    m = re.search(
-                        r"(#\[test\][^\n]*\nfn[^\n]+_fires[^\{]*\{.*?\n\})",
-                        poc_text, re.DOTALL,
-                    )
-                    if m:
-                        l2_excerpt = _cap_with_firing_tail(m.group(1))
-                    else:
-                        l2_excerpt = _cap_with_firing_tail(poc_text)
+                    source_text = litesvm_path.read_text(
+                        encoding="utf-8", errors="replace")
                 except OSError:
-                    pass
+                    source_text = None
+            if not source_text and poc_path.is_file():
+                try:
+                    source_text = poc_path.read_text(
+                        encoding="utf-8", errors="replace")
+                except OSError:
+                    source_text = None
+            if source_text:
+                # Pull the test function body — match `#[test]\npub? fn test_<slug>`.
+                m = re.search(
+                    r"(#\[test\][^\n]*\n(?:pub\s+)?fn[^\n]+(?:_fires|_litesvm)[^\{]*\{.*?\n\})",
+                    source_text, re.DOTALL,
+                )
+                if m:
+                    l2_excerpt = _cap_with_firing_tail(m.group(1))
+                else:
+                    l2_excerpt = _cap_with_firing_tail(source_text)
 
         # ── L3 verification status (Kani for Solana / Move Prover for Aptos) ──
         l3_status = "—"
         if language == "aptos":
-            ev = aptos_layer_results.get("l3", {}).get(hyp_id)
-            if ev:
-                if ev.get("counterexample") is True:
-                    l3_status = "✓ Move Prover found a counterexample (bug confirmed by symbolic execution)"
-                elif ev.get("proved") is True:
-                    l3_status = "Move Prover proved the invariant holds (no counterexample within the spec)"
-                elif ev.get("compile_error"):
-                    l3_status = "Spec inconclusive (Move Prover failed to compile the LLM-authored spec)"
-                else:
-                    l3_status = "Inconclusive (Move Prover infra error or unparseable verdict)"
+            l3_status = (
+                "n/a for Move on this VPS — Boogie/Z3/CVC5 not deployed; "
+                "L2 PoC + L4 property test serve as primary evidence"
+            )
         else:
-            kani_log = cycle_dir / "kani" / f"cargo_kani_{hyp_slug}_invariant.log"
-            if kani_log.is_file():
+            # Modern adapter writes per-slug subdir; legacy Percolator
+            # path lives directly under kani/. Try both.
+            kani_log_candidates = (
+                cycle_dir / "kani" / hyp_slug / f"proof_{hyp_slug}.log",
+                cycle_dir / "kani" / f"cargo_kani_{hyp_slug}_invariant.log",
+            )
+            kani_log = next(
+                (p for p in kani_log_candidates if p.is_file()),
+                None,
+            )
+            if kani_log is not None:
                 try:
                     kt = kani_log.read_text(encoding="utf-8", errors="replace")
                     if "Verification:- FAILED" in kt or "VERIFICATION:- FAILED" in kt:
@@ -1832,6 +1896,11 @@ def _findings_writeup(
         l4_witness = ""
         if language == "aptos":
             ev = aptos_layer_results.get("l4", {}).get(hyp_id)
+            if not ev:
+                l4_status = (
+                    "Not run — L4 property-fuzz stage was skipped for this "
+                    "hypothesis (L2 PoC is the authoritative bug signal)"
+                )
             if ev:
                 if ev.get("crash_found") is True and ev.get("n_fail", 0) > 0:
                     l4_status = (
@@ -1848,14 +1917,35 @@ def _findings_writeup(
                 elif ev.get("compile_error"):
                     l4_status = (
                         "Inconclusive (LLM-authored property test failed to compile; "
-                        "L2 PoC + L3 Move Prover remain the authoritative bug signals)"
+                        "L2 PoC remains the authoritative bug signal)"
                     )
                 elif ev.get("ran_clean"):
                     l4_status = "Property fuzz ran clean — no PASS/FAIL markers (no signal)"
                 else:
                     l4_status = "Inconclusive (Move test runner did not report a parseable verdict)"
         else:
-            for litesvm_log in litesvm_dir.glob(f"cargo_litesvm_{hyp_slug}*.log"):
+            # Anchor L4 adapter writes per-hyp logs to
+            #   hunts/<cycle>/litesvm/<slug>/test_<slug>_litesvm.log  (FINAL)
+            #   hunts/<cycle>/litesvm/<slug>/test_<slug>_litesvm.attemptN.log  (per attempt)
+            # The legacy Percolator path was hunts/<cycle>/litesvm/cargo_litesvm_<slug>*.log
+            # Prefer the FINAL log; only fall back to attempts if the final
+            # is absent. The earlier glob `test_*_litesvm*.log` was sorted
+            # alphabetically and picked `attempt1.log` first (which is the
+            # broken-compile attempt) — its `break` after the conditions
+            # meant the FINAL log was never read.
+            l4_candidates: list[Path] = []
+            final_log = (litesvm_dir / hyp_slug
+                         / f"test_{hyp_slug}_litesvm.log")
+            if final_log.is_file():
+                l4_candidates.append(final_log)
+            else:
+                l4_candidates.extend(
+                    (litesvm_dir / hyp_slug).glob(
+                        f"test_{hyp_slug}_litesvm*.log")
+                )
+            l4_candidates.extend(
+                litesvm_dir.glob(f"cargo_litesvm_{hyp_slug}*.log"))
+            for litesvm_log in l4_candidates:
                 try:
                     lt = litesvm_log.read_text(encoding="utf-8", errors="replace")
                 except OSError:
@@ -1913,7 +2003,13 @@ def _findings_writeup(
                             msg_end = lt.find("\n", msg_start)
                             if msg_end < 0:
                                 msg_end = msg_start + 500
-                            l4_witness = lt[msg_start:msg_end].strip()[:500]
+                            _raw = lt[msg_start:msg_end].strip()
+                            # Drop verbose runtime ``Error: ...`` debug-print tail
+                            # if present (some authors append ``Error: {:?}``).
+                            _err_split = _raw.find(" Error: ")
+                            if _err_split > 80:
+                                _raw = _raw[:_err_split].rstrip()
+                            l4_witness = _raw[:600]
                     if not l4_witness:
                         for line in lt.splitlines():
                             if "BUG" in line and any(
@@ -1964,10 +2060,11 @@ def _findings_writeup(
                         if ln.startswith("@@"):
                             _saw_hunk_header = True
                     parts = _kept_parts
-                    if len(parts) > 16:
-                        p3_patch = "\n".join(parts[:16]) + "\n@@ …truncated for brevity @@"
-                    else:
-                        p3_patch = raw
+                    # Show the FULL patch in the report. Bundle deliverables
+                    # are the whole point — truncating the patch turns the
+                    # "fix" section into a teaser. Long-line wrap is handled
+                    # by CSS `white-space: pre-wrap` on .code-block below.
+                    p3_patch = "\n".join(parts) if parts else raw
                 except OSError:
                     pass
             if verif_p.is_file():
@@ -1976,8 +2073,16 @@ def _findings_writeup(
                     for g_name, g_data in v.get("gates", {}).items():
                         passed = g_data.get("passed")
                         icon = "✓" if passed is True else ("✗" if passed is False else "⏭")
-                        reason = (g_data.get("reason") or "")[:200]
-                        p3_gates.append((icon, g_name, reason))
+                        # Allow up to 400 chars so per-finding gate explanations
+                        # don't truncate mid-word in the rendered table.
+                        reason = (g_data.get("reason") or "")[:400]
+                        # Move cycles don't use Kani — relabel the row name so the
+                        # gate description matches the actual symbolic-verification tool.
+                        if language == "aptos" and g_name == "kani_proof_holds":
+                            display_name = "move_prover_proof_holds"
+                        else:
+                            display_name = g_name
+                        p3_gates.append((icon, display_name, reason))
                 except Exception:
                     pass
             if meta_p.is_file():
@@ -1989,8 +2094,24 @@ def _findings_writeup(
 
         # Render — L2 + P3 are the "code spread" half (page B). L3/L4/gates
         # are the "executive summary" half (page A) with bumped font.
+        # Header reflects the actual source of the code block: when the L4
+        # LiteSVM test is present (Solana) it's substituted in (it's the
+        # authoritative exploit reproduction); for Aptos / older cycles the
+        # L2 engine PoC is what gets rendered. Naming the header by what's
+        # actually shown avoids the mislabeled "Layer 2" content that's
+        # really an L4 LiteSVM test.
+        litesvm_present = (
+            language != "aptos"
+            and (cycle_dir / "litesvm" / hyp_slug
+                 / f"test_{hyp_slug}_litesvm.rs").is_file()
+        )
+        l2_header = (
+            "Layer 4 — LiteSVM exploit reproduction (test source)"
+            if litesvm_present
+            else "Layer 2 — Concrete proof of concept (engine-direct)"
+        )
         l2_section = (
-            f'<h4 class="page-break-before">Layer 2 — Concrete proof of concept (engine-direct)</h4>'
+            f'<h4 class="page-break-before">{l2_header}</h4>'
             f'<pre class="code-block code-tight"><code class="language-{l2_lang}">{html.escape(l2_excerpt)}</code></pre>'
         ) if l2_excerpt else (
             '<h4 class="page-break-before">Layer 2 — Concrete proof of concept</h4>'
@@ -2060,7 +2181,10 @@ def _findings_writeup(
         # to know that 4 STRONG fires collapsed to 1 finding.
         cluster_chip = ""
         if len(cluster_members) > 1:
-            covered = ", ".join(cluster_members[1:])
+            # Exclude the rep itself from the duplicates list — the
+            # cluster_members list ordering is not guaranteed, so we
+            # filter by hypothesis_id rather than slicing [1:].
+            covered = ", ".join(m for m in cluster_members if m != hyp_id)
             cluster_chip = (
                 f'<p class="finding-prose" style="color:var(--text-2);'
                 f'margin:-2px 0 14px;font-size:12px;line-height:1.55;'
@@ -2194,6 +2318,7 @@ def _fix_bundle_section(
         hyp_yaml_row = hyp_library_for_bundles.get(hid, {}) if hid else {}
         ef = (hyp_yaml_row.get("engine_function") or "").strip()
         short = _short_finding_title(
+            db_title=f.get("title") if isinstance(f, dict) else None,
             bug_class=bc, engine_function=ef,
             hypothesis_id=hid, hyp_yaml=hyp_yaml_row,
         )
@@ -2286,12 +2411,29 @@ def _fix_bundle_section(
             triage_clusters_local = by_cluster
 
     def _role_for(hyp_id: str, finding_status: str) -> str:
+        # Curator override: when an operator has explicitly rejected a finding
+        # (false-positive, out-of-scope, withdrawn), that supersedes whatever
+        # Layer 2.5 triage said about it. Without this, a STRONG-triaged
+        # finding that was later withdrawn keeps showing as 'confirmed' in the
+        # bundle activity table, which contradicts the curated DB state.
+        if finding_status == "rejected":
+            return "rejected"
         cls = triage_classification.get(hyp_id, "")
         if cls == "STRONG":
             # Is it the cluster representative?
             for cid, members in triage_clusters_local.items():
                 if hyp_id in members:
                     if hyp_id == cid:
+                        if len(members) > 1:
+                            return f"cluster rep ({len(members)} hyps)"
+                        return "confirmed"
+                    # Member but not the named rep. If the named rep was
+                    # rejected/withdrawn (not in confirmed findings), THIS
+                    # member is the surviving rep — promote to cluster rep
+                    # rather than rendering as a misleading "duplicate of
+                    # <rejected_id>" that contradicts §01.
+                    rep_status = finding_status_by_hyp.get(cid, "")
+                    if rep_status in ("rejected", ""):
                         if len(members) > 1:
                             return f"cluster rep ({len(members)} hyps)"
                         return "confirmed"
@@ -2712,14 +2854,21 @@ section.finding h4.page-break-before {{
   page-break-before: always;
   break-before: page;
 }}
-/* Code blocks: keep the second-half pages dense */
+/* Code blocks: keep the second-half pages dense; same wrap rules as the
+   parent so PoC snippets don't bleed off the right edge in PDF either. */
 pre.code-block.code-tight {{
   font-size: 10.5px;
   line-height: 1.45;
   padding: 10px 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
 }}
 
-/* Code blocks: prevent splitting across pages, give a card feel */
+/* Code blocks: wrap long lines so nothing falls off the right edge in
+   the PDF (overflow-x: auto worked on screen but the printer can't
+   scroll — lines were silently cut off in shipped reports). */
 pre.code-block {{
   background: #0d0c0a;
   border: 1px solid rgba(245,184,0,0.18);
@@ -2728,9 +2877,17 @@ pre.code-block {{
   margin: 12px 0 18px;
   font-size: 11.5px;
   line-height: 1.55;
-  overflow-x: auto;
-  page-break-inside: avoid;
-  break-inside: avoid;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  page-break-inside: auto;
+  break-inside: auto;
+}}
+pre.code-block code {{
+  white-space: inherit;
+  word-break: inherit;
+  overflow-wrap: inherit;
 }}
 pre.code-block.witness {{
   background: rgba(74,222,128,0.06);
@@ -2842,7 +2999,7 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
   </div>
 </nav>
 
-{topbar_html(status_label, status_class)}
+{topbar_html(status_label, status_class, tagline=f"Autonomous {protocol_label} audit")}
 
 {cover}
 

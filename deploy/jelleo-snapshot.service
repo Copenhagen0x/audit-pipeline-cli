@@ -17,7 +17,7 @@ WorkingDirectory=/root/audit_runs/percolator-live
 # 60s and patches in live numbers (with mockup fallback when missing).
 #
 # Adjust SNAPSHOT_PATH if jelleo.com is served from a different docroot.
-ExecStart=/bin/bash -c 'source /root/.audit-env && SNAPSHOT_PATH="${JELLEO_SNAPSHOT_PATH:-/var/www/jelleo.com/snapshot.json}" && CUSTOMER_DIR="${JELLEO_CUSTOMER_DIR:-/var/www/jelleo.com/customer}" && CYCLES_DIR="${JELLEO_CYCLES_DIR:-/var/www/jelleo.com/cycles}" && exec audit-pipeline --workspace /root/audit_runs/percolator-live dashboard --output /root/audit_runs/percolator-live/dashboard.html --snapshot-json "$SNAPSHOT_PATH" --customer-manifest-dir "$CUSTOMER_DIR" --cycles-dir "$CYCLES_DIR"'
+ExecStart=/bin/bash -c 'source /root/.audit-env && SNAPSHOT_PATH="${JELLEO_SNAPSHOT_PATH:-/var/www/jelleo.com/snapshot.json}" && CUSTOMER_DIR="${JELLEO_CUSTOMER_DIR:-/var/www/jelleo.com/customer}" && CYCLES_DIR="${JELLEO_CYCLES_DIR:-/var/www/jelleo.com/cycles}" && exec audit-pipeline --workspace /root/audit_runs/percolator-live dashboard --output /root/audit_runs/percolator-live/dashboard.html --extra-db /root/audit_runs/ottersec-eval/findings.db --snapshot-json "$SNAPSHOT_PATH" --customer-manifest-dir "$CUSTOMER_DIR" --cycles-dir "$CYCLES_DIR"'
 StandardOutput=append:/root/audit_runs/percolator-live/scheduler/snapshot.log
 StandardError=append:/root/audit_runs/percolator-live/scheduler/snapshot.log
 TimeoutStartSec=120
