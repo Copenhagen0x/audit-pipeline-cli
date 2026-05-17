@@ -3506,7 +3506,23 @@ def _hunt_run(
             # poc-test-name so the bundle has everything `verify` needs.
             poc_info = poc_results.get(hyp_id, {})
             scaffold_path = poc_info.get("scaffold_path")
+            # Default slug-based name; overridden below if the actual PoC
+            # file uses a different convention (L2 PoC authors sometimes
+            # add a `_fires` / `_panics` / `_witness` suffix to the fn
+            # name, and the verify cargo-log parser does an exact-name
+            # match — passing the wrong name silently fails the gate).
             poc_test_name = f"test_{_slugify(hyp_id)}"
+            if scaffold_path:
+                try:
+                    _poc_src = Path(scaffold_path).read_text(encoding="utf-8", errors="replace")
+                    _m = re.search(
+                        rf"fn\s+(test_{_slugify(hyp_id)}[a-zA-Z0-9_]*)\s*\(",
+                        _poc_src,
+                    )
+                    if _m:
+                        poc_test_name = _m.group(1)
+                except OSError:
+                    pass
             meta = hyp_meta.get(hyp_id, {})
             target_file_rel = meta.get("target_file", "src/percolator.rs")
             # OSec multi-program targets: hyps use `programs/*/src/lib.rs`

@@ -46,6 +46,7 @@ authorization invalidates the marker. Re-review is required.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -166,20 +167,68 @@ def draft_cmd(
         is_glob = any(ch in target_file for ch in "*?[")
         if is_glob:
             matches = sorted(engine_repo.glob(target_file))
-            # Try to resolve to a SINGLE file based on the hypothesis_id.
-            # Hyp IDs are slugged like `APTL8-marketplace-credit-debit-no-auth`
-            # — the module name after the prefix code is the target.
+            # Try to resolve to a SINGLE file. Resolution chain:
+            # 1) PoC source mentions `programs/<name>` — most reliable for
+            #    Solana, since the L2 PoC author cites the program where
+            #    the bug fires. SOL16's `programs/*/src/lib.rs` becomes
+            #    `programs/vault_market/...` because the PoC body mentions
+            #    `programs/vault_market`.
+            # 2) Hyp-id substring match on file stem — covers Aptos hyps
+            #    like `APTL8-marketplace-credit-debit-no-auth` where the
+            #    module name is in the slug.
+            # 3) Alphabetical-first fallback — only when nothing above hits.
+            #    This used to be the default and silently picked the wrong
+            #    program for Solana class-level hyps; now it's last resort.
             hyp_id = (finding.get("hypothesis_id") or "").lower()
             picked: Path | None = None
-            for p in matches:
-                if not p.is_file():
-                    continue
-                stem = p.stem.lower()  # e.g. "marketplace"
-                if stem in hyp_id:
-                    picked = p
-                    break
+
+            # (1) PoC-cited program name
+            if poc_source_file and poc_source_file.is_file():
+                try:
+                    poc_text = poc_source_file.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    poc_text = ""
+                cited_progs = re.findall(r"programs/([a-z0-9_]+)", poc_text)
+                if cited_progs:
+                    # Prefer the most-cited program (ties broken by first appearance)
+                    from collections import Counter
+                    rank = Counter(cited_progs)
+                    for prog_name, _ in rank.most_common():
+                        for p in matches:
+                            if not p.is_file():
+                                continue
+                            # match if `programs/<prog_name>/` is in path
+                            rel = p.relative_to(engine_repo).as_posix()
+                            if f"programs/{prog_name}/" in rel:
+                                picked = p
+                                break
+                        if picked is not None:
+                            break
+
+            # (2) Hyp-id substring on file stem
+            if picked is None:
+                for p in matches:
+                    if not p.is_file():
+                        continue
+                    stem = p.stem.lower()  # e.g. "marketplace"
+                    if stem and stem != "lib" and stem in hyp_id:
+                        picked = p
+                        break
+                # Also try parent dir name (e.g. vault_market from programs/vault_market/src/lib.rs)
+                if picked is None:
+                    for p in matches:
+                        if not p.is_file():
+                            continue
+                        parent_chain = "/".join(p.relative_to(engine_repo).parts).lower()
+                        for token in hyp_id.split("-"):
+                            if len(token) > 3 and token in parent_chain:
+                                picked = p
+                                break
+                        if picked is not None:
+                            break
+
+            # (3) Alphabetical fallback
             if picked is None and matches:
-                # No module-name hit — fall back to first match
                 picked = next((p for p in matches if p.is_file()), None)
             if picked is not None:
                 resolved_target_file = str(picked.relative_to(engine_repo))
