@@ -33,6 +33,56 @@ class PatchDraft:
     llm_available: bool     # False if no LLM was reachable
 
 
+_HUNK_HDR_RE = re.compile(r"^@@ -(\d+),(\d+) \+(\d+),(\d+) @@")
+
+
+def _repair_hunk_counts(diff: str) -> str:
+    """Rewrite each `@@ -A,B +C,D @@` so B and D match the actual hunk body.
+
+    The LLM frequently emits a hunk header that lies about line counts —
+    e.g. `@@ -25,6 +25,6 @@` followed by a body that's really 5 old / 5
+    new lines. `git apply` then rejects the patch as "corrupt patch at
+    line N". This walker counts the actual `-`/`+`/` ` lines in each
+    hunk body and rewrites the header to match.
+    """
+    lines = diff.splitlines(keepends=True)
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        m = _HUNK_HDR_RE.match(lines[i])
+        if not m:
+            out.append(lines[i])
+            i += 1
+            continue
+        old_start = int(m.group(1))
+        new_start = int(m.group(3))
+        body_start = i + 1
+        body_end = body_start
+        while body_end < len(lines):
+            if lines[body_end].startswith("@@") or lines[body_end].startswith("---"):
+                break
+            body_end += 1
+        old_count = 0
+        new_count = 0
+        for line in lines[body_start:body_end]:
+            if line.startswith("-") and not line.startswith("---"):
+                old_count += 1
+            elif line.startswith("+") and not line.startswith("+++"):
+                new_count += 1
+            elif line.startswith(" ") or line == "\n":
+                old_count += 1
+                new_count += 1
+            elif line.startswith("\\"):
+                # `\ No newline at end of file` — informational, no count
+                pass
+        out.append(
+            f"@@ -{old_start},{old_count} +{new_start},{new_count} @@\n"
+        )
+        out.extend(lines[body_start:body_end])
+        i = body_end
+    return "".join(out)
+
+
 PATCH_AUTHORSHIP_PROMPT = """You are writing a minimal-scope security patch for a Solana program.
 The bug has already been CONFIRMED via a PoC test that triggers the violation.
 Your output MUST be a valid unified diff that, when applied, makes the PoC stop triggering the bug.
@@ -266,6 +316,14 @@ def _parse_response(raw: str, bug_class: str) -> PatchDraft:
     # context lines), so we use .rstrip() then add exactly one newline.
     if diff:
         diff = diff + "\n"
+        # Repair LLM hunk-header line counts. The LLM frequently emits
+        # `@@ -25,6 +25,6 @@` when the actual hunk body has 5 context+
+        # mutation lines, not 6. `git apply --recount` recovers some
+        # cases but not all; running our own re-counter post-author
+        # makes every well-shaped-but-miscounted diff applicable.
+        # See scripts/fix_patch_hunk_counts.py for the standalone tool
+        # version (kept for one-off patch surgery).
+        diff = _repair_hunk_counts(diff)
 
     return PatchDraft(
         diff=diff,

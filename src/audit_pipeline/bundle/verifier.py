@@ -98,6 +98,53 @@ class GateResult:
         return out
 
 
+def _workspace_has_test_feature(engine_repo: Path) -> bool:
+    """Check if any crate in the workspace declares a `test` cargo feature.
+
+    Percolator's PoC harness gated test-only helpers behind a `test`
+    feature so `cargo test --features test` was required. Anchor /
+    Solana program workspaces typically don't have such a feature, and
+    passing `--features test` makes cargo reject the build with
+    "none of the selected packages contains this feature: test".
+    Detect on the fly so we only pass the flag where it's recognised.
+    """
+    try:
+        # Check the workspace root Cargo.toml + each `programs/*/Cargo.toml`
+        cargo_files = [engine_repo / "Cargo.toml"]
+        programs_dir = engine_repo / "programs"
+        if programs_dir.is_dir():
+            for p in programs_dir.iterdir():
+                if p.is_dir():
+                    ct = p / "Cargo.toml"
+                    if ct.is_file():
+                        cargo_files.append(ct)
+        for ct in cargo_files:
+            if not ct.is_file():
+                continue
+            body = ct.read_text(encoding="utf-8", errors="replace")
+            # Look for `[features]\n...\ntest = [...]` or `[features]\ntest = "..."`
+            m = re.search(
+                r"\[features\][^\[]*?^\s*test\s*=",
+                body,
+                re.MULTILINE | re.DOTALL,
+            )
+            if m:
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _cargo_test_argv(engine_repo: Path, *extra: str) -> list[str]:
+    """Build a `cargo test ...` argv, including `--features test` only when
+    the workspace actually declares that feature. See _workspace_has_test_feature."""
+    argv = ["cargo", "test"]
+    if _workspace_has_test_feature(engine_repo):
+        argv += ["--features", "test"]
+    argv += list(extra)
+    return argv
+
+
 def _gate_patch_well_formed(workspace: Path, finding_id: int) -> GateResult:
     t0 = time.time()
     p = patch_path(workspace, finding_id)
@@ -195,7 +242,7 @@ def _gate_poc_fails_pre_patch(
         # was previously treated as "bug reproduces" which is wrong — compile
         # errors and missing test binaries would falsely confirm fake bugs.
         proc = subprocess.run(
-            ["cargo", "test", "--features", "test", "--test", poc_test_name],
+            _cargo_test_argv(engine_repo, "--test", poc_test_name),
             cwd=str(engine_repo),
             capture_output=True, text=True, timeout=600,
         )
@@ -475,7 +522,7 @@ def _gate_poc_passes_post_patch(
 
     try:
         proc = subprocess.run(
-            ["cargo", "test", "--features", "test", "--test", poc_test_name],
+            _cargo_test_argv(engine_repo, "--test", poc_test_name),
             cwd=str(engine_repo),
             capture_output=True, text=True, timeout=600,
         )
@@ -561,7 +608,7 @@ def _gate_tests_pass_post_patch(
 
     try:
         proc = subprocess.run(
-            ["cargo", "test", "--features", "test"],
+            _cargo_test_argv(engine_repo),
             cwd=str(engine_repo),
             capture_output=True, text=True, timeout=1800,
         )
