@@ -735,9 +735,365 @@ hypotheses:
     relevant_instructions: |
       vault_router::rebalance, lines 114-138
 
+  # ─────────────────── Large-codebase patterns (added 2026-05-17) ───────────────────
+  # SOL45-SOL64 — surfaced during manual review of sahuang-osec/solana-large
+  # (10 programs · 5,257 LOC · bridge_mailbox + dao_treasury + lending_pool +
+  # margin_house + nft_escrow + oracle_board + payment_stream + rewards_farm +
+  # stake_router + vault_market). SOL1-SOL44 catch the universal Solana / Anchor
+  # bug-classes; the 20 below close the gap on patterns specific to the
+  # cross-chain, governance, lending, margin, vault, oracle, and NFT-marketplace
+  # surface areas that the small / medium repos didn't exercise.
+
+  - id: SOL45-cross-domain-nonce-replay
+    class: state-machine
+    severity: Critical
+    bug_class: cross-domain-replay
+    engine_function: ""
+    target_file: programs/bridge_mailbox/src/lib.rs
+    claim: >
+      Cross-chain mailbox MUST track the last delivered nonce per
+      `(remote_domain, message_type)` tuple, not per-peer. The deliver
+      handler checks `peer.last_nonce <= nonce` against a Peer keyed on
+      `(mailbox, remote_domain)` only — an attacker controlling two
+      registered peers can replay a message from domain A by submitting
+      the same payload through domain B's peer record, because the nonce
+      counter is scoped to the wrong PDA key. Cross-domain replay corrupts
+      delivery-record state.
+    relevant_instructions: |
+      bridge_mailbox::deliver, instructions/mod.rs Deliver handler
+
+  - id: SOL46-wrapping-arith-on-security-counter
+    class: arithmetic
+    severity: High
+    bug_class: wrapping-counter
+    engine_function: ""
+    target_file: programs/payment_stream/src/lib.rs
+    claim: >
+      Security-critical accumulators (claimed_amount, total_deposits,
+      slash_pool) must use checked_add and abort on overflow, not
+      wrapping_add. payment_stream::claim updates
+      `payment_stream.claimed = transfer_amount.wrapping_add(payment_stream.claimed)`,
+      vault_market::record_deposit wraps `total_deposits`, and
+      stake_router::route_stake wraps `slash_pool` / `total_routed`. Once
+      any of these saturates and wraps, downstream `remaining()` /
+      daily-limit / fee-pool checks return a fresh budget, enabling
+      double-claim and limit bypass. wrapping is silent — no event, no
+      audit signal.
+    relevant_instructions: |
+      payment_stream::claim, vault_market::record_deposit,
+      stake_router::route_stake
+
+  - id: SOL47-policy-denied-uses-hardcoded-haircut
+    class: logic
+    severity: High
+    bug_class: policy-bypass
+    engine_function: ""
+    target_file: programs/payment_stream/src/lib.rs
+    claim: >
+      When the engine's risk-policy assess returns
+      `PolicyDecision::deny(...)`, the caller MUST apply
+      `decision.net_amount(amount)` (which encodes fee + haircut). Several
+      handlers instead substitute a hardcoded fraction:
+      payment_stream::claim uses `available_amount / 2`, and
+      nft_escrow::place_bid uses `amount.saturating_sub(apply_bps(amount, 250))`.
+      The policy's stated penalty is silently bypassed — denial behavior
+      diverges from the policy contract and a denied bid may still be
+      stored as `highest_bid`.
+    relevant_instructions: |
+      payment_stream::claim, nft_escrow::place_bid
+
+  - id: SOL48-risk-checkpoint-arg-type-mismatch
+    class: logic
+    severity: Medium
+    bug_class: type-confusion
+    engine_function: ""
+    target_file: programs/bridge_mailbox/src/lib.rs
+    claim: >
+      `RiskCheckpoint::capture(observed, limit, slot, prior_slot)` requires
+      `slot` arguments to be Solana slot numbers (monotonic with time).
+      Callers must NOT pass a domain-level nonce or a confidence value as
+      `prior_slot` — those are not slot-monotonic, so the staleness flag
+      derived from `slot - prior_slot` becomes meaningless.
+      bridge_mailbox::deliver passes `peer.last_nonce` as the fourth arg,
+      and oracle_board::submit_price passes `confidence` as `observed` and
+      `price.max(1)` as `limit`. Both checkpoints fire incorrectly or never.
+    relevant_instructions: |
+      bridge_mailbox::deliver, oracle_board::submit_price
+
+  - id: SOL49-vote-weight-decay-inverted
+    class: logic
+    severity: Critical
+    bug_class: decay-inversion
+    engine_function: ""
+    target_file: programs/dao_treasury/src/lib.rs
+    claim: >
+      Time-decayed vote weight MUST monotonically decrease with elapsed
+      time since proposal start; the decay function MUST return
+      `min(decayed, original)`. dao_treasury::vote applies
+      `counted_weight = reduced_weight.max(weight)`, which means voting
+      LATER (decayed value > original) actually INCREASES counted weight.
+      Inverts the entire incentive of time-decayed voting — late voters
+      win.
+    relevant_instructions: |
+      dao_treasury::vote
+
+  - id: SOL50-proposal-execute-race-non-atomic
+    class: state-machine
+    severity: High
+    bug_class: execute-race
+    engine_function: ""
+    target_file: programs/dao_treasury/src/lib.rs
+    claim: >
+      Governance execute MUST set `proposal.executed = true` and check
+      `!executed` in a single atomic step. dao_treasury::execute reads
+      yes_votes, checks quorum, then writes executed=true — the gap
+      between read and write allows two concurrent executes (different
+      transactions) that both observe `executed == false`. Without
+      a single-instruction CAS, treasury funds disburse twice.
+    relevant_instructions: |
+      dao_treasury::execute
+
+  - id: SOL51-lazy-state-init-during-mutation
+    class: state-machine
+    severity: Critical
+    bug_class: lazy-init-race
+    engine_function: ""
+    target_file: programs/lending_pool/src/lib.rs
+    claim: >
+      Account state fields MUST be set during the dedicated initializer
+      instruction, not lazily on first mutating call. lending_pool::borrow
+      checks `if obligation.collateral_value == 0` and sets
+      `collateral_value = price.saturating_mul(100)` on the fly, where
+      `price` is the caller-supplied parameter. Whoever borrows first
+      gets to define the collateral valuation by passing whatever price
+      they want.
+    relevant_instructions: |
+      lending_pool::borrow
+
+  - id: SOL52-hardcoded-mark-price-constant
+    class: oracle
+    severity: Critical
+    bug_class: hardcoded-price
+    engine_function: ""
+    target_file: programs/margin_house/src/lib.rs
+    claim: >
+      Equity / PnL / liquidation math MUST use a live oracle price or a
+      protocol-managed mark price. margin_house hardcodes
+      `mark_price = 1i64` in liquidate and `equity(1)` in trade — every
+      position's equity is computed against a constant 1, ignoring real
+      token prices entirely. Distinct from SOL27 (oracle-zero-price) and
+      SOL37 (oracle-bypass-user-supplied-price): no oracle account is
+      referenced at all.
+    relevant_instructions: |
+      margin_house::trade, margin_house::liquidate
+
+  - id: SOL53-liquidation-penalty-uncapped
+    class: logic
+    severity: High
+    bug_class: penalty-uncapped
+    engine_function: ""
+    target_file: programs/margin_house/src/lib.rs
+    claim: >
+      Liquidation penalty MUST be bounded by a fraction of position size
+      and capped by underwater amount. margin_house::liquidate accepts an
+      arbitrary `penalty: u64` instruction parameter and deducts it from
+      collateral with no proportionality check, no maximum, and no tie to
+      the actual loss being socialized into the insurance fund.
+    relevant_instructions: |
+      margin_house::liquidate
+
+  - id: SOL54-emergency-pause-delegate-bypass
+    class: state-machine
+    severity: Critical
+    bug_class: pause-bypass
+    engine_function: ""
+    target_file: programs/vault_market/src/lib.rs
+    claim: >
+      Emergency-pause flag MUST gate every state-mutating user-facing
+      instruction uniformly. vault_market::withdraw allows the gate to be
+      bypassed when the requester is `user_vault.delegate`
+      (`if (!market.paused) || (user_vault.delegate == requester.key())`).
+      A compromised market with `paused = true` still drains via the
+      delegate role.
+    relevant_instructions: |
+      vault_market::withdraw
+
+  - id: SOL55-shares-assets-conflation-no-exchange-rate
+    class: token-economics
+    severity: High
+    bug_class: share-rate-missing
+    engine_function: ""
+    target_file: programs/vault_market/src/lib.rs
+    claim: >
+      Vault MUST maintain a share-to-asset exchange rate so accrued fees
+      and pool balance changes propagate to share value. vault_market
+      mints shares 1:1 with deposit amount in `credit()` / `debit()` and
+      never tracks an exchange rate. Distinct from SOL22
+      (share-inflation-first-depositor): the issue here is structural —
+      shares have no asset backing at all, fees never accrue to share
+      value.
+    relevant_instructions: |
+      vault_market UserVault::credit / debit
+
+  - id: SOL56-epoch-boundary-daily-limit-bypass
+    class: logic
+    severity: Medium
+    bug_class: daily-cap-bypass
+    engine_function: ""
+    target_file: programs/vault_market/src/lib.rs
+    claim: >
+      Daily-volume caps MUST use a rolling 24h window (or per-day with a
+      per-period cap reset that resists boundary games). vault_market
+      resets `daily_used` whenever `last_epoch / 86_400 != now / 86_400`,
+      so an attacker times two deposits at minute 23:59 + 00:01 to spend
+      2× the daily cap inside a 2-minute window. The cap is meaningless
+      against an attacker that watches the clock.
+    relevant_instructions: |
+      vault_market Market::record_deposit
+
+  - id: SOL57-reward-accrual-skipped-on-zero-stake
+    class: token-economics
+    severity: High
+    bug_class: zero-stake-accrual-loss
+    engine_function: ""
+    target_file: programs/rewards_farm/src/lib.rs
+    claim: >
+      `acc_reward_per_share` MUST advance every block regardless of
+      `total_staked`; rewards accruing during a zero-stake period must be
+      either stranded (skipped permanently) or queued for the next staker.
+      rewards_farm::update returns early when `total_staked == 0` without
+      advancing the per-share counter — the first staker to enter after a
+      zero-stake gap inherits the gap's accrued rewards as if they'd been
+      staked the whole time.
+    relevant_instructions: |
+      rewards_farm Farm::update
+
+  - id: SOL58-reward-debt-allows-over-claim-on-restake
+    class: token-economics
+    severity: High
+    bug_class: restake-over-claim
+    engine_function: ""
+    target_file: programs/rewards_farm/src/lib.rs
+    claim: >
+      When a user adds to an existing stake, the protocol MUST first
+      crystalize their currently-earned rewards (pending = stake *
+      acc_per_share - debt) and only then recompute reward_debt against
+      the new amount. rewards_farm::stake recomputes
+      `reward_debt = acc_per_share * new_amount / 1e9` immediately after
+      the stake increment, with no harvest in between — the user can then
+      harvest a full pending-reward window for the new amount as if it
+      had been staked the whole time.
+    relevant_instructions: |
+      rewards_farm::stake
+
+  - id: SOL59-harvest-emits-event-no-actual-transfer
+    class: logic
+    severity: Critical
+    bug_class: harvest-no-transfer
+    engine_function: ""
+    target_file: programs/rewards_farm/src/lib.rs
+    claim: >
+      Harvest MUST issue a CPI transfer to the user's reward token
+      account before emitting a HarvestExecuted event and advancing
+      `farmer.harvested`. rewards_farm::harvest computes a
+      `released_amount`, updates accounting, and emits the event — but
+      never invokes `token::transfer`. The protocol records that rewards
+      were paid out, but the tokens stay in the reward vault.
+    relevant_instructions: |
+      rewards_farm::harvest
+
+  - id: SOL60-receipt-not-bound-to-parent-sale
+    class: account-validation
+    severity: Critical
+    bug_class: receipt-unbound
+    engine_function: ""
+    target_file: programs/nft_escrow/src/lib.rs
+    claim: >
+      A bid receipt MUST be PDA-derived from its parent sale
+      (`seeds = [b"bid", sale.key().as_ref(), bidder.key().as_ref()]`)
+      and re-validated at settle. nft_escrow::settle_sale accepts a
+      `BidReceipt` account with no `has_one`, no PDA seed constraint, and
+      no check that `receipt.sale == sale.key()`. Any BidReceipt account
+      can be paired with any Sale to drive settlement to an arbitrary
+      bidder.
+    relevant_instructions: |
+      nft_escrow::settle_sale, SettleSale accounts struct
+
+  - id: SOL61-settle-buyer-inversion
+    class: logic
+    severity: Critical
+    bug_class: buyer-inversion
+    engine_function: ""
+    target_file: programs/nft_escrow/src/lib.rs
+    claim: >
+      Sale settlement MUST resolve the buyer as the highest-bid bidder
+      iff the bid meets the price floor; the caller is NEVER the buyer.
+      nft_escrow::settle_sale uses
+      `let buyer = if sale.price > receipt.amount { caller.key() } else { receipt.bidder };`
+      — when the highest bid is BELOW the price floor (the case where the
+      sale should NOT settle), the caller becomes the buyer and walks
+      away with the NFT.
+    relevant_instructions: |
+      nft_escrow::settle_sale
+
+  - id: SOL62-weighted-average-stale-anchor
+    class: oracle
+    severity: High
+    bug_class: oracle-stale-anchor
+    engine_function: ""
+    target_file: programs/oracle_board/src/lib.rs
+    claim: >
+      Aggregator weighting that biases the previous price (e.g. 3:1
+      previous:new) MUST anchor against a max-age cutoff or decay the
+      bias over time. oracle_board::submit_price applies a 3:1 prev:new
+      weight whenever spread > 20% with NO ceiling on the prior-price
+      age. A reporter submitting the same stale price repeatedly keeps
+      the weighted average anchored to that value indefinitely; real
+      market moves never converge.
+    relevant_instructions: |
+      oracle_board::submit_price
+
+  - id: SOL63-halt-flag-bypassed-by-admin-rotate
+    class: state-machine
+    severity: High
+    bug_class: halt-bypass
+    engine_function: ""
+    target_file: programs/oracle_board/src/lib.rs
+    claim: >
+      A halted feed MUST reject reporter rotation (or rotation MUST
+      preserve the halted flag). oracle_board::rotate_reporter resets
+      `feed.submissions = 0` and assigns a new reporter without checking
+      `!feed.halted` — and without clearing the halt flag explicitly. A
+      halted feed becomes effectively live again as soon as a new
+      reporter starts submitting, because the submission count gates the
+      halt-check downstream.
+    relevant_instructions: |
+      oracle_board::rotate_reporter
+
+  - id: SOL64-signer-unscoped-on-state-mutation
+    class: authorization
+    severity: High
+    bug_class: signer-unscoped
+    engine_function: ""
+    target_file: programs/payment_stream/src/lib.rs
+    claim: >
+      State-mutating instructions that take `Signer<'info>` MUST also
+      bind the signer to the target account via has_one, seeds, or an
+      equality constraint. Several handlers accept a free Signer with no
+      scoping: payment_stream::cancel accepts any `authority: Signer`
+      with no check it's the payer or recipient (any signer cancels any
+      stream); rewards_farm::emergency_unlock accepts `authority: Signer`
+      with no admin check (any signer triggers emergency for any farm).
+      Distinct from SOL7 (permissionless-privileged-fn): the signer
+      check IS present — the bug is that the signer is unconstrained,
+      not absent.
+    relevant_instructions: |
+      payment_stream::cancel, rewards_farm::emergency_unlock
+
+
   # ─────────────────── Closing notes ───────────────────
 
-  # The above 42 hypotheses cover the most common Anchor / Solana
+  # The above 64 hypotheses cover the most common Anchor / Solana
   # bug classes. For program-specific hypotheses (e.g. bugs unique
   # to a particular CLMM curve formula), use a domain-class library
   # in addition (clmm_class.yaml, lending_class.yaml, etc).
