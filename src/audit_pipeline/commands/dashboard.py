@@ -844,6 +844,60 @@ def _customers_to_publish(workspace: Path) -> list[dict]:
     return customers
 
 
+def _build_customer_target_rows(
+    owned_targets: list[dict],
+    customer_findings: list[dict],
+    cycles: list[dict],
+    db,
+) -> list[dict]:
+    """Return the per-target rows the customer dashboard JS expects.
+
+    Each row carries:
+      id, name, engine_repo (back-compat)
+      n_findings, severity_counts (used by tab badges + lobby cards)
+      last_cycle_id, last_cycle_at, engine_sha (used by "Last scan ...")
+      status (scanned / scanning / idle, used by lobby card classes)
+    """
+    by_target_id: dict[int, dict] = {}
+    for f in customer_findings:
+        tid = f.get("target_id")
+        if tid is None:
+            continue
+        d = by_target_id.setdefault(tid, {
+            "n": 0,
+            "sev": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
+        })
+        d["n"] += 1
+        s = f.get("severity") or "Info"
+        if s in d["sev"]:
+            d["sev"][s] += 1
+    last_cycle_by_tid: dict[int, dict] = {}
+    for c in cycles:
+        tid = c.get("target_id")
+        if tid is None:
+            continue
+        cur = last_cycle_by_tid.get(tid)
+        if not cur or (c.get("started_at") or "") > (cur.get("started_at") or ""):
+            last_cycle_by_tid[tid] = c
+    rows = []
+    for t in owned_targets:
+        agg = by_target_id.get(t["id"], {"n": 0, "sev": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}})
+        lc = last_cycle_by_tid.get(t["id"])
+        status = "scanned" if lc and lc.get("finished_at") else ("scanning" if lc else "idle")
+        rows.append({
+            "id": t["id"],
+            "name": t["name"],
+            "engine_repo": (t.get("engine_repo") or "").replace("https://github.com/", ""),
+            "n_findings": agg["n"],
+            "severity_counts": agg["sev"],
+            "last_cycle_id": (lc or {}).get("cycle_id"),
+            "last_cycle_at": (lc or {}).get("started_at"),
+            "engine_sha": ((lc or {}).get("engine_sha") or "")[:10],
+            "status": status,
+        })
+    return rows
+
+
 def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | None = None) -> dict:
     """Build the per-customer manifest the gated portal renders.
 
@@ -1102,19 +1156,9 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
             "by_severity_disclosed":   sev_disclosed,
             "by_severity_in_progress": sev_in_progress,
         },
-        "targets": [
-            {
-                # `id` is REQUIRED — the dashboard JS builds a
-                # targetIdByName map from this so per-tab event
-                # filtering can match incoming `recent_cycles[].target_id`
-                # (which IS a numeric DB id) against the active tab.
-                # Without it, switching tabs leaks data across all tabs.
-                "id": t["id"],
-                "name": t["name"],
-                "engine_repo": (t.get("engine_repo") or "").replace("https://github.com/", ""),
-            }
-            for t in owned_targets
-        ],
+        "targets": _build_customer_target_rows(
+            owned_targets, customer_findings, cycles, db,
+        ),
         "recent_cycles": recent_cycles,
         "public_findings": customer_findings,  # name kept for shape compatibility with snapshot.json
         "services": _probe_services(),
@@ -1134,6 +1178,19 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         # via osec-heartbeat-writer.py instead.
         # G28: customer-scoped propagation activity
         "propagation_stats": customer_propagation,
+        # `totals` mirrors the schema that customer/<id>/index.html
+        # JS expects (snap.totals.n_findings + snap.totals.by_severity).
+        # Without this the dashboard counters all show 0 even when
+        # stats.* has the real numbers — a schema-mismatch we keep
+        # back-compat for by emitting BOTH `stats` and `totals`.
+        "totals": {
+            "n_targets": len(owned_targets),
+            "n_findings": len(customer_findings),
+            "by_severity": {
+                k: (sev_disclosed.get(k, 0) + sev_in_progress.get(k, 0))
+                for k in ("Critical", "High", "Medium", "Low", "Info")
+            },
+        },
     }
 
 
