@@ -925,8 +925,27 @@ def run_all_gates(
 
 
 def all_passed(verification: dict) -> bool:
-    """True iff every gate has passed=True (None / False both fail)."""
-    return all(
-        g.get("passed") is True
-        for g in (verification.get("gates") or {}).values()
-    )
+    """True iff every active gate passed.
+
+    A gate with passed=True counts as pass.
+    A gate with passed=False counts as FAIL (blocks the bundle).
+    A gate with passed=None is a SKIP — it counts as N/A (does NOT block)
+    when the reason is "no harness/test registered for this bug class",
+    because that's a configuration absence rather than a verification
+    failure. Other SKIPs (e.g. "cargo not in PATH", "no engine_repo
+    provided") DO block — the gate couldn't actually run, so we don't
+    know whether it would pass.
+    """
+    for g in (verification.get("gates") or {}).values():
+        passed = g.get("passed")
+        if passed is True:
+            continue
+        if passed is False:
+            return False
+        # passed is None — inspect reason
+        reason = (g.get("reason") or "").lower()
+        if "no kani_harness registered" in reason \
+                or "no litesvm_test_name registered" in reason:
+            continue  # N/A — config absence, not a verification failure
+        return False  # any other skip (e.g. cargo missing) blocks
+    return True

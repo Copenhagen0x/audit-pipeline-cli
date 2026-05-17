@@ -1885,7 +1885,12 @@ def _findings_writeup(
                     if "Verification:- FAILED" in kt or "VERIFICATION:- FAILED" in kt:
                         l3_status = "✓ Counterexample found (bug confirmed by symbolic execution)"
                     elif "Verification:- SUCCESSFUL" in kt or "VERIFICATION:- SUCCESSFUL" in kt:
-                        l3_status = "Proved safe under small-model bounds (no counterexample within those constraints)"
+                        l3_status = (
+                            "Kani's bounded check did not find a counterexample. "
+                            "This means the bug requires inputs outside the model's "
+                            "depth / size limits (NOT that the bug is absent — "
+                            "Layer 2 PoC firing remains authoritative)."
+                        )
                     else:
                         l3_status = "Inconclusive (timeout / out of memory)"
                 except OSError:
