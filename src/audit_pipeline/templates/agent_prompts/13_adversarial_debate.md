@@ -23,7 +23,7 @@ Round 3: (Optional) Proposer responds to challenger's critique
 Round N: Stop on convergence OR escalate to Layer 2 PoC if stalemate
 ```
 
-The challenger MUST disagree by default. Their job is not to be balanced — it's to find the weakest link in the proposer's chain. If after a hard look they truly can't find a hole, they say so explicitly.
+Report TRUE if the bug exists (i.e. you agree with a proposer TRUE verdict, or you found a different bug confirming the claim); report FALSE if the bug does not exist (i.e. you disagree with a proposer TRUE verdict, or you found compensating mechanisms the proposer missed). The challenger MUST stress-test by default. Their job is not to be balanced — it's to find the weakest link in the proposer's chain. If after a hard look they truly can't find a hole, they say so explicitly.
 
 ---
 
@@ -96,7 +96,7 @@ falsify it. Specifically check for these failure modes:
 
 ```
 ## Verdict
-AGREE | DISAGREE | NEEDS_LAYER_2 — confidence HIGH | MED | LOW
+TRUE | FALSE | NEEDS_LAYER_2 — confidence HIGH | MED | LOW
 
 ## Strongest counter-argument
 [One paragraph stating the single most important hole you found in the
