@@ -208,8 +208,8 @@ def _render_cycles_body(rows: list[dict[str, str]]) -> str:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     return f"""<main id="main">
 <style>
-  .cyc-page {{ max-width: 1080px; margin: 48px auto 80px; padding: 0 32px; }}
-  @media (max-width: 768px) {{ .cyc-page {{ padding: 0 20px; margin: 32px auto 56px; }} }}
+  .cyc-page {{ max-width: 1080px; margin: 0 auto; padding: 140px 32px 80px; }}
+  @media (max-width: 768px) {{ .cyc-page {{ padding: 110px 20px 56px; }} }}
   .cyc-h1 {{ font-size: clamp(28px, 4vw, 44px); font-weight: 600; letter-spacing: -0.015em; color: var(--ink); margin-bottom: 14px; line-height: 1.15; }}
   .cyc-h1 .cyc-accent {{ color: var(--amber); }}
   .cyc-lede {{ color: var(--ink-3); font-size: 15px; max-width: 720px; margin-bottom: 36px; line-height: 1.6; }}
@@ -225,11 +225,13 @@ def _render_cycles_body(rows: list[dict[str, str]]) -> str:
   .cyc-table tbody td {{ padding: 14px 18px; border-bottom: 1px solid var(--rule); font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); vertical-align: middle; }}
   .cyc-table tbody tr:last-child td {{ border-bottom: none; }}
   .cyc-table tbody tr:hover td {{ background: rgba(245,184,0,.025); }}
-  .cyc-table th:nth-child(1), .cyc-table td:nth-child(1) {{ width: 38%; }}
-  .cyc-table th:nth-child(2), .cyc-table td:nth-child(2) {{ width: 28%; }}
-  .cyc-table th:nth-child(3), .cyc-table td:nth-child(3) {{ width: 12%; }}
-  .cyc-table th:nth-child(4), .cyc-table td:nth-child(4) {{ width: 12%; }}
-  .cyc-table th:nth-child(5), .cyc-table td:nth-child(5) {{ width: 10%; }}
+  .cyc-table th:nth-child(1), .cyc-table td:nth-child(1) {{ width: 26%; }}
+  .cyc-table th:nth-child(2), .cyc-table td:nth-child(2) {{ width: 22%; }}
+  .cyc-table th:nth-child(3), .cyc-table td:nth-child(3) {{ width: 16%; }}
+  .cyc-table th:nth-child(4), .cyc-table td:nth-child(4) {{ width: 9%; }}
+  .cyc-table th:nth-child(5), .cyc-table td:nth-child(5) {{ width: 9%; }}
+  .cyc-table th:nth-child(6), .cyc-table td:nth-child(6) {{ width: 9%; }}
+  .cyc-table th:nth-child(7), .cyc-table td:nth-child(7) {{ width: 9%; }}
   .cyc-link, .cyc-row-link {{ color: var(--amber); text-decoration: none; border-bottom: 1px dashed rgba(245,184,0,.3); transition: border-bottom-style .15s; }}
   .cyc-link:hover, .cyc-row-link:hover {{ color: var(--amber-2); border-bottom-style: solid; }}
   .cyc-row-link {{ color: var(--ink); font-weight: 500; }}

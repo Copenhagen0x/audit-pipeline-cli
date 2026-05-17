@@ -1018,10 +1018,20 @@ def _hunt_run(
         with (cycle_dir / "hunt.log.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
 
+    # Count of hypotheses that will be dispatched, so the bridge view's
+    # L1 progress row shows a STABLE denominator (4/42) from cycle start
+    # instead of bouncing (4/6 → 5/8 → …) as recon_hyp_start events trickle in.
+    try:
+        import yaml as _yaml
+        with open(hypotheses, encoding="utf-8") as _hf:
+            _planned_n = len((_yaml.safe_load(_hf) or {}).get("hypotheses") or [])
+    except Exception:
+        _planned_n = 0
     log("hunt_start",
         engine_sha=resolved_sha,
         wrapper_sha=config["wrapper"]["sha"],
         target=target,
+        n_hypotheses_planned=_planned_n,
         source_mode=("snapshot" if source_repo else "local"),
         source_repo=source_repo,
         daily_remaining_usd=daily_cap.remaining_today())
@@ -3175,18 +3185,41 @@ def _hunt_run(
     # ---------- Synthesis: build the cycle report + write to DB ----------
     elapsed = time.time() - started_at
 
+    # L4 LiteSVM gates downstream stages (narrative + bundle + propagate)
+    # because L4 is the only layer that runs the exploit against the
+    # actual compiled program. A PoC-fired hyp that L4 marks
+    # test_passed_no_bug / test_failed_unknown / skipped means the
+    # candidate was discarded at L4 and must NOT cascade into narrative
+    # ($0.30/each) or bundle ($0.30/each) authoring — that just burns
+    # API budget on findings we'd throw away when publishing.
+    #
+    # Legacy behavior preserved when L4 did not run for this cycle
+    # (--skip-litesvm or empty litesvm_results): PoC-fired is still the
+    # final word. Same for cycles whose target predates the L4 adapter.
     confirmed: list[dict[str, Any]] = []
+    l4_ran = bool(litesvm_results)
     for v in candidates:
         hyp_id = v["hypothesis_id"]
         poc = poc_results.get(hyp_id, {})
-        if poc.get("fired"):
-            confirmed.append({
-                "hypothesis_id": hyp_id,
-                "verdict": v.get("verdict"),
-                "confidence": v.get("confidence"),
-                "poc": poc,
-                "kani": kani_results.get(hyp_id),
-            })
+        if not poc.get("fired"):
+            continue
+        if l4_ran:
+            l4 = litesvm_results.get(hyp_id)
+            if l4 is None:
+                # L4 skipped this hyp (no_program / out-of-scope target).
+                # Skipped != confirmed.
+                continue
+            if not l4.get("fired"):
+                # L4 ran and did NOT witness the bug → drop.
+                continue
+        confirmed.append({
+            "hypothesis_id": hyp_id,
+            "verdict": v.get("verdict"),
+            "confidence": v.get("confidence"),
+            "poc": poc,
+            "kani": kani_results.get(hyp_id),
+            "litesvm": litesvm_results.get(hyp_id) if l4_ran else None,
+        })
 
     # Build (classification, cluster_id, is_representative) lookup so the
     # persistence loop can honor Layer 2.5 triage. Without this, the
@@ -3451,6 +3484,24 @@ def _hunt_run(
             poc_test_name = f"test_{_slugify(hyp_id)}"
             meta = hyp_meta.get(hyp_id, {})
             target_file_rel = meta.get("target_file", "src/percolator.rs")
+            # OSec multi-program targets: hyps use `programs/*/src/lib.rs`
+            # because the same bug-class can apply to any program. The
+            # L4 anchor adapter records the concrete program it attacked
+            # (litesvm_results[hyp_id]["program_name"]) — use it to resolve.
+            # Also covers the case where hyp_meta is empty (resume loaded
+            # the wrong hyp library) — when that happens, target_file_rel
+            # defaults to a placeholder; rewrite from l4 info anyway.
+            l4_info = litesvm_results.get(hyp_id) or {}
+            resolved_program = (
+                l4_info.get("program") or l4_info.get("program_name")
+            )
+            if resolved_program:
+                if "*" in target_file_rel:
+                    target_file_rel = target_file_rel.replace("*", resolved_program, 1)
+                elif (not target_file_rel
+                      or target_file_rel == "src/percolator.rs"
+                      or not (engine_dir_for_cargo / target_file_rel).is_file()):
+                    target_file_rel = f"programs/{resolved_program}/src/lib.rs"
             draft_argv = [
                 _audit_pipeline_bin(), "--workspace", str(workspace),
                 "bundle", "draft",

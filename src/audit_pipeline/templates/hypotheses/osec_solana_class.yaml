@@ -576,9 +576,168 @@ hypotheses:
     relevant_instructions: |
       staking::claim, Claim struct, stake field constraints
 
+  # ─────────────────── Medium-codebase patterns (added 2026-05-15) ───────────────────
+  # SOL37-SOL42 — surfaced during manual review of sahuang-osec/solana-medium
+  # (6 programs · 1864 LOC · vault_router/oracle_board/governance_hub/
+  # credit_market/settlement_bridge/rewards_pool). Existing SOL1-SOL36
+  # catch ~20 of ~26 critical-grade bugs in that codebase; the 6 below
+  # close the gap.
+
+  - id: SOL37-oracle-bypass-user-supplied-price
+    class: oracle
+    severity: Critical
+    bug_class: oracle-bypass
+    engine_function: ""
+    target_file: ""
+    claim: >
+      No `pub fn` that mutates a borrowable/seizable balance accepts a
+      `price`/`rate`/`reported_price`/`collateral_price` as a u64/i64
+      INSTRUCTION PARAMETER when its config struct holds a
+      `price_feed`/`oracle`/`oracle_board` pubkey. The function must
+      either read the on-chain oracle account OR be admin-gated.
+      Credit-market `deposit_collateral(units, reported_price)` and
+      `liquidate(repay_amount, collateral_price)` are the canonical
+      failures: borrower/liquidator picks the price and the listing's
+      `price_feed: UncheckedAccount` is never read.
+    relevant_instructions: |
+      Any fn whose signature includes `price`/`rate`/`reported_*` u64 and
+      whose accounts struct contains a `price_feed`/`oracle*` field
+
+  - id: SOL38-phantom-balance-no-cpi-transfer
+    class: token-economics
+    severity: Critical
+    bug_class: missing-cpi-transfer
+    engine_function: ""
+    target_file: ""
+    claim: >
+      Every fn that mutates `total_cash`/`total_deposits`/`balance`/
+      `cash_units`/`treasury.balance` ALSO emits a corresponding
+      `anchor_spl::token::transfer` (or `system_program::transfer`)
+      CPI. Without the CPI the on-chain accounting is fictional —
+      `supply_cash(amount)`, `repay(amount)`, `seize_reserves(amount)`,
+      `deposit_treasury(amount)` all currently do `state.balance +=
+      amount` with no token movement, letting any caller inflate the
+      pool's notional cash to u64::MAX and drain real downstream funds.
+    relevant_instructions: |
+      Any fn that mutates a balance/cash counter on a #[account] struct
+      without a `transfer`/`invoke_signed` call in the same fn body
+
+  - id: SOL39-time-lock-set-never-checked
+    class: state-machine
+    severity: High
+    bug_class: time-lock-bypass
+    engine_function: ""
+    target_file: ""
+    claim: >
+      Whenever a struct field named `unlock_slot`/`unlock_ts`/
+      `vesting_end`/`finality_delay`/`lockup_until` is WRITTEN by one
+      fn, AT LEAST ONE downstream fn (`unstake`/`withdraw`/`execute`/
+      `claim`) reads it and compares against `Clock::get()?.slot`/
+      `unix_timestamp`. `rewards_pool::stake` sets
+      `position.unlock_slot = lock_slots + slot` but `unstake` never
+      reads it — the lock period is dead code.
+    relevant_instructions: |
+      grep for assignment to `*unlock*`/`*finality*`/`*lockup*`/
+      `*vesting*` field; matching fn must compare it against Clock
+
+  - id: SOL40-inverted-bounds-comparator
+    class: arithmetic
+    severity: High
+    bug_class: inverted-comparator
+    engine_function: ""
+    target_file: ""
+    claim: >
+      Every `require!(BOUND <op> x, BadConfig)` and every
+      `if BOUND <op> x { return err!(...) }` uses the comparator that
+      matches the intent in the error name. `require!(10_000 <=
+      max_multiplier_bps, BadConfig)` accepts ONLY values >= 10_000 (so
+      `max_multiplier_bps` is effectively unbounded above 100%); the
+      author wanted to REJECT values above 10_000 (`<= 10_000`).
+      Similar: `if 216_000 >= elapsed { return Ok }` skips the daily
+      reset at EXACTLY 216_000 slots — off-by-one with the same shape.
+    relevant_instructions: |
+      `require!(<lit> <op> <var>, *BadConfig*)` and `if <lit> <op>
+      <var> { return [err|Ok] }` — check the operator agrees with the
+      error message direction
+
+  - id: SOL41-attestation-decoupled-from-execution
+    class: cross-program
+    severity: Critical
+    bug_class: attestation-decoupled
+    engine_function: ""
+    target_file: ""
+    claim: >
+      If an `attest_*`/`verify_*`/`approve_*` fn initializes an
+      Attestation/Approval/Verification account, every gating fn
+      (`execute_*`/`receive_*`/`redeem_*`/`finalize_*`) requires that
+      account as input AND reads its signature_count/signer_count >=
+      threshold. `settlement_bridge::execute_message` and
+      `receive_message` accept neither an `attestation` account nor a
+      threshold check — anyone calls execute_message after the bare
+      finality_delay regardless of whether attestation ever happened.
+    relevant_instructions: |
+      Find `#[account] pub struct *Attestation` or fn `attest_*`; then
+      check every fn whose name starts with `execute_`/`receive_`/
+      `redeem_` requires that account + reads signature_count
+
+  - id: SOL42-deviation-bound-stored-never-enforced
+    class: oracle
+    severity: High
+    bug_class: bound-not-enforced
+    engine_function: ""
+    target_file: ""
+    claim: >
+      Every struct field named `max_deviation_*`/`max_outflow`/
+      `weight_bps`/`max_slippage_*`/`cap` is READ by the update fn that
+      could violate it. `oracle_board::publish(answer)` stores
+      `publisher.max_deviation_bps` (validated < 10_000 at registration)
+      but the publish path never compares the new answer against the
+      previous `feed.last_answer` — bound is decorative. Same pattern:
+      `vault_router::route.weight_bps` stored but rebalance amount
+      ignores it.
+    relevant_instructions: |
+      Any `#[account] pub struct` field `max_*_bps`/`*_cap`/`*_limit`
+      grep for reads of that field in the matching update fn; absence
+      means the bound is unenforced
+
+
+  - id: SOL43-aggregate-input-range-bypass
+    class: oracle
+    severity: High
+    bug_class: oracle-bypass
+    engine_function: ""
+    target_file: programs/oracle_board/src/lib.rs
+    claim: >
+      oracle_board::aggregate validates the AVERAGE of (answer_a, answer_b,
+      answer_c) against feed.min_answer..max_answer but does NOT range-check
+      each individual input. An input triple of (-1_000_000, 0, +1_000_000)
+      averages to 0 and passes the bounds check if min_answer is <= 0; the
+      aggregated last_answer ends up at 0 even on a properly configured
+      feed. Each individual input must also satisfy min_answer <= input <=
+      max_answer before averaging.
+    relevant_instructions: |
+      oracle_board::aggregate, lines 80-93
+
+  - id: SOL44-rebalance-arbitrary-share-price-deflation
+    class: token-economics
+    severity: High
+    bug_class: share-price-manipulation
+    engine_function: ""
+    target_file: programs/vault_router/src/lib.rs
+    claim: >
+      vault_router::rebalance reduces source_vault.total_deposits without
+      touching source_vault.total_shares (lines 133, 136), which deflates
+      the share price (total_deposits / total_shares) by an arbitrary amount
+      bounded only by route.max_outflow. Subsequent withdrawers receive
+      shares * deflated_price and lose principal relative to deposit.
+      Rebalance is permissioned (operator: Signer) but no economic guard
+      preserves the source vault's share-price invariant.
+    relevant_instructions: |
+      vault_router::rebalance, lines 114-138
+
   # ─────────────────── Closing notes ───────────────────
 
-  # The above 36 hypotheses cover the most common Anchor / Solana
+  # The above 42 hypotheses cover the most common Anchor / Solana
   # bug classes. For program-specific hypotheses (e.g. bugs unique
   # to a particular CLMM curve formula), use a domain-class library
   # in addition (clmm_class.yaml, lending_class.yaml, etc).

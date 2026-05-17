@@ -121,6 +121,11 @@ def build_heartbeat(
 
     payload["service_summary"] = _service_summary(services)
 
+    spend = _spend_stats(workspace)
+    payload["spend_by_target"] = spend["by_target"]
+    payload["active_cycle_spend_usd"] = spend["active_cycle"]
+    payload["session_total_spend_usd"] = spend["session_total"]
+
     return payload
 
 
@@ -261,6 +266,87 @@ def _customer_count(workspace: Path) -> int:
         return len(customers_mod.load_registry(workspace))
     except Exception:
         return 0
+
+
+def _spend_stats(workspace: Path) -> dict[str, Any]:
+    """Scan all sibling/child workspaces for per-target spend.
+
+    Walks up to /root/audit_runs (or the workspace's two-level parent) looking
+    for ``workspace.json`` files, reads each ``target_name``, then sums
+    ``total_cost_usd`` across that workspace's hunts. The dashboard reads:
+
+      - ``spend_by_target[target]`` → {active_cycle, session_total, last_cycle_id}
+      - ``active_cycle_spend_usd``  → the currently-running cycle's spend
+                                      (for the workspace heartbeat is run from)
+      - ``session_total_spend_usd`` → cumulative across all targets
+
+    Per-target rather than flat-global so the bridge view can filter spending
+    by tab (osec-solana-medium vs osec-solana-small etc.) instead of all tabs
+    showing the same stale number.
+    """
+    by_target: dict[str, dict[str, Any]] = {}
+    session_total = 0.0
+    active_cycle = 0.0
+
+    # Search roots: workspace itself + parents up to /root/audit_runs.
+    roots: list[Path] = []
+    cur = workspace.resolve()
+    for _ in range(4):
+        roots.append(cur)
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+
+    seen: set[Path] = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for ws_json in root.rglob("workspace.json"):
+            ws_dir = ws_json.parent
+            if ws_dir in seen:
+                continue
+            seen.add(ws_dir)
+            try:
+                meta = json.loads(ws_json.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            target_name = meta.get("target_name") or ws_dir.name
+            hunts_dir = ws_dir / "hunts"
+            if not hunts_dir.is_dir():
+                continue
+            cycles = sorted(p for p in hunts_dir.iterdir() if p.is_dir())
+            if not cycles:
+                continue
+            target_total = 0.0
+            latest_cycle_cost = 0.0
+            latest_cycle_id = None
+            for cdir in cycles:
+                summary = cdir / "hunt_summary.json"
+                if not summary.is_file():
+                    continue
+                try:
+                    s = json.loads(summary.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                cost = float(s.get("total_cost_usd") or 0.0)
+                target_total += cost
+                latest_cycle_cost = cost
+                latest_cycle_id = cdir.name
+            by_target[target_name] = {
+                "active_cycle": round(latest_cycle_cost, 4),
+                "session_total": round(target_total, 4),
+                "last_cycle_id": latest_cycle_id,
+            }
+            session_total += target_total
+            # Heartbeat-running workspace = "active" for the flat fields.
+            if ws_dir == workspace.resolve():
+                active_cycle = latest_cycle_cost
+
+    return {
+        "by_target": dict(sorted(by_target.items())),
+        "active_cycle": round(active_cycle, 4),
+        "session_total": round(session_total, 4),
+    }
 
 
 def _service_summary(services: tuple[str, ...]) -> dict[str, str]:

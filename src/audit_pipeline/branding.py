@@ -640,14 +640,20 @@ td strong { color: var(--ink); }
 """
 
 
-def topbar_html(status_label: str = "Active", status_class: str = "ok") -> str:
-    """Render the sticky top bar with brand + status pill (screen only)."""
+def topbar_html(status_label: str = "Active", status_class: str = "ok",
+                tagline: str | None = None) -> str:
+    """Render the sticky top bar with brand + status pill (screen only).
+
+    ``tagline`` lets callers override the default "Autonomous Solana audit"
+    for Aptos / Move / future-language reports.
+    """
+    tag = tagline if tagline is not None else TAGLINE
     return f"""
     <div class="topbar no-print">
       <div class="brand">
         <span class="mark"></span>
         <span class="wordmark">{PRODUCT_NAME}</span>
-        <span class="tagline">{TAGLINE}</span>
+        <span class="tagline">{tag}</span>
       </div>
       <div class="status">
         <span class="dot {status_class}"></span>
