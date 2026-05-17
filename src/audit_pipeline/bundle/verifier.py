@@ -169,15 +169,53 @@ def _have_forge() -> bool:
 def _engine_test_argv(engine_repo: Path) -> list[str]:
     """Return the test-suite command argv for the target's language.
 
-    For Solidity (foundry.toml present): `forge test`. For Rust / Anchor
-    (Cargo.toml): `cargo test [--features test]`. The full-suite gate
-    runs whichever the language requires; downstream parsing of
-    pass/fail is language-agnostic at the returncode level."""
+    For Solidity (foundry.toml present): `forge test --json` (so we can
+    parse pass/fail per-test instead of trusting the exit code alone).
+    For Rust / Anchor (Cargo.toml): `cargo test [--features test]`.
+    """
     lang = _detect_engine_language(engine_repo)
     if lang == "solidity":
-        return ["forge", "test"]
+        # `--json` emits structured per-test output so the gate can
+        # detect failures even when forge exits 0 (some forge versions
+        # exit 0 with `status: "Failure"` test results, especially
+        # with `--no-fail-fast`).
+        return ["forge", "test", "--json"]
     # Default: rust / anchor / unknown all go to cargo
     return _cargo_test_argv(engine_repo)
+
+
+def _forge_json_has_failures(stdout: str) -> tuple[bool, int, str]:
+    """Parse forge --json output for per-test failures.
+
+    Returns (any_failed, failed_count, first_reason). Each line of
+    forge --json stdout is a JSON object keyed by
+    "<file>:<contract>" containing test_results. A test failed if
+    status == "Failure" or success == False.
+    """
+    failed: list[str] = []
+    first_reason = ""
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        for _file, fdata in obj.items():
+            if not isinstance(fdata, dict):
+                continue
+            results = fdata.get("test_results") or {}
+            for tname, tdata in results.items():
+                if not isinstance(tdata, dict):
+                    continue
+                status = str(tdata.get("status") or "").strip().lower()
+                success = tdata.get("success")
+                if status == "failure" or success is False:
+                    failed.append(tname)
+                    if not first_reason:
+                        first_reason = str(tdata.get("reason") or status or "")[:200]
+    return (len(failed) > 0, len(failed), first_reason)
 
 
 def _find_standalone_poc_log(workspace: Path, poc_test_name: str) -> Path | None:
@@ -800,6 +838,18 @@ def _gate_tests_pass_post_patch(
             f"tail: {tail}",
             time.time() - t0,
         )
+    # Solidity additional check: forge can exit 0 even with per-test
+    # Failure (e.g. --no-fail-fast mode). Parse --json output to
+    # detect per-test failures.
+    if lang == "solidity":
+        any_failed, n_failed, first_reason = _forge_json_has_failures(proc.stdout or "")
+        if any_failed:
+            return GateResult(
+                False,
+                f"existing test suite regressed post-patch ({n_failed} forge test(s) "
+                f"failed). first: {first_reason}",
+                time.time() - t0,
+            )
     return GateResult(True, f"full test suite passed post-patch ({argv[0]})", time.time() - t0)
 
 
@@ -810,10 +860,18 @@ def _gate_kani_proof_holds(
     kani_harness: str | None,
 ) -> GateResult:
     t0 = time.time()
-    if not _have_kani():
-        return GateResult(None, "skipped — cargo-kani not in PATH", time.time() - t0)
     if engine_repo is None or not engine_repo.is_dir():
         return GateResult(None, "skipped — no engine_repo provided", time.time() - t0)
+    # Language-aware skip: Kani is Rust-only. Solidity targets use
+    # Halmos at L3, not Kani — record N/A explicitly so the dashboard
+    # can show "Kani: N/A (Solidity)" instead of "skipped — no harness"
+    # which falsely implies misconfiguration.
+    _lang = _detect_engine_language(engine_repo)
+    if _lang == "solidity":
+        return GateResult(None, "skipped — Kani not applicable to Solidity (L3 used Halmos)",
+                          time.time() - t0)
+    if not _have_kani():
+        return GateResult(None, "skipped — cargo-kani not in PATH", time.time() - t0)
     if not kani_harness:
         return GateResult(None, "skipped — no kani_harness registered for this bug class",
                           time.time() - t0)
@@ -863,6 +921,12 @@ def _gate_litesvm_exploit_neutralized(
     t0 = time.time()
     if engine_repo is None or not engine_repo.is_dir():
         return GateResult(None, "skipped — no engine_repo provided", time.time() - t0)
+    # Language-aware skip: LiteSVM is Solana-only. Solidity targets
+    # use forge invariant/fuzz at L4 instead — record explicit N/A.
+    _lang = _detect_engine_language(engine_repo)
+    if _lang == "solidity":
+        return GateResult(None, "skipped — LiteSVM not applicable to Solidity (L4 used forge invariant)",
+                          time.time() - t0)
     if not litesvm_test_name:
         return GateResult(None, "skipped — no litesvm_test_name registered for this bug class",
                           time.time() - t0)
@@ -987,8 +1051,13 @@ def all_passed(verification: dict) -> bool:
             return False
         # passed is None — inspect reason
         reason = (g.get("reason") or "").lower()
+        # N/A reasons that don't block:
+        #   - config absence ("no harness registered ...")
+        #   - language-mismatch ("not applicable to solidity ...")
         if "no kani_harness registered" in reason \
-                or "no litesvm_test_name registered" in reason:
-            continue  # N/A — config absence, not a verification failure
+                or "no litesvm_test_name registered" in reason \
+                or "not applicable to solidity" in reason \
+                or "not applicable to solana" in reason:
+            continue  # N/A — config or language, not a verification failure
         return False  # any other skip (e.g. cargo missing) blocks
     return True

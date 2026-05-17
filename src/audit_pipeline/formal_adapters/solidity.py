@@ -456,8 +456,12 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
         # The ANSI color codes wrap [FAIL] / [TIMEOUT] / [PASS] so we
         # strip them before scanning.
         combined_text = stdout + "\n" + stderr
-        # Strip ANSI escape sequences (color codes)
-        ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+        # Strip ALL ANSI escape sequences — not just SGR (color) codes.
+        # Halmos output also contains cursor-positioning and
+        # screen-clear sequences in some terminals that would survive
+        # the SGR-only regex and break downstream `[FAIL]` / `[PASS]`
+        # marker matches.
+        ansi_re = re.compile(r"\x1b\[[^a-zA-Z]*[a-zA-Z]")
         clean_text = ansi_re.sub("", combined_text)
 
         # Count [FAIL] (with concrete CE), [TIMEOUT], [PASS]
@@ -519,8 +523,27 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
                 reason=f"Halmos proved invariant (no counterexample within bounded exploration; {proved_count} test(s) passed)",
             )
 
-        # Compile error or other infra issue
-        if "Error" in stderr or "error" in stderr.lower():
+        # Compile error or other infra issue — STRICT detection.
+        # Previous check was `"error" in stderr.lower()` which matched
+        # any line containing the substring "error" — including
+        # `warning[block-timestamp]: ... validators` (no "error" there
+        # but: "ParserError", "TypeError", harness-author warnings).
+        # That false-positive caused runs that DID produce CE/PROVED
+        # to be misclassified as "compile_error" → dashboard rendered
+        # "⚠ spec-compile-error" for a hypothesis that was actually
+        # proved. Operator caught the SOLD1 PROVED→spec-compile-error
+        # flip 2026-05-17.
+        #
+        # We now require an anchored error token (line start, possibly
+        # after a "Compiler run failed:" preamble) or a Solc-style
+        # "Error (NNNN):" parser code. This still catches every real
+        # compile fail without false-positives from warning text.
+        _has_compile_error = bool(
+            re.search(r"^(?:Compiler run failed|Error \(\d+\)|error:|ParserError|TypeError)", stderr, re.MULTILINE)
+            or re.search(r"Error: Compilation failed", stderr)
+            or "Build failed:" in stderr
+        )
+        if _has_compile_error:
             return FormalOutcome(
                 proved=False,
                 counterexample=False,

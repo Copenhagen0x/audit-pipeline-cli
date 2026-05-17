@@ -97,6 +97,39 @@ A failing fuzz/invariant test = bug confirmed with concrete inputs.
   balanceOf, allowance, transfer, transferFrom, approve). Any mock
   ERC-20 inheriting `is IERC20` must implement ALL of them or you
   get "Contract should be marked as abstract".
+* **NO C-style void casts** (`(void)(x);`). Solidity rejects them.
+  Use bare `x;` to silence unused-variable warnings.
+
+# Mock contract templates (COPY-PASTE these if you need mocks)
+
+```solidity
+// Full IERC20 mock — implements all 7 methods, NOT abstract
+contract MockERC20 is IERC20 {{
+    mapping(address => uint256) internal _bal;
+    mapping(address => mapping(address => uint256)) internal _allow;
+    uint256 internal _total;
+    function decimals() external pure override returns (uint8) {{ return 18; }}
+    function totalSupply() external view override returns (uint256) {{ return _total; }}
+    function balanceOf(address a) external view override returns (uint256) {{ return _bal[a]; }}
+    function allowance(address o, address s) external view override returns (uint256) {{ return _allow[o][s]; }}
+    function mint(address to, uint256 amt) external {{ _bal[to] += amt; _total += amt; }}
+    function approve(address s, uint256 amt) external virtual override returns (bool) {{ _allow[msg.sender][s] = amt; emit Approval(msg.sender, s, amt); return true; }}
+    function transfer(address to, uint256 amt) external virtual override returns (bool) {{
+        require(_bal[msg.sender] >= amt, "bal"); _bal[msg.sender] -= amt; _bal[to] += amt; emit Transfer(msg.sender, to, amt); return true;
+    }}
+    function transferFrom(address from, address to, uint256 amt) external virtual override returns (bool) {{
+        require(_bal[from] >= amt, "bal"); require(_allow[from][msg.sender] >= amt, "allow");
+        _bal[from] -= amt; _allow[from][msg.sender] -= amt; _bal[to] += amt; emit Transfer(from, to, amt); return true;
+    }}
+}}
+
+// Manipulable IOracle mock
+contract MockOracle is IOracle {{
+    mapping(address => uint256) public p;
+    function price(address t) external view override returns (uint256) {{ return p[t]; }}
+    function setPrice(address t, uint256 v) external {{ p[t] = v; }}
+}}
+```
 
 # Harness patterns
 

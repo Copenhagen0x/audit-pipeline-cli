@@ -83,6 +83,126 @@ def _repair_hunk_counts(diff: str) -> str:
     return "".join(out)
 
 
+PATCH_AUTHORSHIP_PROMPT_SOLIDITY = """You are writing a minimal-scope security patch for a Solidity smart contract.
+The bug has already been CONFIRMED via a PoC Foundry test that triggers the violation.
+Your output MUST be a valid unified diff that, when applied, makes the PoC stop triggering the bug.
+
+# Confirmed finding
+
+Hypothesis ID:   {hypothesis_id}
+Bug class:       {bug_class}
+Severity:        {severity}
+Title:           {title}
+
+# Bug-class fix template
+
+{patch_intent}
+
+# PoC test (this is what your patch must defuse)
+
+```solidity
+{poc_source}
+```
+
+# Target source file (this is the file your patch should modify)
+
+Path: `{target_file_path}`
+
+Each line below is prefixed with its 1-indexed line number followed by `: `.
+**The line-number prefix is REFERENCE ONLY** — it lets you cite correct
+line numbers in your `@@` hunk headers. **DO NOT** include the `NNNN: `
+prefix in the diff body. The diff body must contain the raw source lines
+exactly as they appear in the file (without prefix), with a leading space
+for context lines, `+` for added lines, `-` for removed lines.
+
+```solidity
+{target_source}
+```
+
+{sig_index_section}
+
+# Output requirements
+
+Reply with EXACTLY:
+
+  1. A brief 1-2 sentence rationale of what your patch does, prefixed with `RATIONALE:`
+  2. A blank line
+  3. The unified diff, starting with `--- a/{target_file_path}` and `+++ b/{target_file_path}`
+
+NO additional prose. NO markdown fences. NO commentary after the diff.
+
+## Patch philosophy: STRUCTURAL fix, not symptom patch
+
+A *symptom* patch adds a guard inside one specific function, returns
+early on a specific calldata pattern, or rejects the one input the PoC
+sends. A new caller that finds a different path into the buggy state
+can re-trigger the bug. **DO NOT do this.**
+
+A *structural* fix eliminates the bug at its root so no caller can ever
+reach the buggy state.
+
+Solidity-idiomatic examples of structural vs symptom:
+
+  WRONG (symptom): Add `require(msg.sender == owner)` only inside the
+    one function the PoC exercises, leaving sibling functions
+    permissionless.
+  RIGHT (structural): Add the existing `onlyOwner` modifier (defined
+    in CoreBase) to the function signature, matching the consistent
+    pattern used by every other privileged setter in the contract.
+
+  WRONG (symptom): Add a `require(amount <= cap)` check on top of the
+    one call path that reproduced the over-charge bug.
+  RIGHT (structural): Replace the uncapped `amount` argument passed to
+    `transferFrom` with the already-computed capped variable
+    (`applied = min(amount, debt)`), matching what the sibling
+    `liquidate` function already does correctly.
+
+  WRONG (symptom): Add `nonReentrant` modifier only when the PoC
+    re-enters via a specific hook.
+  RIGHT (structural): Reorder the function body to follow CEI
+    (Checks-Effects-Interactions): perform ALL state writes
+    (`shareBalance[msg.sender] -= shares;`, `totalShares -= shares;`)
+    BEFORE the external token `transfer(...)` call. Reentrancy is
+    now impossible regardless of caller behavior.
+
+Solidity-specific fix patterns by bug class:
+
+  - reentrancy / CEI: move state updates before external calls
+  - missing access control: add the existing `onlyOwner` /
+    `onlyRole(X)` modifier — DO NOT invent new modifiers
+  - signature replay: include `block.chainid` AND a per-account
+    nonce in the `keccak256(...)` digest (and increment the nonce
+    after consumption)
+  - share inflation: add `require(shares != 0, ZeroShares())`
+    after the toShares computation
+  - oracle staleness: require `block.timestamp - oracle.updatedAt()
+    <= MAX_STALE_SEC`
+  - tx.origin: replace `tx.origin == owner` with `msg.sender == owner`
+  - approve-race: insert `token.approve(spender, 0);` before
+    `token.approve(spender, amount);`
+  - dust loss: pull only `(total / N) * N` from funder, never
+    the full `total`
+  - DoS batch: replace the for-loop transfer with a `pending[user]
+    += amount` mapping + a `claim()` function recipients call
+
+Constraints:
+  - Modify ONLY the function the PoC exercises (and adjacent helpers it
+    calls if needed for a structural fix)
+  - Do NOT change function signatures unless required for the structural
+    fix (then explain in RATIONALE)
+  - Do NOT add new dependencies (no new `import` lines unless absolutely
+    required — prefer reusing existing modifiers / interfaces)
+  - Patches may touch >5 lines if a structural fix requires it
+  - `@@ -<line>,<count> +<line>,<count> @@` MUST cite the actual 1-indexed
+    line numbers shown in the prefixed source above
+  - Diff context lines MUST match the raw source verbatim (without the
+    `NNNN: ` line-number prefix)
+  - Use Solidity error declarations (`error MyError()` + `revert MyError()`)
+    rather than `require(cond, "string")` when the contract's existing
+    style is custom errors — match the existing codebase's convention
+"""
+
+
 PATCH_AUTHORSHIP_PROMPT = """You are writing a minimal-scope security patch for a Solana program.
 The bug has already been CONFIRMED via a PoC test that triggers the violation.
 Your output MUST be a valid unified diff that, when applied, makes the PoC stop triggering the bug.
@@ -231,7 +351,17 @@ def author_patch(
     if engine_repo is not None:
         sig_index_section = build_sig_index(engine_repo, target_file_path)
 
-    prompt = PATCH_AUTHORSHIP_PROMPT.format(
+    # Pick the language-appropriate prompt template. Solidity targets
+    # get a Solidity-idiomatic prompt (CEI, onlyOwner, custom errors,
+    # forge test format) instead of the Solana one (capabilities,
+    # saturating_sub, Anchor-style guards). Detected from the target
+    # path's file extension — .sol → Solidity, else Rust/Solana default.
+    if target_file_path.endswith(".sol"):
+        _prompt_template = PATCH_AUTHORSHIP_PROMPT_SOLIDITY
+    else:
+        _prompt_template = PATCH_AUTHORSHIP_PROMPT
+
+    prompt = _prompt_template.format(
         hypothesis_id=hypothesis_id,
         bug_class=bug_class,
         severity=severity,

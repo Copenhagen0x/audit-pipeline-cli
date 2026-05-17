@@ -954,6 +954,63 @@ def _hunt_run(
             cycle_dir = hunts_dir / cycle_id
         cycle_dir.mkdir(parents=True, exist_ok=True)
 
+        # CYCLE-START CLEANUP for Solidity. Wipe leftover deployed
+        # tests, validator temps, and L3-specific forge build cache
+        # entries from prior failed/killed hunts. Without this,
+        # halmos auto-discovers cached compiled artifacts from old
+        # harnesses (out/jelleo_l3_*.t.sol/*.json) even after their
+        # .t.sol source is gone, polluting the current hyp's verdict.
+        # Each adapter ALSO does intra-run cleanup, but cycle-start
+        # is the safety net for cross-cycle leakage. Operator caught
+        # the pollution on cycle 20260517-193953 where SOLD10's L3
+        # run reported counterexamples for SOLD1 + SOLD11.
+        if config_language in ("solidity", "evm"):
+            try:
+                _engine_local = config.get("engine", {}).get("local") or ""
+                if _engine_local:
+                    _engine_abs = (workspace / _engine_local).resolve()
+                    if _engine_abs.is_dir():
+                        # Wipe leftover deployed L2/L3/L4 test files + validator temps
+                        for _glob in (
+                            "tests/jelleo_l2_*.t.sol",
+                            "tests/jelleo_l3_*.t.sol",
+                            "tests/jelleo_l4_*.t.sol",
+                            "tests/jelleo_l4_fuzz_*.t.sol",
+                            "tests/_jelleo_validate_*.t.sol",
+                            "test/jelleo_l2_*.t.sol",
+                            "test/jelleo_l3_*.t.sol",
+                            "test/jelleo_l4_*.t.sol",
+                            "test/jelleo_l4_fuzz_*.t.sol",
+                            "test/_jelleo_validate_*.t.sol",
+                        ):
+                            for _stale in _engine_abs.glob(_glob):
+                                try:
+                                    _stale.unlink()
+                                except OSError:
+                                    pass
+                        # Wipe matching forge build-cache subtrees
+                        _out_dir = _engine_abs / "out"
+                        if _out_dir.is_dir():
+                            import shutil as _shutil
+                            for _stale_cache_glob in (
+                                "jelleo_l2_*.t.sol",
+                                "jelleo_l3_*.t.sol",
+                                "jelleo_l4_*.t.sol",
+                                "jelleo_l4_fuzz_*.t.sol",
+                                "_jelleo_validate_*.t.sol",
+                            ):
+                                for _stale_cache in _out_dir.glob(_stale_cache_glob):
+                                    try:
+                                        if _stale_cache.is_dir():
+                                            _shutil.rmtree(_stale_cache, ignore_errors=True)
+                                        else:
+                                            _stale_cache.unlink()
+                                    except OSError:
+                                        pass
+                        log("solidity_cycle_start_cleanup", repo=str(_engine_abs))
+            except Exception as _e:  # noqa: BLE001
+                log("solidity_cycle_start_cleanup_warn", error=str(_e))
+
         db.insert_cycle(
             target_id=target_id,
             cycle_id=cycle_id,
@@ -2485,33 +2542,76 @@ def _hunt_run(
                 hyp_id = v["hypothesis_id"]
                 meta = hyp_meta.get(hyp_id, {})
                 harness_name = f"{_slugify(hyp_id)}_invariant"
-                # Build LLM prompt + author harness
+
+                # RESUME-SKIP for L3 harness authoring. Same pattern as
+                # Anchor Kani (lines ~2596-2618 below) and L2 adapter:
+                # if a harness already exists from a prior cycle, skip
+                # the LLM call (saves ~$0.50/hyp on resume) and re-run
+                # the verifier against the existing harness. Without
+                # this, each resume re-authors a DIFFERENT harness body
+                # (LLM is non-deterministic), so verdicts flip across
+                # runs (operator caught SOLD1 PROVED→spec-compile-error
+                # 2026-05-17 because re-auth produced a syntactically
+                # broken harness the second time).
                 from audit_pipeline.utils import complete as _complete_l3
-                source_context = _grounded_source_for_hyp(
-                    engine_dir_for_cargo, meta, ground_code=True,
+                _ext = getattr(_l3_adapter, "harness_file_extension", ".sol")
+                _existing_harness = (
+                    workspace / "formal" / language
+                    / f"harness_{harness_name}{_ext}"
                 )
-                prompt = _l3_adapter.build_harness_prompt(
-                    hyp=meta, source_context=source_context,
-                    target_repo_root=engine_dir_for_cargo,
+                _resume_skip_author = (
+                    resume_cycle
+                    and _existing_harness.is_file()
+                    and _existing_harness.stat().st_size > 100
                 )
-                try:
-                    resp = _complete_l3(prompt)
-                    body = _l3_adapter.parse_harness_body(getattr(resp, "text", str(resp)))
-                    _l3_adapter.write_harness_file(workspace, harness_name, body)
-                    formal_outcome = _l3_adapter.run_verifier(
-                        workspace, harness_name, engine_dir_for_cargo,
+
+                if _resume_skip_author:
+                    log("l3_adapter_resumed_from_existing",
+                        hypothesis_id=hyp_id,
+                        harness_path=str(_existing_harness),
+                        size=_existing_harness.stat().st_size)
+                    try:
+                        formal_outcome = _l3_adapter.run_verifier(
+                            workspace, harness_name, engine_dir_for_cargo,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        log("l3_adapter_error", hypothesis_id=hyp_id, error=str(e))
+                        kani_results[hyp_id] = {
+                            "returncode": -1,
+                            "harness_dir": str(formal_out),
+                            "error": f"{type(e).__name__}: {e}",
+                        }
+                        continue
+                else:
+                    # Build LLM prompt + author harness
+                    source_context = _grounded_source_for_hyp(
+                        engine_dir_for_cargo, meta, ground_code=True,
                     )
-                except Exception as e:  # noqa: BLE001
-                    log("l3_adapter_error", hypothesis_id=hyp_id, error=str(e))
-                    kani_results[hyp_id] = {
-                        "returncode": -1,
-                        "harness_dir": str(formal_out),
-                        "error": f"{type(e).__name__}: {e}",
-                    }
-                    continue
-                # Charge ~$0.50 like synth-kani
-                daily_cap.record_spend(0.50)
-                total_cost += 0.50
+                    prompt = _l3_adapter.build_harness_prompt(
+                        hyp=meta, source_context=source_context,
+                        target_repo_root=engine_dir_for_cargo,
+                    )
+                    try:
+                        resp = _complete_l3(prompt)
+                        body = _l3_adapter.parse_harness_body(getattr(resp, "text", str(resp)))
+                        _l3_adapter.write_harness_file(workspace, harness_name, body)
+                        formal_outcome = _l3_adapter.run_verifier(
+                            workspace, harness_name, engine_dir_for_cargo,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        log("l3_adapter_error", hypothesis_id=hyp_id, error=str(e))
+                        kani_results[hyp_id] = {
+                            "returncode": -1,
+                            "harness_dir": str(formal_out),
+                            "error": f"{type(e).__name__}: {e}",
+                        }
+                        continue
+                # Charge ~$0.50 like synth-kani UNLESS we resume-skipped
+                # the LLM author call (resume just re-runs the verifier
+                # against an existing harness — no LLM spend).
+                if not _resume_skip_author:
+                    daily_cap.record_spend(0.50)
+                    total_cost += 0.50
                 kani_results[hyp_id] = {
                     "returncode": formal_outcome.returncode,
                     "harness_dir": str(formal_out),
@@ -2520,6 +2620,7 @@ def _hunt_run(
                     "reason": formal_outcome.reason,
                     "duration_s": formal_outcome.duration_s,
                     "verifier": formal_outcome.verifier,
+                    "resumed": _resume_skip_author,
                 }
                 # Log reason + infra/compile markers so a silent-failure
                 # mode never sneaks past the dashboard again. Operator

@@ -193,6 +193,12 @@ that:
   `IBridgeAdapter`, `IOracle`, `IERC20`. Writing a second
   `interface IBridgeAdapter {{ ... }}` causes "Identifier already
   declared" compile error. Use the imported one.
+* **NO C / Rust-style void casts.** Writing `(void)(x);` or
+  `(void)x;` is a SYNTAX ERROR — Solidity has no `void` type and no
+  C-style cast syntax. To suppress an unused-variable warning, use
+  the bare expression `x;` (Solidity tolerates this), or remove the
+  variable entirely. Common LLM hallucination caught 2026-05-17 in
+  SOLD1 harness — don't repeat it.
 
 # Mock contract templates (COPY-PASTE these, edit only the hook)
 

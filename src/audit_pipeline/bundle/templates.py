@@ -859,6 +859,142 @@ BUNDLE_TEMPLATES: dict[str, BundleTemplate] = {
             "rerun full test suite",
         ),
     ),
+    "missing-pause-modifier": BundleTemplate(
+        headline="Add missing `whenNotPaused` modifier ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: state-mutating function lacks `whenNotPaused`\n\n"
+            "`{handler_function}` mutates user-visible state but does "
+            "NOT carry the `whenNotPaused` modifier that the rest of "
+            "the contract's mutating entry points use. When an admin "
+            "pauses the contract during an emergency, this function "
+            "still accepts calls and can be used to set up state that "
+            "is consumed the moment the contract is unpaused, "
+            "defeating the pause's purpose.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` pauses the contract, "
+            "calls the unguarded function, then asserts state changed.\n\n"
+            "# Fix\n\nAdd the `whenNotPaused` modifier to the function "
+            "signature. Verify all other mutating functions on the "
+            "same contract carry it consistently.\n\n"
+            "# Verification\n\nCall during pause now reverts with "
+            "`CorePaused()`; the time-locked / delayed exploitation "
+            "chain is closed.\n"
+        ),
+        patch_intent=(
+            "Insert `whenNotPaused` into the function's modifier "
+            "list, immediately after `external`/`public` visibility. "
+            "Don't touch any other logic."
+        ),
+        verification_hints=(
+            "rerun PoC: call during pause reverts",
+            "rerun normal-flow tests (still pass when not paused)",
+            "rerun full test suite",
+        ),
+    ),
+    "liquidation-accounting-drift": BundleTemplate(
+        headline="Reduce debt proportionally when seize is clamped ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: collateral clamp leaves debt unreduced\n\n"
+            "`{handler_function}` computes the seize amount from the "
+            "bonus-adjusted formula, then clamps it to the borrower's "
+            "available collateral when it exceeds it. But the "
+            "`applied` debt-reduction value is NOT recomputed in step "
+            "with the clamped seize — the liquidator pays the full "
+            "uncapped `applied` and receives less collateral than the "
+            "bonus formula entitles them to. Bad debt accumulates and "
+            "rational liquidators avoid these positions.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` drops collateral "
+            "value below debt, calls liquidate, asserts liquidator "
+            "received less than `applied * (1 + bonusBps/10000)`.\n\n"
+            "# Fix\n\nWhen the seize amount is clamped, scale "
+            "`applied` down by the same ratio so the liquidator pays "
+            "only for the collateral they actually receive. Or "
+            "alternatively: revert when collateral < required seize "
+            "and route through a separate bad-debt handler.\n\n"
+            "# Verification\n\nLiquidator's collateral/debt ratio "
+            "always satisfies the bonus invariant.\n"
+        ),
+        patch_intent=(
+            "Add: `if (seize_clamped < seize_unclamped) { applied = "
+            "applied * seize_clamped / seize_unclamped; }` BEFORE "
+            "the debt subtraction. Don't touch the transfer "
+            "amounts elsewhere — only the `applied` recompute."
+        ),
+        verification_hints=(
+            "rerun PoC: liquidator's bonus invariant holds even when clamped",
+            "rerun fully-collateralized liquidation tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
+    "rounding-favors-protocol": BundleTemplate(
+        headline="Sweep or refund dust to prevent protocol rounding gain ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: floor division leaves dust in protocol\n\n"
+            "`{handler_function}` pulls a `total` amount from the "
+            "funder then distributes `total / N` to each recipient "
+            "via floor division. The remainder `total % N` is never "
+            "transferred to anyone — it accumulates inside the "
+            "protocol contract balance with no recovery path, "
+            "favoring the protocol at the expense of the funder.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` distributes a "
+            "non-divisible amount, asserts the protocol's residual "
+            "balance > 0 after distribution.\n\n"
+            "# Fix\n\nOne of:\n"
+            "(a) Pull only `(total / N) * N` from the funder (skip "
+            "the dust at the source), OR\n"
+            "(b) Pay the dust to the last recipient (modifies last "
+            "iteration), OR\n"
+            "(c) Add a `sweep(token, to)` function gated by "
+            "`onlyOwner` so dust can be reclaimed.\n\n"
+            "Prefer (a) — it never holds money the protocol doesn't "
+            "intend to.\n\n"
+            "# Verification\n\nProtocol balance unchanged across "
+            "distribution; funder loss = sum of payouts exactly.\n"
+        ),
+        patch_intent=(
+            "Change `_transferFromFunder(total)` to "
+            "`_transferFromFunder((total / N) * N)`. Don't add new "
+            "owner-gated functions — minimize blast radius."
+        ),
+        verification_hints=(
+            "rerun PoC: dust = 0 after distribution",
+            "rerun divisible-amount tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
+    "approve-race-condition": BundleTemplate(
+        headline="Zero allowance before non-zero approve ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: approve from non-zero to non-zero\n\n"
+            "`{handler_function}` calls `token.approve(spender, "
+            "amount)` without first resetting any existing allowance "
+            "to zero. USDT and other tokens that enforce the "
+            "OpenZeppelin-style `require(amount == 0 || "
+            "allowance[msg.sender][spender] == 0)` guard will revert "
+            "the second `approve` call once a residual allowance "
+            "exists, permanently DoS-ing the function for that token "
+            "until manual remediation.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` uses a USDT-style "
+            "mock, leaves a residual allowance after the first call, "
+            "then asserts the second call reverts.\n\n"
+            "# Fix\n\nUse `forceApprove` (OpenZeppelin SafeERC20) "
+            "OR zero the allowance first: `token.approve(spender, "
+            "0); token.approve(spender, amount);`. The zero-first "
+            "pattern is mandated by EIP-20 race-condition guidance.\n\n"
+            "# Verification\n\nSecond call succeeds against "
+            "USDT-style tokens; standard tokens unaffected.\n"
+        ),
+        patch_intent=(
+            "Replace `token.approve(spender, amount)` with `"
+            "token.approve(spender, 0); token.approve(spender, "
+            "amount);`. Two lines. Don't add SafeERC20 dependency "
+            "unless the repo already uses it."
+        ),
+        verification_hints=(
+            "rerun PoC: second approve against USDT-mock now succeeds",
+            "rerun standard-ERC20 approve tests (still pass)",
+            "rerun full test suite",
+        ),
+    ),
 }
 
 
