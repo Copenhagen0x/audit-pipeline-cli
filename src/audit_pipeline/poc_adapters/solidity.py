@@ -157,6 +157,23 @@ that:
   isn't reachable, just write a normal test that asserts the OK
   invariant and let it pass (PoC won't fire).
 
+# Solidity syntax pitfalls — these break compilation, avoid them
+
+* **Hex literals must be VALID HEX** (chars 0-9, a-f, A-F). Writing
+  `address(0xADMIN)` or `address(0xA77ACK)` is a SYNTAX ERROR because
+  letters like M/N/T/K aren't hex digits. For named test addresses use
+  `makeAddr("admin")`, `vm.addr(1)`, or a numeric literal like
+  `address(0xA11CE)` (valid hex). NEVER write hex digits that look
+  like English words unless every character is in `[0-9a-fA-F]`.
+* **Contract name MUST differ from its test function names.** Solidity
+  treats a function with the same name as its containing contract as
+  a constructor (legacy syntax) which is invalid in 0.8.x. Name the
+  contract something like `SOLD1_VaultReentrancyTest`, then put the
+  test function `test_vault_withdraw_reentrancy()` inside it.
+* Imports use `@src/...` (per foundry.toml remappings), e.g.
+  `import "@src/ContractA.sol";`. NOT `import "src/ContractA.sol";`.
+* `forge-std/Test.sol` is the test base — `is Test` on your contract.
+
 # Output format
 
 Output ONLY a single ```solidity ... ``` (or ```sol ... ```) fenced
