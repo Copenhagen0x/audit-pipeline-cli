@@ -241,6 +241,14 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
                 reason="harness stub (CANNOT_VERIFY)",
             )
 
+        # Resolve target_repo_root to an absolute path. Hunt.py passes
+        # the workspace.json `engine.local` string which is typically
+        # a relative path like "../../../../ottersec-eval/repos/...".
+        # Halmos needs an absolute --root and uses os.path.join with
+        # its own cwd-resolving logic that doesn't normalize `..`
+        # segments correctly — so we resolve here.
+        target_repo_root = Path(target_repo_root).resolve()
+
         # Deploy harness into the foundry project's test dir so halmos
         # auto-discovers it. The repo's test dir is configured in
         # foundry.toml; honor that path so this works against OSec
