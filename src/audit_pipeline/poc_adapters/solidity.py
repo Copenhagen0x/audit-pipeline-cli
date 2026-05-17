@@ -78,12 +78,27 @@ class SolidityAdapter(LanguagePocAdapter):
         hyp: dict[str, Any],
         source_context: str,
         target_repo_root: Path,
+        debate_context: str | None = None,
     ) -> str:
         hyp_id = hyp.get("id", "unknown")
         claim = hyp.get("claim", "(no claim)")
         target_file = hyp.get("target_file", "")
         engine_function = hyp.get("engine_function", "")
         relevant = hyp.get("relevant_instructions") or ""
+
+        # Optional Layer-1.5 challenger context. When present, includes
+        # the exact attack chain that survived adversarial review.
+        debate_section = ""
+        if debate_context and debate_context.strip():
+            debate_section = (
+                "\n# Layer-1.5 challenger response (exact attack chain)\n\n"
+                "The hypothesis already passed Layer-1.5 adversarial debate. "
+                "The challenger's response below contains the precise attack "
+                "scenario, value choices, and assertion failure that "
+                "convinced the second reviewer. USE THIS — it tells you "
+                "WHICH ASSERTION TO MAKE that will fail under the bug.\n\n"
+                "```\n" + debate_context.strip()[:6000] + "\n```\n"
+            )
 
         return f"""You are authoring a Layer-2 Proof-of-Concept Solidity test for the Jelleo audit engine.
 
@@ -111,7 +126,7 @@ Relevant instructions: {relevant}
 # Grounded source
 
 {source_context}
-
+{debate_section}
 # Repo layout
 
 The target repo is at: {target_repo_root}
@@ -173,6 +188,115 @@ that:
 * Imports use `@src/...` (per foundry.toml remappings), e.g.
   `import "@src/ContractA.sol";`. NOT `import "src/ContractA.sol";`.
 * `forge-std/Test.sol` is the test base — `is Test` on your contract.
+* **DO NOT re-declare interfaces already in scope through imports.**
+  When you `import "@src/ContractC.sol";` you transitively pull in
+  `IBridgeAdapter`, `IOracle`, `IERC20`. Writing a second
+  `interface IBridgeAdapter {{ ... }}` causes "Identifier already
+  declared" compile error. Use the imported one.
+
+# Mock contract templates (COPY-PASTE these, edit only the hook)
+
+If your test needs a mock ERC-20 (reentrancy hook, blocklist, USDT-
+style guard) or a mock oracle / bridge, USE THESE TEMPLATES. They are
+verified to compile against THIS repo's `IERC20` and `IOracle`.
+
+**Imports the mocks need** (add to the top of your test file):
+
+```solidity
+import "@src/vendor/openzeppelin/token/ERC20/IERC20.sol";  // IERC20
+import "@src/interfaces/ExternalInterfaces.sol";  // IOracle, IBridgeAdapter
+```
+
+THIS repo's `IERC20` has 7 functions (decimals, totalSupply, balanceOf,
+allowance, transfer, transferFrom, approve) — implement ALL of them
+on any mock that `is IERC20`, otherwise the "Contract should be marked
+as abstract" compile error fires.
+
+```solidity
+// Full IERC20 mock — implements ALL 7 methods on THIS repo's IERC20
+// (decimals, totalSupply, balanceOf, allowance, transfer, transferFrom,
+// approve). Compiles non-abstract.
+contract MockERC20 is IERC20 {{
+    mapping(address => uint256) internal _bal;
+    mapping(address => mapping(address => uint256)) internal _allow;
+    uint256 internal _total;
+    function decimals() external pure override returns (uint8) {{ return 18; }}
+    function totalSupply() external view override returns (uint256) {{ return _total; }}
+    function balanceOf(address a) external view override returns (uint256) {{ return _bal[a]; }}
+    function allowance(address o, address s) external view override returns (uint256) {{ return _allow[o][s]; }}
+    function mint(address to, uint256 amt) external {{ _bal[to] += amt; _total += amt; }}
+    function approve(address s, uint256 amt) external virtual override returns (bool) {{ _allow[msg.sender][s] = amt; emit Approval(msg.sender, s, amt); return true; }}
+    function transfer(address to, uint256 amt) external virtual override returns (bool) {{
+        require(_bal[msg.sender] >= amt, "bal"); _bal[msg.sender] -= amt; _bal[to] += amt; emit Transfer(msg.sender, to, amt); return true;
+    }}
+    function transferFrom(address from, address to, uint256 amt) external virtual override returns (bool) {{
+        require(_bal[from] >= amt, "bal"); require(_allow[from][msg.sender] >= amt, "allow");
+        _bal[from] -= amt; _allow[from][msg.sender] -= amt; _bal[to] += amt; emit Transfer(from, to, amt); return true;
+    }}
+}}
+```
+
+For an ERC-777-style HOOK mock (reentrancy attacks), inherit MockERC20
+and override `transfer` to call back into the target before completing:
+
+```solidity
+contract ReentrantMockERC20 is MockERC20 {{
+    address public hook_target;
+    bytes public hook_data;
+    bool reentered;
+    function setHook(address t, bytes calldata d) external {{ hook_target = t; hook_data = d; }}
+    function transfer(address to, uint256 amt) external override returns (bool) {{
+        if (hook_target != address(0) && !reentered) {{
+            reentered = true;
+            (bool ok,) = hook_target.call(hook_data);
+            ok; // ignore — the inner call IS the re-entry
+        }}
+        require(_bal[msg.sender] >= amt, "bal");
+        _bal[msg.sender] -= amt; _bal[to] += amt; emit Transfer(msg.sender, to, amt);
+        return true;
+    }}
+}}
+```
+
+For a USDT-style "non-zero-to-non-zero approve fails" mock:
+
+```solidity
+contract UsdtStyleMockERC20 is MockERC20 {{
+    function approve(address s, uint256 amt) external override returns (bool) {{
+        require(amt == 0 || _allow[msg.sender][s] == 0, "USDT: must reset to 0 first");
+        _allow[msg.sender][s] = amt; emit Approval(msg.sender, s, amt); return true;
+    }}
+}}
+```
+
+For a revert-on-transfer blocklist mock:
+
+```solidity
+contract BlocklistMockERC20 is MockERC20 {{
+    mapping(address => bool) public blocked;
+    function block_(address a) external {{ blocked[a] = true; }}
+    function transfer(address to, uint256 amt) external override returns (bool) {{
+        require(!blocked[to], "BLOCKED");
+        require(_bal[msg.sender] >= amt, "bal");
+        _bal[msg.sender] -= amt; _bal[to] += amt; emit Transfer(msg.sender, to, amt);
+        return true;
+    }}
+}}
+```
+
+For a manipulable IOracle mock:
+
+```solidity
+contract MockOracle is IOracle {{
+    mapping(address => uint256) public p;
+    function price(address t) external view override returns (uint256) {{ return p[t]; }}
+    function setPrice(address t, uint256 v) external {{ p[t] = v; }}
+}}
+```
+
+If you need a custom mock NOT covered above, ENSURE it implements
+ALL methods on the interface it claims to satisfy. Use `forge build`
+mentally: "would this compile against THIS repo's IERC20/IOracle?"
 
 # Output format
 

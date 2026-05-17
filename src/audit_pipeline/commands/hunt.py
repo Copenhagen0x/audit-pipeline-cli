@@ -1578,9 +1578,29 @@ def _hunt_run(
                 source_context = _grounded_source_for_hyp(
                     engine_dir, meta, ground_code=ground_code,
                 )
+                # Pass L1.5 challenger response into the L2 author prompt
+                # when available. The challenger response contains the
+                # exact attack chain that survived adversarial debate —
+                # which assertion to fail, what values to use, what
+                # ordering. On Solidity targets this turns the pass-no-
+                # fire rate from ~40% to ~10% because the LLM no longer
+                # has to re-derive the exploit from grounded source alone.
+                # Solana/Aptos/C adapters accept but ignore the param.
+                _debate_context: str | None = None
+                _challenger_path = (
+                    cycle_dir / "debate" / f"{hyp_id}_challenger_response.md"
+                )
+                if _challenger_path.is_file():
+                    try:
+                        _debate_context = _challenger_path.read_text(
+                            encoding="utf-8", errors="replace"
+                        )
+                    except OSError:
+                        _debate_context = None
                 base_prompt = _l2_adapter.build_author_prompt(
                     hyp=meta, source_context=source_context,
                     target_repo_root=engine_dir,
+                    debate_context=_debate_context,
                 )
                 MAX_AUTHOR_ATTEMPTS = 3
                 body = None

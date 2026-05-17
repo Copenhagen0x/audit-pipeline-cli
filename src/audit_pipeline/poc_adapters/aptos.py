@@ -157,6 +157,7 @@ class AptosAdapter(LanguagePocAdapter):
         hyp: dict[str, Any],
         source_context: str,
         target_repo_root: Path,
+        debate_context: str | None = None,  # accepted for interface parity; Aptos baseline ignores
     ) -> str:
         hyp_id = hyp.get("id", "unknown")
         claim = hyp.get("claim", "(no claim)")

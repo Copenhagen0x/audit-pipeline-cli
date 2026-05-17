@@ -53,6 +53,7 @@ class SolanaAdapter(LanguagePocAdapter):
         hyp: dict[str, Any],
         source_context: str,
         target_repo_root: Path,
+        debate_context: str | None = None,  # accepted for interface parity; Solana baseline ignores
     ) -> str:
         # Delegate to the existing poc_llm prompt builder, which has
         # extensive Percolator-tuned grounding logic. Lazy import so

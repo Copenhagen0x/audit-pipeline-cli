@@ -103,6 +103,7 @@ class LanguagePocAdapter(abc.ABC):
         hyp: dict[str, Any],
         source_context: str,
         target_repo_root: Path,
+        debate_context: str | None = None,
     ) -> str:
         """Build the LLM prompt that asks an agent to author the PoC test.
 
@@ -117,6 +118,13 @@ class LanguagePocAdapter(abc.ABC):
                               lives. Adapters use this to reference
                               the right include paths / module paths /
                               package directories in the prompt.
+            debate_context: Optional Layer-1.5 challenger response text
+                            for this hypothesis. When present, gives the
+                            L2 author the exact attack chain that survived
+                            adversarial review — typically reduces
+                            passed-no-fire by ~3x on Solidity targets.
+                            Adapters MAY ignore (Solana/Aptos baseline
+                            don't yet use it) but MUST accept the param.
         Returns: a prompt string ready to send to ``complete()``.
         """
 
