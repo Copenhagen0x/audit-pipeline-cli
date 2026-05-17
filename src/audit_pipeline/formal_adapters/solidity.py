@@ -338,60 +338,88 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
         except OSError:
             pass
 
-        # Parse halmos JSON output. Schema (typical):
-        # {"test_results": [{"name": "...", "passed": true/false,
-        #                    "counter_example": ..., "error": "..."}],
-        #  ...}
+        # Parse halmos JSON output. Schema (from halmos 0.1.13):
+        # {"exitcode": 0|1|2,
+        #  "test_results": {"<file>:<contract>": [
+        #      {"name": "check_xxx(...)",
+        #       "exitcode": 0,   // 0 = proved, 1 = CE w/ model, 2 = timeout/inconclusive
+        #       "num_models": N, // >0 = concrete CE produced
+        #       "models": [...]} // CE witnesses (when num_models > 0)
+        #  ]}}
+        #
+        # Verdict mapping:
+        #   exitcode 0                  → proved
+        #   exitcode != 0 AND models    → counterexample (concrete witness)
+        #   exitcode != 0 AND !models   → inconclusive (timeout / unknown sat)
         ce_found = False
         proved_count = 0
-        failed_count = 0
+        inconclusive_count = 0
         ce_text: str | None = None
         first_failed_name: str | None = None
         if json_out.exists():
             try:
                 data = json.loads(json_out.read_text(encoding="utf-8", errors="replace"))
-                # data may be a list of contract results or have a "test_results" key
-                contracts = data if isinstance(data, list) else [data]
-                for contract_entry in contracts:
-                    if not isinstance(contract_entry, dict):
+                # top-level may be dict with test_results, or list of contract entries
+                if isinstance(data, dict) and "test_results" in data:
+                    test_results = data["test_results"]
+                    # halmos returns test_results as a DICT keyed by file:contract
+                    if isinstance(test_results, dict):
+                        all_tests = []
+                        for _key, tests in test_results.items():
+                            if isinstance(tests, list):
+                                all_tests.extend(tests)
+                    elif isinstance(test_results, list):
+                        all_tests = test_results
+                    else:
+                        all_tests = []
+                else:
+                    all_tests = data if isinstance(data, list) else []
+
+                for t in all_tests:
+                    if not isinstance(t, dict):
                         continue
-                    results = (
-                        contract_entry.get("test_results")
-                        or contract_entry.get("tests")
-                        or contract_entry.get("results")
-                        or []
-                    )
-                    if not isinstance(results, list):
-                        continue
-                    for t in results:
-                        if not isinstance(t, dict):
-                            continue
-                        name = t.get("name") or t.get("test_name") or "?"
-                        # Halmos uses "exitcode" or "passed" depending on version
-                        passed_field = t.get("passed")
-                        exitcode = t.get("exitcode")
-                        if passed_field is True or exitcode == 0:
-                            proved_count += 1
-                        elif passed_field is False or (exitcode is not None and exitcode != 0):
-                            failed_count += 1
-                            ce_found = True
-                            if first_failed_name is None:
-                                first_failed_name = name
-                            ce = t.get("counter_example") or t.get("counterexample") or t.get("model")
-                            if ce and ce_text is None:
-                                ce_text = str(ce)[:500]
+                    name = t.get("name") or t.get("test_name") or "?"
+                    test_exitcode = t.get("exitcode")
+                    num_models = t.get("num_models") or 0
+                    models = t.get("models") or []
+
+                    if test_exitcode == 0:
+                        proved_count += 1
+                    elif num_models > 0 or models:
+                        # Concrete CE found
+                        ce_found = True
+                        if first_failed_name is None:
+                            first_failed_name = name
+                        if models and ce_text is None:
+                            ce_text = str(models[0])[:500]
+                    else:
+                        # Failed without concrete witness — timeout or unknown sat
+                        inconclusive_count += 1
+                        if first_failed_name is None:
+                            first_failed_name = name
             except (OSError, ValueError, json.JSONDecodeError):
                 pass
 
-        # Fallback: parse stdout text if JSON missing
-        if not ce_found and proved_count == 0:
+        # Override: if stdout/stderr clearly shows [TIMEOUT] but no concrete
+        # CE, force inconclusive verdict (not CE).
+        combined_lower = (stdout + stderr).lower()
+        if "[timeout]" in combined_lower and not ce_found and not proved_count:
+            inconclusive_count = max(inconclusive_count, 1)
+
+        # Fallback: parse stdout text if JSON missing/empty.
+        # Halmos text output uses [FAIL], [PASS], [TIMEOUT], [ERROR].
+        if not ce_found and proved_count == 0 and inconclusive_count == 0:
             combined = stdout + "\n" + stderr
-            if "Counterexample" in combined or "[FAIL]" in combined or "[ERROR]" in combined:
+            if "[TIMEOUT]" in combined:
+                inconclusive_count = 1
+            elif "Counterexample" in combined and "unknown" not in combined.lower():
                 ce_found = True
                 m = re.search(r"Counterexample[:\s]*\n?([\s\S]+?)(?:\n\n|\Z)", combined)
                 if m:
                     ce_text = m.group(1).strip()[:500]
-            elif "[PASS]" in combined or "passed" in combined.lower():
+            elif "[FAIL]" in combined and "[TIMEOUT]" not in combined:
+                ce_found = True
+            elif "[PASS]" in combined:
                 proved_count = 1
 
         if ce_found:
@@ -434,6 +462,21 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
                 verifier=self.verifier,
                 reason="halmos compile or runtime error (see .halmos.log)",
                 metadata={"compile_error": True},
+            )
+
+        if inconclusive_count > 0:
+            return FormalOutcome(
+                proved=False,
+                counterexample=False,
+                harness_path=harness_path,
+                stdout=stdout[:8000],
+                stderr=stderr[:8000],
+                returncode=proc.returncode,
+                duration_s=duration,
+                verifier=self.verifier,
+                reason=f"halmos timeout/inconclusive on {inconclusive_count} test(s) "
+                       f"(no concrete counterexample within solver budget; see .halmos.log)",
+                metadata={"timeout": True, "inconclusive_count": inconclusive_count},
             )
 
         return FormalOutcome(
