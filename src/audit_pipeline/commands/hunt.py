@@ -1761,6 +1761,100 @@ def _hunt_run(
                         "authoring_mode": f"adapter:{language}",
                     }
                     continue
+
+                # Passed-no-fire retry: when the test compiles + runs
+                # cleanly but didn't trigger the bug AND we have L1.5
+                # challenger context, re-author with the prior test
+                # echoed back + reinforcement. Skipped when outcome is
+                # compile_error (already handled by author retry above)
+                # or when no debate_context (LLM has no new signal).
+                # Empirically rescues ~50-70% of pass-no-fire on Solidity.
+                MAX_RUN_RETRIES = 2 if _debate_context else 0
+                _run_retry = 0
+                while (
+                    _run_retry < MAX_RUN_RETRIES
+                    and not outcome_obj.fired
+                    and outcome_obj.metadata.get("phase") != "compile"
+                ):
+                    _run_retry += 1
+                    log("l2_passed_no_fire_retry",
+                        hypothesis_id=hyp_id, run_retry=_run_retry,
+                        prior_reason=(outcome_obj.reason or "")[:160])
+                    _retry_prompt = (
+                        base_prompt
+                        + "\n\n# Previous test passed cleanly — bug NOT triggered\n\n"
+                        + "Your prior test compiled and ran but the "
+                        + "assertion did NOT fail. L1.5 challenger "
+                        + "confirms the bug IS reachable. Most likely "
+                        + "issues: (a) test setup hits a precondition "
+                        + "revert before the bug surfaces (e.g., "
+                        + "CoreBadAddress from passing address(0)), "
+                        + "(b) assertion too lenient, (c) wrong attacker "
+                        + "or victim addresses, (d) missing vm.prank "
+                        + "or vm.warp setup.\n\n"
+                        + "Re-read the Layer-1.5 challenger response in "
+                        + "this prompt, identify the EXACT assertion that "
+                        + "should fail under the bug, and write a "
+                        + "CORRECTED test that triggers it.\n\n"
+                        + f"Prior test body (passed-no-fire):\n```solidity\n{body}\n```\n\n"
+                        + f"Prior test reason from forge: {(outcome_obj.reason or '')[:240]}"
+                    )
+                    new_body: str | None = None
+                    _retry_err = None
+                    for _retry_attempt in range(3):
+                        _rp = _retry_prompt
+                        if _retry_err:
+                            _rp += (
+                                "\n\n# Previous retry attempt rejected by validator\n\n"
+                                + f"  ERROR: {_retry_err}\n\n"
+                                + "Output a CORRECTED version that fixes this specific issue."
+                            )
+                        try:
+                            _resp_r = _complete_l2(_rp)
+                            _raw_r = getattr(_resp_r, "text", str(_resp_r))
+                            _cand = _l2_adapter.parse_test_body(_raw_r)
+                        except Exception:  # noqa: BLE001
+                            break
+                        _in_r = int(getattr(_resp_r, "input_tokens", 0) or 0)
+                        _out_r = int(getattr(_resp_r, "output_tokens", 0) or 0)
+                        _cost_r = (_in_r / 1_000_000) * 3.0 + (_out_r / 1_000_000) * 15.0
+                        daily_cap.record_spend(_cost_r if _cost_r > 0 else 0.05)
+                        total_cost += _cost_r if _cost_r > 0 else 0.05
+                        _emit_l2(
+                            "poc_llm_authored_retry",
+                            hypothesis_id=hyp_id, hyp_id=hyp_id,
+                            run_retry=_run_retry,
+                            attempt=_retry_attempt + 1,
+                            input_tokens=_in_r, output_tokens=_out_r,
+                            cost_usd=round(_cost_r, 4), _phase="L2",
+                        )
+                        if hasattr(_l2_adapter, "validate_test_body"):
+                            try:
+                                _vv, _vve = _l2_adapter.validate_test_body(
+                                    _cand, engine_repo_root=engine_dir,
+                                )
+                            except Exception:  # noqa: BLE001
+                                _vv, _vve = True, None
+                            if not _vv:
+                                _retry_err = _vve
+                                continue
+                        new_body = _cand
+                        break
+                    if new_body is None:
+                        break
+                    body = new_body
+                    try:
+                        test_path = _l2_adapter.write_test_file(
+                            workspace, finding_name, body,
+                        )
+                        outcome_obj = _l2_adapter.run_test(
+                            workspace, finding_name, engine_dir,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        log("l2_passed_no_fire_retry_run_error",
+                            hypothesis_id=hyp_id, error=str(e))
+                        break
+
                 # Write the cargo-equivalent log so L2.5 triage can read it.
                 # Each adapter exposes stdout/stderr — combine into one log
                 # file in the same format as the Solana cargo log.

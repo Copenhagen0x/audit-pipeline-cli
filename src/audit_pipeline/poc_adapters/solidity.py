@@ -318,6 +318,79 @@ The `CANNOT_TEST:` marker is recognized by the post-cycle gate as a
 non-fire — it doesn't count as a passed test. Don't use it lightly.
 """
 
+    def validate_test_body(
+        self,
+        body: str,
+        engine_repo_root: Path,
+    ) -> tuple[bool, str | None]:
+        """Real-compile check: run ``forge build`` against the LLM's test.
+
+        The previous validator was regex-only (hex literals, marker
+        presence) which let through valid-looking but uncompilable
+        Solidity — "Contract should be marked as abstract", re-declared
+        interfaces, missing IERC20 methods. By writing the candidate
+        to a uniquely-named temp file in the repo's test dir and
+        invoking ``forge build``, we surface the exact solc error to
+        the retry loop so the LLM can fix the specific issue. Forge's
+        incremental cache makes the per-attempt build ~1-3s.
+
+        Returns (True, None) on clean compile. Returns (False, err)
+        with the last ~2KB of solc output on failure.
+        """
+        import hashlib
+
+        test_dir = _detect_foundry_test_dir(engine_repo_root)
+        try:
+            test_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return (True, None)  # can't validate; let run_test surface it
+
+        h = hashlib.md5(body.encode("utf-8", errors="replace")).hexdigest()[:12]
+        tmp = test_dir / f"_jelleo_validate_{h}.t.sol"
+        try:
+            tmp.write_text(body, encoding="utf-8")
+        except OSError:
+            return (True, None)
+
+        try:
+            proc = subprocess.run(
+                ["forge", "build"],
+                cwd=str(engine_repo_root),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except FileNotFoundError:
+            tmp.unlink(missing_ok=True)
+            return (True, None)  # forge missing — let run_test fail with clear toolchain error
+        except subprocess.TimeoutExpired:
+            tmp.unlink(missing_ok=True)
+            return (False, "forge build timed out during validation (>120s)")
+        finally:
+            tmp.unlink(missing_ok=True)
+
+        if proc.returncode == 0:
+            return (True, None)
+
+        # Compile failed. Surface the actual error so the LLM gets a
+        # specific issue to fix on next attempt.
+        err_text = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()
+        # Filter to error-relevant lines (skip warnings) for token budget.
+        lines = err_text.splitlines()
+        relevant: list[str] = []
+        capture = 0
+        for ln in lines:
+            stripped = ln.strip()
+            if stripped.startswith("Error") or stripped.startswith("error"):
+                capture = 8  # capture next 8 lines after each error
+                relevant.append(ln)
+            elif capture > 0:
+                relevant.append(ln)
+                capture -= 1
+        msg = "\n".join(relevant) if relevant else err_text
+        msg = msg[-2000:]
+        return (False, f"forge build failed:\n{msg}")
+
     def parse_test_body(self, llm_response: str) -> str:
         # Primary: solidity or sol fenced block
         m = re.search(r"```(?:solidity|sol|Solidity)\s*\n([\s\S]*?)\n```", llm_response)
