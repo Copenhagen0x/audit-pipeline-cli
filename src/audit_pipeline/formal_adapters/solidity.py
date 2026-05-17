@@ -85,7 +85,11 @@ Function under test: {engine_function}
 Write a single Solidity file `harness_<finding_name>.sol` that:
 
 1. Uses `pragma solidity ^0.8.20;`
-2. Imports the contract under test from `src/` using relative paths.
+2. Uses `@src/...` remapped imports if you need to reference the
+   contract under test — but PREFER a MINIMAL inlined copy of just
+   the function/struct/storage under test. SMTChecker times out on
+   full-contract harnesses with vendor chains. Inline the smallest
+   self-contained version that exhibits the bug.
 3. Defines a `contract Harness` that:
      (a) Has state variables matching the protocol's relevant state.
      (b) Has functions exercising the bug-claim path. Each function:
@@ -94,6 +98,9 @@ Write a single Solidity file `harness_<finding_name>.sol` that:
          - Asserts the invariant via `assert(invariant_holds)`.
 4. Express the invariant as the OPPOSITE of the bug — if SMTChecker
    finds a counterexample, the bug is real.
+5. KEEP THE HARNESS SMALL — under ~80 lines. CHC scales poorly with
+   state space size. No vendor imports. No unrelated functions.
+   Translate the relevant slice of the bug into pure assertions.
 
 # Examples of invariants
 
@@ -194,11 +201,34 @@ write a real harness:
 
         # SMTChecker via raw solc. forge doesn't expose --model-checker-*
         # flags directly, so we call solc and let it resolve imports via
-        # --allow-paths. The timeout is in MILLISECONDS, capped to fit
-        # within our wall-clock budget minus a safety margin.
+        # --allow-paths + remappings. The timeout is in MILLISECONDS,
+        # capped to fit within our wall-clock budget minus a safety margin.
         smt_timeout_ms = max(5_000, min(timeout_s * 1000 - 5_000, 60_000))
-        cmd = [
-            "solc",
+
+        # Read foundry.toml to pick up the project's remappings (e.g.
+        # `@src/=src/`). The LLM harness imports use these aliases, but
+        # raw solc doesn't read foundry.toml — we have to pass them as
+        # positional `prefix=path` args before the source file.
+        remappings: list[str] = []
+        foundry_toml = target_repo_root / "foundry.toml"
+        if foundry_toml.is_file():
+            try:
+                ft_text = foundry_toml.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                ft_text = ""
+            # Match `remappings = ["@src/=src/", ...]` (list of strings)
+            m_block = re.search(r"remappings\s*=\s*\[([\s\S]*?)\]", ft_text)
+            if m_block:
+                for entry in re.findall(r"['\"]([^'\"]+)['\"]", m_block.group(1)):
+                    if "=" in entry and not entry.startswith("forge-std"):
+                        prefix, _, rhs = entry.partition("=")
+                        # Resolve rhs relative to repo root if relative
+                        rhs_path = (target_repo_root / rhs).resolve() if not rhs.startswith("/") else Path(rhs)
+                        remappings.append(f"{prefix}={rhs_path}")
+
+        cmd = ["solc"]
+        cmd.extend(remappings)
+        cmd.extend([
             "--model-checker-engine", "chc",
             "--model-checker-targets", "all",
             "--model-checker-timeout", str(smt_timeout_ms),
@@ -206,7 +236,7 @@ write a real harness:
             "--allow-paths", f"{target_repo_root},{scratch_dir}",
             "--base-path", str(target_repo_root),
             str(deployed),
-        ]
+        ])
 
         t0 = time.time()
         try:

@@ -33,6 +33,26 @@ from typing import Any
 from audit_pipeline.runtime_adapters.base import LanguageRuntimeAdapter, RuntimeOutcome
 
 
+def _detect_foundry_test_dir(repo_root: Path) -> Path:
+    """Read foundry.toml's `test = "..."` key. Defaults to `test/`.
+
+    OSec eval repos use `tests/` (plural) while many Foundry defaults
+    use `test/`. We honor whatever foundry.toml says so `forge test
+    --match-path` resolves to the correct location.
+    """
+    manifest = repo_root / "foundry.toml"
+    if not manifest.is_file():
+        return repo_root / "test"
+    try:
+        text = manifest.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return repo_root / "test"
+    m = re.search(r"^\s*test\s*=\s*['\"]([^'\"]+)['\"]", text, re.MULTILINE)
+    if m:
+        return repo_root / m.group(1)
+    return repo_root / "test"
+
+
 class SolidityRuntimeAdapter(LanguageRuntimeAdapter):
     language = "solidity"
     harness_file_extension = ".sol"
@@ -48,7 +68,7 @@ class SolidityRuntimeAdapter(LanguageRuntimeAdapter):
         claim = hyp.get("claim", "(no claim)")
         engine_function = hyp.get("engine_function", "")
 
-        return f"""You are authoring a Foundry fuzz harness for the Jelleo audit engine.
+        return f"""You are authoring a Foundry fuzz / invariant harness for the Jelleo audit engine.
 
 # Hypothesis under test
 
@@ -62,9 +82,21 @@ Function under test: {engine_function}
 
 # Run command
 
-  forge test --match-path test/fuzz_<name>.t.sol --fuzz-runs 2000 --json
+  forge test --match-path tests/jelleo_l4_fuzz_<name>.t.sol --fuzz-runs 2000 --json
 
 A failing fuzz/invariant test = bug confirmed with concrete inputs.
+
+# Repo conventions
+
+* Imports use `@src/` remapping (per foundry.toml). Example:
+    `import "@src/ContractA.sol";`
+    `import "@src/vendor/openzeppelin/token/ERC20/IERC20.sol";`
+    `import "@src/interfaces/ExternalInterfaces.sol";` (for IOracle, IBridgeAdapter)
+* DO NOT re-declare interfaces already in scope via @src imports.
+* `IERC20` in this repo has 7 functions (decimals, totalSupply,
+  balanceOf, allowance, transfer, transferFrom, approve). Any mock
+  ERC-20 inheriting `is IERC20` must implement ALL of them or you
+  get "Contract should be marked as abstract".
 
 # Harness patterns
 
@@ -148,9 +180,10 @@ If unable: `// CANNOT_FUZZ: <reason>` stub.
                 duration_s=0.0, fuzzer=self.fuzzer, reason="harness stub",
             )
 
-        # Deploy into the target repo's test/ dir
-        deployed = target_repo_root / "test" / f"jelleo_l4_fuzz_{harness_name}.t.sol"
-        deployed.parent.mkdir(parents=True, exist_ok=True)
+        # Deploy into the foundry.toml-configured test dir (test/ or tests/)
+        repo_test_dir = _detect_foundry_test_dir(target_repo_root)
+        repo_test_dir.mkdir(parents=True, exist_ok=True)
+        deployed = repo_test_dir / f"jelleo_l4_fuzz_{harness_name}.t.sol"
         deployed.write_text(body, encoding="utf-8")
 
         # Number of fuzz runs scales with time budget; ~2000 runs/sec
