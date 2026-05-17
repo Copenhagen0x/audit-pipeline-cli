@@ -203,7 +203,14 @@ write a real harness:
         # flags directly, so we call solc and let it resolve imports via
         # --allow-paths + remappings. The timeout is in MILLISECONDS,
         # capped to fit within our wall-clock budget minus a safety margin.
-        smt_timeout_ms = max(5_000, min(timeout_s * 1000 - 5_000, 60_000))
+        # Cap the SMTChecker internal timeout at 180s (was 60s). On
+        # harnesses with multi-contract state spaces (vault + mock token
+        # + attacker contract for reentrancy proofs, gov + voters[] for
+        # quorum proofs) the CHC solver needs >60s to either find a CE
+        # or saturate. 60s was leaving every complex harness at
+        # "indeterminate". 180s lets most converge; the rest are
+        # honestly out of CHC's scope.
+        smt_timeout_ms = max(5_000, min(timeout_s * 1000 - 5_000, 180_000))
 
         # Read foundry.toml to pick up the project's remappings (e.g.
         # `@src/=src/`). The LLM harness imports use these aliases, but
@@ -258,18 +265,40 @@ write a real harness:
                 reason="toolchain missing: solc",
                 metadata={"infra_error": True},
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
             deployed.unlink(missing_ok=True)
+            # Preserve any partial stdout/stderr that solc emitted
+            # before the kill — CHC sometimes prints the CE seconds
+            # before saturating, which is what we want to surface.
+            partial_out = ""
+            partial_err = ""
+            try:
+                if e.stdout:
+                    partial_out = e.stdout.decode("utf-8", errors="replace") if isinstance(e.stdout, (bytes, bytearray)) else str(e.stdout)
+                if e.stderr:
+                    partial_err = e.stderr.decode("utf-8", errors="replace") if isinstance(e.stderr, (bytes, bytearray)) else str(e.stderr)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                log_path = harness_path.with_suffix(".solc.log")
+                log_path.write_text(
+                    f"=== TIMED OUT AFTER {timeout_s}s ===\n"
+                    f"=== STDOUT (partial, {len(partial_out)} bytes) ===\n{partial_out}\n"
+                    f"=== STDERR (partial, {len(partial_err)} bytes) ===\n{partial_err}\n",
+                    encoding="utf-8",
+                )
+            except OSError:
+                pass
             return FormalOutcome(
                 proved=False,
                 counterexample=False,
                 harness_path=harness_path,
-                stdout="",
-                stderr="solc SMTChecker timed out",
+                stdout=partial_out[:8000],
+                stderr=(partial_err or "solc SMTChecker timed out")[:8000],
                 returncode=-5,
                 duration_s=time.time() - t0,
                 verifier=self.verifier,
-                reason="SMTChecker timeout",
+                reason="SMTChecker timeout after {}s (partial output saved to .solc.log)".format(timeout_s),
             )
         finally:
             deployed.unlink(missing_ok=True)
