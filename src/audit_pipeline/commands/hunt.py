@@ -3221,6 +3221,31 @@ def _hunt_run(
             "litesvm": litesvm_results.get(hyp_id) if l4_ran else None,
         })
 
+    # RESUME FALLBACK: when --resume-cycle is used and prior layers (L2 /
+    # L4) didn't re-populate poc_results / litesvm_results (the resume
+    # path has a known gap where existing PoC test files cause the L2
+    # loop to early-exit without registering the hyp's fire status),
+    # the in-memory `confirmed` ends up empty even when the DB has
+    # confirmed findings from the original run. Without this fallback,
+    # downstream P3 bundle + narrative + P4 merkle stages silently
+    # skip on resume, leaving the cycle frozen in the L4-completed
+    # state with no fixes / no signed attestation.
+    if not confirmed and resume_cycle:
+        for f in db.list_findings_by_cycle(cycle_id):
+            if f.get("status") != "confirmed":
+                continue
+            hyp_id = f.get("hypothesis_id") or ""
+            confirmed.append({
+                "hypothesis_id": hyp_id,
+                "verdict": f.get("verdict"),
+                "confidence": f.get("confidence"),
+                "poc": poc_results.get(hyp_id, {}),
+                "kani": kani_results.get(hyp_id),
+                "litesvm": litesvm_results.get(hyp_id) if l4_ran else None,
+            })
+        log("confirmed_rebuilt_from_db_on_resume",
+            count=len(confirmed), cycle_id=cycle_id)
+
     # Build (classification, cluster_id, is_representative) lookup so the
     # persistence loop can honor Layer 2.5 triage. Without this, the
     # `poc_fired=true → status=CONFIRMED` rule blindly promotes mechanical
