@@ -2405,5 +2405,43 @@ main.bridge {
 })();
 </script>
 
+
+<script>
+/* OSec lobby tab reactivity (added 2026-05-17): drive each tab's
+   tab-scanned / tab-idle class + badge count from snapshot.targets[]
+   instead of the deploy-time hardcoded values. Runs once on load and
+   re-runs every time the snapshot poller fires. */
+(function () {
+  const SNAPSHOT_URL = "https://api.jelleo.com/snapshot.json";
+  function refreshTabs(snap) {
+    const byTarget = {};
+    (snap.targets || []).forEach(t => { if (t.name) byTarget[t.name] = t; });
+    document.querySelectorAll("#tab-bar .tab[data-target]").forEach(tab => {
+      const tgt = tab.dataset.target;
+      const data = byTarget[tgt];
+      if (!data) return;
+      const disclosed = data.n_findings_disclosed || 0;
+      tab.classList.remove("tab-idle", "tab-scanned", "tab-scanning");
+      tab.classList.add(disclosed > 0 ? "tab-scanned" : "tab-idle");
+      const badge = tab.querySelector(".badge");
+      if (badge) {
+        badge.textContent = String(disclosed);
+        badge.classList.toggle("zero", disclosed === 0);
+      }
+    });
+  }
+  async function tick() {
+    try {
+      const r = await fetch(SNAPSHOT_URL, { cache: "no-store" });
+      if (!r.ok) return;
+      const snap = await r.json();
+      refreshTabs(snap);
+    } catch (e) { /* swallow — keeps hardcoded state on failure */ }
+  }
+  tick();
+  setInterval(tick, 60_000);
+})();
+</script>
+
 </body>
 </html>

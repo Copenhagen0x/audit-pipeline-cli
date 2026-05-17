@@ -258,6 +258,30 @@ def _merge_snapshots(primary: dict, extra: dict) -> dict:
         if isinstance(v, (int, float)) and isinstance(pstats.get(k), (int, float)):
             pstats[k] = pstats[k] + v
     out["stats"] = pstats
+    fb_p = dict(primary.get("fix_bundle_stats") or {})
+    fb_e = (extra.get("fix_bundle_stats") or {})
+    for k, v in fb_e.items():
+        if isinstance(v, (int, float)) and isinstance(fb_p.get(k), (int, float)):
+            fb_p[k] = fb_p[k] + v
+        elif isinstance(v, dict) and isinstance(fb_p.get(k), dict):
+            merged_d = dict(fb_p[k])
+            for kk, vv in v.items():
+                if isinstance(vv, (int, float)) and isinstance(merged_d.get(kk), (int, float)):
+                    merged_d[kk] = merged_d[kk] + vv
+                else:
+                    merged_d.setdefault(kk, vv)
+            fb_p[k] = merged_d
+        else:
+            fb_p.setdefault(k, v)
+    out["fix_bundle_stats"] = fb_p
+    ps_p = dict(primary.get("propagation_stats") or {})
+    ps_e = (extra.get("propagation_stats") or {})
+    for k, v in ps_e.items():
+        if isinstance(v, (int, float)) and isinstance(ps_p.get(k), (int, float)):
+            ps_p[k] = ps_p[k] + v
+        else:
+            ps_p.setdefault(k, v)
+    out["propagation_stats"] = ps_p
     return out
 
 
