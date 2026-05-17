@@ -103,6 +103,8 @@ def bundle_cmd() -> None:
               help="Path to the PoC test source — included in the prompt")
 @click.option("--poc-test-name", type=str, default=None,
               help="Stable name of the PoC test (used by `verify` later)")
+@click.option("--force", is_flag=True, default=False,
+              help="Redraft even if patch.diff already exists (burns LLM cost).")
 @click.pass_context
 def draft_cmd(
     ctx: click.Context,
@@ -111,6 +113,7 @@ def draft_cmd(
     target_file: str | None,
     poc_source_file: Path | None,
     poc_test_name: str | None,
+    force: bool,
 ) -> None:
     """Author a patch + writeup for a confirmed finding (LLM-driven)."""
     workspace = _ws(ctx)
@@ -123,6 +126,18 @@ def draft_cmd(
             f"finding {finding_id} status is {finding.get('status')!r}; "
             f"only 'confirmed' findings can be bundled"
         )
+
+    # Skip-if-already-drafted: avoids re-burning LLM cost when the
+    # operator re-runs the P3 pipeline to pick up downstream fixes
+    # (e.g. a verifier change). Pass --force to override.
+    existing_patch = bpaths.patch_path(workspace, finding_id)
+    if existing_patch.is_file() and not force:
+        console.print(
+            f"[yellow]skip[/yellow] finding {finding_id}: patch.diff already "
+            f"exists at {existing_patch} ({existing_patch.stat().st_size} bytes). "
+            f"Pass --force to redraft."
+        )
+        return
 
     bug_class = finding.get("bug_class") or "unknown"
     template = template_for(bug_class)
