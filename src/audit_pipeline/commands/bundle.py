@@ -183,36 +183,55 @@ def draft_cmd(
         if is_glob:
             matches = sorted(engine_repo.glob(target_file))
             # Try to resolve to a SINGLE file. Resolution chain:
-            # 1) PoC source mentions `programs/<name>` — most reliable for
-            #    Solana, since the L2 PoC author cites the program where
-            #    the bug fires. SOL16's `programs/*/src/lib.rs` becomes
-            #    `programs/vault_market/...` because the PoC body mentions
-            #    `programs/vault_market`.
-            # 2) Hyp-id substring match on file stem — covers Aptos hyps
-            #    like `APTL8-marketplace-credit-debit-no-auth` where the
-            #    module name is in the slug.
-            # 3) Alphabetical-first fallback — only when nothing above hits.
-            #    This used to be the default and silently picked the wrong
-            #    program for Solana class-level hyps; now it's last resort.
+            # 1) PoC source cites a specific `programs/<prog>/src/<file>.rs`
+            #    path with file extension — use it directly even if it's
+            #    outside the YAML glob. SOL16's hyp says target_file=
+            #    `programs/*/src/lib.rs` but the actual bug is in
+            #    `programs/vault_market/src/math.rs`. Trust the L2 PoC's
+            #    citation over the YAML glob: PoC was authored against
+            #    the real bug, YAML is a class-wide template.
+            # 2) Same as (1) but program-level only (`programs/<name>/`)
+            #    when the PoC doesn't cite a specific file — pick a glob
+            #    match in that program crate.
+            # 3) Hyp-id substring match on file stem.
+            # 4) Alphabetical-first fallback.
             hyp_id = (finding.get("hypothesis_id") or "").lower()
             picked: Path | None = None
 
-            # (1) PoC-cited program name
+            poc_text = ""
             if poc_source_file and poc_source_file.is_file():
                 try:
                     poc_text = poc_source_file.read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     poc_text = ""
+
+            # (1) Specific file path cited in PoC
+            if poc_text:
+                # Match `programs/<prog>/<path>/<file>.rs` (any depth under
+                # the program crate). Most cited file wins.
+                cited_files = re.findall(
+                    r"programs/[a-z0-9_]+/(?:[a-z0-9_/]+/)?[a-z0-9_]+\.rs",
+                    poc_text,
+                )
+                if cited_files:
+                    from collections import Counter
+                    rank = Counter(cited_files)
+                    for rel_path, _ in rank.most_common():
+                        cand = engine_repo / rel_path
+                        if cand.is_file():
+                            picked = cand
+                            break
+
+            # (2) Program-level fallback (PoC cites program but no specific file)
+            if picked is None and poc_text:
                 cited_progs = re.findall(r"programs/([a-z0-9_]+)", poc_text)
                 if cited_progs:
-                    # Prefer the most-cited program (ties broken by first appearance)
                     from collections import Counter
                     rank = Counter(cited_progs)
                     for prog_name, _ in rank.most_common():
                         for p in matches:
                             if not p.is_file():
                                 continue
-                            # match if `programs/<prog_name>/` is in path
                             rel = p.relative_to(engine_repo).as_posix()
                             if f"programs/{prog_name}/" in rel:
                                 picked = p

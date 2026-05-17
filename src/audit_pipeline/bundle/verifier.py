@@ -145,6 +145,55 @@ def _cargo_test_argv(engine_repo: Path, *extra: str) -> list[str]:
     return argv
 
 
+def _find_standalone_poc_log(workspace: Path, poc_test_name: str) -> Path | None:
+    """Locate the L2 cargo log for a rustc-standalone PoC, if one exists.
+
+    Solana / Aptos L2 PoCs are typically compiled with `rustc --test` against
+    a single .rs file rather than as cargo workspace members. The L2 stage
+    writes the compile + test output to ``<workspace>/hunts/<cycle>/poc/cargo_<slug>.log``
+    where ``<slug>`` is the lowercase, hyphen-replaced hyp_id.
+
+    The verify gate uses this log as authoritative pre-patch evidence:
+    if the PoC fired at L2, the bug is reproducible. We don't try to
+    re-run a standalone PoC during verify because it has its own
+    inlined copy of the buggy code and isn't sensitive to the patch.
+
+    Returns the latest matching log path, or None if no standalone
+    log was found (caller falls back to cargo workspace mode).
+    """
+    if not workspace or not workspace.is_dir():
+        return None
+    # poc_test_name shape: test_<slug>[_fires|_panics|...]
+    # The cargo log is named cargo_<slug>.log. Strip leading "test_"
+    # and any trailing suffix to derive the slug.
+    name = poc_test_name
+    if name.startswith("test_"):
+        name = name[5:]
+    # Strip trailing convention suffixes
+    for suf in ("_fires", "_panics", "_witness", "_reproduces"):
+        if name.endswith(suf):
+            name = name[: -len(suf)]
+            break
+    candidates = sorted(
+        workspace.glob(f"hunts/*/poc/cargo_{name}.log"),
+        key=lambda p: p.stat().st_mtime if p.is_file() else 0,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def _standalone_poc_fired(log_path: Path, poc_test_name: str) -> bool:
+    """Parse a rustc-standalone cargo log; True if the named test failed."""
+    try:
+        body = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    # Standard libtest output: `test <name> ... FAILED` then `test result: FAILED`
+    if "test result: FAILED" in body and f"test {poc_test_name}" in body:
+        return True
+    return False
+
+
 def _gate_patch_well_formed(workspace: Path, finding_id: int) -> GateResult:
     t0 = time.time()
     p = patch_path(workspace, finding_id)
@@ -234,6 +283,30 @@ def _gate_poc_fails_pre_patch(
             f"^test_[A-Za-z0-9_]+$ (could match unrelated tests)",
             time.time() - t0,
         )
+
+    # Detect rustc-standalone PoC (typical for Solana / Aptos cycles where
+    # L2 PoCs are single-file .rs tests compiled with `rustc --test`, not
+    # cargo workspace members). When present, the L2 cargo log already
+    # records the pre-patch fire result — read it directly instead of
+    # re-running cargo (which would fail to find the test in the engine
+    # repo's workspace).
+    standalone_log = _find_standalone_poc_log(workspace, poc_test_name)
+    if standalone_log is not None:
+        if _standalone_poc_fired(standalone_log, poc_test_name):
+            return GateResult(
+                True,
+                f"PoC test {poc_test_name} fired at L2 "
+                f"(rustc-standalone log: {standalone_log.name})",
+                time.time() - t0,
+                details={"outcome": "fired", "mode": "rustc-standalone"},
+            )
+        return GateResult(
+            False,
+            f"PoC test {poc_test_name} did NOT fire at L2 "
+            f"(standalone log shows test passed — bug not reproducible)",
+            time.time() - t0,
+        )
+
     try:
         # cargo test exits 0 if all tests pass. We want the PoC to FAIL on the
         # unpatched repo (i.e. test assertion fires) to prove the bug is
@@ -511,6 +584,32 @@ def _gate_poc_passes_post_patch(
     p = patch_path(workspace, finding_id)
     if not p.is_file():
         return GateResult(False, "no patch.diff to apply", time.time() - t0)
+
+    # Rustc-standalone PoCs have their own inlined copy of the buggy code,
+    # so the engine-repo patch doesn't affect the PoC's runtime behavior
+    # (it would still fire post-patch). For these PoCs the proper post-patch
+    # witness is L4 LiteSVM (instruction-level reproduction against the
+    # patched .so). Here we instead verify the patch APPLIES CLEANLY against
+    # the engine repo — anything stronger is delegated to the LiteSVM and
+    # tests-pass gates.
+    standalone_log = _find_standalone_poc_log(workspace, poc_test_name)
+    if standalone_log is not None:
+        patch_text_chk = p.read_text(encoding="utf-8", errors="replace")
+        ok_apply, err_apply = _apply_patch(engine_repo, patch_text_chk)
+        if not ok_apply:
+            return GateResult(
+                False,
+                f"could not apply patch: {err_apply}",
+                time.time() - t0,
+            )
+        _unapply_patch(engine_repo, patch_text_chk)
+        return GateResult(
+            True,
+            f"patch applies cleanly; PoC is rustc-standalone "
+            f"(runtime witness delegated to LiteSVM / tests gate)",
+            time.time() - t0,
+            details={"mode": "rustc-standalone-delegated"},
+        )
 
     # Apply the patch in a stash to keep the engine_repo clean for re-runs
     # We use git apply + git stash to ensure we can roll back regardless of
