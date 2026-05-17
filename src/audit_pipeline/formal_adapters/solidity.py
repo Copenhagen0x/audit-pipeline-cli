@@ -275,9 +275,37 @@ write a real harness:
             deployed.unlink(missing_ok=True)
 
         duration = time.time() - t0
-        stdout = proc.stdout[:8000]
-        stderr = proc.stderr[:4000]
-        combined = stdout + "\n" + stderr
+        # CRITICAL: do NOT truncate stderr here. SMTChecker can emit
+        # tens of KB of leading warnings (unused-var, SPDX, state-
+        # mutability) before the "CHC: Assertion violation happens"
+        # signal. The previous 4000-byte cap silently hid CEs from
+        # complex harnesses, causing every L3 run to report
+        # "inconclusive" even when SMTChecker had found the bug.
+        # Operator caught this 2026-05-17 after L3 hunt v2 and v3
+        # both produced 12 indeterminate verdicts for verified-good
+        # harnesses.
+        stdout_full = proc.stdout
+        stderr_full = proc.stderr
+        combined = stdout_full + "\n" + stderr_full
+
+        # Also persist the full output next to the harness so a
+        # downstream "why did L3 fail?" investigation has the raw
+        # solc message instead of just a 200-char reason summary.
+        try:
+            log_path = harness_path.with_suffix(".solc.log")
+            log_path.write_text(
+                f"=== STDOUT ({len(stdout_full)} bytes) ===\n{stdout_full}\n"
+                f"=== STDERR ({len(stderr_full)} bytes) ===\n{stderr_full}\n"
+                f"=== RETURNCODE: {proc.returncode} ===\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+
+        # Truncate ONLY for the FormalOutcome string fields (DB row
+        # size). Detection still uses the full untruncated strings.
+        stdout = stdout_full[:8000]
+        stderr = stderr_full[:8000]
 
         # SMTChecker output patterns
         violation_found = (
