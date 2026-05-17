@@ -1,16 +1,19 @@
-# OtterSec evaluation — Solidity language hypothesis library.
+# OtterSec evaluation — Solidity / EVM language hypothesis library.
 #
 # Designed for the sahuang-osec/solidity-{small,medium,large} synthetic-
-# bug repos. Covers the standard EVM smart-contract bug catalogue:
-# reentrancy, access control, oracle handling, arithmetic, share/vault
-# inflation, slippage, signature/replay, governance, delegatecall,
-# storage collision, frontrunning, gas griefing, initialization races.
+# bug repos. This library is GROUNDED — every entry below cites a real
+# bug surface present in the target's contracts. Hypothesis IDs use the
+# SOLD prefix to keep them separable from SOL* (Solana).
 #
-# Each hypothesis is a binary "is this invariant violated?" question
-# grounded in the bug class the contracts demonstrably expose. L2 PoC
-# scaffold uses Foundry `forge test`; L3 uses solc's built-in
-# SMTChecker (--model-checker-engine chc); L4 uses `forge fuzz` /
-# `forge invariant` for runtime witness.
+# As we move to solidity-medium and solidity-large we EXPAND this file
+# with the new bug surfaces those repos introduce — we do NOT rewrite.
+#
+# Each hypothesis is a binary "is this invariant violated?" question.
+# L2 PoC uses Foundry `forge test` with bug-witness inverted assertions
+# (assert_*_fires patterns). L3 uses Halmos symbolic execution (Kani is
+# Rust-only — Halmos is the Solidity equivalent, runs against the same
+# Foundry test sources). L4 uses anvil-deployed bytecode + forge test to
+# replay the exploit through actual EVM execution.
 #
 # Run with:
 #   audit-pipeline hunt \
@@ -19,773 +22,268 @@
 #     --refinement-rounds 1 \
 #     --max-concurrent 4
 #
-# Discovery: the recon agent walks src/ and reads ContractA.sol /
-# ContractB.sol / ContractC.sol plus the base/, libraries/, modules/,
-# vendor/ subtrees. The obfuscated variable names in OSec's repos
-# (e.g. `_v_2a84a346`) don't matter — agents read semantics, not names.
+# Solidity / EVM-specific notes:
+#   * `tx.origin` is the EOA at the START of a tx chain — using it for
+#     auth lets a malicious contract proxy a victim's call. Always use
+#     `msg.sender` for auth checks.
+#   * `block.timestamp` is miner-influenceable within ~15s; never use
+#     it for randomness or fine-grained ordering.
+#   * Reentrancy: in the CEI (Checks-Effects-Interactions) pattern,
+#     ALL state writes must happen BEFORE external calls. Solidity
+#     `transfer()` returning false is a recoverable signal, but
+#     malicious tokens (ERC777 with `_callTokensReceived`, fee-on-
+#     transfer, rebase) can invoke arbitrary code during transfer.
+#   * Signature replay: signed messages MUST bind a nonce, the chainId,
+#     and a deadline. EIP-712 is the canonical pattern.
+#   * Governance flash-loan attack: vote weight read at vote time from
+#     `balanceOf` (instead of from a checkpointed snapshot) means an
+#     attacker can flash-loan governance tokens, vote, and return them
+#     in a single tx.
+#   * `approve()` race condition: setting non-zero allowance over an
+#     existing non-zero allowance is unsafe for USDT-style tokens that
+#     require `approve(spender, 0)` first.
 
 hypotheses:
 
-  # ─────────────────── Reentrancy ───────────────────
+  # ─────────────────── ContractA — Vault (ContractA.sol) ───────────────────
 
-  - id: SOL1-classic-reentrancy
-    class: state_transition
-    severity: Critical
-    bug_class: reentrancy-classic
-    engine_function: ""
-    target_file: src/Contract*.sol
+  - id: SOLD1-vault-withdraw-reentrancy
+    class: invariant_property
+    severity: High
+    bug_class: reentrancy-cei-violation
+    engine_function: "ContractA.withdraw"
+    target_file: src/ContractA.sol
     claim: >
-      Every function that makes an external call (`.call`, `.transfer`,
-      `.send`, ERC20 transfer, external interface call) updates ALL of
-      its STATE BEFORE the call, not after. The Checks-Effects-Interactions
-      pattern is non-optional. Look for `balance[user] -= amount;` AFTER
-      the external send — that's a reentrancy primitive.
+      In ContractA.withdraw(shares, receiver), all state writes
+      (shareBalance, totalShares, totalManagedAssets) MUST complete
+      before any external token transfer. The current implementation
+      performs `asset.transfer(receiver, …)` and the fee-recipient
+      transfer BEFORE decrementing shareBalance/totalShares, so a
+      malicious asset token (ERC777 / fee-on-transfer / rebase with
+      hooks) can re-enter `withdraw` while the caller's shareBalance
+      is still full and drain the vault.
     relevant_instructions: |
-      Withdraw / claim / unstake / redeem patterns. Any function that
-      reads then mutates a per-user balance with an external transfer
-      in between.
+      ContractA.withdraw — lines that perform `asset.transfer` BEFORE
+      `shareBalance[msg.sender] = shareBalance[msg.sender] - shares`.
 
-  - id: SOL2-readonly-reentrancy
-    class: state_transition
+  - id: SOLD2-vault-share-inflation-first-depositor
+    class: arithmetic_overflow
     severity: High
-    bug_class: reentrancy-readonly
-    engine_function: ""
-    target_file: src/Contract*.sol
+    bug_class: share-inflation
+    engine_function: "ContractA.deposit"
+    target_file: src/ContractA.sol
     claim: >
-      Every `view` function whose output is consumed by other protocols
-      (price oracles, lending markets reading `totalAssets`,
-      `convertToShares`) reads state that's CONSISTENT during a
-      reentrancy window. View functions that read mid-transaction state
-      (after a transfer-out but before the share update) leak a stale
-      price that callers exploit.
+      In ContractA.deposit, share computation uses
+      `ShareMath.toShares(amount, totalShares, asset.balanceOf(this))`
+      where `balanceOf` includes any direct token transfers to the
+      vault address. An attacker who is the first depositor donates
+      a large amount directly to the vault, then floor-division in
+      `toShares` makes any subsequent victim deposit smaller than
+      the donation round to 0 shares — the victim's principal is
+      permanently confiscated.
+    relevant_instructions: |
+      ContractA.deposit + ShareMath.toShares (libraries/ShareMath.sol)
+      — the (totalShares * amount / balance) floor expression.
 
-  - id: SOL3-cross-function-reentrancy
-    class: state_transition
-    severity: Critical
-    bug_class: reentrancy-cross-function
-    engine_function: ""
-    target_file: src/Contract*.sol
+  - id: SOLD3-vault-pause-bypass-on-state-mutations
+    class: authorization
+    severity: Low
+    bug_class: missing-pause-modifier
+    engine_function: "ContractA.setDelegate"
+    target_file: src/ContractA.sol
     claim: >
-      Every contract using a non-reentrant guard applies the guard to
-      ALL functions that share mutable state, not just one. Two
-      unguarded functions that share storage admit a "function A calls
-      out, callback reenters into function B which doesn't see A's
-      pending state change" attack.
+      ContractA.setDelegate and ContractA.requestWithdraw mutate user
+      state but lack the `whenNotPaused` modifier present on every
+      other state-changing function (deposit, withdraw,
+      delegatedTransfer). When the contract is paused for emergency
+      response, attackers can still register a delegate / pre-arm a
+      withdrawal timer, defeating the pause's purpose.
+    relevant_instructions: |
+      ContractA.setDelegate, ContractA.requestWithdraw — both
+      declared without `whenNotPaused`.
 
-  - id: SOL4-erc777-fallback-reentrancy
-    class: state_transition
-    severity: High
-    bug_class: reentrancy-erc777
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every ERC20 deposit/withdraw path is reentrancy-safe even if
-      the token turns out to be ERC777 (which calls back into the
-      sender on transfer). ERC777 callbacks are reentrancy primitives
-      that bypass naive "only ERC20" assumptions.
+  # ─────────────────── ContractB — Lending pool (ContractB.sol) ───────────────────
 
-  # ─────────────────── Access control ───────────────────
-
-  - id: SOL5-missing-access-control
+  - id: SOLD4-pool-set-oracle-missing-onlyowner
     class: authorization
     severity: Critical
-    bug_class: access-control-missing
-    engine_function: ""
-    target_file: src/Contract*.sol
+    bug_class: missing-access-control
+    engine_function: "ContractB.setOracle"
+    target_file: src/ContractB.sol
     claim: >
-      Every state-mutating function intended for admin/owner is guarded
-      by `onlyOwner` / `onlyRole(ADMIN)` / explicit `msg.sender == owner`
-      check. Specifically: setters for parameters, fee receivers,
-      oracle addresses, pause toggles. Public setters without an auth
-      modifier are protocol takeover primitives.
+      ContractB.setOracle is callable by ANY address. The oracle is
+      the sole price source feeding `_isSolvent` (used by withdraw,
+      borrow, liquidate) — an attacker swaps it for a contract that
+      returns an arbitrary price, then withdraws all collateral
+      and/or liquidates healthy positions for free.
+    relevant_instructions: |
+      ContractB.setOracle — declaration is missing the `onlyOwner`
+      modifier that protects every other admin-mutating setter
+      (setRiskParams, transferOwnership, etc).
 
-  - id: SOL6-tx-origin-auth
+  - id: SOLD5-pool-repay-overcharges-on-excess
+    class: invariant_property
+    severity: High
+    bug_class: overcharge-on-cap
+    engine_function: "ContractB.repay"
+    target_file: src/ContractB.sol
+    claim: >
+      In ContractB.repay(account, amount), the local variable that
+      caps repayment to outstanding debt is computed correctly
+      (`applied = min(amount, debt)`) but the subsequent
+      `debtToken.transferFrom(msg.sender, address(this), amount)`
+      pulls the UNCAPPED amount from the payer. The account is
+      credited only `applied`; the excess `amount - applied` is
+      taken from the user and locked in the contract with no
+      mechanism to recover it.
+    relevant_instructions: |
+      ContractB.repay — compare the `transferFrom` argument to the
+      cap computed two lines above; they must match for the
+      repay-overpay invariant to hold.
+
+  - id: SOLD6-pool-oracle-no-staleness-check
+    class: invariant_property
+    severity: High
+    bug_class: oracle-staleness
+    engine_function: "ContractB._isSolvent"
+    target_file: src/ContractB.sol
+    claim: >
+      ContractB._isSolvent (called from withdraw, borrow, liquidate)
+      consumes `oracle.price(collateralToken)` with no freshness or
+      publish-time check. The IOracle interface has no `updatedAt`
+      field, so a stale price during oracle outage is silently
+      accepted. An attacker borrows against artificially-high
+      collateral OR triggers liquidations against artificially-low
+      collateral.
+    relevant_instructions: |
+      ContractB._isSolvent, ContractB.liquidate — every oracle.price()
+      consumer must validate `block.timestamp - updatedAt <= MAX_AGE`
+      before using the price.
+
+  - id: SOLD7-pool-liquidate-collateral-clamp-leaks-debt
+    class: invariant_property
+    severity: Medium
+    bug_class: liquidation-accounting-drift
+    engine_function: "ContractB.liquidate"
+    target_file: src/ContractB.sol
+    claim: >
+      ContractB.liquidate clamps the seized collateral when the
+      computed amount exceeds `account.collateral` (`if (seize >
+      collateral) seize = collateral;`), but the repaid debt is NOT
+      similarly reduced — the liquidator pays full `applied` debt
+      yet receives less collateral than the bonus-adjusted formula
+      requires. For under-collateralised positions this means the
+      protocol absorbs the shortfall by under-paying the liquidator,
+      which discourages liquidations and lets bad debt accumulate.
+    relevant_instructions: |
+      ContractB.liquidate — the clamp `if (seize > collateral) seize
+      = collateral` and the absence of a paired reduction in
+      `applied` debt.
+
+  # ─────────────────── ContractC — Governance + Bridge (ContractC.sol) ───────────────────
+
+  - id: SOLD8-bridge-tx-origin-auth
     class: authorization
     severity: Critical
     bug_class: tx-origin-auth
-    engine_function: ""
-    target_file: src/Contract*.sol
+    engine_function: "ContractC.bridgeToken"
+    target_file: src/ContractC.sol
     claim: >
-      No authorization check uses `tx.origin`. Phishing contracts can
-      satisfy `tx.origin == owner` checks; only `msg.sender` is
-      cryptographically safe.
+      ContractC.bridgeToken authenticates the caller with
+      `tx.origin == owner` instead of `msg.sender == owner`. An
+      attacker who tricks the owner into calling ANY function on a
+      malicious contract can have that malicious contract call
+      `bridgeToken`, with `tx.origin` still equal to the owner —
+      bridging arbitrary tokens to an attacker-controlled chain.
+    relevant_instructions: |
+      ContractC.bridgeToken — the `if (!(tx.origin == owner))`
+      auth check. Must be `msg.sender == owner` (or use a proper
+      `onlyOwner` modifier consistent with the rest of CoreBase).
 
-  - id: SOL7-public-vs-external-foot-gun
-    class: authorization
-    severity: Medium
-    bug_class: public-vs-external
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every function intended to be externally-callable is declared
-      `external`, not `public`, when no internal caller exists. `public`
-      adds an internal entry point that bypasses external-only access
-      patterns and increases gas costs.
-
-  - id: SOL8-front-runnable-initialize
-    class: authorization
-    severity: Critical
-    bug_class: initialize-frontrun
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every `initialize()` function (proxy pattern) is protected
-      against front-running. Either: (a) `initialize` is callable only
-      by the deployer (storage-marker check), OR (b) the implementation
-      contract is initialized atomically in deployment so no public
-      window exists. Unprotected `initialize` = anyone becomes owner.
-
-  - id: SOL9-uninitialized-implementation
-    class: authorization
-    severity: Medium
-    bug_class: uninit-implementation
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every UUPS/Transparent proxy implementation contract has its
-      own initializer disabled (`_disableInitializers()` in
-      constructor). Otherwise an attacker initializes the
-      implementation directly and can selfdestruct it.
-
-  # ─────────────────── Oracle ───────────────────
-
-  - id: SOL10-oracle-stale-price
-    class: invariant_property
-    severity: Critical
-    bug_class: oracle-staleness
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every Chainlink-style price read checks the `updatedAt`
-      timestamp is within a maximum staleness window (heartbeat).
-      Reading a stale price during a Chainlink outage gives the
-      attacker an arbitrage primitive against the protocol.
-
-  - id: SOL11-oracle-negative-or-zero-price
-    class: invariant_property
-    severity: High
-    bug_class: oracle-bad-value
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every Chainlink-style price read checks `answer > 0` (the
-      returned `int256` price is positive). A zero or negative answer
-      is a sentinel for "feed unavailable" and must be rejected, not
-      cast to a u256 (which produces a huge value).
-
-  - id: SOL12-chainlink-decimals-assumption
-    class: invariant_property
-    severity: High
-    bug_class: chainlink-decimals
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every multi-asset price normalization respects each feed's
-      individual `decimals()` value, not a hardcoded 8 or 18. Feeds
-      vary (USD = 8, ETH = 18). Hardcoding produces 10^10x off-by-feed
-      errors.
-
-  - id: SOL13-twap-bypass-flash-loan
+  - id: SOLD9-gov-vote-weight-flash-loanable
     class: state_transition
     severity: Critical
-    bug_class: twap-flashloan-manipulation
-    engine_function: ""
-    target_file: src/Contract*.sol
+    bug_class: flash-loan-governance
+    engine_function: "ContractC.vote"
+    target_file: src/ContractC.sol
     claim: >
-      Every price feed that consumes a Uniswap-v2 spot or short-window
-      TWAP applies a manipulation-resistance window (typically >=30
-      blocks) or sources from Chainlink. Single-block spot-price reads
-      are flash-loan-manipulable.
+      ContractC.vote reads voter weight as
+      `governanceToken.balanceOf(msg.sender)` at vote time, with no
+      snapshot / checkpoint mechanism. An attacker takes a flash
+      loan of governance tokens, calls `vote(proposalId)` accruing
+      arbitrary `yesVotes`, and repays the loan in the same tx —
+      passing any proposal regardless of legitimate token holdings.
+    relevant_instructions: |
+      ContractC.vote — the `governanceToken.balanceOf(msg.sender)`
+      read. Compare to OpenZeppelin's `ERC20Votes` snapshot pattern;
+      this contract has none.
 
-  # ─────────────────── Share / vault math ───────────────────
-
-  - id: SOL14-erc4626-share-inflation
-    class: arithmetic_overflow
-    severity: Critical
-    bug_class: erc4626-inflation
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every ERC4626-style vault that mints shares from assets handles
-      the first-depositor inflation attack: either virtual shares
-      (constant offset) OR a dead-shares burn on first deposit. Naive
-      `shares = assets * totalSupply / totalAssets` lets a first
-      depositor donate 1 wei + 10^18 directly, then everyone else's
-      deposit truncates to 0 shares.
-
-  - id: SOL15-share-donation-attack
-    class: state_transition
-    severity: High
-    bug_class: share-donation
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every vault's share-conversion math is robust to direct token
-      transfers (donations) into the vault address. Donations that
-      inflate `totalAssets` without minting shares should not be
-      profitable for the attacker.
-
-  - id: SOL16-precision-loss-divide-first
-    class: arithmetic_overflow
-    severity: High
-    bug_class: precision-loss-divide-first
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every multi-step ratio computation orders operations MULTIPLY-
-      BEFORE-DIVIDE wherever possible. `(a / b) * c` truncates the
-      intermediate; `(a * c) / b` preserves precision. Integer
-      truncation in fee/share math becomes free assets for whoever
-      can exploit the rounding direction.
-
-  - id: SOL17-rounding-direction
-    class: arithmetic_overflow
-    severity: High
-    bug_class: rounding-direction
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every share-vault function rounds in the protocol's favor:
-      mint/deposit rounds DOWN on shares minted (so user pays more
-      assets per share), withdraw/redeem rounds UP on assets owed
-      (so user gets fewer assets per share). Inverting the direction
-      bleeds value.
-
-  # ─────────────────── Slippage / front-running ───────────────────
-
-  - id: SOL18-missing-slippage-protection
-    class: state_transition
-    severity: High
-    bug_class: slippage-missing
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every swap-like function accepts a `minAmountOut` / `maxAmountIn`
-      parameter and enforces it. Otherwise sandwich-attack bots
-      arbitrage the swap to any price they want.
-
-  - id: SOL19-missing-deadline-parameter
-    class: state_transition
-    severity: Medium
-    bug_class: missing-deadline
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every swap/permit/order-fill function accepts a `deadline`
-      parameter and reverts if `block.timestamp > deadline`. Otherwise
-      a malicious miner/validator holds a signed message and executes
-      it months later at a better price.
-
-  - id: SOL20-mev-sandwichable-rebalance
-    class: state_transition
-    severity: Medium
-    bug_class: mev-sandwich
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every public rebalance/harvest function applies slippage
-      protection or runs through a commit-reveal/whitelisted-keeper
-      pattern. Otherwise MEV bots sandwich every rebalance call.
-
-  # ─────────────────── Arithmetic / overflow ───────────────────
-
-  - id: SOL21-unchecked-block-overflow
-    class: arithmetic_overflow
-    severity: High
-    bug_class: unchecked-block-overflow
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every `unchecked { ... }` block in 0.8+ solidity has a
-      mathematical proof (in comments or by inspection) that overflow
-      is impossible. `unchecked` opt-out of the default revert-on-
-      overflow is a common foot-gun.
-
-  - id: SOL22-cast-truncation
-    class: arithmetic_overflow
-    severity: High
-    bug_class: cast-truncation
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every narrowing cast (uint256 -> uint128, int256 -> int128)
-      either uses SafeCast (revert on overflow) or has an explicit
-      pre-check. Silent truncation of a balance or position value is
-      a state-corruption primitive.
-
-  - id: SOL23-fee-percent-overflow-100
-    class: arithmetic_overflow
-    severity: Medium
-    bug_class: fee-overflow-100
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every fee/percentage setter rejects values > 100% (in bps:
-      values > 10_000). Otherwise admins or initializers can set
-      a fee that consumes the entire deposit.
-
-  # ─────────────────── Approvals / allowances ───────────────────
-
-  - id: SOL24-approval-race
-    class: state_transition
-    severity: Low
-    bug_class: approval-race
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every protocol that issues `approve(spender, n)` to external
-      tokens uses `safeIncreaseAllowance` / `safeDecreaseAllowance`
-      patterns OR enforces zero-then-set. Direct `approve(spender, n)`
-      from a non-zero allowance is the classic ERC20 race.
-
-  - id: SOL25-permit-front-running
-    class: state_transition
-    severity: Medium
-    bug_class: permit-frontrun
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every `permit + transferFrom` composition handles the case
-      where the permit signature has already been consumed (someone
-      front-ran the permit). Failing to handle this DoSes the user's
-      tx; gracefully accepting the consumed permit is the safe path.
-
-  - id: SOL26-non-standard-erc20-return
-    class: invariant_property
-    severity: Medium
-    bug_class: non-standard-erc20
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every `IERC20.transfer/transferFrom` call uses `SafeERC20`
-      wrappers. USDT and other non-standard tokens don't return a
-      bool; raw `IERC20(token).transfer(to, amount)` reverts on these.
-
-  # ─────────────────── Flash loans / composition ───────────────────
-
-  - id: SOL27-flash-loan-fee-bypass
-    class: arithmetic_overflow
-    severity: High
-    bug_class: flashloan-fee-bypass
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every flash-loan implementation enforces the post-condition
-      that `balance_after >= balance_before + fee`, even when fee is
-      computed off a possibly-mutated `balance_before`. Recomputing
-      the expected balance after the callback handles vault rebases.
-
-  - id: SOL28-flash-loan-allows-self-call
-    class: state_transition
-    severity: Medium
-    bug_class: flashloan-self-call
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every flash-loan callback rejects re-entry into the loan
-      function (the borrower calls flashLoan from inside their own
-      callback). Self-call patterns can desync the balance check.
-
-  # ─────────────────── Signatures ───────────────────
-
-  - id: SOL29-signature-replay-no-nonce
+  - id: SOLD10-gov-sig-replay-no-nonce-no-chainid
     class: authorization
     severity: Critical
     bug_class: signature-replay
-    engine_function: ""
-    target_file: src/Contract*.sol
+    engine_function: "ContractC.executeBySig"
+    target_file: src/ContractC.sol
     claim: >
-      Every signature-based authorization (meta-tx, permit, off-chain
-      orders) binds a unique nonce, marks it consumed before
-      processing the action, and has its EIP-712 domain include the
-      chainid + contract address. Otherwise signed messages can be
-      replayed.
+      ContractC.executeBySig recovers a signer from
+      `keccak256(abi.encodePacked(address(this), proposalId, voter))`.
+      The digest binds neither a nonce, the chainId, nor a deadline.
+      Once any valid signature is exposed, anyone can replay it
+      forever AND replay it on any forked chain with the same
+      governance contract deployed at the same address (CREATE2 /
+      cross-chain risk).
+    relevant_instructions: |
+      ContractC.executeBySig — the `keccak256(abi.encodePacked(…))`
+      digest. EIP-712 with `block.chainid`, a per-account `nonces[]`
+      mapping, and a `deadline` parameter is the canonical fix.
 
-  - id: SOL30-signature-malleability
-    class: authorization
-    severity: Medium
-    bug_class: signature-malleability
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every ECDSA verification rejects high-s signatures (constrains
-      `s <= n/2`) — the malleability fix. `ecrecover` without this
-      check accepts two valid signatures per signing key.
-
-  - id: SOL31-eip712-domain-binding
-    class: authorization
-    severity: High
-    bug_class: eip712-cross-chain
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every EIP-712 domain separator includes BOTH `chainId` and
-      `verifyingContract`. Omitting either lets signatures from one
-      chain/contract be replayed against another.
-
-  # ─────────────────── Governance ───────────────────
-
-  - id: SOL32-governance-flash-loan-vote
-    class: state_transition
-    severity: Critical
-    bug_class: governance-flashloan
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every governance vote-weight computation uses a snapshot at
-      `proposalCreatedBlock - 1` (or an analogous historical point),
-      not `block.number`. Reading current balance lets an attacker
-      flash-borrow voting tokens to swing a vote.
-
-  - id: SOL33-proposal-execution-race
-    class: state_transition
-    severity: High
-    bug_class: proposal-execution-race
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every queued proposal's execution path is gated by a state
-      transition `Queued -> Executed` that's atomic (revert on
-      second call). Otherwise double-execution patterns drain
-      treasury via the same proposal twice.
-
-  # ─────────────────── Delegatecall / proxy ───────────────────
-
-  - id: SOL34-delegatecall-storage-collision
-    class: state_transition
-    severity: Critical
-    bug_class: delegatecall-storage-collision
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every storage layout used through delegatecall (UUPS proxy,
-      diamond facet, libraries) has explicit storage-slot reservations
-      (e.g. ERC-7201 namespaced slots, gap arrays). Default storage
-      layouts collide when implementations evolve.
-
-  - id: SOL35-delegatecall-to-untrusted
-    class: authorization
-    severity: Critical
-    bug_class: delegatecall-untrusted
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      No `delegatecall` is made to an untrusted/attacker-supplied
-      address. delegatecall executes the target's code in our storage
-      context — a classic "set arbitrary slot" primitive.
-
-  - id: SOL36-selfdestruct-misuse
-    class: state_transition
-    severity: High
-    bug_class: selfdestruct-misuse
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every `selfdestruct` is gated by strict admin auth and a
-      time-lock OR doesn't exist at all in modern contracts (deprecated
-      in EIP-6780). Reachable selfdestruct destroys the implementation
-      and can brick a proxy.
-
-  # ─────────────────── Withdrawal patterns ───────────────────
-
-  - id: SOL37-withdraw-delay-bypass
-    class: state_transition
-    severity: High
-    bug_class: withdraw-delay-bypass
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every withdrawal-delay timer is unstoppable — once requested,
-      it can't be reset by user actions (e.g. transfers that update
-      `withdrawalReadyAt`). Otherwise attackers reset the delay to
-      zero via routine state changes.
-
-  - id: SOL38-withdraw-readyat-zero-bypass
-    class: state_transition
-    severity: High
-    bug_class: withdraw-readyat-zero
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every `withdrawalReadyAt[user] != 0` check is the gate; the
-      timer comparison is secondary. Users who NEVER requested a
-      withdrawal have `readyAt == 0`, which is `< block.timestamp` —
-      so a missing zero-check lets non-requesters withdraw immediately.
-
-  # ─────────────────── Gas / griefing ───────────────────
-
-  - id: SOL39-returndata-bomb
-    class: state_transition
-    severity: Medium
-    bug_class: returndata-bomb
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every external `.call` whose returndata is consumed (via abi.decode
-      or returndatacopy) caps the size first. Otherwise a malicious
-      target returns 100MB and burns the caller's gas.
-
-  - id: SOL40-unbounded-loop-dos
-    class: state_transition
-    severity: High
-    bug_class: unbounded-loop
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      No state-mutating function iterates over an unbounded
-      attacker-controllable array. `for (i in users)` style code in
-      a withdraw / claim path is a DoS primitive once `users.length`
-      exceeds the block gas limit.
-
-  - id: SOL41-push-not-pull-pattern
-    class: state_transition
-    severity: Medium
-    bug_class: push-not-pull
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every payout pattern is PULL (claimant pulls their share), not
-      PUSH (contract iterates and sends). Push patterns expose the
-      contract to one griefing recipient blocking the whole loop.
-
-  # ─────────────────── Pause / emergency ───────────────────
-
-  - id: SOL42-missing-pause-check
-    class: state_transition
-    severity: Medium
-    bug_class: missing-pause-check
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every state-changing user-facing function is gated by `whenNotPaused`
-      or an equivalent. Skipping pause on some paths means a paused
-      protocol can still bleed via the unguarded function.
-
-  - id: SOL43-asymmetric-pause-withdraw
-    class: state_transition
-    severity: High
-    bug_class: pause-asymmetric
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Pause is APPLIED to both deposits and withdrawals consistently.
-      Pausing only withdrawals (under emergency) without also pausing
-      deposits creates a rug-pull primitive.
-
-  # ─────────────────── External token integration ───────────────────
-
-  - id: SOL44-fee-on-transfer-token-handling
-    class: state_transition
-    severity: Medium
-    bug_class: fot-token-handling
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every deposit-from-ERC20 path verifies the actual received
-      amount equals the expected amount (balance-before/after delta),
-      OR explicitly rejects fee-on-transfer tokens. Otherwise the
-      vault credits more shares than it received in assets.
-
-  - id: SOL45-rebase-token-handling
-    class: state_transition
-    severity: Medium
-    bug_class: rebase-token-handling
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Vaults that hold rebasing tokens (stETH, aTokens) read the
-      current balance dynamically, not from a stored snapshot.
-      Stored-snapshot accounting drifts from real balance and admits
-      a "rebase to zero" attack vector.
-
-  - id: SOL46-zero-address-checks
-    class: invariant_property
-    severity: Low
-    bug_class: zero-address-checks
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every setter that accepts an address (admin, oracle, fee
-      receiver, token) rejects `address(0)` unless explicitly
-      intended. Accidentally setting an address to 0 can permanently
-      lock features.
-
-  # ─────────────────── Logic-level invariants ───────────────────
-
-  - id: SOL47-invariant-total-supply-matches-balances
-    class: invariant_property
-    severity: High
-    bug_class: total-supply-divergence
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      For any token-like accounting (shares, points, votes), the
-      protocol-tracked total equals the sum of per-user balances at
-      every transition. Divergence is a free-mint or burn primitive.
-
-  - id: SOL48-monotonic-counter-must-be-monotonic
+  - id: SOLD11-gov-distribute-rewards-dos-on-single-failure
     class: invariant_property
     severity: Medium
-    bug_class: counter-non-monotonic
-    engine_function: ""
-    target_file: src/Contract*.sol
+    bug_class: dos-on-batch-transfer
+    engine_function: "ContractC.distributeRewards"
+    target_file: src/ContractC.sol
     claim: >
-      Every counter declared monotonic (nonce, epoch, proposal_id)
-      only ever advances — no path resets or decrements it. Resetting
-      enables signature replay or proposal-id collision.
+      ContractC.distributeRewards loops over voters and reverts the
+      ENTIRE batch if any single `transfer` returns false (or the
+      voter is a contract that reverts on `receive`/`transfer`).
+      One griefing voter (or a denylisted address for tokens with
+      blocklists) freezes all reward distribution for that proposal.
+      Pull-based claim instead of push-based pay is the canonical
+      fix.
+    relevant_instructions: |
+      ContractC.distributeRewards — the `for` loop and the
+      `revert("REWARD_PAY_FAILED")` on transfer failure.
 
-  - id: SOL49-share-balance-conservation
-    class: invariant_property
-    severity: High
-    bug_class: share-balance-conservation
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every share-transfer/mint/burn path conserves the invariant
-      `sum(shareBalance) == totalShares`. Mints/burns that update
-      totalShares but skip per-user accounting (or vice versa) break
-      conservation.
-
-  # ─────────────────── Constructor / immutable ───────────────────
-
-  - id: SOL50-immutable-overwrite
-    class: invariant_property
-    severity: Medium
-    bug_class: immutable-overwrite
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      State that's logically immutable post-deployment (token address,
-      decimals, owner) is declared `immutable` or `constant`. Storage
-      variables intended to be one-shot are setter-protected.
-
-  - id: SOL51-constructor-vs-initialize
-    class: authorization
-    severity: High
-    bug_class: constructor-vs-initialize
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every UUPS/Transparent proxy contract uses `initialize` (not
-      constructor) for state setup. Constructor state isn't copied
-      into the proxy's storage; an attacker can re-initialize.
-
-  # ─────────────────── Storage / packed types ───────────────────
-
-  - id: SOL52-packed-encode-collision
-    class: invariant_property
-    severity: Medium
-    bug_class: packed-encode-collision
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every `abi.encodePacked(a, b)` with variable-length args (string,
-      bytes, array) is replaced by `abi.encode(...)` when the hash is
-      used as a domain separator/key. `encodePacked("a", "bc")` and
-      `encodePacked("ab", "c")` hash to the same value — collision.
-
-  # ─────────────────── ETH / value handling ───────────────────
-
-  - id: SOL53-stuck-eth-in-payable
-    class: state_transition
-    severity: Low
-    bug_class: stuck-eth
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every `payable` function that receives ETH either uses it (e.g.
-      stakes / wraps it) OR has a rescue path. ETH sitting in the
-      contract with no way out is locked capital.
-
-  - id: SOL54-msg-value-in-loop
-    class: state_transition
-    severity: High
-    bug_class: msg-value-in-loop
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every `payable` function that loops and credits `msg.value` per
-      iteration treats `msg.value` as a one-shot resource (sum over
-      iterations equals the single msg.value). Crediting `msg.value`
-      in each loop iteration is a free-mint primitive.
-
-  # ─────────────────── Precision / decimal handling ───────────────────
-
-  - id: SOL55-erc20-decimals-assumption
-    class: invariant_property
-    severity: Medium
-    bug_class: erc20-decimals-assumption
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every multi-token integration reads each token's `decimals()`,
-      not assuming 18. USDC/USDT (6), WBTC (8), and bespoke tokens
-      vary widely.
-
-  - id: SOL56-percent-bps-mixed-units
+  - id: SOLD12-gov-distribute-rewards-dust-loss
     class: arithmetic_overflow
-    severity: Medium
-    bug_class: bps-percent-mix
-    engine_function: ""
-    target_file: src/Contract*.sol
+    severity: Low
+    bug_class: rounding-favors-protocol
+    engine_function: "ContractC.distributeRewards"
+    target_file: src/ContractC.sol
     claim: >
-      Every fee/ratio computation uses ONE unit consistently (bps,
-      ppm, or fixed-point) and divides by the matching denominator.
-      Mixing 10_000 (bps) and 100 (percent) in the same formula
-      produces 100x errors.
+      ContractC.distributeRewards computes per-voter reward as
+      `total / voters.length` (floor division). When the division is
+      not exact, `total - sum(per_voter * voters.length)` dust is
+      transferred from the funder but never paid out to any voter —
+      it accumulates in the contract with no mechanism to sweep.
+      Small per-call, but unbounded over many proposals.
+    relevant_instructions: |
+      ContractC.distributeRewards — `total / voters.length` floor.
 
-  # ─────────────────── Time / block ───────────────────
-
-  - id: SOL57-block-timestamp-precision
+  - id: SOLD13-bridge-approve-race-non-zero-reset
     class: invariant_property
     severity: Low
-    bug_class: block-timestamp-precision
-    engine_function: ""
-    target_file: src/Contract*.sol
+    bug_class: approve-race-condition
+    engine_function: "ContractC.bridgeToken"
+    target_file: src/ContractC.sol
     claim: >
-      Every time-comparison check uses `>` / `>=` consistently and
-      avoids miner-manipulable 15-second windows for critical state
-      transitions (e.g. emission rate boundaries). For non-critical
-      checks, block.timestamp is fine.
-
-  - id: SOL58-block-number-as-time
-    class: invariant_property
-    severity: Medium
-    bug_class: block-number-as-time
-    engine_function: ""
-    target_file: src/Contract*.sol
-    claim: >
-      Every long-window reward emission curve uses `block.timestamp`,
-      not `block.number`. After Ethereum's Merge (EIP-3675) block
-      intervals stabilized around 12s but are not strictly fixed, and
-      L2s have erratic / non-monotonic block numbers depending on the
-      sequencer's batching policy. Using `block.number * SECONDS_PER_BLOCK`
-      as a time proxy desyncs over long windows.
-
-  # ─────────────────── Module composition ───────────────────
-
-  - id: SOL59-module-trust-boundary
-    class: authorization
-    severity: High
-    bug_class: module-trust-boundary
-    engine_function: ""
-    target_file: src/modules/*.sol
-    claim: >
-      Every cross-module call validates the calling context. A module
-      that's callable directly AND through the main contract must
-      reject the direct-call path when the action requires
-      orchestration state.
-
-  # ─────────────────── Library hygiene ───────────────────
-
-  - id: SOL60-library-external-storage
-    class: invariant_property
-    severity: Medium
-    bug_class: library-external-storage
-    engine_function: ""
-    target_file: src/libraries/*.sol
-    claim: >
-      Every library function that touches storage via the calling
-      contract (delegatecall'd library) reads/writes through a struct
-      passed by storage reference — not through library-internal
-      storage slots, which collide with caller's layout.
+      ContractC.bridgeToken calls `approve(bridge, amount)` without
+      first zeroing any existing allowance. USDT-style tokens revert
+      when transitioning from a non-zero allowance to a different
+      non-zero allowance, breaking bridging for that token class.
+      Use `forceApprove` / `safeIncreaseAllowance` (OZ SafeERC20) or
+      set 0 first.
+    relevant_instructions: |
+      ContractC.bridgeToken — the `_v_90056359.approve(address(bridge),
+      _v_f3e87bc1)` line.
