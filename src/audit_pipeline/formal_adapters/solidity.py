@@ -247,13 +247,7 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
         # Halmos needs an absolute --root and uses os.path.join with
         # its own cwd-resolving logic that doesn't normalize `..`
         # segments correctly — so we resolve here.
-        import os
-        import sys
-        print(f"[L3 adapter] target_repo_root in: {target_repo_root!r}", file=sys.stderr, flush=True)
-        print(f"[L3 adapter] cwd: {os.getcwd()}", file=sys.stderr, flush=True)
         target_repo_root = Path(target_repo_root).resolve()
-        print(f"[L3 adapter] target_repo_root resolved: {target_repo_root}", file=sys.stderr, flush=True)
-        print(f"[L3 adapter] (target/out exists): {(target_repo_root / 'out').is_dir()}", file=sys.stderr, flush=True)
 
         # Deploy harness into the foundry project's test dir so halmos
         # auto-discovers it. The repo's test dir is configured in
@@ -261,6 +255,20 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
         # repos (tests/) and Foundry default (test/) alike.
         repo_test_dir = _detect_foundry_test_dir(target_repo_root)
         repo_test_dir.mkdir(parents=True, exist_ok=True)
+
+        # IMPORTANT: clean up sibling jelleo_l3_*.t.sol files from
+        # prior hyp invocations. Halmos auto-discovers ALL tests in
+        # the foundry project — leaving leftovers means halmos runs
+        # the previous harness's check_* functions too, inflating
+        # the JSON output with results for unrelated hyps. Caught
+        # 2026-05-17 when SOLD10's run showed SOLD1's check_*
+        # results piggybacking.
+        for stale in repo_test_dir.glob("jelleo_l3_*.t.sol"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+
         deployed = repo_test_dir / f"jelleo_l3_{harness_name}.t.sol"
         deployed.write_text(body, encoding="utf-8")
 
@@ -420,21 +428,52 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
         if "[timeout]" in combined_lower and not ce_found and not proved_count:
             inconclusive_count = max(inconclusive_count, 1)
 
-        # Fallback: parse stdout text if JSON missing/empty.
-        # Halmos text output uses [FAIL], [PASS], [TIMEOUT], [ERROR].
-        if not ce_found and proved_count == 0 and inconclusive_count == 0:
-            combined = stdout + "\n" + stderr
-            if "[TIMEOUT]" in combined:
-                inconclusive_count = 1
-            elif "Counterexample" in combined and "unknown" not in combined.lower():
-                ce_found = True
-                m = re.search(r"Counterexample[:\s]*\n?([\s\S]+?)(?:\n\n|\Z)", combined)
+        # PRIMARY parser: halmos stdout text. JSON output is often
+        # empty or missing — text is the reliable signal. Halmos
+        # output format:
+        #   "Counterexample: \n    p_x_uint256 = 0x... (123)\n..." → concrete CE
+        #   "[FAIL] check_name(...) (paths: N, time: T)"           → bug found
+        #   "[TIMEOUT] check_name(...)"                            → solver gave up
+        #   "[PASS] check_name(...)"                               → invariant holds
+        #   "Symbolic test result: X passed; Y failed; time: ..."  → summary
+        # The ANSI color codes wrap [FAIL] / [TIMEOUT] / [PASS] so we
+        # strip them before scanning.
+        combined_text = stdout + "\n" + stderr
+        # Strip ANSI escape sequences (color codes)
+        ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+        clean_text = ansi_re.sub("", combined_text)
+
+        # Count [FAIL] (with concrete CE), [TIMEOUT], [PASS]
+        fail_lines = re.findall(r"\[FAIL\]\s+(check_\w+)", clean_text)
+        timeout_lines = re.findall(r"\[TIMEOUT\]\s+(check_\w+)", clean_text)
+        pass_lines = re.findall(r"\[PASS\]\s+(check_\w+)", clean_text)
+
+        # Filter to only our hyp's check_ functions. Halmos may have
+        # discovered tests from other harnesses if the cleanup didn't
+        # catch them — we only count results for tests defined in OUR
+        # deployed harness body.
+        our_check_names = set(re.findall(r"function\s+(check_\w+)\s*\(", body))
+        if our_check_names:
+            fail_lines = [n for n in fail_lines if n.split("(")[0] in our_check_names]
+            timeout_lines = [n for n in timeout_lines if n.split("(")[0] in our_check_names]
+            pass_lines = [n for n in pass_lines if n.split("(")[0] in our_check_names]
+
+        # If we have text-based results (most reliable), prefer them
+        # over the JSON parse above which is often missing.
+        if fail_lines or timeout_lines or pass_lines:
+            ce_found = len(fail_lines) > 0
+            inconclusive_count = len(timeout_lines)
+            proved_count = len(pass_lines)
+            if first_failed_name is None and fail_lines:
+                first_failed_name = fail_lines[0]
+            # Extract the first counterexample text block
+            if ce_found and ce_text is None:
+                m = re.search(
+                    r"Counterexample:\s*\n([\s\S]+?)(?=\n\[(?:FAIL|TIMEOUT|PASS)\]|\nSymbolic test result|\Z)",
+                    clean_text,
+                )
                 if m:
-                    ce_text = m.group(1).strip()[:500]
-            elif "[FAIL]" in combined and "[TIMEOUT]" not in combined:
-                ce_found = True
-            elif "[PASS]" in combined:
-                proved_count = 1
+                    ce_text = m.group(1).strip()[:600]
 
         if ce_found:
             return FormalOutcome(
