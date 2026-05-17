@@ -226,7 +226,11 @@ If unable: `// CANNOT_FUZZ: <reason>` stub.
         stdout = proc.stdout[:8000]
         stderr = proc.stderr[:4000]
 
-        # Parse forge JSON output — failed fuzz tests = crashes
+        # Parse forge JSON output — failed fuzz tests = crashes.
+        # Forge JSON schema varies by version:
+        #   older: {"test_results": {"test_x": {"success": false, ...}}}
+        #   newer: {"test_results": {"test_x": {"status": "Failure", ...}}}
+        # Accept BOTH so this adapter works against forge >= 1.5.
         failed: list[str] = []
         counter_inputs: list[dict[str, Any]] = []
         for line in proc.stdout.splitlines():
@@ -242,7 +246,11 @@ If unable: `// CANNOT_FUZZ: <reason>` stub.
                     continue
                 results = fdata.get("test_results") or {}
                 for tname, tdata in results.items():
-                    if isinstance(tdata, dict) and tdata.get("success") is False:
+                    if not isinstance(tdata, dict):
+                        continue
+                    status = str(tdata.get("status") or "").strip().lower()
+                    success = tdata.get("success")
+                    if status == "failure" or success is False:
                         failed.append(tname)
                         ce = tdata.get("counterexample") or tdata.get("decoded_logs")
                         if ce:
