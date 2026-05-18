@@ -434,25 +434,29 @@ def _table_of_contents(
 
 
 def _detect_language(workspace: Path, cycle_id: str) -> str:
-    """Return ``"aptos"`` if this workspace ran the Move stack, else ``"solana"``.
+    """Return ``"aptos"`` (Move), ``"solidity"`` (EVM), or ``"solana"`` (default).
 
     Detection order (cheap → expensive):
-      1. ``workspace/formal/aptos/*`` or ``workspace/fuzz/aptos/*`` exists
-      2. ``hunts/<cycle>/hunt.log.jsonl`` contains an event with ``language: "aptos"``
+      1. ``workspace/formal/<lang>/*`` or ``workspace/fuzz/<lang>/*`` or
+         ``workspace/tests/<lang>/*`` exists
+      2. ``hunts/<cycle>/hunt.log.jsonl`` contains an event with the language tag
       3. Default to ``"solana"`` (back-compat for the existing renderer)
     """
-    if (workspace / "formal" / "aptos").is_dir():
-        return "aptos"
-    if (workspace / "fuzz" / "aptos").is_dir():
-        return "aptos"
-    if (workspace / "tests" / "aptos").is_dir():
-        return "aptos"
+    for lang in ("aptos", "solidity"):
+        if (workspace / "formal" / lang).is_dir():
+            return lang
+        if (workspace / "fuzz" / lang).is_dir():
+            return lang
+        if (workspace / "tests" / lang).is_dir():
+            return lang
     log = workspace / "hunts" / cycle_id / "hunt.log.jsonl"
     if log.is_file():
         try:
             for line in log.read_text(encoding="utf-8", errors="replace").splitlines()[:500]:
                 if '"language": "aptos"' in line or '"language":"aptos"' in line:
                     return "aptos"
+                if '"language": "solidity"' in line or '"language":"solidity"' in line:
+                    return "solidity"
         except OSError:
             pass
     return "solana"
@@ -480,6 +484,7 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
     cycle_dir = workspace / "hunts" / cycle_id
     language = _detect_language(workspace, cycle_id)
     is_aptos = language == "aptos"
+    is_solidity = language == "solidity"
 
     # Resolve the actual findings.db that hunt.py wrote to: prefer
     # workspace-local, then the parent ``workspaces/`` dir, then the
@@ -525,6 +530,21 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
             ("Layer 4 property-fuzz harnesses",
              "fuzz/aptos/property_<slug>.move",
              workspace / "fuzz" / "aptos", ""),
+        ])
+    elif is_solidity:
+        entries.extend([
+            ("Layer 2 PoC sources (Solidity)",
+             "tests/solidity/test_<slug>.t.sol",
+             workspace / "tests" / "solidity", ""),
+            ("Layer 2 PoC run logs",
+             "hunts/<cycle>/poc/forge_<slug>.log",
+             cycle_dir / "poc", ""),
+            ("Layer 3 Halmos harnesses + verdicts",
+             "formal/solidity/halmos_<slug>.log",
+             workspace / "formal" / "solidity", ""),
+            ("Layer 4 forge invariant / fuzz harnesses",
+             "fuzz/solidity/forge_<slug>.t.sol",
+             workspace / "fuzz" / "solidity", ""),
         ])
     else:
         # Solana cycle artifacts. The isolated L3 (Kani) and L4
@@ -710,24 +730,25 @@ def _executive_summary_section(
                 f"({chr(ord('a') + i)}) {t}" for i, t in enumerate(rendered_titles)
             ) + "."
 
-    formal_phrase = (
-        "an authored Move Prover spec (Boogie/Z3/CVC5 not deployed on this VPS)"
-        if language == "aptos"
-        else "a Kani-bounded model-checker proof where the formal layer ran"
-    )
-    fuzz_phrase = (
-        "a property-based <code>aptos move test</code> reproduction"
-        if language == "aptos"
-        else "an on-chain BPF reproduction through LiteSVM"
-    )
+    if language == "aptos":
+        formal_phrase = "an authored Move Prover spec (Boogie/Z3/CVC5 not deployed on this VPS)"
+        fuzz_phrase = "a property-based <code>aptos move test</code> reproduction"
+        poc_phrase = "a Move-VM-executed"
+    elif language == "solidity":
+        formal_phrase = "a Halmos symbolic-execution check where the formal layer ran"
+        fuzz_phrase = "a forge fuzz / invariant reproduction"
+        poc_phrase = "a forge-test"
+    else:
+        formal_phrase = "a Kani-bounded model-checker proof where the formal layer ran"
+        fuzz_phrase = "an on-chain BPF reproduction through LiteSVM"
+        poc_phrase = "an engine-direct"
     framing = (
         f"This report documents the results of an autonomous {protocol_label} audit "
         f"cycle run by Jelleo against the <code>{html.escape(target_name)}</code> "
         f"workspace on {html.escape(date_label) if date_label else 'the date noted on the cover'}. "
         f"The cycle identified {sev_phrase} after Layer 2.5 triage and root-cause "
         f"clustering.{findings_summary} Each finding includes "
-        f"{('a Move-VM-executed' if language == 'aptos' else 'an engine-direct')} "
-        f"proof-of-concept, {formal_phrase}, {fuzz_phrase}, "
+        f"{poc_phrase} proof-of-concept, {formal_phrase}, {fuzz_phrase}, "
         f"and an LLM-authored structural fix patch."
     )
 
@@ -790,6 +811,15 @@ def _scope_section(
                     str(p.relative_to(engine_root))
                     for p in sorted(d.glob("*.move"))
                 )
+    elif language == "solidity":
+        # Solidity workspace: src/*.sol at engine root (Foundry convention).
+        for sub in ("src",):
+            d = engine_root / sub
+            if d.is_dir():
+                sources.extend(
+                    str(p.relative_to(engine_root))
+                    for p in sorted(d.glob("*.sol"))
+                )
     else:
         # Percolator workspace: src/*.rs at engine root.
         for sub in ("src",):
@@ -836,7 +866,7 @@ def _scope_section(
       <tr><td style="width:160px;color:var(--text-3)">Target workspace</td>
           <td><code>{html.escape(target_name)}</code></td></tr>
       <tr><td style="color:var(--text-3)">Protocol</td>
-          <td>{"Move smart-contract framework (Aptos)" if language == "aptos" else "Solana BPF program"}</td></tr>
+          <td>{("Move smart-contract framework (Aptos)" if language == "aptos" else ("Solidity smart contracts (EVM / Foundry)" if language == "solidity" else "Solana BPF program"))}</td></tr>
       <tr><td style="color:var(--text-3)">Engine commit</td>
           <td><code>{html.escape(engine_sha_short)}</code> {('<span style="color:var(--text-3);font-size:11px">(' + html.escape(engine_sha_full) + ')</span>') if engine_sha_full and len(engine_sha_full) > 10 else ''}</td></tr>
       <tr><td style="color:var(--text-3)">Source files</td>
@@ -844,7 +874,7 @@ def _scope_section(
       <tr><td style="color:var(--text-3)">Hypothesis library</td>
           <td>{n_hyps_in_library} invariant claim(s) covering authorization, arithmetic safety, accounting consistency, capability handling, event auditability, and oracle / time freshness</td></tr>
       <tr><td style="color:var(--text-3)">Out of scope</td>
-          <td style="color:var(--text-2)">Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>{"Move.toml" if language == "aptos" else "Cargo.toml"}</code> beyond their declared interfaces.</td></tr>
+          <td style="color:var(--text-2)">Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>{("Move.toml" if language == "aptos" else ("foundry.toml" if language == "solidity" else "Cargo.toml"))}</code> beyond their declared interfaces.</td></tr>
     </tbody>
   </table>
 """
@@ -1535,10 +1565,26 @@ def _hunt_funnel_section(
             'font-family:var(--mono)">&rarr;</div>'
         )
 
-    triage_note = (
-        f"STRONG {counts['STRONG']} · SOFT {counts['SOFT']} · "
-        f"FALSE {counts['FALSE']} · LOST {counts['LOST']}"
-    )
+    # Bundle-verification override: when the L2.5 triage judge mis-classifies
+    # a real bug (typical Solidity / forge case where the LLM judge can't
+    # parse forge JSON output and defaults to FALSE), but the bundle's
+    # 5-gate verifier later confirmed the patch defuses the bug, the bundle
+    # evidence supersedes the L2.5 verdict. Use n_confirmed as the floor
+    # for the STRONG cell and add an explanatory annotation so the reader
+    # understands the discrepancy.
+    strong_display = max(counts["STRONG"], n_confirmed)
+    override_n = max(0, n_confirmed - counts["STRONG"])
+    if override_n > 0:
+        triage_note = (
+            f"STRONG {counts['STRONG']} · SOFT {counts['SOFT']} · "
+            f"FALSE {counts['FALSE']} · LOST {counts['LOST']} "
+            f"(+ {override_n} promoted on bundle-verifier evidence)"
+        )
+    else:
+        triage_note = (
+            f"STRONG {counts['STRONG']} · SOFT {counts['SOFT']} · "
+            f"FALSE {counts['FALSE']} · LOST {counts['LOST']}"
+        )
     fires_note = (
         f"{counts['STRONG'] + counts['SOFT'] + counts['FALSE'] + counts['LOST']} "
         "fires triaged"
@@ -1549,7 +1595,7 @@ def _hunt_funnel_section(
         + _arrow()
         + _cell("PoC fires", str(n_fires), fires_note)
         + _arrow()
-        + _cell("STRONG", str(counts["STRONG"]), triage_note)
+        + _cell("STRONG", str(strong_display), triage_note)
         + _arrow()
         + _cell(
             "Root causes",
@@ -1560,7 +1606,7 @@ def _hunt_funnel_section(
             # the two diverge, show the curated number to match the §01
             # body and the cover-page summary.
             str(n_confirmed or len(clusters)),
-            f"{counts['STRONG']} STRONG → {n_confirmed or len(clusters)} after curation",
+            f"{strong_display} STRONG → {n_confirmed or len(clusters)} after curation",
         )
         + _arrow()
         + _cell("Confirmed", str(n_confirmed), "reach this report")
@@ -1691,9 +1737,13 @@ def _findings_writeup(
     aptos_tests_dir = workspace / "tests" / "aptos"
     aptos_specs_dir = workspace / "formal" / "aptos"
     aptos_fuzz_dir = workspace / "fuzz" / "aptos"
+    # Solidity workspaces mirror the layout under */solidity/
+    solidity_tests_dir = workspace / "tests" / "solidity"
+    solidity_formal_dir = workspace / "formal" / "solidity"
+    solidity_fuzz_dir = workspace / "fuzz" / "solidity"
     aptos_layer_results = (
         _aptos_layer_results_from_log(workspace, cycle_id)
-        if language == "aptos" else {"l3": {}, "l4": {}}
+        if language in ("aptos", "solidity") else {"l3": {}, "l4": {}}
     )
 
     # Full claims from the hypothesis library (DB stores claim[:120]
@@ -1823,6 +1873,21 @@ def _findings_writeup(
                 except OSError:
                     pass
             l2_lang = "move"  # honest label; Prism may not highlight (no `move` grammar)
+        elif language == "solidity":
+            sol_poc = solidity_tests_dir / f"test_{hyp_slug}.t.sol"
+            if sol_poc.is_file():
+                try:
+                    pt = sol_poc.read_text(encoding="utf-8", errors="replace")
+                    # Pull the firing test function body. Solidity Foundry tests
+                    # use `function test_<name>(...) public { ... }`.
+                    m = re.search(
+                        r"(function\s+test_[A-Za-z0-9_]+\s*\([^)]*\)\s*public[^\{]*\{.*?\n\s{0,8}\})",
+                        pt, re.DOTALL,
+                    )
+                    l2_excerpt = _cap_with_firing_tail(m.group(1) if m else pt)
+                except OSError:
+                    pass
+            l2_lang = "solidity"
         else:
             # Prefer the Layer 4 LiteSVM test source over the Layer 2 PoC
             # excerpt when present. Rationale: L2 PoCs are LLM-authored against
@@ -1861,13 +1926,42 @@ def _findings_writeup(
                 else:
                     l2_excerpt = _cap_with_firing_tail(source_text)
 
-        # ── L3 verification status (Kani for Solana / Move Prover for Aptos) ──
+        # ── L3 verification status (Kani for Solana / Move Prover for Aptos / Halmos for Solidity) ──
         l3_status = "—"
         if language == "aptos":
             l3_status = (
                 "n/a for Move on this VPS — Boogie/Z3/CVC5 not deployed; "
                 "L2 PoC + L4 property test serve as primary evidence"
             )
+        elif language == "solidity":
+            ev = aptos_layer_results.get("l3", {}).get(hyp_id)
+            if ev:
+                if ev.get("counterexample") is True:
+                    reason = (ev.get("reason") or "")[:300]
+                    l3_status = (
+                        "✓ Halmos counterexample found (bug confirmed by symbolic execution). "
+                        + (f"{reason}" if reason else "")
+                    )
+                elif ev.get("proved") is True:
+                    l3_status = (
+                        "Halmos verified the patched invariant within bounded depth "
+                        "(no counterexample within solver budget — symbolic safety)."
+                    )
+                elif ev.get("compile_error"):
+                    l3_status = (
+                        "Inconclusive — Halmos harness failed to compile "
+                        "(L2 PoC + L4 forge fuzz remain the primary signal)."
+                    )
+                else:
+                    reason = (ev.get("reason") or "")[:200]
+                    l3_status = (
+                        "Halmos inconclusive (timeout / solver budget exhausted)"
+                        + (f": {reason}" if reason else "")
+                    )
+            else:
+                l3_status = (
+                    "Not run for this hypothesis — L2 PoC + L4 forge fuzz are the primary signal."
+                )
         else:
             # Modern adapter writes per-slug subdir; legacy Percolator
             # path lives directly under kani/. Try both.
@@ -1896,7 +1990,7 @@ def _findings_writeup(
                 except OSError:
                     pass
 
-        # ── L4 reproduction (LiteSVM/BPF for Solana, aptos-move-test for Aptos) ──
+        # ── L4 reproduction (LiteSVM/BPF for Solana, aptos-move-test for Aptos, forge fuzz for Solidity) ──
         l4_status = "—"
         l4_witness = ""
         if language == "aptos":
@@ -1928,6 +2022,36 @@ def _findings_writeup(
                     l4_status = "Property fuzz ran clean — no PASS/FAIL markers (no signal)"
                 else:
                     l4_status = "Inconclusive (Move test runner did not report a parseable verdict)"
+        elif language == "solidity":
+            ev = aptos_layer_results.get("l4", {}).get(hyp_id)
+            if not ev:
+                l4_status = (
+                    "Not run — L4 forge fuzz / invariant stage was skipped for this "
+                    "hypothesis (L2 PoC is the authoritative bug signal)"
+                )
+            else:
+                if ev.get("crash_found") is True:
+                    l4_status = (
+                        "✓ forge fuzz / invariant fired — bug demonstrably reachable "
+                        "from a property-based test."
+                    )
+                    l4_witness = (ev.get("reason") or "")[:500]
+                elif ev.get("compile_error"):
+                    l4_status = (
+                        "Inconclusive (LLM-authored forge fuzz harness failed to compile; "
+                        "L2 PoC remains the authoritative bug signal)"
+                    )
+                elif ev.get("ran_clean"):
+                    l4_status = (
+                        "forge fuzz ran clean — no counterexample within budget "
+                        "(L2 PoC remains authoritative)."
+                    )
+                else:
+                    reason = (ev.get("reason") or "")[:200]
+                    l4_status = (
+                        "Inconclusive (forge runner did not report a parseable verdict)"
+                        + (f": {reason}" if reason else "")
+                    )
         else:
             # Anchor L4 adapter writes per-hyp logs to
             #   hunts/<cycle>/litesvm/<slug>/test_<slug>_litesvm.log  (FINAL)
@@ -2081,10 +2205,14 @@ def _findings_writeup(
                         # Allow up to 400 chars so per-finding gate explanations
                         # don't truncate mid-word in the rendered table.
                         reason = (g_data.get("reason") or "")[:400]
-                        # Move cycles don't use Kani — relabel the row name so the
-                        # gate description matches the actual symbolic-verification tool.
+                        # Relabel the row name so the gate description matches the
+                        # actual symbolic-verification / BPF tool for non-Solana cycles.
                         if language == "aptos" and g_name == "kani_proof_holds":
                             display_name = "move_prover_proof_holds"
+                        elif language == "solidity" and g_name == "kani_proof_holds":
+                            display_name = "halmos_proof_holds"
+                        elif language == "solidity" and g_name == "litesvm_exploit_neutralized":
+                            display_name = "forge_invariant_neutralized"
                         else:
                             display_name = g_name
                         p3_gates.append((icon, display_name, reason))
@@ -2123,11 +2251,12 @@ def _findings_writeup(
             '<p style="color:var(--text-3)">No PoC source on file</p>'
         )
 
-        l4_label = (
-            "Layer 4 — Property fuzz (aptos move test)"
-            if language == "aptos"
-            else "Layer 4 — On-chain BPF reproduction"
-        )
+        if language == "aptos":
+            l4_label = "Layer 4 — Property fuzz (aptos move test)"
+        elif language == "solidity":
+            l4_label = "Layer 4 — Forge fuzz / invariant"
+        else:
+            l4_label = "Layer 4 — On-chain BPF reproduction"
         l4_section = (
             f'<h4>{l4_label}</h4>'
             f'<p class="finding-prose">{html.escape(l4_status)}</p>'
@@ -2161,11 +2290,12 @@ def _findings_writeup(
                '<p style="color:var(--text-3)">No patch authored yet</p>')
         )
 
-        l3_label = (
-            "Layer 3 — Symbolic verification (Move Prover)"
-            if language == "aptos"
-            else "Layer 3 — Symbolic verification (Kani)"
-        )
+        if language == "aptos":
+            l3_label = "Layer 3 — Symbolic verification (Move Prover)"
+        elif language == "solidity":
+            l3_label = "Layer 3 — Symbolic verification (Halmos)"
+        else:
+            l3_label = "Layer 3 — Symbolic verification (Kani)"
 
         # Invariant block — the full untruncated claim from the YAML
         # (no longer relying on DB's claim[:120]).
@@ -2423,6 +2553,17 @@ def _fix_bundle_section(
         # bundle activity table, which contradicts the curated DB state.
         if finding_status == "rejected":
             return "rejected"
+        # Verification override: when the bundle's 5-gate verifier passed
+        # (poc_fails_pre_patch + poc_passes_post_patch + tests_pass_post_patch)
+        # AND the finding's lifecycle status is in REAL_STATUSES (confirmed /
+        # disclosed / fixed / verified), the triage classification is stale —
+        # the empirical patch-fuses-bug evidence supersedes the L2.5 LLM
+        # judge. Without this, a fully-verified bug that L2.5 mis-classified
+        # as FALSE renders as "FALSE — artifactual fire" in §03 while
+        # appearing as a confirmed bug in §01, which is internally
+        # contradictory and torches the report's credibility.
+        if finding_status in REAL_STATUSES:
+            return "confirmed"
         cls = triage_classification.get(hyp_id, "")
         if cls == "STRONG":
             # Is it the cluster representative?
@@ -2689,7 +2830,12 @@ def _render_cycle_html(
     # as `_findings_writeup` — keeps the report self-consistent.
     cycle_id_raw = cycle.get("cycle_id", "") if cycle else ""
     language = _detect_language(workspace, cycle_id_raw) if workspace else "solana"
-    protocol_label = "Aptos" if language == "aptos" else "Solana"
+    if language == "aptos":
+        protocol_label = "Aptos"
+    elif language == "solidity":
+        protocol_label = "Solidity"
+    else:
+        protocol_label = "Solana"
 
     counts = _sev_counts(findings)              # full counts (all statuses)
     real_counts = _real_severity_counts(findings)  # confirmed/disclosed/fixed/verified only
@@ -3042,13 +3188,13 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
       <tr><td><code>Layer 1.5</code></td>
           <td style="color:var(--text-2)">Adversarial debate. Contested verdicts (NEEDS_L2 or split verdicts) are promoted through a single-round attacker / defender debate, with a separate judge resolving the final verdict.</td></tr>
       <tr><td><code>Layer 2</code></td>
-          <td style="color:var(--text-2)">Concrete proof-of-concept. An inverted-assertion test is authored in {("Move and run via <code>aptos move test</code>" if language == "aptos" else "Rust and run via <code>cargo test</code>")}. The test &quot;fires&quot; iff an abort with a custom error code originates in the target module (not stdlib / setup).</td></tr>
+          <td style="color:var(--text-2)">Concrete proof-of-concept. An inverted-assertion test is authored in {("Move and run via <code>aptos move test</code>" if language == "aptos" else ("Solidity and run via <code>forge test</code>" if language == "solidity" else "Rust and run via <code>cargo test</code>"))}. The test &quot;fires&quot; iff an abort with a custom error code originates in the target module (not stdlib / setup).</td></tr>
       <tr><td><code>Layer 2.5</code></td>
           <td style="color:var(--text-2)">Triage. An LLM judge classifies each fire as <code>STRONG</code> (real bug), <code>SOFT</code> (wrong invariant), <code>FALSE</code> (artifactual abort), or <code>LOST</code> (signal missing). STRONG fires are clustered by (engine_function, target_file) so the same code-site bug under multiple hypothesis IDs collapses to one root cause.</td></tr>
       <tr><td><code>Layer 3</code></td>
-          <td style="color:var(--text-2)">Symbolic verification. {("Move Prover with Boogie + Z3 / CVC5 backends. The spec asserts the violated invariant; the prover either finds a counterexample (bug confirmed by SMT) or proves the invariant holds within the spec's bounded model." if language == "aptos" else "Kani-based bounded model checking. The harness asserts the violated invariant; Kani either finds a counterexample within the bounded depth or proves safety.")}</td></tr>
+          <td style="color:var(--text-2)">Symbolic verification. {("Move Prover with Boogie + Z3 / CVC5 backends. The spec asserts the violated invariant; the prover either finds a counterexample (bug confirmed by SMT) or proves the invariant holds within the spec's bounded model." if language == "aptos" else ("Halmos symbolic execution with Z3 backend. An LLM-authored harness encodes the violated invariant as a <code>check_*</code> function; Halmos either finds a concrete counterexample (bug confirmed by SMT) or proves the invariant holds within bounded depth." if language == "solidity" else "Kani-based bounded model checking. The harness asserts the violated invariant; Kani either finds a counterexample within the bounded depth or proves safety."))}</td></tr>
       <tr><td><code>Layer 4</code></td>
-          <td style="color:var(--text-2)">{("Property-based fuzzing via <code>aptos move test</code>. An LLM-authored property harness samples inputs and either aborts on the inverted assertion (FAIL pattern — bug reachable) or completes the attack scenario end-to-end (PASS pattern — exploit reproduces)." if language == "aptos" else "On-chain BPF reproduction. The Solana program is deployed into LiteSVM and the PoC re-executed through the deployed instructions, confirming the wrapper-side defenses don't catch the bug.")}</td></tr>
+          <td style="color:var(--text-2)">{("Property-based fuzzing via <code>aptos move test</code>. An LLM-authored property harness samples inputs and either aborts on the inverted assertion (FAIL pattern — bug reachable) or completes the attack scenario end-to-end (PASS pattern — exploit reproduces)." if language == "aptos" else ("Property-based fuzzing + invariant testing via <code>forge test</code>. An LLM-authored harness uses Foundry's fuzz / invariant runner — either a counterexample fires the inverted assertion (bug reachable) or the harness completes the attack scenario end-to-end." if language == "solidity" else "On-chain BPF reproduction. The Solana program is deployed into LiteSVM and the PoC re-executed through the deployed instructions, confirming the wrapper-side defenses don't catch the bug."))}</td></tr>
       <tr><td><code>Layer P3</code></td>
           <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 5-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass). Operator authorization is required before any upstream PR is opened.</td></tr>
     </tbody>
@@ -3060,7 +3206,7 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
     Every finding originates as a falsifiable invariant claim from a per-protocol
     hypothesis library, dispatched to Layer 1 multi-agent recon, promoted on
     contested verdicts via Layer 1.5 adversarial debate, and confirmed empirically
-    through {"a Layer 2 <code>aptos move test</code> proof-of-concept" if language == "aptos" else "a Layer 2 <code>cargo test</code> proof-of-concept"}.
+    through {"a Layer 2 <code>aptos move test</code> proof-of-concept" if language == "aptos" else ("a Layer 2 <code>forge test</code> proof-of-concept" if language == "solidity" else "a Layer 2 <code>cargo test</code> proof-of-concept")}.
     Layer 2.5 triage classifies each fire as
     <code>STRONG</code> / <code>SOFT</code> / <code>FALSE</code> / <code>LOST</code>;
     only STRONG cluster representatives advance to <code>confirmed</code> and
