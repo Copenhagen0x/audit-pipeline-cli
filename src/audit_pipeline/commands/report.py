@@ -436,15 +436,27 @@ def _table_of_contents(
 
 
 def _detect_language(workspace: Path, cycle_id: str) -> str:
-    """Return ``"aptos"`` (Move), ``"solidity"`` (EVM), or ``"solana"`` (default).
+    """Return ``"aptos"`` (Move), ``"solidity"`` (EVM), ``"c"`` (systems
+    software), or ``"solana"`` (default).
 
     Detection order (cheap → expensive):
-      1. ``workspace/formal/<lang>/*`` or ``workspace/fuzz/<lang>/*`` or
+      1. ``workspace.json`` ``language`` field (authoritative)
+      2. ``workspace/formal/<lang>/*`` or ``workspace/fuzz/<lang>/*`` or
          ``workspace/tests/<lang>/*`` exists
-      2. ``hunts/<cycle>/hunt.log.jsonl`` contains an event with the language tag
-      3. Default to ``"solana"`` (back-compat for the existing renderer)
+      3. ``hunts/<cycle>/hunt.log.jsonl`` contains an event with the language tag
+      4. Default to ``"solana"`` (back-compat for the existing renderer)
     """
-    for lang in ("aptos", "solidity"):
+    import json as _json
+    ws_cfg_path = workspace / "workspace.json"
+    if ws_cfg_path.is_file():
+        try:
+            cfg = _json.loads(ws_cfg_path.read_text(encoding="utf-8"))
+            cfg_lang = str(cfg.get("language") or "").strip().lower()
+            if cfg_lang in ("aptos", "solidity", "c", "solana"):
+                return cfg_lang
+        except (OSError, _json.JSONDecodeError):
+            pass
+    for lang in ("aptos", "solidity", "c"):
         if (workspace / "formal" / lang).is_dir():
             return lang
         if (workspace / "fuzz" / lang).is_dir():
@@ -459,6 +471,8 @@ def _detect_language(workspace: Path, cycle_id: str) -> str:
                     return "aptos"
                 if '"language": "solidity"' in line or '"language":"solidity"' in line:
                     return "solidity"
+                if '"language": "c"' in line or '"language":"c"' in line:
+                    return "c"
         except OSError:
             pass
     return "solana"
@@ -487,6 +501,7 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
     language = _detect_language(workspace, cycle_id)
     is_aptos = language == "aptos"
     is_solidity = language == "solidity"
+    is_c = language == "c"
 
     # Resolve the actual findings.db that hunt.py wrote to: prefer
     # workspace-local, then the parent ``workspaces/`` dir, then the
@@ -547,6 +562,21 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
             ("Layer 4 forge invariant / fuzz harnesses",
              "fuzz/solidity/forge_<slug>.t.sol",
              workspace / "fuzz" / "solidity", ""),
+        ])
+    elif is_c:
+        entries.extend([
+            ("Layer 2 PoC sources (C)",
+             "tests/c/test_<slug>.c",
+             workspace / "tests" / "c", ""),
+            ("Layer 2 PoC run logs",
+             "hunts/<cycle>/poc/c_<slug>.log",
+             cycle_dir / "poc", ""),
+            ("Layer 3 CBMC harnesses + verdicts",
+             "formal/c/harness_<slug>.c",
+             workspace / "formal" / "c", ""),
+            ("Layer 4 AFL++ fuzz harnesses",
+             "fuzz/c/<slug>/afl_<slug>.c",
+             workspace / "fuzz" / "c", ""),
         ])
     else:
         # Solana cycle artifacts. The isolated L3 (Kani) and L4
@@ -740,6 +770,10 @@ def _executive_summary_section(
         formal_phrase = "a Halmos symbolic-execution check where the formal layer ran"
         fuzz_phrase = "a forge fuzz / invariant reproduction"
         poc_phrase = "a forge-test"
+    elif language == "c":
+        formal_phrase = "a CBMC bounded-model-check proof where the formal layer ran"
+        fuzz_phrase = "an AFL++ coverage-guided fuzz reproduction"
+        poc_phrase = "an ASan/UBSan-instrumented"
     else:
         formal_phrase = "a Kani-bounded model-checker proof where the formal layer ran"
         fuzz_phrase = "an on-chain BPF reproduction through LiteSVM"
@@ -822,6 +856,17 @@ def _scope_section(
                     str(p.relative_to(engine_root))
                     for p in sorted(d.glob("*.sol"))
                 )
+    elif language == "c":
+        # C workspace: src/**/*.c + src/**/*.h, recursive — c repos use
+        # subdirs (auth/, common/, etc.). Skip vendor/ and tests/ trees.
+        src_dir = engine_root / "src"
+        if src_dir.is_dir():
+            for ext in ("*.c", "*.h"):
+                sources.extend(
+                    str(p.relative_to(engine_root))
+                    for p in sorted(src_dir.rglob(ext))
+                    if "vendor" not in p.parts and "tests" not in p.parts
+                )
     else:
         # Percolator workspace: src/*.rs at engine root.
         for sub in ("src",):
@@ -868,7 +913,7 @@ def _scope_section(
       <tr><td style="width:160px;color:var(--text-3)">Target workspace</td>
           <td><code>{html.escape(target_name)}</code></td></tr>
       <tr><td style="color:var(--text-3)">Protocol</td>
-          <td>{("Move smart-contract framework (Aptos)" if language == "aptos" else ("Solidity smart contracts (EVM / Foundry)" if language == "solidity" else "Solana BPF program"))}</td></tr>
+          <td>{("Move smart-contract framework (Aptos)" if language == "aptos" else ("Solidity smart contracts (EVM / Foundry)" if language == "solidity" else ("C systems software (clang / CBMC / AFL++)" if language == "c" else "Solana BPF program")))}</td></tr>
       <tr><td style="color:var(--text-3)">Engine commit</td>
           <td><code>{html.escape(engine_sha_short)}</code> {('<span style="color:var(--text-3);font-size:11px">(' + html.escape(engine_sha_full) + ')</span>') if engine_sha_full and len(engine_sha_full) > 10 else ''}</td></tr>
       <tr><td style="color:var(--text-3)">Source files</td>
@@ -876,7 +921,7 @@ def _scope_section(
       <tr><td style="color:var(--text-3)">Hypothesis library</td>
           <td>{n_hyps_in_library} invariant claim(s) covering authorization, arithmetic safety, accounting consistency, capability handling, event auditability, and oracle / time freshness</td></tr>
       <tr><td style="color:var(--text-3)">Out of scope</td>
-          <td style="color:var(--text-2)">Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>{("Move.toml" if language == "aptos" else ("foundry.toml" if language == "solidity" else "Cargo.toml"))}</code> beyond their declared interfaces.</td></tr>
+          <td style="color:var(--text-2)">Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>{("Move.toml" if language == "aptos" else ("foundry.toml" if language == "solidity" else ("Makefile / build.sh" if language == "c" else "Cargo.toml")))}</code> beyond their declared interfaces.</td></tr>
     </tbody>
   </table>
 """
@@ -1802,9 +1847,13 @@ def _findings_writeup(
     solidity_tests_dir = workspace / "tests" / "solidity"
     solidity_formal_dir = workspace / "formal" / "solidity"
     solidity_fuzz_dir = workspace / "fuzz" / "solidity"
+    # C workspaces mirror the layout under */c/
+    c_tests_dir = workspace / "tests" / "c"
+    c_formal_dir = workspace / "formal" / "c"
+    c_fuzz_dir = workspace / "fuzz" / "c"
     aptos_layer_results = (
         _aptos_layer_results_from_log(workspace, cycle_id)
-        if language in ("aptos", "solidity") else {"l3": {}, "l4": {}}
+        if language in ("aptos", "solidity", "c") else {"l3": {}, "l4": {}}
     )
 
     # Full claims from the hypothesis library (DB stores claim[:120]
@@ -1989,6 +2038,34 @@ def _findings_writeup(
                 except OSError:
                     pass
             l2_lang = "solidity"
+        elif language == "c":
+            c_poc = c_tests_dir / f"test_{hyp_slug}.c"
+            if c_poc.is_file():
+                try:
+                    pt = c_poc.read_text(encoding="utf-8", errors="replace")
+                    # Pull the firing main() body. C PoCs use `int main(...)
+                    # { ... }`. Do brace-balanced extraction so the excerpt
+                    # captures the full firing assertion, not just the first
+                    # nested block.
+                    m = re.search(r"int\s+main\s*\([^)]*\)\s*\{", pt)
+                    if m:
+                        start = m.start()
+                        depth = 0
+                        end = start
+                        for bi, ch in enumerate(pt[start:], start):
+                            if ch == "{":
+                                depth += 1
+                            elif ch == "}":
+                                depth -= 1
+                                if depth == 0:
+                                    end = bi + 1
+                                    break
+                        l2_excerpt = _cap_with_firing_tail(pt[start:end])
+                    else:
+                        l2_excerpt = _cap_with_firing_tail(pt)
+                except OSError:
+                    pass
+            l2_lang = "c"
         else:
             # Prefer the Layer 4 LiteSVM test source over the Layer 2 PoC
             # excerpt when present. Rationale: L2 PoCs are LLM-authored against
@@ -2082,6 +2159,37 @@ def _findings_writeup(
                 l3_status = (
                     "Not run for this hypothesis — L2 PoC + L4 forge fuzz are the primary signal."
                 )
+        elif language == "c":
+            ev = aptos_layer_results.get("l3", {}).get(hyp_id)
+            if ev:
+                if ev.get("counterexample") is True:
+                    raw_reason = (ev.get("reason") or "").strip()[:200]
+                    l3_status = (
+                        "✓ CBMC counterexample found "
+                        "(bug confirmed by bounded model checking; full trace "
+                        "in formal/c/harness_<slug>.cbmc.log)."
+                        + (f" {raw_reason}" if raw_reason else "")
+                    )
+                elif ev.get("proved") is True:
+                    l3_status = (
+                        "CBMC proved the invariant holds within bounded unwind "
+                        "(no counterexample within unwind budget — bounded safety)."
+                    )
+                elif ev.get("compile_error"):
+                    l3_status = (
+                        "Inconclusive — CBMC harness failed to compile "
+                        "(L2 PoC + L4 AFL++ remain the primary signal)."
+                    )
+                else:
+                    reason = (ev.get("reason") or "")[:200]
+                    l3_status = (
+                        "CBMC inconclusive (timeout / unwind exhausted)"
+                        + (f": {reason}" if reason else "")
+                    )
+            else:
+                l3_status = (
+                    "Not run for this hypothesis — L2 PoC + L4 AFL++ are the primary signal."
+                )
         else:
             # Modern adapter writes per-slug subdir; legacy Percolator
             # path lives directly under kani/. Try both.
@@ -2173,6 +2281,38 @@ def _findings_writeup(
                     reason = (ev.get("reason") or "")[:200]
                     l4_status = (
                         "Not run for this hypothesis — L2 PoC + L3 Halmos remain "
+                        "the authoritative bug signal."
+                        + (f" (adapter note: {reason})" if reason else "")
+                    )
+        elif language == "c":
+            ev = aptos_layer_results.get("l4", {}).get(hyp_id)
+            if not ev:
+                l4_status = (
+                    "Not run — L4 AFL++ fuzz stage was skipped for this "
+                    "hypothesis (L2 PoC is the authoritative bug signal)"
+                )
+            else:
+                if ev.get("crash_found") is True:
+                    l4_status = (
+                        "✓ AFL++ found a crashing input within the fuzz budget — "
+                        "bug demonstrably reachable from coverage-guided fuzzing."
+                    )
+                    l4_witness = (ev.get("reason") or "")[:500]
+                elif ev.get("compile_error") or "compile error" in (ev.get("reason") or "").lower():
+                    l4_status = (
+                        "Not run for this hypothesis — the LLM-authored AFL++ harness "
+                        "did not compile via afl-clang-fast. L2 PoC + L3 CBMC remain "
+                        "the authoritative bug signal."
+                    )
+                elif ev.get("ran_clean"):
+                    l4_status = (
+                        "AFL++ ran clean — no crashing input within fuzz budget "
+                        "(L2 PoC remains authoritative)."
+                    )
+                else:
+                    reason = (ev.get("reason") or "")[:200]
+                    l4_status = (
+                        "Not run for this hypothesis — L2 PoC + L3 CBMC remain "
                         "the authoritative bug signal."
                         + (f" (adapter note: {reason})" if reason else "")
                     )
@@ -2342,6 +2482,10 @@ def _findings_writeup(
                             display_name = "halmos_proof_holds"
                         elif language == "solidity" and g_name == "litesvm_exploit_neutralized":
                             display_name = "forge_invariant_neutralized"
+                        elif language == "c" and g_name == "kani_proof_holds":
+                            display_name = "cbmc_proof_holds"
+                        elif language == "c" and g_name == "litesvm_exploit_neutralized":
+                            display_name = "afl_crash_neutralized"
                         else:
                             display_name = g_name
                         p3_gates.append((icon, display_name, reason))
@@ -2384,6 +2528,8 @@ def _findings_writeup(
             l4_label = "Layer 4 — Property fuzz (aptos move test)"
         elif language == "solidity":
             l4_label = "Layer 4 — Forge fuzz / invariant"
+        elif language == "c":
+            l4_label = "Layer 4 — AFL++ coverage-guided fuzz"
         else:
             l4_label = "Layer 4 — On-chain BPF reproduction"
         l4_section = (
@@ -2438,6 +2584,8 @@ def _findings_writeup(
             l3_label = "Layer 3 — Symbolic verification (Move Prover)"
         elif language == "solidity":
             l3_label = "Layer 3 — Symbolic verification (Halmos)"
+        elif language == "c":
+            l3_label = "Layer 3 — Bounded model checking (CBMC)"
         else:
             l3_label = "Layer 3 — Symbolic verification (Kani)"
 

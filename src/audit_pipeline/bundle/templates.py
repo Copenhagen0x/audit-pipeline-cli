@@ -995,6 +995,378 @@ BUNDLE_TEMPLATES: dict[str, BundleTemplate] = {
             "rerun full test suite",
         ),
     ),
+
+    # ─────────────────── C / systems-software ───────────────────
+
+    "heap-buffer-overflow": BundleTemplate(
+        headline="Fix heap-buffer overflow in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: out-of-bounds heap write\n\n"
+            "`{handler_function}` writes past the end of a heap allocation. "
+            "Typical shape: a bounds check uses `>=` instead of `>`, or the "
+            "length field is read directly from attacker input without "
+            "being clamped against `sizeof(dst)`.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` triggers AddressSanitizer "
+            "with a `heap-buffer-overflow WRITE` report.\n\n"
+            "# Fix\n\nTighten the bounds check to `<` (strict), or clamp "
+            "the attacker-controlled length to `sizeof(dst) - 1` BEFORE "
+            "the write. Add a `return` / error path when the bound is "
+            "violated; do not silently truncate.\n\n"
+            "# Verification\n\nASan report disappears post-patch. "
+            "Existing tests still pass.\n"
+        ),
+        patch_intent=(
+            "Change the bounds check to be strict (`<`, not `<=`/`>=`) "
+            "or add a pre-write clamp. Minimal scoped edit inside "
+            "`{handler_function}`. Do not modify the buffer size."
+        ),
+        verification_hints=(
+            "rerun PoC under ASan: no overflow report",
+            "rerun full test suite",
+        ),
+    ),
+
+    "missing-length-sanity": BundleTemplate(
+        headline="Validate attacker-controlled length in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: unvalidated input length\n\n"
+            "`{handler_function}` reads a length field from attacker bytes "
+            "and uses it as a memcpy bound without first checking it "
+            "against the destination buffer capacity or the remaining "
+            "input.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}`.\n\n"
+            "# Fix\n\nReject any frame whose declared length exceeds "
+            "`sizeof(dst)` or the actual remaining input bytes. Return "
+            "an error variant on violation.\n\n"
+            "# Verification\n\nMalformed-length input now returns an "
+            "error before the unsafe copy. Valid inputs unaffected.\n"
+        ),
+        patch_intent=(
+            "Add an explicit length-sanity check right after the "
+            "length is read from input. Return on violation."
+        ),
+        verification_hints=(
+            "rerun PoC: oversized length now rejected",
+            "rerun full test suite",
+        ),
+    ),
+
+    "toctou-symlink": BundleTemplate(
+        headline="Close TOCTOU symlink window in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: lstat-then-open race\n\n"
+            "`{handler_function}` checks the path with `lstat` then opens "
+            "it with `fopen` / `open`. An attacker who controls the "
+            "parent directory can swap the path to a symlink between the "
+            "two syscalls, redirecting the subsequent write to the "
+            "symlink target.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}`.\n\n"
+            "# Fix\n\nReplace the two-step pattern with `open(path, "
+            "O_NOFOLLOW | O_CREAT | O_EXCL, mode)` and use `fstat` on "
+            "the resulting fd. Do all subsequent operations against the "
+            "fd, not the path.\n\n"
+            "# Verification\n\nSymlink-swap PoC now fails to open. "
+            "Normal usage unaffected.\n"
+        ),
+        patch_intent=(
+            "Switch to fd-based I/O with O_NOFOLLOW. Drop the lstat path "
+            "check entirely. Read all subsequent metadata via fstat."
+        ),
+        verification_hints=(
+            "rerun PoC under racing symlink swap: now fails",
+            "rerun full test suite",
+        ),
+    ),
+
+    "predictable-temp-path": BundleTemplate(
+        headline="Use mkstemp for temporary state file ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: hard-coded /tmp path\n\n"
+            "`{handler_function}` opens a hard-coded path under `/tmp` "
+            "(or another world-writable location). An unprivileged actor "
+            "can pre-create the file or symlink it to a sensitive "
+            "target, capturing writes or denying service.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}`.\n\n"
+            "# Fix\n\nReplace the hard-coded path with `mkstemp` "
+            "(returns a unique-suffix path + fd in one atomic step). "
+            "Set restrictive mode 0600 explicitly via `fchmod` on the "
+            "fd. Honor `$TMPDIR` for user-controlled location.\n\n"
+            "# Verification\n\nPre-create-race PoC no longer wins. "
+            "Existing tests pass.\n"
+        ),
+        patch_intent=(
+            "Replace the hard-coded path with mkstemp + fchmod. Honor "
+            "$TMPDIR. Keep the rest of the function logic unchanged."
+        ),
+        verification_hints=(
+            "rerun PoC: pre-created file no longer affects target",
+            "rerun full test suite",
+        ),
+    ),
+
+    "buffer-truncation-without-error": BundleTemplate(
+        headline="Reject truncated input in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: silent truncation\n\n"
+            "`{handler_function}` reads a field whose length equals or "
+            "exceeds its destination capacity, then proceeds without "
+            "signalling the truncation. The persisted state and the "
+            "in-memory view diverge across save/load round trips.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}`.\n\n"
+            "# Fix\n\nReject any input field whose length exceeds the "
+            "destination capacity. Return an explicit error rather than "
+            "silently truncating.\n\n"
+            "# Verification\n\nOversized field now returns Err pre-write. "
+            "Normal-sized inputs unaffected.\n"
+        ),
+        patch_intent=(
+            "Add an explicit length check that returns an error on "
+            "overflow, before the truncating copy."
+        ),
+        verification_hints=(
+            "rerun PoC: oversized field now rejected",
+            "rerun full test suite",
+        ),
+    ),
+
+    "use-after-free": BundleTemplate(
+        headline="Fix use-after-free in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: pointer dereferenced after free\n\n"
+            "`{handler_function}` calls `free(p)` and then continues to "
+            "use `p` (passing it to a callback, dereferencing a member, "
+            "or returning it).\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` triggers ASan with a "
+            "`heap-use-after-free` report.\n\n"
+            "# Fix\n\nReorder the operations so the pointer is used "
+            "BEFORE the free. If the pointer must survive past the free, "
+            "duplicate the needed fields onto the stack first.\n\n"
+            "# Verification\n\nASan report disappears post-patch.\n"
+        ),
+        patch_intent=(
+            "Move the free() AFTER the last use of the pointer. Do not "
+            "introduce a new allocation or change the lifetime contract "
+            "of the caller."
+        ),
+        verification_hints=(
+            "rerun PoC under ASan: no use-after-free",
+            "rerun full test suite",
+        ),
+    ),
+
+    "double-free": BundleTemplate(
+        headline="Fix double-free in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: same pointer freed twice\n\n"
+            "`{handler_function}` (or its callers) call `free(p)` on the "
+            "same allocation along two paths. ASan reports "
+            "`attempting double-free`.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}`.\n\n"
+            "# Fix\n\nEstablish a single ownership convention: either "
+            "the helper frees (caller must NOT) or the caller frees "
+            "(helper must NOT). Set `p = NULL` after the free to "
+            "make any accidental second-free a clean crash rather "
+            "than memory corruption.\n\n"
+            "# Verification\n\nASan double-free report disappears.\n"
+        ),
+        patch_intent=(
+            "Remove the redundant free(). Set the pointer to NULL "
+            "after the canonical free site."
+        ),
+        verification_hints=(
+            "rerun PoC under ASan: no double-free",
+            "rerun full test suite",
+        ),
+    ),
+
+    "retry-counter-inversion": BundleTemplate(
+        headline="Fix retry-counter logic in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: retry counter not decremented\n\n"
+            "`{handler_function}` uses an attempts counter as its retry "
+            "gate but does not decrement it across iterations. An "
+            "attacker-controlled return value can pin the job into the "
+            "no-retry or infinite-retry regime.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}`.\n\n"
+            "# Fix\n\nDecrement the attempts counter at the start of "
+            "each retry iteration and re-evaluate the stop condition "
+            "against the updated value.\n\n"
+            "# Verification\n\nPoC's infinite-retry case now terminates "
+            "after the configured attempt count.\n"
+        ),
+        patch_intent=(
+            "Add the missing decrement of attempts inside the retry "
+            "loop body. Keep the existing stop-condition expression."
+        ),
+        verification_hints=(
+            "rerun PoC: retry now bounded",
+            "rerun full test suite",
+        ),
+    ),
+
+    "format-string-injection": BundleTemplate(
+        headline="Fix format-string injection in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: user input as format string\n\n"
+            "`{handler_function}` calls `fprintf(stream, user_buf)` or "
+            "`syslog(LOG_X, user_buf)` where `user_buf` contains "
+            "attacker-controlled bytes. `%s`/`%n`/`%p` injection allows "
+            "arbitrary read/write of the calling process's memory. "
+            "Clang warns with `-Wformat-security`.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` injects `%s` and "
+            "observes a controlled read.\n\n"
+            "# Fix\n\nReplace `fprintf(stream, buf)` with "
+            "`fprintf(stream, \"%s\", buf)` (or `fputs(buf, stream)`). "
+            "Same fix shape for `printf`/`syslog`/etc.\n\n"
+            "# Verification\n\n`-Wformat-security` clean. PoC's "
+            "injected specifiers print literally.\n"
+        ),
+        patch_intent=(
+            "Add the `%s` format string in front of the user-controlled "
+            "buffer. Two characters per call site. Do not strip or "
+            "sanitize the buffer contents."
+        ),
+        verification_hints=(
+            "rerun PoC: %s/%n/%p print literally",
+            "build is -Wformat-security clean",
+            "rerun full test suite",
+        ),
+    ),
+
+    "missing-privilege-check": BundleTemplate(
+        headline="Add role/privilege check in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: session validated but role not gated\n\n"
+            "`{handler_function}` validates a token / session but does "
+            "not check the session's role or scope before performing a "
+            "privileged action. Any valid session holder gets full "
+            "authority.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` creates a low-privilege "
+            "session and exercises a privileged path.\n\n"
+            "# Fix\n\nAdd a role/scope predicate at the entry of every "
+            "privileged path. Match the existing role-flag scheme used "
+            "elsewhere in the codebase.\n\n"
+            "# Verification\n\nLow-privilege caller now returns "
+            "`EACCES` / `ERR_UNAUTHORIZED`. Privileged caller "
+            "unaffected.\n"
+        ),
+        patch_intent=(
+            "Add the role check at the entry of `{handler_function}`. "
+            "Use the same role-flag pattern as other privileged paths."
+        ),
+        verification_hints=(
+            "rerun PoC: low-privilege caller now denied",
+            "rerun privileged-caller test (still succeeds)",
+            "rerun full test suite",
+        ),
+    ),
+
+    "weak-token-entropy": BundleTemplate(
+        headline="Use kernel CSPRNG for session tokens ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: tokens from a weak / seeded PRNG\n\n"
+            "Session tokens are generated from `rand()`, `random()`, or "
+            "another non-cryptographic PRNG whose seed is observable or "
+            "guessable. Adversaries can forge valid tokens without "
+            "compromising the secret store.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` reseeds the PRNG to the "
+            "same value the process used and recovers issued tokens.\n\n"
+            "# Fix\n\nReplace the PRNG with `getrandom(2)` "
+            "(`arc4random_buf` on BSD) and emit at least 16 raw bytes "
+            "per token before encoding.\n\n"
+            "# Verification\n\nPRNG-reseed PoC no longer recovers "
+            "tokens. Token issuance latency unchanged in benchmarks.\n"
+        ),
+        patch_intent=(
+            "Swap the rand()/random() call for getrandom() (or "
+            "arc4random_buf where available). Keep the token format / "
+            "length API stable."
+        ),
+        verification_hints=(
+            "rerun PoC: reseed attack fails",
+            "rerun full test suite",
+        ),
+    ),
+
+    "size-t-wrap-then-heap-overflow": BundleTemplate(
+        headline="Guard size_t overflow in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: addition wraps `size_t`\n\n"
+            "`{handler_function}` computes an allocation size from "
+            "attacker-controlled lengths without checking for `size_t` "
+            "wrap. The wrapped (small) value drives an under-sized "
+            "allocation, then the subsequent copy overflows the heap.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` triggers ASan with a "
+            "`heap-buffer-overflow WRITE` after the wrap.\n\n"
+            "# Fix\n\nCheck for overflow BEFORE the addition: `if (a > "
+            "SIZE_MAX - b) return ERR;` (or use `__builtin_add_overflow` "
+            "where available). Apply same shape to multiplication.\n\n"
+            "# Verification\n\nASan report disappears. PoC's overflow "
+            "trigger returns Err cleanly.\n"
+        ),
+        patch_intent=(
+            "Add the overflow-pre-check immediately before the "
+            "allocation-size computation. Use SIZE_MAX or "
+            "__builtin_*_overflow."
+        ),
+        verification_hints=(
+            "rerun PoC under ASan: no heap overflow",
+            "rerun full test suite",
+        ),
+    ),
+
+    "doubling-overflow": BundleTemplate(
+        headline="Cap doubling in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: capacity-doubling wraps\n\n"
+            "`{handler_function}` doubles a capacity in a loop "
+            "(`new_cap *= 2`) until it meets the requested size, but "
+            "the multiplication wraps `size_t` for sufficiently large "
+            "requests. The loop exits with an undersized capacity and "
+            "the caller proceeds to memcpy beyond the allocation.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}`.\n\n"
+            "# Fix\n\nGuard the doubling: `if (new_cap > SIZE_MAX / 2) "
+            "return ERR;` before the shift. Return an explicit error on "
+            "wrap rather than letting the loop exit with the wrapped "
+            "value.\n\n"
+            "# Verification\n\nWrap case now returns Err. Normal-sized "
+            "requests unaffected.\n"
+        ),
+        patch_intent=(
+            "Add the SIZE_MAX/2 overflow check inside the doubling loop, "
+            "returning an error on wrap."
+        ),
+        verification_hints=(
+            "rerun PoC: huge-cap request now rejected",
+            "rerun full test suite",
+        ),
+    ),
+
+    "unsanitised-entrypoint": BundleTemplate(
+        headline="Validate stdin/entry input in `{handler_function}` ({finding_id})",
+        writeup_skeleton=(
+            "# Root cause: entry path skips length validation\n\n"
+            "The process entry point (`main` / event handler) reads "
+            "attacker-controlled bytes into a fixed-size buffer and "
+            "hands them to a parser without first validating the read "
+            "size.\n\n"
+            "# Reproducer\n\nPoC at `{poc_path}` pipes a malformed "
+            "frame to stdin.\n\n"
+            "# Fix\n\nCheck the read return value, reject reads that "
+            "exceed the parser's documented input bound, and propagate "
+            "errors instead of falling through to the parser.\n\n"
+            "# Verification\n\nMalformed inputs now return Err at the "
+            "entry, before the parser is invoked.\n"
+        ),
+        patch_intent=(
+            "Add the read-size check at the entry point. Wire its error "
+            "path to the existing error-return convention."
+        ),
+        verification_hints=(
+            "rerun PoC: malformed input now bounces at entry",
+            "rerun full test suite",
+        ),
+    ),
 }
 
 
