@@ -964,7 +964,7 @@ def _hunt_run(
         # is the safety net for cross-cycle leakage. Operator caught
         # the pollution on cycle 20260517-193953 where SOLD10's L3
         # run reported counterexamples for SOLD1 + SOLD11.
-        if config_language in ("solidity", "evm"):
+        if language in ("solidity", "evm"):
             try:
                 _engine_local = config.get("engine", {}).get("local") or ""
                 if _engine_local:
@@ -1007,9 +1007,18 @@ def _hunt_run(
                                             _stale_cache.unlink()
                                     except OSError:
                                         pass
-                        log("solidity_cycle_start_cleanup", repo=str(_engine_abs))
+                        # log() is not yet defined at cycle-start — fall back to
+                        # console so the cleanup result is still observable in
+                        # the run banner. The structured `log()` helper is
+                        # initialized further down (line ~1072).
+                        console.print(
+                            f"  [cyan]solidity cycle-start cleanup OK[/cyan] "
+                            f"(repo: {_engine_abs})"
+                        )
             except Exception as _e:  # noqa: BLE001
-                log("solidity_cycle_start_cleanup_warn", error=str(_e))
+                console.print(
+                    f"  [yellow]solidity cycle-start cleanup warn:[/yellow] {_e}"
+                )
 
         db.insert_cycle(
             target_id=target_id,
