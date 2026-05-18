@@ -1475,16 +1475,47 @@ def _hunt_funnel_section(
         except (OSError, ValueError):
             pass
 
-    # Wall-clock fallback: if elapsed_seconds is missing or zero (happens
-    # when a cycle gets resumed multiple times — the timer resets), derive
-    # it from started_at -> finished_at, or started_at -> now if not finished.
-    if (not elapsed_seconds) and started_at_iso:
+    # Wall-clock fallback: if elapsed_seconds is missing, zero, or
+    # implausibly short (resume bug: the timer resets on each --resume-cycle
+    # so a multi-hour Solidity hunt can report 0.1s), derive it from the
+    # FIRST→LAST event timestamps in hunt.log.jsonl. That captures total
+    # wall-clock across resumes.
+    if (not elapsed_seconds or elapsed_seconds < 60) and (cycle_dir / "hunt.log.jsonl").is_file():
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            first_ts: str | None = None
+            last_ts: str | None = None
+            for line in (cycle_dir / "hunt.log.jsonl").read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines():
+                try:
+                    ev = _json.loads(line)
+                except (ValueError, _json.JSONDecodeError):
+                    continue
+                ts = ev.get("ts")
+                # hunt.log.jsonl mostly stores ISO-8601 strings, but a few
+                # older entries used epoch floats. Coerce to string only when
+                # it's already string-shaped — skip the float entries (the
+                # ISO neighbours are enough to bracket the cycle).
+                if not isinstance(ts, str) or not ts:
+                    continue
+                if first_ts is None or ts < first_ts:
+                    first_ts = ts
+                if last_ts is None or ts > last_ts:
+                    last_ts = ts
+            if first_ts and last_ts:
+                t0 = _dt.fromisoformat(first_ts.replace("Z", "+00:00"))
+                t1 = _dt.fromisoformat(last_ts.replace("Z", "+00:00"))
+                delta = (t1 - t0).total_seconds()
+                if delta > 0:
+                    elapsed_seconds = delta
+        except (ValueError, OSError):
+            pass
+    # Last-resort fallback: started_at -> latest disk mtime
+    if (not elapsed_seconds or elapsed_seconds < 60) and started_at_iso:
         try:
             from datetime import datetime as _dt, timezone as _tz
             t0 = _dt.fromisoformat(started_at_iso.replace("Z", "+00:00"))
-            # Pick the freshest disk-mtime under the cycle dir as the
-            # effective "last activity" timestamp — more accurate than
-            # 'now' for a finished cycle.
             try:
                 latest_mt = max(
                     p.stat().st_mtime for p in cycle_dir.rglob("*")
@@ -1618,6 +1649,8 @@ def _hunt_funnel_section(
     non_fire_rows = ""
     if non_fire_total:
         ordered = sorted(non_fire_breakdown.items(), key=lambda x: -x[1])
+        noun = "hypothesis" if non_fire_total == 1 else "hypotheses"
+        verb = "was" if non_fire_total == 1 else "were"
         non_fire_rows = (
             '<p style="color:var(--text-3);font-size:11.5px;margin:6px 0 14px;'
             'line-height:1.55">'
@@ -1625,7 +1658,7 @@ def _hunt_funnel_section(
             'font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;'
             'font-family:var(--mono);margin-right:8px">Non-fire accounting</strong>'
             + (
-                f"{non_fire_total} hypotheses tested but PoC did not fire — "
+                f"{non_fire_total} {noun} {verb} tested but the PoC did not fire — "
                 + ", ".join(
                     f'{c}× <code>{html.escape(st)}</code>' for st, c in ordered
                 ) + ". "
@@ -1639,10 +1672,14 @@ def _hunt_funnel_section(
 
     # Wall-clock pill row (cost intentionally omitted)
     cost_elapsed = ""
-    if elapsed_seconds is not None:
-        elapsed_str = (
-            f"{int(elapsed_seconds // 60)}m {int(elapsed_seconds % 60)}s"
-        )
+    if elapsed_seconds is not None and elapsed_seconds >= 1:
+        hours = int(elapsed_seconds // 3600)
+        mins = int((elapsed_seconds % 3600) // 60)
+        secs = int(elapsed_seconds % 60)
+        if hours > 0:
+            elapsed_str = f"{hours}h {mins}m {secs}s"
+        else:
+            elapsed_str = f"{mins}m {secs}s"
         cost_elapsed = (
             '<p style="color:var(--text-3);font-size:11.5px;margin:6px 0 14px;'
             'font-family:var(--mono);letter-spacing:.06em">'
@@ -1937,11 +1974,30 @@ def _findings_writeup(
             ev = aptos_layer_results.get("l3", {}).get(hyp_id)
             if ev:
                 if ev.get("counterexample") is True:
-                    reason = (ev.get("reason") or "")[:300]
-                    l3_status = (
-                        "✓ Halmos counterexample found (bug confirmed by symbolic execution). "
-                        + (f"{reason}" if reason else "")
-                    )
+                    raw_reason = (ev.get("reason") or "").strip()
+                    # The reason often contains "Halmos found counterexample: "
+                    # followed by raw hex parameter values that can run hundreds
+                    # of chars and break mid-number when capped. Pull just the
+                    # bug-confirming claim — the full counterexample lives in
+                    # the .halmos.log artifact under formal/solidity/.
+                    if "Halmos found counterexample" in raw_reason:
+                        # Cut at the first concrete value's word boundary —
+                        # e.g. "p_caller_address = 0x80000000..." — and keep
+                        # at most ~80 chars of the witness so the line breaks
+                        # cleanly. The witness is illustrative; the artifact
+                        # holds the full SMT model.
+                        l3_status = (
+                            "✓ Halmos counterexample found "
+                            "(bug confirmed by symbolic execution; full SMT "
+                            "witness in formal/solidity/halmos_<slug>.log)."
+                        )
+                    else:
+                        cap = raw_reason[:180]
+                        l3_status = (
+                            "✓ Halmos counterexample found "
+                            "(bug confirmed by symbolic execution)."
+                            + (f" {cap}" if cap else "")
+                        )
                 elif ev.get("proved") is True:
                     l3_status = (
                         "Halmos verified the patched invariant within bounded depth "
@@ -2265,6 +2321,21 @@ def _findings_writeup(
 
         gates_section = ""
         if p3_gates:
+            n_applicable = sum(1 for icon, _n, _r in p3_gates if icon != "⏭")
+            n_total = len(p3_gates)
+            n_passed = sum(1 for icon, _n, _r in p3_gates if icon == "✓")
+            if n_applicable == n_total:
+                lead = (
+                    f"Result of running the proposed patch through Jelleo&rsquo;s "
+                    f"{n_total}-gate verifier"
+                )
+            else:
+                lead = (
+                    f"Result of running the proposed patch through Jelleo&rsquo;s "
+                    f"{n_total}-gate verifier "
+                    f"({n_applicable} gates applicable for this language, "
+                    f"{n_total - n_applicable} marked n/a)"
+                )
             rows = "".join(
                 f'<tr><td style="text-align:center;width:32px">{html.escape(icon)}</td>'
                 f'<td><code>{html.escape(name)}</code></td>'
@@ -2274,9 +2345,9 @@ def _findings_writeup(
             gates_section = (
                 '<h4>Verification gates &mdash; post-patch machine checks</h4>'
                 '<p style="color:var(--text-3);font-size:11.5px;margin:-4px 0 10px">'
-                'Result of running the proposed patch through Jelleo&rsquo;s 5-gate verifier '
-                '(unsigned, syntactic well-formedness, single-function scope, no new deps, '
-                'tests still compile/pass).'
+                f'{lead}: '
+                'syntactic well-formedness, single-function scope, PoC fails pre-patch, '
+                'PoC passes post-patch, existing tests still compile/pass.'
                 '</p>'
                 f'<table class="gates-table">{rows}</table>'
             )
@@ -3196,7 +3267,7 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
       <tr><td><code>Layer 4</code></td>
           <td style="color:var(--text-2)">{("Property-based fuzzing via <code>aptos move test</code>. An LLM-authored property harness samples inputs and either aborts on the inverted assertion (FAIL pattern — bug reachable) or completes the attack scenario end-to-end (PASS pattern — exploit reproduces)." if language == "aptos" else ("Property-based fuzzing + invariant testing via <code>forge test</code>. An LLM-authored harness uses Foundry's fuzz / invariant runner — either a counterexample fires the inverted assertion (bug reachable) or the harness completes the attack scenario end-to-end." if language == "solidity" else "On-chain BPF reproduction. The Solana program is deployed into LiteSVM and the PoC re-executed through the deployed instructions, confirming the wrapper-side defenses don't catch the bug."))}</td></tr>
       <tr><td><code>Layer P3</code></td>
-          <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 5-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass). Operator authorization is required before any upstream PR is opened.</td></tr>
+          <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 6-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass, and a language-specific symbolic/runtime check — Kani for Solana, Move Prover for Aptos, Halmos for Solidity). Two gates auto-skip when the language doesn&rsquo;t apply. Operator authorization is required before any upstream PR is opened.</td></tr>
     </tbody>
   </table>
 
@@ -3231,11 +3302,17 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
     hash on the cover page. Subsequent changes to the codebase are not analyzed.
     The report is not a guarantee of code correctness or security: it documents
     invariants that fired (or held) under the hypothesis library applied during
-    this cycle. Out-of-scope items are listed in §00.1 (Scope). Findings flagged
-    by Layer 2.5 as <code>SOFT</code> / <code>FALSE</code> / <code>LOST</code>
-    are retained in the audit trail (§03) but are not published findings; readers
-    should not interpret a bundle in §03 as a confirmed vulnerability unless its
-    finding row is also present in §01.
+    this cycle. Out-of-scope items are listed in §00.1 (Scope).
+  </p>
+  <p style="color:var(--text-2)">
+    §03 reflects bundle-level state. A row is treated as a confirmed finding when
+    the bundle&rsquo;s machine verification gates (PoC fails pre-patch + PoC passes
+    post-patch + tests still pass) all hold, even if the Layer 2.5 LLM judge
+    initially classified the fire as <code>SOFT</code> / <code>FALSE</code> /
+    <code>LOST</code> — the verifier&rsquo;s empirical patch-defuses-bug evidence
+    supersedes the judge. Rows that did not reach a confirmed lifecycle state are
+    retained in §03 as audit-trail evidence but are not published findings; the
+    authoritative set is whatever appears in §01.
   </p>
   <p style="color:var(--text-2)">
     Communication channel: <a href="mailto:security@jelleo.com">security@jelleo.com</a>

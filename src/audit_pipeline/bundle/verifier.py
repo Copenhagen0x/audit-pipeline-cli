@@ -1046,7 +1046,7 @@ def _gate_kani_proof_holds(
     # which falsely implies misconfiguration.
     _lang = _detect_engine_language(engine_repo)
     if _lang == "solidity":
-        return GateResult(None, "skipped — Kani not applicable to Solidity (L3 used Halmos)",
+        return GateResult(None, "not applicable — Halmos is the Solidity L3 (verdict shown in Layer 3 section)",
                           time.time() - t0)
     if not _have_kani():
         return GateResult(None, "skipped — cargo-kani not in PATH", time.time() - t0)
@@ -1103,7 +1103,7 @@ def _gate_litesvm_exploit_neutralized(
     # use forge invariant/fuzz at L4 instead — record explicit N/A.
     _lang = _detect_engine_language(engine_repo)
     if _lang == "solidity":
-        return GateResult(None, "skipped — LiteSVM not applicable to Solidity (L4 used forge invariant)",
+        return GateResult(None, "not applicable — forge fuzz / invariant is the Solidity L4 (verdict shown in Layer 4 section)",
                           time.time() - t0)
     if not litesvm_test_name:
         return GateResult(None, "skipped — no litesvm_test_name registered for this bug class",
