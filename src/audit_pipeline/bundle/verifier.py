@@ -363,6 +363,60 @@ def _have_kani() -> bool:
     return shutil.which("cargo-kani") is not None or shutil.which("kani") is not None
 
 
+def _gate_poc_fails_pre_patch_solidity(
+    workspace: Path,
+    finding_id: int,
+    engine_repo: Path,
+    poc_test_name: str,
+) -> GateResult:
+    """Solidity variant: read the L2 forge runlog to verify the PoC fired
+    pre-patch. The L2 runlog at
+    ``hunts/<cycle>/poc/runlog_<slug>.log`` already contains the forge
+    JSON output from when L2 dispatched the PoC. If it shows
+    ``"status":"Failure"`` for any test, the bug is reproducible.
+    """
+    t0 = time.time()
+    # poc_test_name is "test_<slug>" — strip prefix to get the slug
+    slug = poc_test_name[5:] if poc_test_name.startswith("test_") else poc_test_name
+    # Look in the cycle's poc/ dir; need to find cycle dir from workspace
+    poc_dir_candidates = list(workspace.glob("hunts/*/poc"))
+    if not poc_dir_candidates:
+        return GateResult(None, "skipped — no hunts/*/poc dir found",
+                          time.time() - t0)
+    # Pick the most recent cycle
+    poc_dir = sorted(poc_dir_candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+    runlog = poc_dir / f"runlog_{slug}.log"
+    if not runlog.is_file():
+        return GateResult(None, f"skipped — L2 runlog not found at {runlog}",
+                          time.time() - t0)
+    try:
+        log_text = runlog.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return GateResult(None, f"skipped — could not read L2 runlog {runlog}",
+                          time.time() - t0)
+    any_failed, n_failed, first_reason = _forge_json_has_failures(log_text)
+    if any_failed:
+        return GateResult(
+            True,
+            f"PoC fired at L2 ({n_failed} forge test failure(s); reason: "
+            f"{first_reason[:120]})",
+            time.time() - t0,
+            details={"outcome": "fired", "mode": "forge-l2-runlog"},
+        )
+    if "Compilation failed" in log_text or "compile error" in log_text.lower():
+        return GateResult(
+            False,
+            f"PoC at L2 had COMPILE error — bundle cannot be authorized "
+            f"without a fired PoC",
+            time.time() - t0,
+        )
+    return GateResult(
+        False,
+        f"PoC at L2 did not fire (no forge test Failure in {runlog.name})",
+        time.time() - t0,
+    )
+
+
 def _gate_poc_fails_pre_patch(
     workspace: Path,
     finding_id: int,
@@ -370,12 +424,18 @@ def _gate_poc_fails_pre_patch(
     poc_test_name: str | None,
 ) -> GateResult:
     t0 = time.time()
-    if not _have_cargo():
-        return GateResult(None, "skipped — cargo not in PATH", time.time() - t0)
     if engine_repo is None or not engine_repo.is_dir():
         return GateResult(None, "skipped — no engine_repo provided", time.time() - t0)
     if not poc_test_name:
         return GateResult(None, "skipped — no poc_test_name provided", time.time() - t0)
+    # Language-aware dispatch: Solidity reads the forge L2 runlog;
+    # Rust/Solana re-runs cargo test on the standalone PoC.
+    if _detect_engine_language(engine_repo) == "solidity":
+        return _gate_poc_fails_pre_patch_solidity(
+            workspace, finding_id, engine_repo, poc_test_name,
+        )
+    if not _have_cargo():
+        return GateResult(None, "skipped — cargo not in PATH", time.time() - t0)
     # FIX B-#12: validate poc_test_name has the shape `test_<alnum_>`.
     # Without this, an empty / whitespace / wildcard value would expand
     # `cargo test --test <X>` into running ALL tests, any failure of which
@@ -671,6 +731,99 @@ def _unapply_patch(engine_repo: Path, patch_text: str) -> bool:
         return False
 
 
+def _gate_poc_passes_post_patch_solidity(
+    workspace: Path,
+    finding_id: int,
+    engine_repo: Path,
+    poc_test_name: str,
+) -> GateResult:
+    """Solidity variant: apply patch, redeploy the L2 PoC test, run
+    `forge test`, verify the test now PASSES (= the patch defuses
+    the bug). The L2 PoC test file persists at
+    ``<workspace>/tests/solidity/test_<name>.t.sol`` from L2 dispatch.
+    """
+    t0 = time.time()
+    if not _have_forge():
+        return GateResult(None, "skipped — forge not in PATH",
+                          time.time() - t0)
+    # Locate L2 test file in workspace
+    slug = poc_test_name[5:] if poc_test_name.startswith("test_") else poc_test_name
+    l2_src = workspace / "tests" / "solidity" / f"test_{slug}.t.sol"
+    if not l2_src.is_file():
+        return GateResult(
+            None,
+            f"skipped — L2 test file not found at {l2_src}",
+            time.time() - t0,
+        )
+
+    p = patch_path(workspace, finding_id)
+    if not p.is_file():
+        return GateResult(False, "no patch.diff to apply", time.time() - t0)
+    patch_text = p.read_text(encoding="utf-8", errors="replace")
+
+    # Apply patch
+    ok, err = _apply_patch(engine_repo, patch_text)
+    if not ok:
+        return GateResult(False, f"could not apply patch: {err}",
+                          time.time() - t0)
+
+    # Deploy L2 test into repo's test dir + run forge
+    repo_test_dir = engine_repo / "tests"
+    if not repo_test_dir.is_dir():
+        repo_test_dir = engine_repo / "test"
+    repo_test_dir.mkdir(parents=True, exist_ok=True)
+    deployed = repo_test_dir / f"jelleo_p3_verify_{slug}.t.sol"
+    try:
+        deployed.write_text(l2_src.read_text(encoding="utf-8", errors="replace"),
+                             encoding="utf-8")
+    except OSError as e:
+        _unapply_patch(engine_repo, patch_text)
+        return GateResult(False, f"could not deploy L2 test: {e}",
+                          time.time() - t0)
+
+    try:
+        proc = subprocess.run(
+            ["forge", "test", "--match-path",
+             str(deployed.relative_to(engine_repo)), "--json"],
+            cwd=str(engine_repo),
+            capture_output=True, text=True, timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        deployed.unlink(missing_ok=True)
+        _unapply_patch(engine_repo, patch_text)
+        return GateResult(False, "forge test timed out post-patch (>600s)",
+                          time.time() - t0)
+    finally:
+        deployed.unlink(missing_ok=True)
+        _unapply_patch(engine_repo, patch_text)
+
+    # The L2 PoC used to FAIL pre-patch (= bug). Post-patch, it must
+    # PASS (no test_results with status=Failure).
+    any_failed, n_failed, first_reason = _forge_json_has_failures(proc.stdout or "")
+    if any_failed:
+        return GateResult(
+            False,
+            f"PoC still fires post-patch ({n_failed} forge failure(s); "
+            f"first: {first_reason[:120]}) — patch does not defuse the bug",
+            time.time() - t0,
+        )
+    if proc.returncode != 0:
+        return GateResult(
+            False,
+            f"forge test exit {proc.returncode} post-patch (likely compile "
+            f"error or other infra issue): "
+            f"{(proc.stderr or proc.stdout)[:200]}",
+            time.time() - t0,
+        )
+    return GateResult(
+        True,
+        f"PoC passes post-patch — patch defuses the bug "
+        f"(forge test --match-path jelleo_p3_verify_{slug}.t.sol exit 0, no failures)",
+        time.time() - t0,
+        details={"mode": "forge-test-on-l2-redeploy"},
+    )
+
+
 def _gate_poc_passes_post_patch(
     workspace: Path,
     finding_id: int,
@@ -678,12 +831,17 @@ def _gate_poc_passes_post_patch(
     poc_test_name: str | None,
 ) -> GateResult:
     t0 = time.time()
-    if not _have_cargo():
-        return GateResult(None, "skipped — cargo not in PATH", time.time() - t0)
     if engine_repo is None or not engine_repo.is_dir():
         return GateResult(None, "skipped — no engine_repo provided", time.time() - t0)
     if not poc_test_name:
         return GateResult(None, "skipped — no poc_test_name provided", time.time() - t0)
+    # Language-aware dispatch
+    if _detect_engine_language(engine_repo) == "solidity":
+        return _gate_poc_passes_post_patch_solidity(
+            workspace, finding_id, engine_repo, poc_test_name,
+        )
+    if not _have_cargo():
+        return GateResult(None, "skipped — cargo not in PATH", time.time() - t0)
 
     p = patch_path(workspace, finding_id)
     if not p.is_file():
