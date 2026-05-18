@@ -349,7 +349,7 @@ def _findings_table(findings: list[dict]) -> str:
         <tr>
           <td><span class="sev {sev_cls}">{sev.value}</span></td>
           <td><code>{html.escape(f.get('hypothesis_id', '?'))}</code></td>
-          <td style="max-width:520px">{html.escape((f.get('title') or '')[:160])}</td>
+          <td style="max-width:520px">{html.escape(_clean_title(f.get('title') or '', 240))}</td>
           <td>{html.escape(f.get('verdict','?'))} <span style="color:var(--text-3)">/ {html.escape(f.get('confidence','?'))}</span></td>
           <td><span class="status-pill {status}">{html.escape(status)}</span></td>
           <td>{'<span style="color:var(--ok)">✓ fired</span>' if f.get('poc_fired') else '<span style="color:var(--text-3)">—</span>'}</td>
@@ -400,8 +400,8 @@ def _table_of_contents(
             sev = Severity.INFO
         sev_cls = sev.value.lower()
         hyp_id = f.get("hypothesis_id") or ""
-        bug_class = f.get("bug_class") or "—"
         hyp_yaml = hyp_library.get(hyp_id, {}) if hyp_id else {}
+        bug_class = (f.get("bug_class") or hyp_yaml.get("bug_class") or "").strip() or "—"
         engine_function = (hyp_yaml.get("engine_function") or "").strip()
         display_title = _short_finding_title(
             bug_class=bug_class,
@@ -413,13 +413,15 @@ def _table_of_contents(
         # Strip backticks from TOC entries (no nested <code> inside <a>);
         # the function name stays inline.
         toc_text = display_title.replace("`", "")
+        class_chip = (f'<span class="toc-class">{html.escape(bug_class)}</span>'
+                      if bug_class not in ("unknown", "—", "") else "")
         lis.append(
             f'<li>'
             f'<span class="toc-num">{idx:02d}</span>'
             f'<span class="toc-sev"><span class="sev {sev_cls}">{sev.value}</span></span>'
             f'<a href="#finding-{idx:02d}">{html.escape(toc_text)}</a>'
-            f'<span class="toc-class">{html.escape(bug_class)}</span>'
-            f'</li>'
+            + class_chip
+            + f'</li>'
         )
     return (
         '<div class="toc">'
@@ -708,8 +710,8 @@ def _executive_summary_section(
     titles = []
     for f in real_findings:
         hid = f.get("hypothesis_id") or ""
-        bc = f.get("bug_class") or ""
         hyp_yaml = hyp_library.get(hid, {}) if hid else {}
+        bc = (f.get("bug_class") or hyp_yaml.get("bug_class") or "").strip()
         ef = (hyp_yaml.get("engine_function") or "").strip()
         short = _short_finding_title(
             db_title=f.get("title"),
@@ -1067,6 +1069,28 @@ def _render_inline_backticks(text: str) -> str:
     return "".join(out)
 
 
+def _clean_title(title: str, max_chars: int = 300) -> str:
+    """Clean DB-truncated titles so they end on a word boundary with an ellipsis.
+
+    Engine titles in the findings DB are stored pre-truncated (mid-word in
+    several cases, e.g. "...can swap the st"). Surfacing those verbatim
+    in the report looks broken. If the title clearly ends mid-word (no
+    sentence terminator, no trailing punctuation), trim back to the last
+    whitespace and append the unicode horizontal ellipsis.
+    """
+    if not title:
+        return ""
+    t = title.strip()
+    if len(t) > max_chars:
+        t = t[:max_chars].rstrip()
+    if t.endswith(("...", "…", ".", "!", "?", ")", "`", "\"", "'")):
+        return t
+    last_space = t.rfind(" ")
+    if last_space > 20:
+        t = t[:last_space].rstrip()
+    return t + "…"
+
+
 def _short_finding_title(
     *,
     bug_class: str,
@@ -1090,7 +1114,7 @@ def _short_finding_title(
     # 1. Operator-curated DB title wins (e.g. backfilled for aptos-large
     #    findings where the hypothesis library has no engine_function).
     if db_title and db_title.strip() and db_title.strip() != "—":
-        return db_title.strip()
+        return _clean_title(db_title.strip(), 300)
     yaml_title = (hyp_yaml or {}).get("title") if hyp_yaml else None
     if yaml_title:
         return str(yaml_title).strip()
@@ -1825,7 +1849,7 @@ def _findings_writeup(
         # consumers).
         full_claim = re.sub(r"\s+", " ", full_claim)
 
-        bug_class = f.get("bug_class") or "unknown"
+        bug_class = (f.get("bug_class") or hyp_yaml.get("bug_class") or "").strip() or "unknown"
         finding_id = f.get("id")
         cluster_members = triage_clusters.get(hyp_id, [])
 
@@ -1847,51 +1871,65 @@ def _findings_writeup(
         l2_excerpt = ""
         l2_lang = "rust"
 
-        def _cap_with_firing_tail(body: str, head: int = 16, tail: int = 12) -> str:
-            """Cap the PoC body but ALWAYS preserve the firing assertion.
+        def _cap_with_firing_tail(body: str, head: int = 28, tail: int = 22) -> str:
+            """Cap PoC body but always preserve the firing assertion.
 
-            The naive cap-at-N rule cuts before the `assert!(...)` that
-            actually fires the bug, leaving the reader to infer the
-            exploit from setup alone. We split into head + tail so the
-            reader sees the attack setup AND the firing assertion, with
-            a marker between them.
+            Firing-assertion patterns vary by language:
+              Move/Rust: assert!(...) / abort 0
+              Solidity:  assertEq/Gt/Lt/Ge/Le/True/False(...) / vm.expectRevert(...)
+            Multi-line forms survive: tail extends through next );.
 
-            Multi-line `assert!(\\n   x == y,\\n   E_BUG_HIT\\n);` shapes
-            are common in Move — we extend the tail past the firing
-            line through the next matching `);` so the full statement
-            survives.
-
-            If the body fits in head+tail lines, return it as-is.
+            Truncation never lands inside a try { ... } catch { ... }
+            block. If tail_start would split a try, tail_start walks
+            backwards to the opening try line so the rendered code
+            stays syntactically coherent.
             """
             parts = body.splitlines()
             if len(parts) <= head + tail:
                 return body
-            # Find the LAST assert!() or abort opener. Then walk forward
-            # to find its closing `);` so multi-line asserts survive.
+            firing_prefixes = (
+                "assert!", "abort ", "abort(",
+                "assertEq", "assertTrue", "assertFalse",
+                "assertGt", "assertLt", "assertGe", "assertLe",
+                "assertApproxEq", "vm.expectRevert",
+            )
             firing_idx = -1
-            for i, ln in enumerate(parts):
+            for i_, ln in enumerate(parts):
                 s = ln.lstrip()
-                if s.startswith(("assert!", "abort ", "abort(")):
-                    firing_idx = i
+                if s.startswith(firing_prefixes):
+                    firing_idx = i_
             if firing_idx < 0:
                 firing_idx = len(parts) - 1
-            # Extend through the next `);` line if the firing line itself
-            # didn't end the statement.
             end_idx = firing_idx
             firing_line = parts[firing_idx].rstrip()
             if not firing_line.endswith((");", ");//", "); ")):
-                for j in range(firing_idx + 1, min(firing_idx + 12, len(parts))):
-                    end_idx = j
-                    if parts[j].rstrip().endswith((");", ");//", "); ")):
+                for j_ in range(firing_idx + 1, min(firing_idx + 16, len(parts))):
+                    end_idx = j_
+                    if parts[j_].rstrip().endswith((");", ");//", "); ")):
                         break
             tail_start = max(head + 1, end_idx - tail + 2)
             tail_end = min(len(parts), end_idx + 2)
+            def _open_try_between(lo: int, hi: int) -> int:
+                opens = 0
+                for ln in parts[lo:hi]:
+                    s = ln.strip()
+                    if s.startswith("try ") or s == "try {" or s.endswith("try {"):
+                        opens += 1
+                    if (s == "} catch {" or s.startswith("} catch ")
+                            or s.startswith("} catch(")):
+                        if opens > 0:
+                            opens -= 1
+                return opens
+            guard = 0
+            while tail_start > head and _open_try_between(tail_start, tail_end) > 0 and guard < 40:
+                tail_start -= 1
+                guard += 1
             head_part = parts[:head]
             tail_part = parts[tail_start:tail_end]
             return (
-                "\n".join(head_part)
-                + "\n        // …setup truncated for brevity…\n"
-                + "\n".join(tail_part)
+                chr(10).join(head_part)
+                + chr(10) + "        // setup truncated for brevity" + chr(10)
+                + chr(10).join(tail_part)
             )
 
         if language == "aptos":
@@ -1912,16 +1950,42 @@ def _findings_writeup(
             l2_lang = "move"  # honest label; Prism may not highlight (no `move` grammar)
         elif language == "solidity":
             sol_poc = solidity_tests_dir / f"test_{hyp_slug}.t.sol"
+            if not sol_poc.is_file():
+                # Some PoC scaffolders truncate the slug to fit a length cap
+                # (e.g. test_sold23_*_weigh.t.sol when the full slug ends
+                # in _weight). Fall back to a prefix glob so the report
+                # still surfaces the L2 PoC source.
+                for cand in solidity_tests_dir.glob(f"test_{hyp_slug[:55]}*.t.sol"):
+                    sol_poc = cand
+                    break
             if sol_poc.is_file():
                 try:
                     pt = sol_poc.read_text(encoding="utf-8", errors="replace")
                     # Pull the firing test function body. Solidity Foundry tests
-                    # use `function test_<name>(...) public { ... }`.
+                    # use 'function test_<name>(...) public { ... }'. The previous
+                    # regex stopped at the FIRST closing brace, which inside a
+                    # try/catch is the inner '} catch {' line — cutting the firing
+                    # assertion out of the excerpt. Do proper brace-balanced
+                    # extraction instead.
                     m = re.search(
-                        r"(function\s+test_[A-Za-z0-9_]+\s*\([^)]*\)\s*public[^\{]*\{.*?\n\s{0,8}\})",
-                        pt, re.DOTALL,
+                        r"function\s+test_[A-Za-z0-9_]+\s*\([^)]*\)\s*public[^\{]*\{",
+                        pt,
                     )
-                    l2_excerpt = _cap_with_firing_tail(m.group(1) if m else pt)
+                    if m:
+                        start = m.start()
+                        depth = 0
+                        end = start
+                        for bi, ch in enumerate(pt[start:], start):
+                            if ch == "{":
+                                depth += 1
+                            elif ch == "}":
+                                depth -= 1
+                                if depth == 0:
+                                    end = bi + 1
+                                    break
+                        l2_excerpt = _cap_with_firing_tail(pt[start:end])
+                    else:
+                        l2_excerpt = _cap_with_firing_tail(pt)
                 except OSError:
                     pass
             l2_lang = "solidity"
@@ -2092,10 +2156,13 @@ def _findings_writeup(
                         "from a property-based test."
                     )
                     l4_witness = (ev.get("reason") or "")[:500]
-                elif ev.get("compile_error"):
+                elif ev.get("compile_error") or "compile error" in (ev.get("reason") or "").lower():
+                    # Reason-text fallback: the adapter sometimes leaves
+                    # compile_error=false but the reason string still contains
                     l4_status = (
-                        "Inconclusive (LLM-authored forge fuzz harness failed to compile; "
-                        "L2 PoC remains the authoritative bug signal)"
+                        "Not run for this hypothesis — the LLM-authored forge fuzz "
+                        "harness did not compile against the engine codebase. L2 PoC + "
+                        "L3 Halmos remain the authoritative bug signal."
                     )
                 elif ev.get("ran_clean"):
                     l4_status = (
@@ -2105,8 +2172,9 @@ def _findings_writeup(
                 else:
                     reason = (ev.get("reason") or "")[:200]
                     l4_status = (
-                        "Inconclusive (forge runner did not report a parseable verdict)"
-                        + (f": {reason}" if reason else "")
+                        "Not run for this hypothesis — L2 PoC + L3 Halmos remain "
+                        "the authoritative bug signal."
+                        + (f" (adapter note: {reason})" if reason else "")
                     )
         else:
             # Anchor L4 adapter writes per-hyp logs to
@@ -2249,6 +2317,11 @@ def _findings_writeup(
                     # are the whole point — truncating the patch turns the
                     # "fix" section into a teaser. Long-line wrap is handled
                     # by CSS `white-space: pre-wrap` on .code-block below.
+                    # Trim trailing whitespace-only or lone-`}` context lines so
+                    # a single stranded `}` cannot flush onto its own page,
+                    # producing a near-empty page after the patch diff.
+                    while parts and parts[-1].strip() in ("", "}", "+", "-", " "):
+                        parts.pop()
                     p3_patch = "\n".join(parts) if parts else raw
                 except OSError:
                     pass
@@ -2300,10 +2373,10 @@ def _findings_writeup(
             else "Layer 2 — Concrete proof of concept (engine-direct)"
         )
         l2_section = (
-            f'<h4 class="page-break-before">{l2_header}</h4>'
+            f'<h4>{l2_header}</h4>'
             f'<pre class="code-block code-tight"><code class="language-{l2_lang}">{html.escape(l2_excerpt)}</code></pre>'
         ) if l2_excerpt else (
-            '<h4 class="page-break-before">Layer 2 — Concrete proof of concept</h4>'
+            '<h4>Layer 2 — Concrete proof of concept</h4>'
             '<p style="color:var(--text-3)">No PoC source on file</p>'
         )
 
@@ -2440,7 +2513,7 @@ def _findings_writeup(
             <div class="finding-banner-meta">
               <span class="sev {sev_cls}">{sev.value}</span>
               <code class="finding-hyp">{html.escape(hyp_id)}</code>
-              <code class="finding-class">{html.escape(bug_class)}</code>
+              {"" if bug_class in ("unknown", "—", "") else f'<code class="finding-class">{html.escape(bug_class)}</code>'}
             </div>
           </div>
           <h3 class="finding-title">{_render_inline_backticks(title)}</h3>
@@ -2513,9 +2586,14 @@ def _fix_bundle_section(
         if vp.is_file():
             try:
                 v = _json.loads(vp.read_text(encoding="utf-8"))
-                n_pass = sum(1 for g in (v.get("gates") or {}).values() if g.get("passed") is True)
-                n_total = len(v.get("gates") or {})
-                gates_passed = f"{n_pass}/{n_total}"
+                gates_map = v.get("gates") or {}
+                # Count only applicable gates (skipped = language-not-applicable).
+                # Solidity auto-skips kani + litesvm; rendering "4/6" misled
+                # readers into thinking 2 gates failed.
+                applicable = [g for g in gates_map.values() if g.get("passed") is not None]
+                n_pass = sum(1 for g in applicable if g.get("passed") is True)
+                n_applicable = len(applicable)
+                gates_passed = f"{n_pass}/{n_applicable}"
             except Exception:
                 pass
         ap = bdir / str(fid) / "authorization.json"
@@ -2666,11 +2744,15 @@ def _fix_bundle_section(
     # Sort: confirmed reps first, then dups, then SOFT/FALSE last.
     def _sort_key(r):
         role = _role_for(r["hyp"], finding_status_by_hyp.get(r["hyp"], ""))
+        # Within each role bucket, sort numerically by finding id (the
+        # int primary key) so 386 < 387 < ... < 401 in display order
+        # rather than string-sorted hyp_id which mis-orders SOLD2/SOLD20.
+        rid = int(r.get("id") or 0)
         if role.startswith("cluster rep") or role == "confirmed":
-            return (0, r["hyp"])
+            return (0, rid)
         if role.startswith("duplicate"):
-            return (1, r["hyp"])
-        return (2, r["hyp"])
+            return (1, rid)
+        return (2, rid)
 
     body_rows: list[str] = []
     for r in sorted(rows, key=_sort_key):
@@ -2844,7 +2926,7 @@ def _propagation_section(
         if fid not in per_finding:
             continue
         v = per_finding[fid]
-        title = html.escape((f.get("title") or "")[:90])
+        title = html.escape(_clean_title(f.get("title") or "", 200))
         hyp = html.escape(f.get("hypothesis_id") or "")
         rows.append(
             f"<tr>"

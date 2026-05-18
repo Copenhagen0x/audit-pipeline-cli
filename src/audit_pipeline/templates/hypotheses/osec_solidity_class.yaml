@@ -536,3 +536,440 @@ hypotheses:
       function gated by `onlyGovernor` (or an arbiter role) that
       transitions Disputed -> Released/Refunded and pays out
       accordingly. Or auto-resolve disputes after a timeout.
+
+  # ────────── Re-anchor of SOLD8 + SOLD11 for medium ──────────
+  # The small-repo SOLD8 (bridgeToken tx.origin) and SOLD11
+  # (ContractC.distributeRewards push-loop) don't exist as-named
+  # in solidity-medium — ContractC has different functions there.
+  # The bug CLASSES still apply, just at different code anchors.
+  # SOLD29 + SOLD30 re-target the same patterns to medium's actual
+  # functions. Keeping SOLD8 / SOLD11 in the library because they
+  # are still grounded in solidity-small.
+
+  - id: SOLD29-gov-emergency-pay-tx-origin-auth
+    class: authorization
+    severity: Critical
+    bug_class: tx-origin-auth
+    engine_function: "ContractC.emergencyPay"
+    target_file: src/ContractC.sol
+    claim: >
+      ContractC.emergencyPay authenticates the caller with
+      `if (tx.origin != governor) revert ContractCNotOriginGovernor();`
+      and then performs an unrestricted `IERC20(token).safeTransfer(to, amount)`
+      to a caller-supplied recipient. The function has NO `onlyGovernor`
+      modifier and ANY address can invoke it. The single check uses
+      `tx.origin` instead of `msg.sender` — any contract that tricks the
+      governor EOA into calling ANY function on a malicious contract
+      (airdrop claim, dApp interaction, phishing) can have that
+      malicious contract call `emergencyPay` with `tx.origin == governor`
+      still true and drain arbitrary tokens out of the treasury to the
+      attacker's chosen `to` address.
+    relevant_instructions: |
+      ContractC.emergencyPay — replace the `tx.origin != governor` check
+      with `onlyGovernor` (modifier checks `msg.sender == governor`).
+      Both the missing access-control modifier on the function and the
+      `tx.origin`-instead-of-`msg.sender` use are bugs; the canonical
+      fix addresses both at once.
+
+  - id: SOLD30-reward-distributor-push-loop-dos
+    class: invariant_property
+    severity: Medium
+    bug_class: dos-on-batch-transfer
+    engine_function: "RewardDistributor.distributeEpoch"
+    target_file: src/modules/RewardDistributor.sol
+    claim: >
+      RewardDistributor.distributeEpoch loops over `recipients[]` and
+      calls `rewardToken.safeTransfer(account, amount)` for each one.
+      `safeTransfer` REVERTS on transfer failure (returning-false token
+      or a recipient contract that reverts in `tokensReceived` /
+      `receive`). A single griefing recipient (denylisted address on a
+      blocklist token like USDC/USDT, or a contract that reverts in its
+      receive hook) DoSs the entire epoch's distribution for everyone.
+      The `claim()` pull-pattern partially mitigates (per-recipient
+      claims still work), but the operator-friendly batch path is
+      fully bricked.
+    relevant_instructions: |
+      RewardDistributor.distributeEpoch — wrap each `safeTransfer` in
+      a `try { ... } catch { continue; }` block so one bad recipient
+      doesn't poison the batch. Or remove distributeEpoch entirely and
+      force pull-only via `claim()` (the canonical pattern).
+
+  - id: SOLD31-lending-borrow-permit-sig-no-chainid
+    class: invariant_property
+    severity: Critical
+    bug_class: signature-replay
+    engine_function: "ContractB.permitBorrow"
+    target_file: src/ContractB.sol
+    claim: >
+      ContractB.permitBorrow validates a signature whose digest (in
+      SignatureLib.recoverBorrowPermit) is
+      `keccak256(abi.encodePacked("BORROW_PERMIT", borrower, asset, amount, deadline))`.
+      The signed hash does NOT include the borrower's nonce, the
+      chainId, or the verifying contract address. A signature is valid
+      until `deadline` and replayable: each replay overwrites
+      `borrowAllowance[borrower][delegate]` with the signed amount,
+      which the delegate can then drain via `borrowFrom` in the same
+      tx. Cross-chain replay is also possible — the same signature
+      authorizes borrowing on every chain where ContractB is deployed
+      at the same address (and even on forks at unrelated addresses
+      if the verifying contract isn't bound). Standard EIP-712 fixes
+      both: bind chainid + verifyingContract in the domain separator
+      and bump a per-borrower nonce inside the typed-data struct.
+    relevant_instructions: |
+      ContractB.permitBorrow + libraries/SignatureLib.sol — switch
+      recoverBorrowPermit to an EIP-712 typed-data digest that binds
+      `block.chainid`, `address(this)`, and a monotonically-incrementing
+      `nonces[borrower]`. Bump the nonce after a successful recover so
+      a replayed signature recovers a different (likely zero) address
+      and reverts at the `signer == borrower` check.
+
+  - id: SOLD32-gov-proposal-sig-no-chainid
+    class: invariant_property
+    severity: Critical
+    bug_class: signature-replay
+    engine_function: "ContractC.proposeBySig"
+    target_file: src/ContractC.sol
+    claim: >
+      ContractC.proposeBySig validates a signature whose digest (in
+      SignatureLib.recoverProposal) is
+      `keccak256(abi.encodePacked("PROPOSAL", proposer, target, value, keccak256(data)))`.
+      The signed hash does NOT include the proposer's nonce, the
+      chainId, or the verifying contract address. Once the proposer
+      meets `governanceToken.balanceOf >= proposalThreshold` and
+      produces ONE signature, an attacker can replay it to file the
+      same proposal multiple times across forks/chains, and re-file
+      after the proposal state is cleared. The downstream
+      `proposals[proposalId].state != None` check only prevents
+      replay AT THE SAME ID within one chain — fork-replay produces
+      a distinct proposalId on the fork and still executes.
+    relevant_instructions: |
+      ContractC.proposeBySig + libraries/SignatureLib.sol — switch
+      recoverProposal to an EIP-712 typed-data digest that binds
+      `block.chainid` and `address(this)`, plus a per-proposer
+      monotonic nonce inside the typed-data struct (bumped on
+      successful recover).
+
+  - id: SOLD33-vault-share-inflation-via-idle-donation
+    class: invariant_property
+    severity: Critical
+    bug_class: share-inflation
+    engine_function: "ContractA.totalAssets"
+    target_file: src/ContractA.sol
+    claim: >
+      ContractA.totalAssets returns
+      `assetToken.balanceOf(this) + totalStrategyDebt − lockedProfitDecay`.
+      `idleAssets()` reads `balanceOf(this)` directly, which includes
+      any tokens transferred to the vault address outside of `deposit()`.
+      The `lockedProfit` mechanism only decays profits reported by
+      strategies via `report()`; direct token donations bypass it
+      entirely. An attacker who is the first depositor (or any
+      depositor before a victim) donates a large amount directly to
+      the vault, then floor-division in `ShareMath.assetsToShares`
+      makes the victim's `deposit` round to 0 shares — the principal
+      is permanently confiscated. Same root pattern as the SOLD2
+      first-depositor donation attack but on the lockedProfit-style
+      vault.
+    relevant_instructions: |
+      ContractA.totalAssets — drop `idleAssets()` and account only
+      through the ledger that `deposit` / `report` / `recallDebt`
+      mutate (e.g. a `totalManaged` counter). Donations land in the
+      vault's balance but do NOT inflate share price. Equivalent fix:
+      have `deposit` consume `_amountIn` from the user via
+      `safeTransferFrom` AFTER snapshotting `pre = idleAssets()`,
+      then mint shares against `(amount - (idleAssets() - pre - amount))`
+      so donations are sterilised on the first deposit that
+      witnesses them.
+
+  - id: SOLD34-price-router-zero-staleness-disables-check
+    class: invariant_property
+    severity: High
+    bug_class: oracle-staleness
+    engine_function: "PriceRouter.price"
+    target_file: src/modules/PriceRouter.sol
+    claim: >
+      PriceRouter.price gates its staleness check on
+      `if ((!(config.maxStaleness == 0) && (block.timestamp > updatedAt + maxStaleness))) revert`.
+      When `maxStaleness == 0`, the left operand of `&&` is false and
+      the comparison short-circuits — NO staleness check runs.
+      `setSource(asset, src, 0)` and `setManualSource(asset, 0)` are
+      both callable by `RISK_ROLE` and silently disable freshness for
+      that asset. A compromised RISK_ROLE key can pin a stale price
+      indefinitely, letting an attacker borrow against inflated
+      collateral or trigger liquidations against deflated collateral
+      hours/days after the true price has moved.
+    relevant_instructions: |
+      PriceRouter.price — invert the guard so `maxStaleness == 0`
+      reverts (`PriceRouterUnconfigured`) rather than disables the
+      check. Or, treat 0 as a sentinel for "use default max staleness"
+      and apply a non-zero protocol-wide minimum (e.g. 1 hour).
+      `setSource`/`setManualSource` should reject `maxStaleness == 0`
+      at the setter level so it never persists.
+
+  - id: SOLD35-bridge-escrow-lock-variant-constant-drift
+    class: invariant_property
+    severity: High
+    bug_class: accounting-drift
+    engine_function: "BridgeEscrow.lock4"
+    target_file: src/modules/BridgeEscrow.sol
+    claim: >
+      BridgeEscrow exposes three near-identical `lock4 / lock9 / lock10`
+      entrypoints. Each variant rewrites the same record's
+      `lockedValue`, `pending`, `credits[owner]`, and `debits[owner]`
+      using a SLIGHTLY DIFFERENT set of constants in the index multiplier
+      (`globalIndex + 4e15` vs `+9e15` vs `+10e15`) and claim-value
+      computation (`claimedValue + 7*x` vs `+12*x` vs `+10*x`). The
+      pending-vs-debit split uses the same `/ 2` and `/ 8` divisors
+      across all three. One variant has a wrong constant that
+      systematically over- or under-credits the owner on every call,
+      drifting `credits[owner]` away from `debits[owner]`. After many
+      calls the global accounting (`totalActive`, `totalPending`,
+      `totalSettled`) diverges from per-record sums by an attacker-
+      controllable margin, letting the owner of a stale record claim
+      excess value through `claim4/claim1` at settlement time.
+    relevant_instructions: |
+      BridgeEscrow.lock4 / lock9 / lock10 — collapse the three
+      variants into a single function with the correct constants
+      (the constants in lock10 appear to be the canonical reference;
+      lock4 and lock9 each drift in one direction). The credit/debit
+      split must equal the rounding remainder of the divisor
+      (e.g. `credits += (delta - (delta / 2))` so credits + delta/2
+      always exactly equals `delta`).
+
+  - id: SOLD36-modules-set-operator-instant-takeover
+    class: invariant_property
+    severity: High
+    bug_class: missing-access-control
+    engine_function: "BridgeEscrow.setOperator"
+    target_file: src/modules/BridgeEscrow.sol
+    claim: >
+      Across all 10 modules (BridgeEscrow, FeeDistributor, RiskEngine,
+      PortfolioMargin, TreasuryAccounting, GovernanceTimelock,
+      AuctionHouse, StrategyRegistry, SettlementEngine, …)
+      `setOperator(address newOp) external onlyOperator { operator = newOp; }`
+      instantly replaces the operator with no timelock, no two-step
+      accept (`acceptOperator` pattern), no escrow window, and no
+      revocation of the old key. A compromised operator key —
+      whether through phishing, a leaked HSM credential, or a
+      malicious insider — translates directly into full unilateral
+      takeover of every privileged operation in the module, with no
+      recovery window for the protocol admin to intervene. Because
+      `setOperator` is the FIRST function an attacker calls after
+      compromise (locking out the legitimate operator), there is no
+      catch-up monitoring that can reverse it.
+    relevant_instructions: |
+      Each module's `setOperator` — implement the two-step
+      `transferOperator` / `acceptOperator` pattern. `transferOperator`
+      stores the pending operator in `pendingOperator` and emits
+      `OperatorTransferStarted`. `acceptOperator` (callable only by
+      `pendingOperator`) finalises the change AFTER `block.timestamp
+      >= pendingOperatorAfter` where `pendingOperatorAfter` is set
+      to `block.timestamp + OPERATOR_TIMELOCK` (e.g. 48 hours).
+      During the timelock, the current operator can `cancelOperatorTransfer`.
+
+  - id: SOLD37-debt-ledger-reduce-debt-global-decoupling
+    class: invariant_property
+    severity: High
+    bug_class: accounting-drift
+    engine_function: "DebtLedger._reduceDebt"
+    target_file: src/modules/DebtLedger.sol
+    claim: >
+      DebtLedger._reduceDebt updates the global counter with
+      `totalDebtByAsset[asset] = (actualReduction > totalDebtByAsset[asset]) ? 0 : totalDebtByAsset[asset] - actualReduction;`.
+      The guard silently snaps the global to zero whenever the
+      per-account reduction exceeds the tracked total. This happens
+      legitimately when one borrower's `currentDebt` grew via
+      interest (`addDebt` updates the principal but interest accrues
+      via the AccountingLib `index`) faster than other reductions
+      tracked the global. Repeated reductions cumulatively decouple
+      `totalDebtByAsset[asset]` from `Σ debts[borrower][asset]`.
+      Downstream consumers that compare a borrower's debt against
+      the global (e.g. utilisation-based interest curves, per-asset
+      borrow caps, treasury reserve calls) silently use a stale
+      undercount and let new borrowers exceed the intended cap.
+    relevant_instructions: |
+      DebtLedger._reduceDebt — when `actualReduction >
+      totalDebtByAsset[asset]`, this indicates interest-accrual
+      divergence rather than a math error. Re-snapshot the global
+      from the sum of per-account currentDebts (or maintain
+      `totalDebtByAsset` as a true sum that's incremented in
+      `_increaseDebt` and decremented BY THE SAME amount as the
+      per-account `subDebt` returns — never zero out as a fallback).
+
+  - id: SOLD38-fee-distributor-accrue-distribute-drift
+    class: invariant_property
+    severity: Medium
+    bug_class: accounting-drift
+    engine_function: "FeeDistributor.accrue4"
+    target_file: src/modules/FeeDistributor.sol
+    claim: >
+      FeeDistributor exposes `accrue4 / accrue9 / accrue10` and
+      `distribute4 / distribute1` variants sharing structure but
+      diverging in the constants applied to the fee-share computation
+      and the distribute-payout floor-division. One variant systematically
+      over-accrues fees that the matching distribute path cannot pay
+      out, or under-accrues so distribute drains more than was
+      accrued. Per-call drift is small (rounding remainder of the
+      divisor) but accumulates across epochs; the operator who knows
+      which variant to use can extract the drift to the treasury
+      address indirectly via the `distribute` payout target.
+    relevant_instructions: |
+      FeeDistributor.accrue4 / 9 / 10 + distribute4 / 1 — pick ONE
+      canonical accrual + distribution path (the constants in the
+      `10` variants appear to be the reference) and remove the
+      others. Or audit each variant for the divisor remainder and
+      route remainders to a `dustBuffer` that the treasury can sweep
+      via a single privileged path.
+
+  - id: SOLD39-auction-house-bid-close-payout-mismatch
+    class: invariant_property
+    severity: Medium
+    bug_class: accounting-drift
+    engine_function: "AuctionHouse.bid4"
+    target_file: src/modules/AuctionHouse.sol
+    claim: >
+      AuctionHouse.bid4 / bid9 / bid10 accept a bid and update the
+      auction record's locked value, while close4 / close1 pay out
+      the seller and refund losing bidders. One variant computes the
+      bid increment with a different constant than the matching close
+      path uses to compute payout, so a winning bid of X recorded via
+      bid_N pays out Y ≠ X at close — leaving the difference stuck
+      in the contract (DoS for the seller) OR over-paying (drain).
+    relevant_instructions: |
+      AuctionHouse.bid4 / 9 / 10 + close4 / 1 — bid increment and
+      close payout must use the same WAD-arithmetic constants. Pick
+      one bid-vs-close pair (the `10` variant appears canonical) and
+      remove the others. Add an invariant test that for every auction
+      `sum(refunds) + sellerPayout == sum(bids deposited)`.
+
+  - id: SOLD40-gov-timelock-execute-delay-bypass
+    class: invariant_property
+    severity: Medium
+    bug_class: missing-access-control
+    engine_function: "GovernanceTimelock.queue4"
+    target_file: src/modules/GovernanceTimelock.sol
+    claim: >
+      GovernanceTimelock.queue4 / queue9 / queue10 each register an
+      action with an `eta` (execute-after timestamp). executeAction4
+      and executeAction1 then check that `block.timestamp >= eta`
+      before running the action. One queue variant uses a different
+      delay constant than the executeAction check expects, OR sets
+      `eta = block.timestamp + delay` while the check is
+      `block.timestamp > eta` (off-by-one strict-vs-loose). A
+      proposer who routes their action through the buggy variant can
+      execute one block earlier than the timelock advertises, OR can
+      avoid the timelock entirely if the variant skips the eta
+      assignment.
+    relevant_instructions: |
+      GovernanceTimelock.queue4 / 9 / 10 + executeAction4 / 1 — all
+      three queue paths must set `eta = block.timestamp + MIN_DELAY`
+      with the same `MIN_DELAY` constant the executeAction check
+      uses. Standardise the strict comparison: `if (block.timestamp
+      < eta) revert ContractCInvalidState();` (loose ≥, never `>`).
+
+  - id: SOLD41-portfolio-margin-evaluate-adjust-mismatch
+    class: invariant_property
+    severity: Medium
+    bug_class: accounting-drift
+    engine_function: "PortfolioMargin.evaluate4"
+    target_file: src/modules/PortfolioMargin.sol
+    claim: >
+      PortfolioMargin.evaluate4 / evaluate9 / evaluate10 compute the
+      margin requirement for a portfolio record; adjust4 / adjust1
+      mutate the recorded collateral / debt and re-check margin. One
+      evaluate variant uses a different risk-weight or haircut
+      constant than adjust expects, so a portfolio that passes
+      evaluate_N at the time of adjust still becomes under-margined
+      under the canonical evaluate path. An attacker who knows which
+      variant to call can take positions that fail margin under any
+      other check, then liquidate THEMSELVES via the canonical path
+      and pocket the liquidation bonus.
+    relevant_instructions: |
+      PortfolioMargin.evaluate4 / 9 / 10 + adjust4 / 1 — single source
+      of truth for risk weights and haircut constants. Adjust must
+      recompute margin using the same evaluator function consumers
+      see externally (no `_internal_eval` shortcut).
+
+  - id: SOLD42-risk-engine-assess-rebalance-threshold-mismatch
+    class: invariant_property
+    severity: Medium
+    bug_class: accounting-drift
+    engine_function: "RiskEngine.assess4"
+    target_file: src/modules/RiskEngine.sol
+    claim: >
+      RiskEngine.assess4 / 9 / 10 compute a risk score for a position;
+      rebalance4 / rebalance1 take action when the score crosses a
+      threshold. The variants use different threshold constants OR
+      different score formulas, so a position deemed safe by assess_N
+      may be marked rebalance-eligible by another variant and
+      vice-versa. Operator can pick the favourable variant to force
+      or prevent rebalances for specific positions.
+    relevant_instructions: |
+      RiskEngine.assess4 / 9 / 10 + rebalance4 / 1 — one canonical
+      `_computeRiskScore` and ONE threshold constant. The variants
+      should be view-only conveniences that all call the same
+      internal function.
+
+  - id: SOLD43-settlement-engine-process-finalize-batch-drift
+    class: invariant_property
+    severity: Medium
+    bug_class: accounting-drift
+    engine_function: "SettlementEngine.process4"
+    target_file: src/modules/SettlementEngine.sol
+    claim: >
+      SettlementEngine.process4 / process9 / process10 process a
+      single settlement record; finalizeBatch4 / finalizeBatch1
+      settle a batch and emit per-record results. One process
+      variant updates the cumulative `totalSettled` differently from
+      the per-record amount the matching finalize path expects to
+      see, so the global drifts from `Σ records`. Downstream
+      consumers (treasury reconciliation, fee distribution) read
+      the stale total and produce wrong payouts.
+    relevant_instructions: |
+      SettlementEngine.process4 / 9 / 10 + finalizeBatch4 / 1 — single
+      `_processOne` internal function that all entrypoints call;
+      `totalSettled` only mutated in `_processOne`.
+
+  - id: SOLD44-strategy-registry-report-harvest-debt-drift
+    class: invariant_property
+    severity: Medium
+    bug_class: accounting-drift
+    engine_function: "StrategyRegistry.report4"
+    target_file: src/modules/StrategyRegistry.sol
+    claim: >
+      StrategyRegistry.report4 / report9 / report10 record a
+      strategy's gain or loss; harvest4 / harvest1 transfer the
+      realised gain to the vault. One report variant updates
+      `strategyData[strategy].debt` differently from how harvest
+      computes the transferable gain (`balanceOf(strategy) - debt`),
+      so a strategy's reported gain doesn't match what harvest can
+      pull. Operator can route a strategy through a specific report
+      variant to hide a loss (report inflated debt → harvest sees
+      net-zero gain instead of a loss).
+    relevant_instructions: |
+      StrategyRegistry.report4 / 9 / 10 + harvest4 / 1 — one
+      `_reportOne(strategy, gainOrLoss)` internal function used by
+      all three report entrypoints. `harvest` must read the same
+      `debt` field that report sets, with no off-by-one or
+      different-haircut transformation.
+
+  - id: SOLD45-treasury-accounting-settle-sweep-balance-drift
+    class: invariant_property
+    severity: Medium
+    bug_class: accounting-drift
+    engine_function: "TreasuryAccounting.settle4"
+    target_file: src/modules/TreasuryAccounting.sol
+    claim: >
+      TreasuryAccounting.settle4 / settle9 / settle10 record a
+      treasury settlement for an account; sweep4 / sweep1 pull the
+      settled balance to the treasury wallet. One settle variant
+      moves the credit into a different sub-balance (e.g.
+      `pending` vs `settled`) than sweep reads from, so settled
+      funds either accumulate untouchable (DoS for the treasury) or
+      sweep over-pulls from `pending` that hadn't been settled yet
+      (drain).
+    relevant_instructions: |
+      TreasuryAccounting.settle4 / 9 / 10 + sweep4 / 1 — single
+      sub-balance (`settled`) that all settle entrypoints write to
+      and sweep reads from. The `pending` field should only be
+      mutated by external income paths, never by settle.
+
