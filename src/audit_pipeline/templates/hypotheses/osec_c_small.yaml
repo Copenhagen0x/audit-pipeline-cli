@@ -1,0 +1,270 @@
+# OtterSec evaluation — C / c-small hypothesis library.
+#
+# Authored after a manual read of every source file in
+# sahuang-osec/c-small. Each hypothesis is bound to a concrete
+# function/file in that repo — NOT speculative, NOT cross-target.
+# The c-medium and c-large cells get their own tailored YAMLs after
+# the same read-the-source-first treatment.
+#
+# Toolchain reminder for this language cell:
+#   * L2 PoC: clang 14 + ASan/UBSan/SignedOverflowSan
+#   * L3 formal: CBMC 5.12
+#   * L4 runtime: AFL++ 4.00c + afl-clang-fast
+#
+# Static-function reach in L2: the engine build path skips standalone
+# program_*.c files (each owns a main()), so the LLM PoC author must
+# `#define main __unused_main_program_X` then `#include "program_X.c"`
+# directly to call its static functions. Prompts in the C adapters
+# already teach this.
+#
+# Run with:
+#   audit-pipeline hunt \
+#     --hypotheses .../osec_c_small.yaml \
+#     --language c \
+#     --refinement-rounds 1 \
+#     --max-concurrent 4
+
+hypotheses:
+
+  # ─────────────────── program_a.c — frame parser ───────────────────
+
+  - id: CSMALL01-parse-frame-off-by-one
+    class: memory_safety
+    severity: Critical
+    bug_class: heap-buffer-overflow
+    engine_function: parse_frame
+    target_file: src/program_a.c
+    claim: >
+      `parse_frame` must reject any frame whose declared payload_len is
+      `>=` the destination buffer size, not just `>`. The current bounds
+      check `sizeof(out->payload) >= payload_len` admits payload_len == 64,
+      after which `out->payload[payload_len] = 0` writes one byte past
+      the end of the 64-byte payload buffer. Confirmed via ASan smoke
+      test during toolchain bring-up.
+    relevant_instructions: |
+      Inspect the bounds check immediately above the null-terminator
+      write at the tail of parse_frame.
+    relevant_constants: |
+      sizeof(out->payload) == 64
+
+  - id: CSMALL02-parse-frame-unbounded-length
+    class: input_validation
+    severity: High
+    bug_class: missing-length-sanity
+    engine_function: parse_frame
+    target_file: src/program_a.c
+    claim: >
+      Every multi-byte length field read by `read_u16` from the frame
+      header is validated against the actual remaining input AND the
+      target buffer capacity BEFORE being used as a memcpy length.
+      Reading payload_len directly from attacker bytes and only
+      comparing to `sizeof(out->payload)` with `>=` (see CSMALL01) is
+      the upstream primitive for the off-by-one heap write.
+    relevant_instructions: |
+      Look at how `read_u16(buf+1)` flows into payload_len and is then
+      used as a memcpy bound.
+
+  # ─────────────────── program_b.c — KV store ───────────────────
+
+  - id: CSMALL03-store-save-symlink-toctou
+    class: filesystem_race
+    severity: High
+    bug_class: toctou-symlink
+    engine_function: store_save
+    target_file: src/program_b.c
+    claim: >
+      `store_save` performs `lstat(store->path, &st)` then later
+      `fopen(store->path, "w")` with no fd-based open between the two.
+      An attacker who controls the parent directory can swap the path
+      to a symlink between the lstat and the fopen, causing the
+      subsequent `chmod 0600` and write to land on the symlink target
+      (not the original file).
+    relevant_instructions: |
+      Inspect the full lifecycle of store->path inside store_save —
+      from the lstat call through the fopen, fchmod/chmod, and fwrite.
+
+  - id: CSMALL04-predictable-temp-path
+    class: insecure_temp_file
+    severity: Medium
+    bug_class: predictable-temp-path
+    engine_function: store_open
+    target_file: src/program_b.c
+    claim: >
+      The KV store opens a hard-coded path under /tmp
+      (`/tmp/synthetic_kv_store.txt`). On a multi-user host, any
+      unprivileged actor can pre-create the file or symlink it to a
+      sensitive target before the first save, capturing the process's
+      writes or denying service.
+    relevant_constants: |
+      "/tmp/synthetic_kv_store.txt" — the hard-coded path constant.
+
+  - id: CSMALL05-load-line-value-truncation
+    class: memory_safety
+    severity: Medium
+    bug_class: buffer-truncation-without-error
+    engine_function: load_line
+    target_file: src/program_b.c
+    claim: >
+      `load_line` parses a "key=value" line into fixed-size `key[32]`
+      and `value[96]` buffers. The implementation must reject — not
+      silently truncate — inputs whose value length equals or exceeds
+      the destination capacity. Silently keeping a truncated value
+      means the persisted store and the in-memory view diverge across
+      save/load round trips.
+    relevant_instructions: |
+      Track every `sizeof(value) > value_len` check inside load_line
+      and the corresponding action when the bound is hit exactly.
+
+  # ─────────────────── program_c.c — job dispatcher ───────────────────
+
+  - id: CSMALL06-dispatch-job-use-after-free
+    class: memory_safety
+    severity: Critical
+    bug_class: use-after-free
+    engine_function: dispatch_job
+    target_file: src/program_c.c
+    claim: >
+      In the retry branch of `dispatch_job`, the job pointer is freed
+      and then immediately reused: `free(job); rc = cb(job, ctx);`. The
+      callback is invoked with a dangling pointer. Any heap reuse
+      between the free and the callback turns this into a controllable
+      type-confusion primitive.
+    relevant_instructions: |
+      Read dispatch_job line-by-line — specifically the else-branch
+      following the `(job->attempts <= 1) || (rc == 0)` test.
+
+  - id: CSMALL07-dispatch-job-double-free
+    class: memory_safety
+    severity: Critical
+    bug_class: double-free
+    engine_function: dispatch_job
+    target_file: src/program_c.c
+    claim: >
+      The retry branch of `dispatch_job` frees `job` internally. The
+      surrounding harness/main also frees the same `job` pointer after
+      dispatch returns. Under any callback rc that exercises the retry
+      branch, the result is a double-free of the same heap chunk.
+    relevant_instructions: |
+      Cross-reference every `free(job)` site between dispatch_job and
+      the caller(s) in main().
+
+  - id: CSMALL08-dispatch-retry-counter-logic
+    class: logic_error
+    severity: Medium
+    bug_class: retry-counter-inversion
+    engine_function: dispatch_job
+    target_file: src/program_c.c
+    claim: >
+      The retry gate `(job->attempts <= 1) || (rc == 0)` is the
+      stop-condition; everything else retries. Combined with the fact
+      that `attempts` is not decremented inside dispatch_job, an
+      attacker-controlled callback rc can pin the job in either the
+      no-retry or infinite-retry regime depending only on the initial
+      `attempts` value.
+    relevant_instructions: |
+      Trace the lifetime of job->attempts across the call into and out
+      of dispatch_job — is it ever decremented anywhere?
+
+  # ─────────────────── auth/session.c ───────────────────
+
+  - id: CSMALL09-audit-sink-format-string
+    class: format_string
+    severity: Critical
+    bug_class: format-string-injection
+    engine_function: audit_sink
+    target_file: src/auth/session.c
+    claim: >
+      `audit_sink` invokes `fprintf(stderr, line)` where `line` is the
+      formatted audit string built by `session_audit` from caller-
+      supplied `event` and `detail` arguments. Because `line` is used
+      as the format string (not as a `%s` argument), an attacker who
+      controls any portion of event/detail can inject `%s`/`%n`/`%p`
+      conversion specifiers and read or write arbitrary memory. Clang
+      already warns with -Wformat-security.
+    relevant_instructions: |
+      Find the call-chain: session_audit -> snprintf into a buffer ->
+      audit_sink(buf) -> fprintf(stderr, buf).
+
+  - id: CSMALL10-session-check-missing-role-gate
+    class: authorization
+    severity: High
+    bug_class: missing-privilege-check
+    engine_function: session_check
+    target_file: src/auth/session.c
+    claim: >
+      `session_check` returns true on `token == stored && expires_at >=
+      now` alone — there is no role/scope/privilege flag on the
+      session, so any holder of a valid token gets the same authority
+      as every other holder. Any code path that calls session_check
+      and then performs a privileged action is admin-bypass primitive
+      by construction.
+    relevant_instructions: |
+      Inventory every caller of session_check and check whether the
+      caller performs its own role/scope gate before mutating state.
+
+  - id: CSMALL11-session-token-entropy
+    class: crypto_weakness
+    severity: Medium
+    bug_class: weak-token-entropy
+    engine_function: session_create
+    target_file: src/auth/session.c
+    claim: >
+      Session tokens issued by `session_create` are produced from a
+      crypto-strong, kernel-backed entropy source (getrandom /
+      arc4random). Falling back to `rand()` or any seeded-PRNG that
+      can be observed or guessed admits session-forgery without
+      compromising the secret store.
+    relevant_instructions: |
+      Trace the entropy path that feeds the bytes of the issued token.
+
+  # ─────────────────── common/buffer.c ───────────────────
+
+  - id: CSMALL12-buffer-append-size-overflow
+    class: integer_overflow
+    severity: High
+    bug_class: size-t-wrap-then-heap-overflow
+    engine_function: buffer_append
+    target_file: src/common/buffer.c
+    claim: >
+      `buffer_append` computes `size_t need = (b->len + n) + 1` and
+      uses `need` to drive reserve/allocation. For sufficiently large
+      `b->len + n`, the sum wraps to a small value, the buffer is
+      under-reserved, and the subsequent memcpy of `n` bytes overflows
+      the heap allocation. Integer-overflow → heap-overflow chain.
+    relevant_instructions: |
+      Inspect every addition that flows into an allocation size inside
+      buffer_append (and any helper it calls).
+
+  - id: CSMALL13-buffer-reserve-doubling-overflow
+    class: integer_overflow
+    severity: Medium
+    bug_class: doubling-overflow
+    engine_function: buffer_reserve
+    target_file: src/common/buffer.c
+    claim: >
+      `buffer_reserve` doubles `new_cap` in a loop until `new_cap >=
+      requested`. For sufficiently large `requested`, the doubling
+      wraps `new_cap` to a small value, the loop exits with an
+      undersized capacity, and the caller proceeds to memcpy beyond
+      the allocation.
+    relevant_instructions: |
+      Examine the `new_cap *= 2` (or `new_cap = new_cap * 2`) statement
+      and the loop exit condition.
+
+  # ─────────────────── Harness / entry-point ───────────────────
+
+  - id: CSMALL14-stdin-frame-entrypoint
+    class: input_validation
+    severity: Medium
+    bug_class: unsanitised-entrypoint
+    engine_function: main
+    target_file: src/program_a.c
+    claim: >
+      The stdin → parse_frame entry path performs no read-size
+      validation before handing the buffer to parse_frame. This is the
+      L4 fuzz entry point for CSMALL01/02 and the natural attack
+      surface — anything reachable from here is reachable by remote
+      input.
+    relevant_instructions: |
+      The `read(STDIN_FILENO, buf, sizeof(buf))` (or equivalent) call
+      in main() and the immediate handoff to parse_frame.
