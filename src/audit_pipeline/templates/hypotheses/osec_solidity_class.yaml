@@ -287,3 +287,252 @@ hypotheses:
     relevant_instructions: |
       ContractC.bridgeToken — the `_v_90056359.approve(address(bridge),
       _v_f3e87bc1)` line.
+
+  # ─────────────────── solidity-MEDIUM additions (SOLD14+) ───────────────────
+  # New bug surfaces introduced by the medium repo:
+  #   * 8 modules (strategy, rewards, treasury, escrow, oracle, orders,
+  #     bridge, rate model) + 5 libraries + 5 base classes
+  #   * cross-chain governance via bridgeAdapter
+  #   * delegatecall execution path
+  #   * Initializable / front-runnable init
+  #   * signature-based orders (replay surface beyond ballots)
+  #   * pull-based reward epochs
+
+  - id: SOLD14-vault-set-strategy-missing-access-control
+    class: authorization
+    severity: Critical
+    bug_class: missing-access-control
+    engine_function: "ContractA.setStrategy"
+    target_file: src/ContractA.sol
+    claim: >
+      ContractA.setStrategy has NO access-control modifier (no
+      `onlyGovernor`, no `onlyOperator`). Any address can swap the
+      strategy contract. Since `totalAssets()` reads
+      `strategy.totalAssets()` and `_ensureIdle` calls
+      `strategy.withdraw`, a malicious strategy returns arbitrary
+      values that manipulate share price (inflate/deflate at will)
+      and silently fail withdrawals while emitting Withdraw events.
+      The asset-equality check (`newStrategy.asset() != address(asset)`)
+      delegates to attacker code and can be bypassed trivially.
+    relevant_instructions: |
+      ContractA.setStrategy — the function signature `external` with
+      no modifier. Add `onlyGovernor` and a two-step ack pattern.
+
+  - id: SOLD15-vault-total-assets-double-counts-managed
+    class: arithmetic_overflow
+    severity: Critical
+    bug_class: share-inflation
+    engine_function: "ContractA.totalAssets"
+    target_file: src/ContractA.sol
+    claim: >
+      ContractA.totalAssets returns `idle + invested + totalManaged`.
+      After `deposit`, both `asset.balanceOf(this)` (idle) AND
+      `totalManaged` are credited with the deposited amount, so
+      totalAssets double-counts the same principal. After `invest`
+      moves the assets to the strategy, `strategy.totalAssets()`
+      reflects the principal AND `totalManaged` is unchanged — still
+      double-counted. Share price inflates by ~2x against expected,
+      breaking deposit/redeem accounting and the high-water-mark
+      performance-fee logic.
+    relevant_instructions: |
+      ContractA.totalAssets — the `idle + invested + totalManaged`
+      expression. ContractA.deposit / withdraw / harvest — every
+      `totalManaged += assets` / `totalManaged -= assets` line.
+
+  - id: SOLD17-gov-execute-uses-delegatecall-storage-takeover
+    class: authorization
+    severity: Critical
+    bug_class: missing-access-control
+    engine_function: "ContractC.execute"
+    target_file: src/ContractC.sol
+    claim: >
+      ContractC.execute executes proposal payloads via
+      `p.target.delegatecall(p.data)`. Delegatecall runs the target's
+      bytecode in ContractC's storage context, so any passing
+      proposal can write to ContractC's storage slots — overwriting
+      `governor`, `governanceToken`, `proposalThreshold`,
+      `quorumVotes`, etc. A single passing proposal whose `target`
+      points to attacker bytecode takes over the entire governance
+      contract regardless of further on-chain checks. Standard
+      governors use `call`, not `delegatecall`.
+    relevant_instructions: |
+      ContractC.execute — the `p.target.delegatecall(p.data)` line.
+      Replace with `p.target.call{value: p.value}(p.data)` and
+      include the value in the call (Compound/OZ Governor pattern).
+
+  - id: SOLD18-gov-queue-cross-chain-replay-arbitrary-payload
+    class: invariant_property
+    severity: High
+    bug_class: missing-access-control
+    engine_function: "ContractC.queueCrossChain"
+    target_file: src/ContractC.sol
+    claim: >
+      ContractC.queueCrossChain is permissionless, accepts
+      caller-supplied `dstChain`, `receiver`, and `payload`, and
+      doesn't check `executedCrossChain[proposalId]` before firing.
+      Once any proposal enters the Queued state, ANY address can use
+      that proposal to send arbitrary cross-chain messages claiming
+      governance authorization — and can do so repeatedly, since
+      the `executedCrossChain` flag is set but never read as a
+      precondition. The payload should be derived from the proposal
+      itself (target/data), not from the caller.
+    relevant_instructions: |
+      ContractC.queueCrossChain — the function should (a) restrict
+      caller, (b) derive payload from the proposal, (c) check
+      `!executedCrossChain[proposalId]` before sending, (d) emit
+      Executed state transition (or a dedicated CrossChainExecuted
+      state) instead of leaving the proposal as Queued.
+
+  - id: SOLD19-order-signed-replay-drains-maker-approval
+    class: invariant_property
+    severity: High
+    bug_class: signature-replay
+    engine_function: "OrderSettlement.openSignedOrder"
+    target_file: src/modules/OrderSettlement.sol
+    claim: >
+      OrderSettlement.openSignedOrder validates a signature whose
+      digest (in SignatureLib.recoverOrder) is
+      `keccak256(ORDER_TYPEHASH, maker, tokenIn, tokenOut, amountIn,
+      minOut, deadline)` — the signed hash does NOT include the
+      maker's nonce, the chainId, or the verifying contract. A single
+      signature is therefore valid until `deadline` and replayable:
+      each replay increments makerNonces (rotating the resulting
+      orderId) AND pulls `amountIn` from the maker via
+      `safeTransferFrom`, draining the maker's approval to this
+      contract.
+    relevant_instructions: |
+      libraries/SignatureLib.sol recoverOrder — bind the maker's
+      current nonce inside the typed-data digest, plus the EIP-712
+      domain (chainId + verifyingContract). Mark the signed message
+      consumed BEFORE pulling `amountIn`.
+
+  - id: SOLD20-initializable-unprotected-initialize-frontrun
+    class: authorization
+    severity: High
+    bug_class: missing-access-control
+    engine_function: "ContractC.initialize"
+    target_file: src/ContractC.sol
+    claim: >
+      ContractC.initialize is gated only by the `initializer` modifier
+      (sets a one-shot `initialized` flag) — there is no caller
+      restriction. After deployment, the deployer's `initialize` tx
+      sits in the mempool until mined; an attacker frontruns with
+      their own initialize call (their own `governanceToken_`,
+      `proposalThreshold_`, `quorumVotes_`) — the `initialized` flag
+      flips, the deployer's tx reverts, and ContractC is now bound to
+      attacker-controlled parameters. Standard fix: require
+      `msg.sender == deployer` (capture in constructor) or merge
+      init into the constructor.
+    relevant_instructions: |
+      base/Initializable.sol — add a `deployer` field captured in
+      ContractC's constructor and require `msg.sender == deployer`
+      inside `initialize`, OR move all init logic into the
+      constructor.
+
+  - id: SOLD22-strategy-donation-inflates-fee-shares
+    class: invariant_property
+    severity: Medium
+    bug_class: share-inflation
+    engine_function: "SimpleStrategy.harvest"
+    target_file: src/modules/SimpleStrategy.sol
+    claim: >
+      SimpleStrategy.harvest reports `gainOrLoss = balanceOf(this) -
+      accountedAssets` and updates `accountedAssets = balance`. Any
+      address can transfer `assetToken` directly to the strategy
+      address — the next `ContractA.harvest` then sees a positive
+      gain, computes a performance fee, and mints fee shares to
+      `feeRecipient`. The attacker pays the donation; existing
+      LP holders are silently diluted by the unjust fee mint.
+    relevant_instructions: |
+      SimpleStrategy.harvest — separate "donated" surplus from
+      "earned" yield (track principal explicitly, or require
+      gains via a privileged `report()` call). ContractA.harvest —
+      bound the fee-share mint to gains attributable to strategy
+      activity, not raw balance drift.
+
+  - id: SOLD23-reward-distributor-set-recipient-corrupts-epoch-weight
+    class: arithmetic_overflow
+    severity: Medium
+    bug_class: liquidation-accounting-drift
+    engine_function: "RewardDistributor.setRecipient"
+    target_file: src/modules/RewardDistributor.sol
+    claim: >
+      RewardDistributor.setRecipient calls
+      `epochs.addWeight(epochs.current(), weight)` on EVERY update —
+      it adds the new weight to the current epoch's total but never
+      subtracts the recipient's previous weight. Reducing a
+      recipient's stake from 100 to 50 ADDS 50 to the epoch total
+      (now 100 + 50 = 150 for one user); zeroing a recipient adds 0
+      (the old 100 is still counted). claim() then divides
+      `reward * stakeWeight / totalWeight` — the inflated
+      denominator under-pays everyone, or over-pays when the new
+      weight is larger and the old weight is still counted.
+    relevant_instructions: |
+      RewardDistributor.setRecipient — read the previous
+      `stakeWeight[account]`, compute `delta = newWeight - oldWeight`,
+      and apply `epochs.weights[epoch] += delta` (signed). Or
+      checkpoint per-epoch weights at distribution time, not on
+      every setRecipient call.
+
+  - id: SOLD26-lending-liquidate-cei-collateral-transfer
+    class: invariant_property
+    severity: Medium
+    bug_class: reentrancy-cei-violation
+    engine_function: "ContractB.liquidate"
+    target_file: src/ContractB.sol
+    claim: >
+      ContractB.liquidate transfers `collateralAsset` to the liquidator
+      BEFORE calling `decreaseDebt` and updating `p.collateral`. If
+      `collateralAsset` is a hookable token (ERC777 with
+      `tokensReceived`, fee-on-transfer with callbacks, rebase tokens
+      with arbitrary code), the liquidator can re-enter liquidate()
+      against the same still-unhealthy borrower whose debt and
+      collateral haven't been decremented yet — extracting collateral
+      multiple times per liquidation.
+    relevant_instructions: |
+      ContractB.liquidate — move `decreaseDebt(...)` and
+      `p.collateral -= seized` BEFORE
+      `collateralAsset.safeTransfer(msg.sender, seized)`. Apply CEI
+      strictly.
+
+  - id: SOLD27-lending-batch-liquidate-no-collateral-seized
+    class: invariant_property
+    severity: Critical
+    bug_class: liquidation-accounting-drift
+    engine_function: "ContractB.batchLiquidate"
+    target_file: src/ContractB.sol
+    claim: >
+      ContractB.batchLiquidate pulls `repayAmount` from the caller via
+      `safeTransferFrom`, calls `positions[borrower].decreaseDebt(...)`
+      to reduce the borrower's debt, but NEVER transfers any
+      collateral to the caller. The liquidator pays the borrower's
+      debt down and receives nothing — strict, unbounded loss any
+      time someone calls this function. Equivalently, anyone can
+      grief liquidators by sandwiching a single-account liquidate()
+      with a batchLiquidate() that erases the bad-debt incentive.
+    relevant_instructions: |
+      ContractB.batchLiquidate — the loop body must compute `seized`
+      from `repayAmount`, clamp by `p.collateral`, transfer that
+      collateral to `msg.sender`, and decrement `p.collateral` —
+      i.e., mirror the single-account `liquidate()` logic per
+      iteration.
+
+  - id: SOLD28-escrow-disputed-state-permanently-locks-funds
+    class: invariant_property
+    severity: Medium
+    bug_class: liquidation-accounting-drift
+    engine_function: "EscrowBook.dispute"
+    target_file: src/modules/EscrowBook.sol
+    claim: >
+      EscrowBook.dispute transitions an escrow to the `Disputed`
+      state but the contract exposes no function that can release,
+      refund, or otherwise exit the `Disputed` state. All other
+      state-mutating functions (`release`, `refund`) require the
+      state to be `Open` and revert otherwise. Once disputed, the
+      escrowed tokens are permanently locked in the contract — even
+      the governor cannot recover them.
+    relevant_instructions: |
+      EscrowBook — add a `resolveDispute(uint256, address winner)`
+      function gated by `onlyGovernor` (or an arbiter role) that
+      transitions Disputed -> Released/Refunded and pays out
+      accordingly. Or auto-resolve disputes after a timeout.
