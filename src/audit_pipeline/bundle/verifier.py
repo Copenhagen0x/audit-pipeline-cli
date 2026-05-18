@@ -191,6 +191,12 @@ def _forge_json_has_failures(stdout: str) -> tuple[bool, int, str]:
     forge --json stdout is a JSON object keyed by
     "<file>:<contract>" containing test_results. A test failed if
     status == "Failure" or success == False.
+
+    Falls back to a substring regex on `"status":"Failure"` (with
+    optional whitespace) for the case where the JSON has been
+    truncated mid-stream (L2 adapter caps stdout at 8000 chars
+    before writing the runlog, so json.loads on the runlog fails
+    even though the Failure marker is present in the visible bytes).
     """
     failed: list[str] = []
     first_reason = ""
@@ -215,6 +221,20 @@ def _forge_json_has_failures(stdout: str) -> tuple[bool, int, str]:
                     failed.append(tname)
                     if not first_reason:
                         first_reason = str(tdata.get("reason") or status or "")[:200]
+
+    # Fallback: handle truncated JSON. The L2 adapter truncates stdout
+    # at 8000 chars (line 514 of poc_adapters/solidity.py), which is
+    # smaller than a typical forge --json output (~10-30KB per test).
+    # The Failure marker reliably appears in the first ~500 bytes of
+    # output for fired tests, so a substring scan recovers the signal
+    # without needing a full JSON parse.
+    if not failed:
+        m = re.search(r'"status"\s*:\s*"Failure"', stdout)
+        if m:
+            failed.append("(truncated-json-failure)")
+            r = re.search(r'"reason"\s*:\s*"([^"]+)"', stdout)
+            if r:
+                first_reason = r.group(1)[:200]
     return (len(failed) > 0, len(failed), first_reason)
 
 
