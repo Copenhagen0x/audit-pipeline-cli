@@ -127,6 +127,21 @@ Write a single self-contained C file `test_<finding_name>.c` that:
 1. `#include`s the headers needed to call `{engine_function}` and
    construct the witness state. Use the actual paths from src/
    (e.g. `#include "auth/session.h"`).
+
+   STATIC FUNCTIONS: if `{engine_function}` is declared `static` inside
+   a program_*.c file (no header export), you MUST #include that .c
+   file directly to reach it. The engine's build path skips standalone
+   program_*.c files (they each have their own main() that would
+   collide with this test's main). Use this template at the top of your
+   test, BEFORE your own `main()`:
+
+       /* Pull in program_a.c so we can call its static functions.
+        * Rename its main() to avoid collision with our test main. */
+       #define main __unused_main_program_a
+       #include "program_a.c"   /* relative to src/ via -I flag */
+       #undef main
+
+   Then your test's `main()` calls the static function normally.
 2. In `main()`, sets up the EXACT witness state from the hypothesis
    (attacker-controlled length, off-by-one boundary, malformed frame,
    etc). Use realistic values that drive the bug — not random ones.
@@ -249,11 +264,24 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
                 reason="target repo missing src/ subdir",
             )
 
-        # Discover .c files in src/ (excluding tests/ and vendor/ for cleanliness)
-        src_files = [
-            str(p) for p in include_dir.rglob("*.c")
-            if "vendor" not in p.parts and "tests" not in p.parts
-        ]
+        # Discover .c files in src/ (excluding tests/ and vendor/ for cleanliness).
+        # CRITICAL: skip any .c file that defines its own top-level `int main`
+        # otherwise linking multi-program OSec eval targets (program_a.c,
+        # program_b.c, program_c.c, each standalone) explodes with
+        # "multiple definition of main". The PoC test file owns main(); the
+        # LLM-authored test must #include the relevant program .c directly
+        # to reach static functions when calling them through headers won't work.
+        _MAIN_RE = re.compile(r"^\s*(?:int|void|static\s+int)\s+main\s*\(", re.M)
+        src_files = []
+        for p in include_dir.rglob("*.c"):
+            if "vendor" in p.parts or "tests" in p.parts:
+                continue
+            try:
+                if _MAIN_RE.search(p.read_text(encoding="utf-8", errors="replace")):
+                    continue
+            except OSError:
+                pass
+            src_files.append(str(p))
 
         # Compile to a uniquely-named binary so concurrent tests don't collide
         bin_path = workspace / "tests" / "c" / f"bin_{test_name}"

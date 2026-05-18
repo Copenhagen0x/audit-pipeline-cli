@@ -101,6 +101,17 @@ int main(int argc, char **argv) {{
 Write a `afl_<finding_name>.c` that:
 
 1. Reads input from stdin into a buffer.
+
+   STATIC FUNCTIONS: if the engine_function is declared `static` inside
+   a program_*.c file (no header export), you MUST #include that .c
+   file directly to reach it. The engine build path skips standalone
+   program_*.c files (each has its own main() that would collide).
+   Use this prelude BEFORE your own main():
+
+       #define main __unused_main_program_X
+       #include "program_X.c"
+       #undef main
+
 2. Decodes the input into the arguments of the function under test.
 3. Calls the function. If the function returns success but produces
    invalid output (per the hypothesis claim), call `abort()` to
@@ -170,12 +181,22 @@ If you can't write a real harness:
         # Compile with afl-clang-fast + sanitizers
         bin_path = harness_dir / "harness_bin"
         include_dir = target_repo_root / "src"
+        # Skip .c files with their own top-level int main() — otherwise
+        # linking multi-program OSec eval targets explodes with "multiple
+        # definition of main". The harness owns main(); the LLM must
+        # #include the program file directly to call its static funcs.
+        _MAIN_RE_C = re.compile(r"^\s*(?:int|void|static\s+int)\s+main\s*\(", re.M)
         src_files = []
         if include_dir.is_dir():
-            src_files = [
-                str(p) for p in include_dir.rglob("*.c")
-                if "vendor" not in p.parts and "tests" not in p.parts
-            ]
+            for p in include_dir.rglob("*.c"):
+                if "vendor" in p.parts or "tests" in p.parts:
+                    continue
+                try:
+                    if _MAIN_RE_C.search(p.read_text(encoding="utf-8", errors="replace")):
+                        continue
+                except OSError:
+                    pass
+                src_files.append(str(p))
         compile_cmd = [
             "afl-clang-fast",
             "-g", "-O1",

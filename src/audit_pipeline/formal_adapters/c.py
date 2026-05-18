@@ -105,6 +105,17 @@ CBMC SUCCEEDS (= invariant holds within unwind bound) when it proves:
 Write a single self-contained C file `harness_<finding_name>.c` that:
 
 1. `#include`s the headers needed to call `{engine_function}`.
+
+   STATIC FUNCTIONS: if `{engine_function}` is declared `static` inside
+   a program_*.c file (no header export), you MUST #include that .c
+   file directly to reach it. The engine build path skips standalone
+   program_*.c files (each has its own main() that would collide).
+   Use this prelude BEFORE your own `main()`:
+
+       #define main __unused_main_program_X
+       #include "program_X.c"   /* relative to src/ via -I flag */
+       #undef main
+
 2. In `main()`, declares symbolic inputs (just plain locals — CBMC
    treats uninitialized values as symbolic by default for the
    --no-assertions path; for explicit nondeterminism use the helpers
@@ -201,10 +212,22 @@ write a real harness, output:
             )
 
         include_dir = target_repo_root / "src"
-        src_files = [
-            str(p) for p in include_dir.rglob("*.c")
-            if "vendor" not in p.parts and "tests" not in p.parts
-        ] if include_dir.is_dir() else []
+        # Skip .c files with their own top-level int main() — otherwise
+        # linking multi-program OSec eval targets explodes with "multiple
+        # definition of main". The harness owns main(); the LLM must
+        # #include the program file directly to call its static funcs.
+        _MAIN_RE_C = re.compile(r"^\s*(?:int|void|static\s+int)\s+main\s*\(", re.M)
+        src_files = []
+        if include_dir.is_dir():
+            for p in include_dir.rglob("*.c"):
+                if "vendor" in p.parts or "tests" in p.parts:
+                    continue
+                try:
+                    if _MAIN_RE_C.search(p.read_text(encoding="utf-8", errors="replace")):
+                        continue
+                except OSError:
+                    pass
+                src_files.append(str(p))
 
         # Configurable unwind via CBMC_UNWIND env (default 32). Add
         # --unwinding-assertions so unwind-bound exceeded becomes a
