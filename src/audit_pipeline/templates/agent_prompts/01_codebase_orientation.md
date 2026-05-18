@@ -1,37 +1,39 @@
 # Prompt 01 — Codebase orientation
 
-**Use when**: starting a fresh audit on an unfamiliar Solana program. Spawn this agent FIRST to enumerate structure before any hypothesis-driven work.
+**Use when**: starting a fresh audit on an unfamiliar {PROGRAM_KIND}. Spawn this agent FIRST to enumerate structure before any hypothesis-driven work.
 
 ---
 
 ## Prompt template
 
 ```
-You are doing a structural orientation on a Solana program codebase before
+You are doing a structural orientation on a {PROGRAM_KIND} codebase before
 the security audit begins. Your job is to enumerate the codebase shape so
 subsequent agents have a map to work from.
 
 ## Files to read
 
-- {ENGINE_PATH}/src/ (all .rs files)
-- {WRAPPER_PATH}/src/ (all .rs files)
-- {ENGINE_PATH}/Cargo.toml
-- {WRAPPER_PATH}/Cargo.toml
+- {ENGINE_PATH}/{SRC_DIR_PATH} (all {SOURCE_EXTS} files)
+- {WRAPPER_PATH}/{SRC_DIR_PATH} (all {SOURCE_EXTS} files)
+- {ENGINE_PATH}/{MANIFEST_FILE}
+- {WRAPPER_PATH}/{MANIFEST_FILE}
 - Any README, ARCHITECTURE.md, SPEC.md at the repo root
 
 ## What to enumerate
 
 ### 1. Engine surface
-- Public functions exposed by the engine library (the `pub fn` entries)
+- Public functions exposed by the engine (entry symbols)
 - Internal helper functions worth knowing about
 - Engine state struct field map (what fields, what types)
 - Engine constants (max-cap values, default values, magic numbers)
-- Test-visible methods (those exposed via `test_visible!` macro or `#[cfg(feature = "test")]`)
+- Test-visible methods (visibility-relaxed for testing — language-specific
+  idiom)
 
 ### 2. Wrapper surface
-- BPF instruction enum + handler table
-- For each instruction: name, accounts required, signature requirements
-- Permission model (admin-only, signer-required, permissionless)
+- {ENTRY_POINT_LABEL} enumerated + their handler table / dispatch
+- For each entry point: name, signature / accounts / accept-pattern,
+  authentication requirements
+- Permission model (admin-only, signer / authenticated, permissionless)
 
 ### 3. Engine-wrapper interface
 - Which engine functions does the wrapper call?
@@ -39,8 +41,8 @@ subsequent agents have a map to work from.
 
 ### 4. Existing test coverage
 - How many test files? In what directories?
-- Existing Kani harnesses (if any) — list with names
-- Existing fuzz harnesses (proptest, etc.) — list with names
+- Existing {FORMAL_TOOL} harnesses (if any) — list with names
+- Existing {RUNTIME_TOOL} / property-test harnesses — list with names
 
 ### 5. Documentation surface
 - Spec or design doc location?
@@ -56,8 +58,8 @@ subsequent agents have a map to work from.
 - Notable constants: <list with values>
 
 ## Wrapper surface
-- BPF instructions: <count>
-  - <name>: <permission> | <accounts required>
+- {ENTRY_POINT_LABEL}: <count>
+  - <name>: <permission> | <signature / accounts / inputs required>
   - ...
 
 ## Engine-wrapper interface
@@ -66,8 +68,8 @@ subsequent agents have a map to work from.
 
 ## Test coverage
 - Test files: <count>
-- Existing Kani harnesses: <count>, names: <list>
-- Existing fuzz harnesses: <count>, names: <list>
+- Existing {FORMAL_TOOL} harnesses: <count>, names: <list>
+- Existing {RUNTIME_TOOL} / property-test harnesses: <count>, names: <list>
 
 ## Documentation
 - Spec doc: <path or "none">
@@ -85,7 +87,7 @@ Cap at 1000 words. Read-only.
 
 ## Why this matters
 
-Layer 1 (multi-agent review) is only as good as the hypotheses you spawn agents on. Without first orienting on the codebase shape, you'll spawn agents on hypotheses that don't fit the architecture (e.g., looking for instruction-level bugs in a codebase that does most work in helpers).
+Layer 1 (multi-agent review) is only as good as the hypotheses you spawn agents on. Without first orienting on the codebase shape, you'll spawn agents on hypotheses that don't fit the architecture (e.g., looking for entry-level bugs in a codebase that does most work in helpers).
 
 The "audit hypothesis seeds" output from this prompt feeds directly into the next 5-10 agents you spawn.
 

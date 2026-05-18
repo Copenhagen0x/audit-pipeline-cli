@@ -20,7 +20,7 @@ transition COMMITS PARTIAL PROGRESS INCORRECTLY if:
 
 ## Files to read
 
-- {ENGINE_PATH}/src/ (focus on functions that mutate multiple fields)
+- {ENGINE_PATH}/{SRC_DIR_PATH} (focus on functions that mutate multiple fields; all {SOURCE_EXTS} files)
 
 ## Method
 

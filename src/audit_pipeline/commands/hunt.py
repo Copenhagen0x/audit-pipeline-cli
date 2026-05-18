@@ -2423,9 +2423,21 @@ def _hunt_run(
                 return ""
             try:
                 from audit_pipeline.utils.code_extract import collect_grounded_code
+                from audit_pipeline.utils.language_profile import profile_for as _pf
+                # Phase 2 (language-aware grounding): walk every source ext
+                # the active language profile declares, recursive for langs
+                # that organise sources in subdirs (C: auth/, common/...).
                 engine_src = engine_dir_for_cargo / "src"
-                rs_files = sorted(engine_src.glob("*.rs")) if engine_src.is_dir() else []
-                grounded = collect_grounded_code([fn_name], rs_files, max_lines=80)
+                if not engine_src.is_dir():
+                    return ""
+                prof = _pf(config_language)
+                src_files: list[Path] = []
+                for ext in prof.source_exts:
+                    if config_language == "c":
+                        src_files.extend(sorted(engine_src.rglob(f"*{ext}")))
+                    else:
+                        src_files.extend(sorted(engine_src.glob(f"*{ext}")))
+                grounded = collect_grounded_code([fn_name], src_files, max_lines=80)
                 return next((v for v in grounded.values() if v), "")
             except Exception:  # noqa: BLE001
                 return ""

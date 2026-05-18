@@ -7,10 +7,10 @@
 ## Prompt template
 
 ```
-You are an agent helping audit the security of a Solana program. The audit
-follows a 5-layer pipeline: multi-agent code review → empirical PoC → Kani
-formal verification → LiteSVM BPF-level reachability test → cross-platform
-reproduction.
+You are an agent helping audit the security of a {PROGRAM_KIND}. The audit
+follows a 5-layer pipeline: multi-agent code review → empirical PoC ({POC_IDIOM})
+→ {FORMAL_TOOL} formal verification → {RUNTIME_TOOL} runtime reproduction →
+cross-platform reproduction.
 
 Your role: investigate ONE specific hypothesis on the target codebase.
 Return a structured response with file:line citations and a clear verdict.
@@ -29,9 +29,9 @@ Local clones (read-only):
 
 ## Architecture summary
 
-- Rust engine (library) + BPF wrapper (program entrypoints)
+- {ARCHITECTURE_SUMMARY}
 - Engine constants of note: {LIST_RELEVANT_CONSTANTS}
-- BPF instructions of note: {LIST_RELEVANT_INSTRUCTIONS}
+- {ENTRY_POINT_LABEL} of note: {LIST_RELEVANT_INSTRUCTIONS}
 
 ## Reporting conventions
 
@@ -71,7 +71,7 @@ Read-only. Do NOT modify any files in {LOCAL_ENGINE_PATH} or {LOCAL_WRAPPER_PATH
 
 - **`{ENGINE_REPO_URL}`** etc.: fill these before sending
 - **`{LIST_RELEVANT_CONSTANTS}`**: agents work better when they know the engine caps. Examples: `MAX_ACCOUNTS = 4096`, `MAX_VAULT_TVL = 1e16`, `h_max = u64`.
-- **`{LIST_RELEVANT_INSTRUCTIONS}`**: list the BPF instructions that the agent should consider as entry points. Example: `Trade, Crank, Deposit, Withdraw, ResolveMarket, GuardianWithdrawInsurance`.
+- **`{LIST_RELEVANT_INSTRUCTIONS}`**: list the {ENTRY_POINT_LABEL} that the agent should consider. Example for a perp DEX: `Trade, Crank, Deposit, Withdraw, ResolveMarket`.
 
 You can keep this orientation as a "system prompt" for ALL audit agents and only swap the hypothesis-specific portion. That way agents share context.
 
@@ -79,7 +79,7 @@ You can keep this orientation as a "system prompt" for ALL audit agents and only
 
 Without orientation, agents will:
 - Cite imagined line numbers
-- Assume BPF instructions that don't exist
+- Assume {ENTRY_POINT_LABEL} that don't exist
 - Confuse engine and wrapper layers
 - Speculate without source citations
 

@@ -258,13 +258,25 @@ def tool_grep(workspace: Path, pattern: str, path: str = ".", max_matches: int =
 
 
 def tool_find_function(workspace: Path, name: str, path: str = ".") -> str:
-    """Find Rust function definition by name and return body with line numbers."""
+    """Find a function definition by name and return body with line numbers.
+
+    Language-aware: walks every supported source extension (.rs, .c/.h,
+    .move, .sol). `extract_function` infers the language per-file from
+    extension and applies the right function-start regex.
+    """
     from audit_pipeline.utils.code_extract import extract_function
 
     p = _normalize_path(workspace, path)
     if p is None or not p.exists():
         return f"ERROR: path not found: {path}"
-    files = [p] if p.is_file() else list(p.rglob("*.rs"))
+
+    _FUNC_EXTS = (".rs", ".c", ".h", ".cc", ".cpp", ".hpp", ".move", ".sol")
+    if p.is_file():
+        files: list[Path] = [p]
+    else:
+        files = []
+        for ext in _FUNC_EXTS:
+            files.extend(p.rglob(f"*{ext}"))
     for f in files:
         result = extract_function(f, name, max_lines=200)
         if result:
@@ -281,10 +293,11 @@ TOOLS_SCHEMA = [
     {
         "name": "read_file",
         "description": (
-            "Read a Rust source file and return its contents with line numbers. "
-            "Use this when you need to see the actual implementation of a function, "
-            "struct, or constant. Always cite specific line numbers from the output "
-            "in your final verdict."
+            "Read a source file and return its contents with line numbers. "
+            "Works for Rust (.rs), C (.c/.h/.cc/.cpp/.hpp), Move (.move), "
+            "and Solidity (.sol). Use this when you need to see the actual "
+            "implementation of a function, struct, or constant. Always cite "
+            "specific line numbers from the output in your final verdict."
         ),
         "input_schema": {
             "type": "object",
@@ -302,7 +315,8 @@ TOOLS_SCHEMA = [
             "Search files for a regex pattern. Use this to find call sites, "
             "function definitions, struct usages, or constant references "
             "before reading the full file. Returns up to 50 matches as "
-            "file:line: content."
+            "file:line: content. Searches across all source extensions of "
+            "the target language."
         ),
         "input_schema": {
             "type": "object",
@@ -317,8 +331,11 @@ TOOLS_SCHEMA = [
     {
         "name": "find_function",
         "description": (
-            "Find a Rust function definition by name and return its body with "
-            "line numbers. Faster than read_file when you know the function name."
+            "Find a function definition by name and return its body with "
+            "line numbers. Language-aware — matches `fn name(` in Rust, "
+            "C-style `[static] return_type name(` in C, `fun name` in Move, "
+            "and `function name` in Solidity. Faster than read_file when "
+            "you know the function name."
         ),
         "input_schema": {
             "type": "object",

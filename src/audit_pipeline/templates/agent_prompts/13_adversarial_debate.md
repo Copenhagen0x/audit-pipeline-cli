@@ -86,8 +86,9 @@ falsify it. Specifically check for these failure modes:
    relevant callsite.
 
 4. **Synonyms / aliases.** Did the proposer search for a function name
-   but miss a callsite that calls it via an alias, a trait method, a
-   macro expansion, or a re-export?
+   but miss a callsite that calls it indirectly — via an alias, trait
+   method, macro expansion, re-export, function pointer, or virtual /
+   dynamic dispatch?
 
 5. **Off-by-one in the call chain.** Did the proposer walk the call chain
    correctly? Re-trace it yourself from the public entrypoint.

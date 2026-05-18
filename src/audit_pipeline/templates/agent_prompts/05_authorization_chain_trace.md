@@ -1,6 +1,6 @@
 # Prompt 05 — Authorization chain trace
 
-**Use when**: a Layer-1/2 candidate finding involves an engine function that mutates sensitive state. You need to know: which BPF instructions can reach this function, and what authorization gates them?
+**Use when**: a Layer-1/2 candidate finding involves an engine function that mutates sensitive state. You need to know: which {ENTRY_POINT_LABEL} can reach this function, and what authorization gates them?
 
 ---
 
@@ -10,33 +10,35 @@
 You are tracing the public-API authorization chain to a specific engine
 function. The goal is to determine whether the function is:
 - PERMISSIONLESS (anyone can call it)
-- SIGNER-REQUIRED (any signer can call it)
-- ADMIN-GATED (only an admin/authority PDA can call it)
+- SIGNER-REQUIRED (any signer / authenticated caller can reach it)
+- ADMIN-GATED (only an admin / authority can reach it)
 - UNREACHABLE (no public-API path exists)
 
 ## Target function
 
 Function: {ENGINE_FUNCTION_NAME}
 Engine line: {ENGINE_LINE}
-File: {ENGINE_PATH}/src/percolator.rs
+File: {ENGINE_PATH}/{SRC_DIR_PATH}
 
 ## Files to read
 
-- {WRAPPER_PATH}/src/ (to find BPF instruction handlers)
-- {ENGINE_PATH}/src/ (to follow internal callers)
+- {WRAPPER_PATH}/{SRC_DIR_PATH} (to find {ENTRY_POINT_LABEL})
+- {ENGINE_PATH}/{SRC_DIR_PATH} (to follow internal callers)
 
 ## Method
 
 1. Find every wrapper-side caller of {ENGINE_FUNCTION_NAME} (or its
    wrapping helpers). For each:
-   - What BPF instruction handles this caller's flow?
-   - What signature checks does the wrapper enforce?
-   - What permission checks (admin / authority / config flag) gate the path?
+   - Which {ENTRY_POINT_LABEL} handles this caller's flow?
+   - What signature / authentication checks does the wrapper enforce?
+   - What permission checks (admin / authority / role flag / config flag)
+     gate the path?
    - Are there cooldown / rate-limit / amount-cap guards?
 
 2. For each authorization gate, identify bypass conditions:
    - Are there config-conditional bypasses (e.g., if max_bps == 0)?
-   - Are there permissionless-mode special values (e.g., caller_idx == u16::MAX)?
+   - Are there permissionless-mode special values (sentinel indices, magic
+     constants)?
    - Are there race windows where state changes between check and use?
 
 ## Output format
@@ -45,11 +47,11 @@ For each path that reaches {ENGINE_FUNCTION_NAME}:
 
 ```
 Path #N
-- BPF instruction: {name}
+- {ENTRY_POINT_LABEL}: {name}
 - Wrapper handler line: {file:line}
 - Engine call line:    {file:line}
-- Signature requirements: {list of accounts that must sign}
-- Authority requirements: {admin PDA? authority PDA? none?}
+- Signature / auth requirements: {list of callers that must authenticate}
+- Authority requirements: {admin / authority role? none?}
 - Other guards: {cooldown? amount cap? config flag?}
 - Reachability verdict: PERMISSIONLESS | SIGNER | ADMIN | UNREACHABLE
 - Bypass conditions: {list, or "none identified"}
@@ -69,7 +71,7 @@ Cap at 700 words. Read-only.
 
 ## When to use
 
-This prompt is the bridge between Layer 3 (Kani CEX showing engine math is unsafe) and Layer 4 (LiteSVM showing whether the public API can actually reach that math).
+This prompt is the bridge between Layer 3 ({FORMAL_TOOL} CEX showing engine math is unsafe) and Layer 4 ({RUNTIME_TOOL} showing whether the public API can actually reach that math).
 
 If the answer is UNREACHABLE → the finding downgrades to "code defect, not exploitable."
 If the answer is PERMISSIONLESS with no bypass conditions → the finding is exploitable.

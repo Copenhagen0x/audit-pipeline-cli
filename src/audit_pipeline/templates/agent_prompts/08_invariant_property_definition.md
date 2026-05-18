@@ -1,6 +1,6 @@
 # Prompt 08 — Invariant property definition
 
-**Use when**: translating an English claim from the spec, code comments, or maintainer prose into a Kani-checkable assertion.
+**Use when**: translating an English claim from the spec, code comments, or maintainer prose into a {FORMAL_TOOL}-checkable assertion.
 
 This is the prompt that turns "the maintainer says X holds" into a machine-checked theorem.
 
@@ -10,7 +10,7 @@ This is the prompt that turns "the maintainer says X holds" into a machine-check
 
 ```
 You are translating an English-language safety claim into a formal property
-that can be encoded as a Kani assertion.
+that can be encoded as a {FORMAL_TOOL} assertion.
 
 ## The English claim
 
@@ -21,7 +21,7 @@ Quote: "{EXACT_PROSE}"
 
 ## Files to read
 
-- {ENGINE_PATH}/src/ (for the engine state struct)
+- {ENGINE_PATH}/{SRC_DIR_PATH} (for the engine state struct; all {SOURCE_EXTS} files)
 - The exact source of the claim (spec section, comment, etc.)
 
 ## Method
@@ -32,10 +32,11 @@ Quote: "{EXACT_PROSE}"
    - Pre-condition: holds before operation
    - Post-condition: holds after operation
    - Invariant: holds at all times
-4. Translate into Rust assertion syntax that:
+4. Translate into a {LANGUAGE_DISPLAY} assertion that:
    - References engine state fields by their actual names
-   - Uses Rust comparison operators
-   - Could appear inside a Kani harness as `assert!(...)`
+   - Uses this language's comparison / logical operators
+   - Could appear inside a {FORMAL_TOOL} harness as an explicit assertion
+     (using {ASSERTION_IDIOM})
 
 ## Output format
 
@@ -52,21 +53,12 @@ Quantification:
   - After applying operation {OP}
   - The following holds: {POSTCONDITION}
 
-Rust translation:
+{LANGUAGE_DISPLAY} translation: a short snippet (PSEUDO-CODE acceptable)
+encoding the pre-condition, the operation under test, and the
+post-condition. Use this language's assertion idiom ({ASSERTION_IDIOM})
+and its native types / operators.
 
-```rust
-// Pre:
-assert!(<rust expression encoding precondition>);
-
-// Operation:
-let result = engine.<op>(<args>);
-kani::assume(result.is_ok());  // filter execution failures
-
-// Post:
-assert!(<rust expression encoding postcondition>);
-```
-
-Suggested Kani harness name: proof_<short_name>
+Suggested {FORMAL_TOOL} harness name: proof_<short_name>
 Estimated harness complexity: LOW | MED | HIGH (in symbolic state size)
 ```
 

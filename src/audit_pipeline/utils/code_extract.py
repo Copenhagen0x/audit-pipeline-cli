@@ -1,4 +1,4 @@
-"""Extract Rust source code into agent prompts.
+"""Extract source code into agent prompts (language-aware).
 
 The agent's prior weakness: it claims to "read" files but cannot actually
 access them. This module fixes that by pulling the relevant source bytes
@@ -6,8 +6,15 @@ out of the workspace and embedding them in the prompt as
 CODE-GROUNDED CONTEXT.
 
 Two extraction strategies:
-  - extract_function(file, name)  : pull a complete `fn <name>(...) {...}` block
-  - extract_grep_context(file, p, ctx_lines) : pull lines around grep matches
+
+  * extract_function(file, name)  — pull a complete language-appropriate
+    function block matching ``name``. Supports Rust (``fn name``), C
+    (``[static] [return-type] name(``), Move (``[public/entry] fun name``),
+    and Solidity (``function name``). The language is inferred from the
+    file's extension when not provided explicitly.
+  * extract_grep_context(file, p, ctx_lines) — pull lines around grep
+    matches. Used when ``name`` doesn't resolve to a function (constant,
+    struct field, comment marker, etc.).
 
 Both add line numbers (1-indexed) so the agent can cite specific lines in
 its verdict, like a real auditor.
@@ -25,34 +32,89 @@ def _format_lines(start: int, lines: list[str]) -> str:
     return "\n".join(f"{i + start:>{width}}: {ln}" for i, ln in enumerate(lines))
 
 
+# Per-extension function-start regexes. Each must capture (or be safe to
+# scan as) "the line where the function definition starts". Brace-balancing
+# from that point is done by the caller.
+
+_RUST_FUNC = (
+    r"\b(pub\s+(?:\(crate\)\s+)?)?(unsafe\s+)?(async\s+)?"
+    r"fn\s+{NAME}\s*[<(]"
+)
+
+# C: return type may be one or more space-separated tokens (incl. pointers
+# and qualifiers); then the function name then `(`. Anchor at start of line
+# (with leading whitespace allowed) to avoid matching inside calls.
+_C_FUNC = (
+    r"(?m)^[ \t]*(?:static\s+|inline\s+|extern\s+)*"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*(?:\s+|\s*\*+\s*))+"
+    r"{NAME}\s*\([^;]*\)\s*\{"
+)
+
+_MOVE_FUNC = (
+    r"\b(public\s*(?:\([^)]*\))?\s+)?(entry\s+)?(native\s+)?"
+    r"fun\s+{NAME}\s*[<(]"
+)
+
+_SOLIDITY_FUNC = (
+    r"\bfunction\s+{NAME}\s*\("
+)
+
+
+def _func_re_for(ext: str, name: str) -> re.Pattern[str]:
+    quoted = re.escape(name)
+    if ext == ".rs":
+        return re.compile(_RUST_FUNC.replace("{NAME}", quoted))
+    if ext in (".c", ".h", ".cc", ".cpp", ".hpp"):
+        return re.compile(_C_FUNC.replace("{NAME}", quoted))
+    if ext == ".move":
+        return re.compile(_MOVE_FUNC.replace("{NAME}", quoted))
+    if ext == ".sol":
+        return re.compile(_SOLIDITY_FUNC.replace("{NAME}", quoted))
+    # Unknown ext: try the rust pattern as a fallback (legacy behavior).
+    return re.compile(_RUST_FUNC.replace("{NAME}", quoted))
+
+
+def _markdown_lang_for(ext: str) -> str:
+    """Return the markdown fenced-code-block language tag for ``ext``."""
+    return {
+        ".rs": "rust",
+        ".c": "c",
+        ".h": "c",
+        ".cc": "cpp",
+        ".cpp": "cpp",
+        ".hpp": "cpp",
+        ".move": "move",
+        ".sol": "solidity",
+    }.get(ext, "")
+
+
 def extract_function(
     file_path: Path,
     function_name: str,
     max_lines: int = 120,
 ) -> str | None:
-    """Extract a single Rust function by name.
+    """Extract a single function definition by name (language-aware).
 
-    Matches `fn name(`, `fn name<`, `pub fn name(` etc. Returns the function
+    The language is inferred from ``file_path.suffix``. Returns the function
     body up to the matching close-brace, with line numbers. Returns None if
-    not found.
+    no matching definition is found.
     """
     if not file_path.exists():
         return None
+    ext = file_path.suffix.lower()
     lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
 
-    # Find the line where the function starts
-    start_pattern = re.compile(
-        rf"\b(pub\s+(?:\(crate\)\s+)?)?(unsafe\s+)?(async\s+)?fn\s+{re.escape(function_name)}\s*[<(]"
-    )
-    start_idx = None
+    pattern = _func_re_for(ext, function_name)
+
+    start_idx: int | None = None
     for i, ln in enumerate(lines):
-        if start_pattern.search(ln):
+        if pattern.search(ln):
             start_idx = i
             break
     if start_idx is None:
         return None
 
-    # Walk forward, brace-matching
+    # Walk forward, brace-matching from the FIRST `{` after start_idx.
     depth = 0
     started = False
     end_idx = start_idx
@@ -77,7 +139,7 @@ def extract_grep_context(
     ctx_lines: int = 12,
     max_matches: int = 3,
 ) -> str | None:
-    """Extract context windows around occurrences of `pattern`.
+    """Extract context windows around occurrences of ``pattern``.
 
     Returns up to max_matches windows of size ctx_lines (centered on match),
     separated by '---'. Useful when the relevant code site isn't a complete
@@ -99,6 +161,25 @@ def extract_grep_context(
     return "\n\n---\n\n".join(blocks)
 
 
+# Stop-words that prose tokenizers wrongly pick up as "function names" —
+# common English words that happen to be valid identifiers. Filtered at the
+# ``collect_grounded_code`` layer so we don't waste prompt tokens on hits
+# for "the", "of", "at", etc.
+_STOP_TOKENS: frozenset[str] = frozenset({
+    "the", "a", "an", "of", "to", "in", "on", "at", "by", "for", "with",
+    "and", "or", "not", "is", "are", "was", "were", "be", "been", "being",
+    "this", "that", "these", "those", "it", "its", "if", "then", "else",
+    "as", "from", "into", "out", "over", "under", "between", "above",
+    "below", "after", "before", "during", "while", "when", "where",
+    "what", "which", "who", "whom", "whose", "why", "how", "use", "uses",
+    "used", "using", "must", "should", "may", "can", "will", "would",
+    "could", "do", "does", "did", "done", "doing", "fix", "fixes",
+    "fixed", "check", "checks", "checked", "checking", "see", "seen",
+    "look", "looks", "looked", "looking", "find", "found", "finding",
+    "tail", "head", "top", "bottom", "left", "right",
+})
+
+
 def collect_grounded_code(
     targets: list[str],
     files: list[Path],
@@ -110,7 +191,12 @@ def collect_grounded_code(
 
     The lookup tries function-extraction first; if that fails (target is a
     constant, a struct field, a comment marker, etc.), falls back to grep
-    context.
+    context. Language inferred per-file from extension; markdown fence tag
+    matches the file's language.
+
+    Common English words (``the``, ``of``, ``at``, ...) and short
+    single-character or numeric tokens are filtered out — they leak through
+    naive prose tokenizers and would otherwise produce noise headers.
 
     Returns: dict[target_id -> formatted-code-block-or-empty].
     """
@@ -119,7 +205,13 @@ def collect_grounded_code(
         target = raw.strip()
         if not target:
             continue
-        # If the target looks identifier-like, try function extraction
+        # Filter prose noise: stop-words, pure digits, and <3-char tokens.
+        if target.lower() in _STOP_TOKENS:
+            continue
+        if len(target) < 3:
+            continue
+        if target.isdigit():
+            continue
         looks_like_ident = bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", target))
         for f in files:
             block: str | None = None
@@ -128,8 +220,11 @@ def collect_grounded_code(
             if block is None:
                 block = extract_grep_context(f, target, ctx_lines=fallback_grep_ctx)
             if block:
-                rel = f.name
-                out[target] = f"### `{target}` from `{rel}`\n```rust\n{block}\n```"
+                fence_lang = _markdown_lang_for(f.suffix.lower())
+                out[target] = (
+                    f"### `{target}` from `{f.name}`\n"
+                    f"```{fence_lang}\n{block}\n```"
+                )
                 break
         else:
             out[target] = ""  # no hit anywhere

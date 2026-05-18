@@ -19,8 +19,8 @@ publication. Your job: find EVERY error. Be paranoid.
    tests/* docstrings)
 
 Cross-reference materials (read these to verify claims):
-- {ENGINE_PATH}/src/ (engine source, for verifying line numbers)
-- {WRAPPER_PATH}/src/ (wrapper source, for verifying line numbers)
+- {ENGINE_PATH}/{SRC_DIR_PATH} (engine source, for verifying line numbers; {SOURCE_EXTS})
+- {WRAPPER_PATH}/{SRC_DIR_PATH} (wrapper source, for verifying line numbers; {SOURCE_EXTS})
 - {OTHER_DOCS} (other published docs, for cross-doc consistency)
 
 ## What to find (be ruthless)

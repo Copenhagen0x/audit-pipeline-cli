@@ -7,23 +7,27 @@
 ## Prompt template
 
 ```
-You are auditing the engine for a SPECIFIC arithmetic-panic class.
+You are auditing the {LANGUAGE_DISPLAY} engine for a SPECIFIC arithmetic-panic class.
 
 Class under audit: {ARITH_CLASS}
-  (e.g. "u128 multiplication overflow via .expect()", "i128 arithmetic
-   panicking on overflow", "as-cast loss of sign")
+  (examples vary per language — multiplication overflow, division by zero,
+   signed/unsigned conversion loss, size_t wrap on allocation, etc.)
 
 ## Files to read
 
-- {ENGINE_PATH}/src/ (all .rs files)
-- {WIDE_MATH_PATH} or equivalent helper library file
+- {ENGINE_PATH}/{SRC_DIR_PATH} (all {SOURCE_EXTS} files)
+- {WIDE_MATH_PATH} or equivalent helper library file (if one exists)
 
 ## Method
 
-1. Grep for the panic-class pattern:
-   - For overflow: `.checked_mul`, `.expect`, `.unwrap`, `assert!`
-   - For div-by-zero: `assert!(d > 0`, raw `/`
-   - For sign loss: `as i128`, `as u128`, `unsigned_abs`
+1. Grep for the panic-class pattern in this language's idioms:
+   - For overflow: arithmetic that wraps without an explicit overflow check;
+     missing safe-math wrappers (`.checked_*` in Rust; `__builtin_*_overflow`
+     or `if (a > SIZE_MAX - b)` guards in C; `safeMath` or built-in 0.8+
+     reverts in Solidity; cast-with-bounds in Move).
+   - For div-by-zero: divisions without an explicit zero-check guard.
+   - For sign loss / truncation: casts between signed/unsigned or between
+     widths without an explicit bound check.
 
 2. For each call site, identify:
    - The exact line number
@@ -52,7 +56,7 @@ Then summary:
 - Total call sites of <panic-class>: N
 - Sites where worst_case > panic_threshold: M
 - Of those M, sites reachable from public API: K
-- Top 3 sites worth Layer-2 PoC + Layer-3 Kani harness
+- Top 3 sites worth Layer-2 PoC + Layer-3 {FORMAL_TOOL} harness
 
 Cap at 700 words. Read-only.
 ```

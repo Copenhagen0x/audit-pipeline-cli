@@ -31,6 +31,10 @@ from audit_pipeline.utils import (
     is_available,
     render_placeholders,
 )
+from audit_pipeline.utils.language_profile import (
+    profile_for as _profile_for,
+    render_template as _render_language_template,
+)
 
 # POST-AUDIT FIX (2026-05-12 re-audit catch): hoist emit_event to module
 # scope. Previously imported INSIDE a try block at line 490 — on a cold
@@ -480,6 +484,12 @@ def _recon_body(
         raise click.ClickException(f"Orientation prompt missing at {orientation_path}")
 
     orientation = orientation_path.read_text(encoding="utf-8", errors="replace")
+    # Phase 2 (language-aware templates): substitute language placeholders
+    # ({PROGRAM_KIND}, {SOURCE_EXTS}, {FORMAL_TOOL}, ...) BEFORE the per-hyp
+    # render_placeholders pass so the orientation reflects the target
+    # language regardless of which class template fires below.
+    _lang_profile = _profile_for(language)
+    orientation = _render_language_template(orientation, language)
 
     # Render prompts for every hypothesis (mode-independent)
     rendered_prompts: list[tuple[str, str]] = []  # (hyp_id, full_prompt_text)
@@ -500,6 +510,10 @@ def _recon_body(
             raise click.ClickException(f"Template missing: {template_path}")
 
         template_content = template_path.read_text(encoding="utf-8", errors="replace")
+        # Same language placeholder pass as orientation — fills
+        # {PROGRAM_KIND}, {SOURCE_EXTS}, {FORMAL_TOOL}, {ASSERTION_IDIOM},
+        # {ENTRY_POINT_LABEL}, etc. before the per-hyp engine paths.
+        template_content = _render_language_template(template_content, language)
 
         local_engine_path = str(engine_root)
         local_wrapper_path = str(wrapper_root)
@@ -531,12 +545,23 @@ def _recon_body(
         if ground_code:
             from audit_pipeline.utils.code_extract import collect_grounded_code
 
-            engine_src_dir = Path(local_engine_path) / "src"
-            wrapper_src_dir = Path(local_wrapper_path) / "src"
+            # Phase 2 (language-aware grounding): walk the canonical src
+            # dir for THIS language, not a hardcoded "src/*.rs". Pulls the
+            # ext set from the active LanguageProfile (e.g. .c / .h for c,
+            # .move for aptos, .sol for solidity, .rs for solana). For c
+            # repos we rglob (subdirs: auth/, common/, vendor/...).
+            _src_subdir = _lang_profile.src_dir_path.rstrip("/")
+            engine_src_dir = Path(local_engine_path) / _src_subdir
+            wrapper_src_dir = Path(local_wrapper_path) / _src_subdir
             rs_files: list[Path] = []
             for d in (engine_src_dir, wrapper_src_dir):
-                if d.exists():
-                    rs_files.extend(sorted(d.glob("*.rs")))
+                if not d.exists():
+                    continue
+                for ext in _lang_profile.source_exts:
+                    if language == "c":
+                        rs_files.extend(sorted(d.rglob(f"*{ext}")))
+                    else:
+                        rs_files.extend(sorted(d.glob(f"*{ext}")))
 
             targets: list[str] = []
             for raw_block in (hyp.get("relevant_constants", ""), hyp.get("relevant_instructions", "")):

@@ -1,6 +1,6 @@
 # Prompt 07 — Call chain reachability
 
-**Use when**: a Layer 3 Kani harness returned a CEX, and you need to verify that the witness state is reachable through legitimate public-API calls (not just via white-box state mutation).
+**Use when**: a Layer 3 {FORMAL_TOOL} harness returned a CEX, and you need to verify that the witness state is reachable through legitimate public-API calls (not just via white-box state mutation).
 
 ---
 
@@ -8,9 +8,10 @@
 
 ```
 You are determining whether a specific engine state can be reached via
-legitimate public-API calls. The Kani harness for {FINDING_NAME} returned
-a counterexample (CEX) showing the engine math fails on this state. Your
-job: trace whether the state can ACTUALLY be driven via BPF instructions.
+legitimate public-API calls. The {FORMAL_TOOL} harness for {FINDING_NAME}
+returned a counterexample (CEX) showing the engine logic fails on this
+state. Your job: trace whether the state can ACTUALLY be driven via the
+program's public {ENTRY_POINT_LABEL}.
 
 ## CEX witness state
 
@@ -24,24 +25,24 @@ Example:
 
 ## Files to read
 
-- {WRAPPER_PATH}/src/ (BPF instruction handlers)
-- {ENGINE_PATH}/src/ (engine state mutation paths)
+- {WRAPPER_PATH}/{SRC_DIR_PATH} ({ENTRY_POINT_LABEL} handlers)
+- {ENGINE_PATH}/{SRC_DIR_PATH} (engine state mutation paths; all {SOURCE_EXTS} files)
 
 ## Method
 
 For each state field in the witness:
 
 1. Find every engine function that WRITES that field
-2. For each writer, identify which wrapper-side BPF instruction reaches it
-3. Determine the bound on the value the BPF path can write:
-   - Per-call: how much can a single instruction call change this field?
+2. For each writer, identify which wrapper-side {ENTRY_POINT_LABEL} reaches it
+3. Determine the bound on the value the public path can write:
+   - Per-call: how much can a single call change this field?
    - Cumulative: under unbounded sequences of public calls, what max is reachable?
-4. Compare: is the witness value within the BPF-reachable range?
+4. Compare: is the witness value within the public-API-reachable range?
 
-If ANY witness field is BPF-unreachable → CEX is white-box only, finding
+If ANY witness field is unreachable → CEX is white-box only, finding
 downgrades to "code defect / not exploitable in production."
 
-If ALL witness fields are BPF-reachable → finding is exploitable;
+If ALL witness fields are reachable → finding is exploitable;
 estimate the wall-clock cost of driving state to the witness.
 
 ## Output format
@@ -52,17 +53,17 @@ For each witness state field:
 Field: {field_name}
 Witness value: {value}
 Engine writers: {list with line numbers}
-BPF instructions reaching writers: {list}
+{ENTRY_POINT_LABEL} reaching writers: {list}
 Per-call max delta: {value}
 Cumulative max via unbounded calls: {value or "unbounded"}
-Witness within BPF range: YES | NO
+Witness within public-API range: YES | NO
 ```
 
 Then verdict:
-- All fields BPF-reachable: YES | NO
+- All fields reachable: YES | NO
 - If YES, wall-clock cost estimate to drive state to witness:
-  {N slots × {slot duration} = {years}}
-- Exploitability: ACTIVE | CODE-DEFECT-NOT-EXPLOITABLE | NEEDS-LITESVM-VERIFY
+  {N steps × {step duration} = {time}}
+- Exploitability: ACTIVE | CODE-DEFECT-NOT-EXPLOITABLE | NEEDS-{RUNTIME_TOOL}-VERIFY
 
 Cap at 600 words. Read-only.
 ```

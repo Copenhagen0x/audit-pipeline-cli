@@ -25,9 +25,9 @@ Examples of implicit invariants:
 
 ## Files to read
 
-- {ENGINE_PATH}/src/ (all .rs files, focus on the main module)
+- {ENGINE_PATH}/{SRC_DIR_PATH} (all {SOURCE_EXTS} files, focus on the main module)
 - {SPEC_PATH} (if a spec doc exists)
-- All doc-comments in engine source (lines starting with `///` or `//!`)
+- All doc-comments in engine source
 
 ## Method
 
@@ -41,8 +41,7 @@ Examples of implicit invariants:
    - "spec §"
 
 2. For each statement found, identify:
-   - Does an explicit `assert!`, `debug_assert!`, or early `return Err(...)`
-     enforce the claim?
+   - Does an explicit {ASSERTION_IDIOM} enforce the claim?
    - If not, is the claim verified at the call site by every caller?
    - If neither, this is a candidate implicit invariant.
 
@@ -61,7 +60,7 @@ For each candidate implicit invariant:
   Claim: "<exact prose, quoted>"
   Enforced by: <line:line range of enforcement, or "NONE">
   Impact if violated: <HIGH | MED | LOW>
-  Suggested test: <Layer-2 PoC OR Layer-3 Kani SAFE-proof harness>
+  Suggested test: <Layer-2 PoC OR Layer-3 {FORMAL_TOOL} SAFE-proof harness>
   Confidence: <HIGH | MED | LOW>
 ```
 
