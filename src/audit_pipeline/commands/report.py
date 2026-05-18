@@ -1871,7 +1871,7 @@ def _findings_writeup(
         l2_excerpt = ""
         l2_lang = "rust"
 
-        def _cap_with_firing_tail(body: str, head: int = 28, tail: int = 22) -> str:
+        def _cap_with_firing_tail(body: str, head: int = 60, tail: int = 30) -> str:
             """Cap PoC body but always preserve the firing assertion.
 
             Firing-assertion patterns vary by language:
@@ -1928,7 +1928,7 @@ def _findings_writeup(
             tail_part = parts[tail_start:tail_end]
             return (
                 chr(10).join(head_part)
-                + chr(10) + "        // setup truncated for brevity" + chr(10)
+                + chr(10)
                 + chr(10).join(tail_part)
             )
 
@@ -2330,7 +2330,7 @@ def _findings_writeup(
                     v = _json.loads(verif_p.read_text(encoding="utf-8"))
                     for g_name, g_data in v.get("gates", {}).items():
                         passed = g_data.get("passed")
-                        icon = "✓" if passed is True else ("✗" if passed is False else "⏭")
+                        icon = "✓" if passed is True else ("✗" if passed is False else "–")
                         # Allow up to 400 chars so per-finding gate explanations
                         # don't truncate mid-word in the rendered table.
                         reason = (g_data.get("reason") or "")[:400]
@@ -2394,7 +2394,7 @@ def _findings_writeup(
 
         gates_section = ""
         if p3_gates:
-            n_applicable = sum(1 for icon, _n, _r in p3_gates if icon != "⏭")
+            n_applicable = sum(1 for icon, _n, _r in p3_gates if icon != "–")
             n_total = len(p3_gates)
             n_passed = sum(1 for icon, _n, _r in p3_gates if icon == "✓")
             if n_applicable == n_total:
@@ -2795,7 +2795,7 @@ def _fix_bundle_section(
     )
     advisory_with_bundle = len(rows) - confirmed_with_bundle
     refined_counters = (
-        '<div class="kpi-grid">'
+        '<div class="kpi-grid" style="page-break-inside:avoid;break-inside:avoid">'
         f'<div class="kpi"><div class="label">Confirmed-finding bundles</div>'
         f'<div class="value">{confirmed_with_bundle}</div></div>'
         f'<div class="kpi"><div class="label">Advisory bundles</div>'
@@ -3185,8 +3185,8 @@ pre.code-block {{
   word-break: break-word;
   overflow-wrap: anywhere;
   overflow-x: hidden;
-  page-break-inside: auto;
-  break-inside: auto;
+  page-break-inside: avoid;
+  break-inside: avoid;
 }}
 pre.code-block code {{
   white-space: inherit;
@@ -3215,6 +3215,53 @@ pre code.language-rust .token.comment {{ color: rgba(245,243,237,0.42); font-sty
 pre code.language-rust .token.function {{ color: #ffce4a; }}
 pre code.language-rust .token.number {{ color: #60a5fa; }}
 pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ color: #c084fc; }}
+
+/* ============================== FINDING NARRATIVE ============================== */
+.finding-narrative {{
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}}
+.finding-narrative > h4 {{
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--amber);
+}}
+.narrative-md {{
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}}
+.narrative-md h2 {{
+  margin: 18px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 4px;
+}}
+.narrative-md h3 {{ margin: 14px 0 6px; font-size: 11.5px; font-weight: 600; color: var(--ink); }}
+.narrative-md p {{ margin: 6px 0 10px; }}
+.narrative-md ul, .narrative-md ol {{ margin: 6px 0 10px; padding-left: 22px; }}
+.narrative-md li {{ margin: 3px 0; }}
+.narrative-md code {{ font-size: .92em; }}
+.narrative-md pre {{ font-size: 10.5px; margin: 8px 0 12px; padding: 10px 14px; }}
+.narrative-md blockquote {{
+  border-left: 2px solid var(--amber);
+  padding-left: 12px;
+  margin: 8px 0;
+  color: var(--ink-2);
+}}
+.narrative-md a {{ word-break: break-all; }}
+@media print {{
+  .finding-narrative {{ page-break-before: auto; break-before: auto; }}
+  .narrative-md h2 {{ page-break-after: avoid; break-after: avoid; }}
+}}
 
 /* ============================== TABLE OF CONTENTS ============================== */
 .toc {{
@@ -3273,19 +3320,28 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
   .toc ~ section.finding:first-of-type {{
     page-break-before: always; break-before: page;
   }}
-  /* Banners and TOC rows must never split. Code blocks may split if they
-     exceed a single page — page-break-inside:avoid on a 60-line diff would
-     push it forward and leave the prior page mostly empty. */
-  .finding-banner, .toc li, .gates-table tr {{
+  /* Banners, TOC rows, and the WHOLE gates / activity tables never split. */
+  .finding-banner, .toc li, .gates-table, .gates-table tr, table {{
     page-break-inside: avoid;
     break-inside: avoid;
   }}
   pre.code-block.witness {{ page-break-inside: avoid; break-inside: avoid; }}
-  /* page-break-inside: auto so a too-tall block can still split rather
-     than be pushed to its own page (which produces a 3rd orphan finding
-     page). With caps at 24/16 the combined L2+P3 block normally fits. */
-  pre.code-block {{ page-break-inside: auto; break-inside: auto; }}
-  h2, h3, h4 {{ page-break-after: avoid; break-after: avoid-page; }}
+  /* Diffs + PoCs stay together with their leading heading + tail context. */
+  pre.code-block {{ page-break-inside: avoid; break-inside: avoid; }}
+  /* Heading stays with the block that follows it. */
+  h2, h3, h4 {{
+    page-break-after: avoid;
+    break-after: avoid-page;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }}
+  section.finding h4 + p,
+  section.finding h4 + pre,
+  section.finding h4 + table {{
+    page-break-before: avoid; break-before: avoid;
+  }}
+  /* CSS widows/orphans: never leave 1-2 lines stranded across a page boundary. */
+  p, pre, table {{ orphans: 3; widows: 3; }}
   /* Cover always its own page */
   .cover-page {{ page-break-after: always; break-after: page; }}
 }}

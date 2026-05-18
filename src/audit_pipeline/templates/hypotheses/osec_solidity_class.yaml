@@ -179,6 +179,10 @@ hypotheses:
       ContractB.liquidate — the clamp `if (seize > collateral) seize
       = collateral` and the absence of a paired reduction in
       `applied` debt.
+    impact: |
+      When a liquidator targets an under-collateralized position whose computed `seize` (after bonus) would exceed the borrower's remaining collateral, the clamp shrinks the seize side without shrinking the `applied` debt side. The liquidator pays full debt-token but receives only the clamped collateral, suffering a USD-value loss equal to the missing seize. Over successive market-stress liquidations this disincentivizes liquidators (worsening protocol solvency) and accumulates as bad debt against lenders.
+    recommendation: |
+      When the seize clamp fires, back-calculate the maximum `applied` debt the available collateral can fund — using the inverse of `_seizePreview` with the current oracle prices — and reduce `applied` to that value before applying any debt-pull, debt-reduction, or vesting mutations. This restores the invariant `debtRepaid / collateralSeized == debtPrice / (collateralPrice × (1 + bonus))` in all branches. Any residual debt the borrower cannot cover with their collateral remains outstanding for the protocol's bad-debt socialisation logic to handle separately.
 
   # ─────────────────── ContractC — Governance + Bridge (ContractC.sol) ───────────────────
 
@@ -217,6 +221,10 @@ hypotheses:
       ContractC.vote — the `governanceToken.balanceOf(msg.sender)`
       read. Compare to OpenZeppelin's `ERC20Votes` snapshot pattern;
       this contract has none.
+    impact: |
+      Any actor with access to a flash-loan source of the governance token can pass or defeat any proposal at zero capital cost. The attacker borrows tokens, calls `castVote` while the inflated balance is live, then repays — leaving `forVotes` credited with the loan amount while their permanent balance returns to zero. Every on-chain action gated behind a successful governance vote (treasury disbursements, proxy upgrades, parameter changes, pause toggles) is fully reachable, with Beanstalk ($182M, 2022) being the canonical real-world precedent.
+    recommendation: |
+      Adopt snapshot-based voting weight. Preferred: migrate `governanceToken` to OpenZeppelin's `ERC20Votes` and query `getPastVotes(voter, proposal.snapshotBlock)` in `castVote`. Fallback: maintain an internal delegate-with-cooldown mapping that requires a user to lock tokens at least one block before voting (blocks atomic flash-loan-vote-repay flows). Add a `voted[proposalId][msg.sender]` re-entry guard as defense-in-depth.
 
   - id: SOLD10-gov-sig-replay-no-nonce-no-chainid
     class: authorization
@@ -359,6 +367,10 @@ hypotheses:
       ContractC.execute — the `p.target.delegatecall(p.data)` line.
       Replace with `p.target.call{value: p.value}(p.data)` and
       include the value in the call (Compound/OZ Governor pattern).
+    impact: |
+      Complete protocol takeover. Any queued proposal can deploy attacker bytecode that overwrites `ContractC`'s storage slot 0 (the admin field) or any other inherited slot. With admin captured, the attacker can pause the protocol, drain treasury holdings, reassign the guardian, and lock out legitimate administrators in a single transaction after `executeModule` fires. The attack requires only the standard propose+vote+queue lifecycle — no privileged role beyond proposalThreshold token holdings.
+    recommendation: |
+      Replace `p.target.delegatecall(p.data)` with `p.target.call{value: p.value}(p.data)` in `executeModule` so proposal payloads run against the target's own storage, not `ContractC`'s. Add a `p.target != address(this)` guard as defense-in-depth against any future re-entrant variant. If a module pattern genuinely requires `delegatecall`, restrict the target to a hardcoded allowlist of immutable audited addresses.
 
   - id: SOLD18-gov-queue-cross-chain-replay-arbitrary-payload
     class: invariant_property
@@ -502,20 +514,30 @@ hypotheses:
     engine_function: "ContractB.batchLiquidate"
     target_file: src/ContractB.sol
     claim: >
-      ContractB.batchLiquidate pulls `repayAmount` from the caller via
-      `safeTransferFrom`, calls `positions[borrower].decreaseDebt(...)`
-      to reduce the borrower's debt, but NEVER transfers any
-      collateral to the caller. The liquidator pays the borrower's
-      debt down and receives nothing — strict, unbounded loss any
-      time someone calls this function. Equivalently, anyone can
-      grief liquidators by sandwiching a single-account liquidate()
-      with a batchLiquidate() that erases the bad-debt incentive.
+      ContractB.batchLiquidate iterates over unhealthy borrowers and
+      dispatches each via `this.liquidate(borrower, debt, col, amt)`.
+      Because `this.X(...)` is semantically an external call, the EVM
+      resets msg.sender for the inner frame to address(this). The
+      inner `liquidate(...)` then uses `msg.sender` for BOTH the
+      debt-pull (`safeTransferFrom(msg.sender, address(this), applied)`)
+      AND the collateral payout (`safeTransfer(msg.sender, seize)`) —
+      so the seized collateral is sent to the contract self instead
+      of the EOA that invoked `batchLiquidate`. The real liquidator
+      receives zero collateral while the borrower's debt is correctly
+      reduced; the same code path works correctly when `liquidate(...)`
+      is called directly (no `this.`), making it a clean differential
+      between the single-position and batch entry points.
     relevant_instructions: |
-      ContractB.batchLiquidate — the loop body must compute `seized`
-      from `repayAmount`, clamp by `p.collateral`, transfer that
-      collateral to `msg.sender`, and decrement `p.collateral` —
-      i.e., mirror the single-account `liquidate()` logic per
-      iteration.
+      Refactor the body of `liquidate(...)` into an internal helper
+      `_liquidateFor(address _liquidator, ...)` that takes the
+      liquidator as a parameter, and have BOTH `liquidate(...)`
+      and `batchLiquidate(...)` call it directly (no `this.X` self-
+      calls) so the external caller's identity threads through every
+      inner liquidation.
+    impact: |
+      Every call to `batchLiquidate` silently routes seized collateral into the pool's untracked balance instead of the EOA caller. Liquidation bots and third-party integrators lose 100% of the debt-token repayment they fund for each unhealthy borrower in the batch; the borrower's debt is correctly reduced so the call appears to succeed externally. Pool inventory grows by the unattributed seize with no ledger entry, opening secondary value-extraction paths against utilisation-rate models and reserve-factor accounting.
+    recommendation: |
+      Extract the body of `liquidate(...)` into an internal helper `_liquidateFor(address _liquidator, ...)`, and have both `liquidate(...)` and `batchLiquidate(...)` call it directly (no `this.X` self-calls) so the external caller's identity threads through every inner liquidation. The substitution is mechanical: replace each `msg.sender` reference inside the body with `_liquidator`.
 
   - id: SOLD28-escrow-disputed-state-permanently-locks-funds
     class: invariant_property
@@ -622,6 +644,10 @@ hypotheses:
       `nonces[borrower]`. Bump the nonce after a successful recover so
       a replayed signature recovers a different (likely zero) address
       and reverts at the `signer == borrower` check.
+    impact: |
+      An attacker who observes a single legitimate `permitBorrow` signature on chain A can replay it byte-for-byte against the same-address `ContractB` deployment on chain B (or any other EVM chain). The victim's collateral on every other chain is exposed to debt the attacker controls via `borrowFrom`. The replay also works repeatedly on the same chain because there is no per-borrower nonce in the digest — each replay overwrites `borrowAllowance` to the signed amount, which the delegate immediately drains.
+    recommendation: |
+      Bind the digest to `block.chainid` and `address(this)` via a proper EIP-712 domain separator, and add a per-borrower nonce that increments on each successful `permitBorrow` consume. Reference OpenZeppelin `EIP712.sol` for the fork-safe domain-cache pattern. Increment the nonce before any external borrow action to prevent reentrancy-based nonce bypass.
 
   - id: SOLD32-gov-proposal-sig-no-chainid
     class: invariant_property
@@ -648,6 +674,10 @@ hypotheses:
       `block.chainid` and `address(this)`, plus a per-proposer
       monotonic nonce inside the typed-data struct (bumped on
       successful recover).
+    impact: |
+      A proposer's single signature is valid across every `ContractC` deployment on every EVM chain at any address, and never expires within `deadline`. Any third party who observes the signature on one mempool can manufacture identical proposals on every other governance instance — including ones controlling different treasuries — under the original proposer's identity. The absence of a nonce further means a single signature can be replayed indefinitely on the same chain whenever proposal state allows re-submission.
+    recommendation: |
+      Bind `block.chainid`, `address(this)`, and a per-proposer nonce into the `recoverProposal` digest via a proper EIP-712 domain separator + typed struct hash. Increment the nonce before invoking `_propose` so the same signature cannot be consumed twice. Reference OpenZeppelin `Governor` / `EIP712.sol` for the canonical implementation.
 
   - id: SOLD33-vault-share-inflation-via-idle-donation
     class: invariant_property
@@ -704,6 +734,10 @@ hypotheses:
       and apply a non-zero protocol-wide minimum (e.g. 1 hour).
       `setSource`/`setManualSource` should reject `maxStaleness == 0`
       at the setter level so it never persists.
+    impact: |
+      Any asset configured with `maxStaleness == 0` (whether intentionally by RISK_ROLE or as the default-zero of an uninitialized config) has its freshness check silently skipped. Downstream consumers using `PriceRouter.price` for collateral valuation, liquidation thresholds, or swap pricing operate against arbitrarily stale data until a keeper pushes a new price. An attacker can time deposits, borrows, or liquidations against the stale value to extract up to the affected asset's full backed liquidity.
+    recommendation: |
+      Reject `maxStaleness == 0` at configuration time in `setManualSource` / `setSource` (preferred — surfaces misconfiguration at write time), or treat zero as immediately-stale in the `price` guard. Either approach restores the invariant that every `price()` call against a stale asset must revert. Audit every code path that registers a new asset to ensure `maxStaleness` is always set explicitly.
 
   - id: SOLD35-bridge-escrow-lock-variant-constant-drift
     class: invariant_property
@@ -765,6 +799,10 @@ hypotheses:
       >= pendingOperatorAfter` where `pendingOperatorAfter` is set
       to `block.timestamp + OPERATOR_TIMELOCK` (e.g. 48 hours).
       During the timelock, the current operator can `cancelOperatorTransfer`.
+    impact: |
+      A single signature from a compromised operator key transfers the highest-privileged role on any of the ten affected modules — `BridgeEscrow`, `FeeDistributor`, `RiskEngine`, `PortfolioMargin`, `TreasuryAccounting`, `GovernanceTimelock`, `AuctionHouse`, `StrategyRegistry`, `SettlementEngine`, and `WithdrawalQueue` — to an attacker in one transaction with no recovery window. Because `GovernanceTimelock` itself uses the same pattern, the attacker simultaneously disables the protocol's primary recovery mechanism. The attacker's first call locks out the legitimate operator before any monitoring infrastructure can react.
+    recommendation: |
+      Replace single-step `setOperator` with a two-step nominate / accept flow gated by a non-overridable timelock constant (suggest 48 hours). The nominee must call `acceptOperator()` from their own address only after the delay elapses; the active `operator` remains unchanged until then. Mirror OpenZeppelin's `Ownable2Step` pattern across all 10 modules. Make the delay a `constant` (not configurable) so an attacker cannot zero it before triggering the transfer.
 
   - id: SOLD37-debt-ledger-reduce-debt-global-decoupling
     class: invariant_property
@@ -794,6 +832,10 @@ hypotheses:
       `totalDebtByAsset` as a true sum that's incremented in
       `_increaseDebt` and decremented BY THE SAME amount as the
       per-account `subDebt` returns — never zero out as a fallback).
+    impact: |
+      `totalDebtByAsset` drifts irrecoverably downward with every interest-accruing repayment, because the per-account reduction is computed in interest-scaled (current-value) units but subtracted from a counter that tracks principal-scaled units only. Downstream consumers — utilisation curves, per-asset borrow caps, reserve accounting, liquidation thresholds — operate on a systematically lower aggregate, allowing new borrowers to exceed intended caps and under-compensating lenders via depressed interest rates. The ternary zero-clamp masks the drift but does not repair it.
+    recommendation: |
+      Convert the reduction back to principal units before subtracting from `totalDebtByAsset` — either by inverting the index scaling (`actualReduction * RAY / currentIndex`) or by using the difference between the borrower's pre- and post-repayment scaled principal directly. The latter is preferred because it avoids floating-point-style precision loss in the index inversion and mirrors exactly what `_increaseDebt` adds. Re-verify the invariant `totalDebtByAsset == Σ scaledPrincipal` after the fix.
 
   - id: SOLD38-fee-distributor-accrue-distribute-drift
     class: invariant_property
@@ -908,6 +950,10 @@ hypotheses:
       `_computeRiskScore` and ONE threshold constant. The variants
       should be view-only conveniences that all call the same
       internal function.
+    impact: |
+      An operator can cherry-pick which `assess` variant (`assess4`, `assess9`, or `assess10`) to call against any record, with each variant producing different `riskScore` and `riskLimit` outcomes for identical inputs (BIAS constants 4e15 / 9e15 / 10e15 and limit multipliers 7 / 12 / 13 respectively). This lets the operator (or anyone who compromises the operator role) suppress a rebalance that would otherwise protect the protocol from a deteriorating position, or force an unnecessary rebalance against a targeted counterparty.
+    recommendation: |
+      Unify the three variants into a single canonical `assess(...)` function with one set of constants (or, better, governance-controlled storage variables) and one canonical `rebalance(...)` reading from it. Deprecate `assess4` / `assess9` / `assess10` and their `rebalance4` / `rebalance1` counterparts so variant selection is no longer a caller-controlled parameter. If multiple risk tiers are genuinely required, encode the tier per-record at `openRecord` time, not via separate functions.
 
   - id: SOLD43-settlement-engine-process-finalize-batch-drift
     class: invariant_property
