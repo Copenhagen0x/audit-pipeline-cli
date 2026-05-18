@@ -858,10 +858,17 @@ def _build_customer_target_rows(
       last_cycle_id, last_cycle_at, engine_sha (used by "Last scan ...")
       status (scanned / scanning / idle, used by lobby card classes)
     """
+    # Badge counts must reflect what the customer has actually DISCLOSED
+    # (matches the published PDF totals on each cycle).
+    # Triaged + confirmed findings are still visible in the detail list but
+    # not counted in target / lobby badges.
+    _DISCLOSED_STATUSES = {"disclosed", "fixed", "verified", "closed_not_planned"}
     by_target_id: dict[int, dict] = {}
     for f in customer_findings:
         tid = f.get("target_id")
         if tid is None:
+            continue
+        if (f.get("status") or "") not in _DISCLOSED_STATUSES:
             continue
         d = by_target_id.setdefault(tid, {
             "n": 0,
@@ -1185,9 +1192,14 @@ def _build_customer_manifest(db: FindingsDB, customer: dict, workspace: Path | N
         # back-compat for by emitting BOTH `stats` and `totals`.
         "totals": {
             "n_targets": len(owned_targets),
-            "n_findings": len(customer_findings),
+            # n_findings reflects disclosed only (lobby counter shows what
+            # is published, not what is pending).
+            "n_findings": sum(sev_disclosed.values()),
+            # Totals reflect what is DISCLOSED only (matches published PDF
+            # totals). In-progress findings remain in stats / detail list
+            # but are not summed in the lobby counter cards.
             "by_severity": {
-                k: (sev_disclosed.get(k, 0) + sev_in_progress.get(k, 0))
+                k: sev_disclosed.get(k, 0)
                 for k in ("Critical", "High", "Medium", "Low", "Info")
             },
         },
