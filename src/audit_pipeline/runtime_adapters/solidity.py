@@ -121,6 +121,12 @@ A failing fuzz/invariant test = bug confirmed with concrete inputs.
 * **NO C/Rust-style void casts** (`(void)(x);` or `(void)x;`). Solidity
   has no `void` type and no C-style cast syntax — SYNTAX ERROR.
   Use bare `x;` to silence unused-variable warnings.
+* **ASCII ONLY inside string literals.** Solidity 0.8.x rejects Unicode
+  characters (em-dash `—`, curly quotes `'` `"`, ellipsis `…`, etc.)
+  in regular `"..."` strings with `Error (8936): Invalid character in
+  string`. Use plain `-`, `'`, `"`, `...` instead. Unicode in COMMENTS
+  is fine; only string literals are affected. (The parser auto-strips
+  any Unicode that sneaks through, but readable ASCII is preferred.)
 * **Contract name MUST differ from its test function names.** Solidity
   treats a function with the same name as its containing contract as
   a constructor (legacy syntax) which is invalid in 0.8.x.
@@ -236,13 +242,41 @@ If unable: `// CANNOT_FUZZ: <reason>` stub.
     def parse_harness_body(self, llm_response: str) -> str:
         m = re.search(r"```(?:solidity|sol)\s*\n([\s\S]*?)\n```", llm_response)
         if m:
-            return m.group(1).strip() + "\n"
+            return self._sanitize_unicode(m.group(1).strip()) + "\n"
         m = re.search(r"```\s*\n([\s\S]*?)\n```", llm_response)
         if m:
             body = m.group(1).strip()
             if "contract " in body or "testFuzz_" in body or "invariant_" in body:
-                return body + "\n"
+                return self._sanitize_unicode(body) + "\n"
         raise ValueError("Could not extract a Solidity fuzz harness from the LLM response.")
+
+    @staticmethod
+    def _sanitize_unicode(body: str) -> str:
+        """Replace common Unicode chars (em-dash, curly quotes, etc.) with ASCII
+        equivalents. Solidity 0.8.x rejects non-ASCII in regular string literals
+        (`Error 8936: Invalid character in string`). The LLM author frequently
+        writes em-dashes in assertion messages — strip them at parse time so
+        we don't keep retrying the same failure mode.
+        """
+        replacements = {
+            "—": "-",   # em-dash
+            "–": "-",   # en-dash
+            "‘": "'",   # left single quote
+            "’": "'",   # right single quote / apostrophe
+            "“": '"',   # left double quote
+            "”": '"',   # right double quote
+            "…": "...", # ellipsis
+            " ": " ",   # non-breaking space
+            "×": "x",   # multiplication sign
+            "→": "->",  # right arrow
+            "←": "<-",  # left arrow
+        }
+        for u, a in replacements.items():
+            body = body.replace(u, a)
+        # Anything still non-ASCII becomes a space — last-resort safety net
+        # so a single rogue char doesn't tank the whole harness compile.
+        body = "".join(c if ord(c) < 128 else " " for c in body)
+        return body
 
     def write_harness_file(
         self,
