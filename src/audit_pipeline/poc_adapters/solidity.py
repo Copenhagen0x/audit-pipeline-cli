@@ -210,7 +210,12 @@ verified to compile against THIS repo's `IERC20` and `IOracle`.
 
 ```solidity
 import "@src/vendor/openzeppelin/token/ERC20/IERC20.sol";  // IERC20
-import "@src/interfaces/ExternalInterfaces.sol";  // IOracle, IBridgeAdapter
+// Individual interface files — NO aggregator like ExternalInterfaces.sol exists.
+// Import only the ones you actually use:
+import "@src/interfaces/IOracle.sol";          // for oracle mocks
+import "@src/interfaces/IBridgeAdapter.sol";   // for bridge mocks
+import "@src/interfaces/IStrategy.sol";        // for strategy mocks
+// (and IFlashBorrower, IGovernanceHook, IRateModel as needed)
 ```
 
 THIS repo's `IERC20` has 7 functions (decimals, totalSupply, balanceOf,

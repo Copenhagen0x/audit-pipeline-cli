@@ -86,19 +86,44 @@ Function under test: {engine_function}
 
 A failing fuzz/invariant test = bug confirmed with concrete inputs.
 
-# Repo conventions
+# Repo conventions + Solidity syntax pitfalls
 
 * Imports use `@src/` remapping (per foundry.toml). Example:
     `import "@src/ContractA.sol";`
     `import "@src/vendor/openzeppelin/token/ERC20/IERC20.sol";`
-    `import "@src/interfaces/ExternalInterfaces.sol";` (for IOracle, IBridgeAdapter)
+* NO aggregator like `ExternalInterfaces.sol` exists. Import the
+  individual interface files when needed:
+    `import "@src/interfaces/IOracle.sol";`
+    `import "@src/interfaces/IBridgeAdapter.sol";`
+    `import "@src/interfaces/IStrategy.sol";`
+  (and IFlashBorrower, IGovernanceHook, IRateModel — only what you use)
 * DO NOT re-declare interfaces already in scope via @src imports.
+  Writing a second `interface IBridgeAdapter {{ ... }}` after importing
+  it causes "Identifier already declared" compile error.
+* DO NOT call non-existent helper functions like `_healthy_exposed`.
+  Internal functions are NOT directly callable from tests — derive
+  the bug surface from public/external entrypoints only.
 * `IERC20` in this repo has 7 functions (decimals, totalSupply,
   balanceOf, allowance, transfer, transferFrom, approve). Any mock
   ERC-20 inheriting `is IERC20` must implement ALL of them or you
   get "Contract should be marked as abstract".
-* **NO C-style void casts** (`(void)(x);`). Solidity rejects them.
+* **Hex literals must be VALID HEX** (chars 0-9, a-f, A-F). Writing
+  `address(0xADMIN)`, `address(0xGOVERNOR)`, `address(0xA77ACK)` is
+  a SYNTAX ERROR — M/N/T/K/G/V/R/O aren't hex digits. For named test
+  addresses use `makeAddr("admin")`, `vm.addr(1)`, or a numeric literal
+  like `address(0xA11CE)` (valid hex — A/1/C/E are all hex). NEVER
+  write hex digits that look like English words unless every character
+  is in `[0-9a-fA-F]`.
+* Address literals 0x000...{{20 hex chars}} that LOOK like a checksummed
+  address must match EIP-55 mixed case. If you don't want to compute
+  the checksum, use `address(uint160(N))` for any uint constant N, or
+  use `makeAddr("name")` — both compile cleanly regardless of case.
+* **NO C/Rust-style void casts** (`(void)(x);` or `(void)x;`). Solidity
+  has no `void` type and no C-style cast syntax — SYNTAX ERROR.
   Use bare `x;` to silence unused-variable warnings.
+* **Contract name MUST differ from its test function names.** Solidity
+  treats a function with the same name as its containing contract as
+  a constructor (legacy syntax) which is invalid in 0.8.x.
 
 # Mock contract templates (COPY-PASTE these if you need mocks)
 
@@ -123,11 +148,51 @@ contract MockERC20 is IERC20 {{
     }}
 }}
 
+// USDT-style mock (non-zero-to-non-zero approve reverts)
+contract UsdtStyleMockERC20 is MockERC20 {{
+    function approve(address s, uint256 amt) external override returns (bool) {{
+        require(amt == 0 || _allow[msg.sender][s] == 0, "USDT: must reset to 0 first");
+        _allow[msg.sender][s] = amt; emit Approval(msg.sender, s, amt); return true;
+    }}
+}}
+
+// Blocklist mock (transfer to blocked address reverts — USDC/USDT pattern)
+contract BlocklistMockERC20 is MockERC20 {{
+    mapping(address => bool) public blocked;
+    function block_(address a) external {{ blocked[a] = true; }}
+    function transfer(address to, uint256 amt) external override returns (bool) {{
+        require(!blocked[to], "BLOCKED");
+        require(_bal[msg.sender] >= amt, "bal");
+        _bal[msg.sender] -= amt; _bal[to] += amt; emit Transfer(msg.sender, to, amt);
+        return true;
+    }}
+}}
+
+// Reentrant ERC-777-style hook mock (for re-entry tests)
+contract ReentrantMockERC20 is MockERC20 {{
+    address public hook_target;
+    bytes public hook_data;
+    bool reentered;
+    function setHook(address t, bytes calldata d) external {{ hook_target = t; hook_data = d; }}
+    function transfer(address to, uint256 amt) external override returns (bool) {{
+        if (hook_target != address(0) && !reentered) {{
+            reentered = true;
+            (bool ok,) = hook_target.call(hook_data);
+            ok;
+        }}
+        require(_bal[msg.sender] >= amt, "bal");
+        _bal[msg.sender] -= amt; _bal[to] += amt; emit Transfer(msg.sender, to, amt);
+        return true;
+    }}
+}}
+
 // Manipulable IOracle mock
 contract MockOracle is IOracle {{
     mapping(address => uint256) public p;
-    function price(address t) external view override returns (uint256) {{ return p[t]; }}
-    function setPrice(address t, uint256 v) external {{ p[t] = v; }}
+    mapping(address => uint256) public ts;
+    function price(address t) external view override returns (uint256 priceE18, uint256 updatedAt) {{ return (p[t], ts[t]); }}
+    function setPrice(address t, uint256 v) external {{ p[t] = v; ts[t] = block.timestamp; }}
+    function setPriceWithTimestamp(address t, uint256 v, uint256 _ts) external {{ p[t] = v; ts[t] = _ts; }}
 }}
 ```
 
