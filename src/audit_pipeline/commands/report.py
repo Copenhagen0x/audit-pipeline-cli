@@ -32,6 +32,43 @@ from audit_pipeline.commands.sign import SignError, default_key_path, sign_file
 from audit_pipeline.db import open_findings_db
 from audit_pipeline.severity import DEFINITIONS, Severity
 
+# Severity rubric for C / systems-software targets. The default
+# `DEFINITIONS` (audit_pipeline.severity) frames severity tiers around
+# Solana-DeFi terminology (loss of user funds, protocol takeover,
+# permissionless instructions). That framing is wrong for C eval
+# targets where the failure modes are memory corruption, arbitrary
+# read/write, privilege escalation, denial of service, and so on. The
+# report's appendix-A renderer picks this dict when language == "c".
+_C_SEVERITY_RUBRIC: dict[Severity, str] = {
+    Severity.CRITICAL: (
+        "Direct attacker-controlled memory corruption (heap/stack overflow, "
+        "use-after-free, double-free, format-string write) or full privilege "
+        "escalation reachable from a permissionless input. No special "
+        "preconditions beyond an attacker-shaped byte string. Must be "
+        "patched immediately."
+    ),
+    Severity.HIGH: (
+        "Significant memory-safety violation or authorization bypass under "
+        "realistic preconditions (specific filesystem state, race window, "
+        "or attacker-controlled environment variable). Patch should ship "
+        "in next release."
+    ),
+    Severity.MEDIUM: (
+        "Hardening issue: predictable resource path, weak entropy, "
+        "save/load divergence, or invariant violation requiring an "
+        "improbable state or co-tenant attacker. Worth fixing in normal "
+        "cadence."
+    ),
+    Severity.LOW: (
+        "Minor issue with no plausible path to memory corruption or "
+        "privilege escalation. Code-quality or defense-in-depth concern."
+    ),
+    Severity.INFO: (
+        "Informational. No security impact. Documentation or style "
+        "suggestion."
+    ),
+}
+
 console = Console()
 
 
@@ -919,9 +956,9 @@ def _scope_section(
       <tr><td style="color:var(--text-3)">Source files</td>
           <td><table style="border:none;margin:0;background:none"><tbody>{files_rows}</tbody></table></td></tr>
       <tr><td style="color:var(--text-3)">Hypothesis library</td>
-          <td>{n_hyps_in_library} invariant claim(s) covering authorization, arithmetic safety, accounting consistency, capability handling, event auditability, and oracle / time freshness</td></tr>
+          <td>{n_hyps_in_library} invariant claim(s) {("covering memory safety (off-by-one, OOB, UAF, double-free), filesystem-race (TOCTOU, predictable-path, symlink-follow), format-string injection, authorization (missing role gates, weak token entropy), and integer-overflow." if language == "c" else "covering authorization, arithmetic safety, accounting consistency, capability handling, event auditability, and oracle / time freshness")}</td></tr>
       <tr><td style="color:var(--text-3)">Out of scope</td>
-          <td style="color:var(--text-2)">Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>{("Move.toml" if language == "aptos" else ("foundry.toml" if language == "solidity" else ("Makefile / build.sh" if language == "c" else "Cargo.toml")))}</code> beyond their declared interfaces.</td></tr>
+          <td style="color:var(--text-2)">{("System libraries (libc, libpthread, libcrypto); kernel-side syscall behavior; build scripts and Makefile / build.sh logic; vendored third-party headers under src/vendor/; the test harness itself under tests/." if language == "c" else "Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>" + ("Move.toml" if language == "aptos" else ("foundry.toml" if language == "solidity" else "Cargo.toml")) + "</code> beyond their declared interfaces.")}</td></tr>
     </tbody>
   </table>
 """
@@ -1094,6 +1131,218 @@ _BUG_CLASS_TITLES: dict[str, str] = {
     "predictable-pda":         "Predictable PDA from attacker-controlled seed in `{fn}`",
     "pda-not-canonical":       "PDA not canonical in `{fn}` (missing seeds / bump)",
 }
+
+
+_SOLANA_LINE_PHRASES = (
+    "solana labs",
+    "solana-program-library",
+    "anchor instruction handler",
+    "anchor instruction handlers",
+    "ctx.accounts.authority",
+    "solana program audit",
+    "solana program audits",
+    "in the solana context",
+    "solana context:",
+    "the solana context",
+    "solana ecosystem",
+    "pda validation",
+    "bpf execution environment",
+    "bpf instruction",
+    "anchor handler",
+)
+
+
+def _strip_solana_taint(md: str) -> str:
+    """Remove Solana-flavored sentences/bullets from a C-cycle narrative.
+
+    The narrative author was not language-aware when these were generated,
+    so some sentences in Impact / References sections drift into Solana
+    territory (PDA validation, Anchor handlers, BPF environment). For a C
+    cycle these are nonsense. Strategy: drop any line whose lowercased
+    text contains one of `_SOLANA_LINE_PHRASES`. We also splice out
+    individual clauses introduced by ", or, in the Solana context, …"
+    inside otherwise-clean paragraphs.
+    """
+    if not md:
+        return md
+    # Splice out mid-sentence "in the Solana context" / "or, in the Solana context" clauses.
+    md = re.sub(
+        r",?\s*(?:or,?\s+)?in the [Ss]olana context[^.]*\.",
+        ".",
+        md,
+    )
+    # Drop whole bullets/lines that are saturated with Solana terminology.
+    kept: list[str] = []
+    for line in md.splitlines():
+        low = line.lower()
+        if any(p in low for p in _SOLANA_LINE_PHRASES):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _load_narrative_sections(
+    narratives_dir: Path,
+    hyp_id: str,
+    language: str = "",
+) -> dict[str, str] | None:
+    """Read the per-finding narrative markdown and parse its sections.
+
+    Layer 5 (narrative generation) writes one ``<hyp_id>.md`` per
+    confirmed finding under ``hunts/<cycle>/narratives/``. Each file
+    starts with a single H1 (`# [Severity] Short title`) and is split
+    into H2 sections (`## Summary`, `## Affected code`, `## Description`,
+    `## Impact`, `## Reproduction`, `## Recommended fix`, `## References`).
+    The report's per-finding HTML body previously ignored these files
+    and rendered hyp-claim + generic severity-rubric placeholders
+    instead. This helper parses the .md so the renderer can pull
+    bug-specific Impact, Description, Reproduction, Recommended-fix,
+    and References text into the body.
+
+    Returns a dict keyed by lowercased section name (without ``##``),
+    plus the special key ``"_title"`` holding the H1's title text with
+    the leading ``[Severity]`` tag stripped, OR ``None`` if the
+    narrative file is missing or unreadable.
+    """
+    md_path = narratives_dir / f"{hyp_id}.md"
+    if not md_path.is_file():
+        return None
+    try:
+        raw = md_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    sections: dict[str, str] = {}
+    cur_key: str | None = None
+    cur_lines: list[str] = []
+    # H1 — the title line. Strip a leading [Severity] tag so the report's
+    # severity pill isn't duplicated.
+    m_h1 = re.search(r"^#\s+(.+?)\s*$", raw, re.M)
+    if m_h1:
+        title = m_h1.group(1).strip()
+        title = re.sub(r"^\[[A-Za-z]+\]\s*", "", title)
+        sections["_title"] = title
+
+    for line in raw.splitlines():
+        m_h2 = re.match(r"^##\s+(.+?)\s*$", line)
+        if m_h2:
+            if cur_key is not None:
+                sections[cur_key] = "\n".join(cur_lines).strip()
+            cur_key = m_h2.group(1).strip().lower()
+            cur_lines = []
+            continue
+        if cur_key is not None:
+            cur_lines.append(line)
+    if cur_key is not None:
+        sections[cur_key] = "\n".join(cur_lines).strip()
+
+    # Language-aware sanitization: for C cycles, strip Solana-flavored
+    # phrases the narrative author injected when the engine wasn't yet
+    # language-aware.
+    if language == "c":
+        for k in list(sections.keys()):
+            if k == "_title":
+                continue
+            sections[k] = _strip_solana_taint(sections[k])
+
+    return sections
+
+
+# Very small markdown→HTML for narrative section bodies. Handles the
+# subset our narratives actually use: paragraphs, bullet lists, inline
+# code/backticks, fenced ``` blocks, links, bold. Anything else is
+# rendered as escaped text. Keeps the output self-contained — no
+# external markdown dependency.
+def _narrative_md_to_html(md: str) -> str:
+    if not md:
+        return ""
+    # Robust approach: split the entire string on triple-backticks first.
+    # Odd-indexed segments are fence bodies (with an optional leading
+    # language tag on the first line). Even-indexed segments are normal
+    # markdown rendered as paragraphs / lists / headings. This is the
+    # only way to reliably handle inline ```...``` that the narrative
+    # author placed mid-paragraph or mid-list-item.
+    parts = md.split("```")
+    out: list[str] = []
+    for i, seg in enumerate(parts):
+        if i % 2 == 1:
+            # Fence body. First line (if word-only) is a language tag.
+            lines = seg.split("\n", 1)
+            first = lines[0].strip()
+            body = lines[1] if len(lines) > 1 else ""
+            if re.match(r"^[A-Za-z0-9_+-]+$", first):
+                lang = first
+                code = body
+            else:
+                lang = ""
+                code = seg
+            code = code.strip("\n")
+            cls = f' class="language-{lang}"' if lang else ""
+            out.append(
+                f'<pre class="code-block code-tight"><code{cls}>'
+                f'{html.escape(code)}</code></pre>'
+            )
+        else:
+            out.append(_render_md_text(seg))
+    return "\n".join(s for s in out if s)
+
+
+def _render_md_text(md: str) -> str:
+    """Render a markdown segment that contains NO triple-backtick fences.
+
+    Handles: paragraphs, bullet lists, blank-line separation, H3 headings.
+    Inline markdown (single backticks, **bold**, links) is handled by
+    `_inline_md`.
+    """
+    if not md.strip():
+        return ""
+    out: list[str] = []
+    in_para: list[str] = []
+    in_list: list[str] = []
+
+    def _flush_para() -> None:
+        if in_para:
+            text = " ".join(in_para).strip()
+            if text:
+                out.append(f'<p class="finding-prose">{_inline_md(text)}</p>')
+            in_para.clear()
+
+    def _flush_list() -> None:
+        if in_list:
+            out.append('<ul class="finding-prose" style="margin:6px 0 12px 18px;color:var(--text-2)">')
+            for li in in_list:
+                out.append(f'<li>{_inline_md(li)}</li>')
+            out.append("</ul>")
+            in_list.clear()
+
+    for raw_line in md.splitlines():
+        line = raw_line.rstrip()
+        m_li = re.match(r"^\s*[-*]\s+(.+)$", line)
+        if m_li:
+            _flush_para()
+            in_list.append(m_li.group(1).strip())
+            continue
+        if not line.strip():
+            _flush_para(); _flush_list()
+            continue
+        m_h3 = re.match(r"^###\s+(.+)$", line)
+        if m_h3:
+            _flush_para(); _flush_list()
+            out.append(f'<h5 style="font-size:12.5px;margin:14px 0 4px;color:var(--text)">{_inline_md(m_h3.group(1).strip())}</h5>')
+            continue
+        _flush_list()
+        in_para.append(line.strip())
+
+    _flush_para(); _flush_list()
+    return "\n".join(out)
+
+
+def _inline_md(text: str) -> str:
+    """Inline markdown → HTML. Handles `code`, **bold**, [text](url)."""
+    s = html.escape(text)
+    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', s)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    return s
 
 
 def _render_inline_backticks(text: str) -> str:
@@ -1829,6 +2078,7 @@ def _findings_writeup(
     cycle_dir = workspace / "hunts" / cycle_id
     poc_dir = cycle_dir / "poc"
     litesvm_dir = cycle_dir / "litesvm"
+    narratives_dir = cycle_dir / "narratives"
     # Bundles moved from the legacy ``workspace/recon/bundles/`` (the
     # Percolator-era P3 location) to the per-cycle
     # ``hunts/<cycle>/bundles/`` slot as of 2026-05-15. Prefer the
@@ -2167,7 +2417,7 @@ def _findings_writeup(
                     l3_status = (
                         "✓ CBMC counterexample found "
                         "(bug confirmed by bounded model checking; full trace "
-                        "in formal/c/harness_<slug>.cbmc.log)."
+                        f"in formal/c/harness_{hyp_slug}_invariant.c)."
                         + (f" {raw_reason}" if raw_reason else "")
                     )
                 elif ev.get("proved") is True:
@@ -2474,21 +2724,45 @@ def _findings_writeup(
                         # Allow up to 400 chars so per-finding gate explanations
                         # don't truncate mid-word in the rendered table.
                         reason = (g_data.get("reason") or "")[:400]
-                        # Relabel the row name so the gate description matches the
-                        # actual symbolic-verification / BPF tool for non-Solana cycles.
+                        # Relabel BOTH the row name AND the reason text so the
+                        # gate description matches the actual symbolic /
+                        # runtime tool for non-Solana cycles. The verifier
+                        # writes Solana-flavored reason text ("no kani_harness
+                        # registered for this bug class") regardless of
+                        # language — relabel it here for display only.
                         if language == "aptos" and g_name == "kani_proof_holds":
                             display_name = "move_prover_proof_holds"
+                            reason = reason.replace(
+                                "no kani_harness registered for this bug class",
+                                "no Move Prover spec registered for this bug class",
+                            )
                         elif language == "solidity" and g_name == "kani_proof_holds":
                             display_name = "halmos_proof_holds"
+                            reason = reason.replace(
+                                "no kani_harness registered for this bug class",
+                                "no Halmos harness registered for this bug class",
+                            )
                         elif language == "solidity" and g_name == "litesvm_exploit_neutralized":
                             display_name = "forge_invariant_neutralized"
+                            reason = reason.replace(
+                                "no litesvm_test_name registered for this bug class",
+                                "no forge-invariant harness registered for this bug class",
+                            )
                         elif language == "c" and g_name == "kani_proof_holds":
                             display_name = "cbmc_proof_holds"
+                            reason = reason.replace(
+                                "no kani_harness registered for this bug class",
+                                "n/a for C cycles; CBMC verdict reported at L3 above",
+                            )
                         elif language == "c" and g_name == "litesvm_exploit_neutralized":
                             display_name = "afl_crash_neutralized"
+                            reason = reason.replace(
+                                "no litesvm_test_name registered for this bug class",
+                                "n/a for C cycles; AFL++ verdict reported at L4 above",
+                            )
                         else:
                             display_name = g_name
-                        p3_gates.append((icon, display_name, reason))
+                        p3_gates.append((icon, display_name, reason, passed))
                 except Exception:
                     pass
             if meta_p.is_file():
@@ -2540,9 +2814,9 @@ def _findings_writeup(
 
         gates_section = ""
         if p3_gates:
-            n_applicable = sum(1 for icon, _n, _r in p3_gates if icon != "–")
+            n_applicable = sum(1 for tup in p3_gates if tup[0] != "–")
             n_total = len(p3_gates)
-            n_passed = sum(1 for icon, _n, _r in p3_gates if icon == "✓")
+            n_passed = sum(1 for tup in p3_gates if tup[0] == "✓")
             if n_applicable == n_total:
                 lead = (
                     f"Result of running the proposed patch through Jelleo&rsquo;s "
@@ -2555,11 +2829,18 @@ def _findings_writeup(
                     f"({n_applicable} gates applicable for this language, "
                     f"{n_total - n_applicable} marked n/a)"
                 )
+            # Order: PASS first (✓), then FAIL (✗), then SKIP (–). Reads
+            # cleaner than the verifier's dict-insertion order which
+            # interleaves SKIPs between PASSes for non-Solana cycles.
+            _gate_order = {"✓": 0, "✗": 1, "–": 2}
+            p3_gates_sorted = sorted(
+                p3_gates, key=lambda t: (_gate_order.get(t[0], 9), t[1])
+            )
             rows = "".join(
                 f'<tr><td style="text-align:center;width:32px">{html.escape(icon)}</td>'
                 f'<td><code>{html.escape(name)}</code></td>'
                 f'<td style="color:var(--text-2)">{html.escape(reason)}</td></tr>'
-                for icon, name, reason in p3_gates
+                for icon, name, reason, _passed in p3_gates_sorted
             )
             gates_section = (
                 '<h4>Verification gates &mdash; post-patch machine checks</h4>'
@@ -2628,20 +2909,85 @@ def _findings_writeup(
                 f'against the same engine function — see §B for the clustering rule.</p>'
             )
 
-        # Impact + Recommendation prose. The bug_class drives a short
-        # impact statement so the reader gets the "what does this mean
-        # for users / funds" framing OSec / ToB / Zellic reports have.
-        impact_text, recommendation_text = _impact_and_recommendation(
-            bug_class=bug_class, hyp_yaml=hyp_yaml, severity=sev,
-        )
-        impact_section = (
-            f'<h4>Impact</h4>'
-            f'<p class="finding-prose">{html.escape(impact_text)}</p>'
-        ) if impact_text else ""
-        recommendation_section = (
-            f'<h4>Recommendation</h4>'
-            f'<p class="finding-prose">{html.escape(recommendation_text)}</p>'
-        ) if recommendation_text else ""
+        # Pull the per-finding narrative .md (Layer 5) if one was
+        # generated. The narrative is the authoritative bug analysis —
+        # bug-specific Impact / Description / Reproduction / Recommended
+        # fix / References text, NOT the severity-rubric placeholder
+        # text. When present, the narrative sections replace the
+        # generic bug_class-keyed boilerplate.
+        narrative = _load_narrative_sections(narratives_dir, hyp_id, language=language)
+
+        # Title: narrative H1 overrides DB-truncated claim. The DB
+        # title is the hyp's 120-char-truncated `claim`; the narrative
+        # H1 is the operator-facing publishable title.
+        if narrative and narrative.get("_title"):
+            title = narrative["_title"]
+
+        # Impact: narrative section overrides bug_class-keyed boilerplate.
+        # The boilerplate text is generic per-severity (e.g. "Direct loss
+        # of user funds or full protocol takeover...") which is wrong for
+        # non-Solana-DeFi targets and gives no bug-specific information.
+        if narrative and narrative.get("impact"):
+            impact_html = _narrative_md_to_html(narrative["impact"])
+            impact_section = f'<h4>Impact</h4>{impact_html}' if impact_html else ""
+            recommendation_text = ""  # we'll pull from narrative below
+        else:
+            impact_text, recommendation_text = _impact_and_recommendation(
+                bug_class=bug_class, hyp_yaml=hyp_yaml, severity=sev,
+            )
+            impact_section = (
+                f'<h4>Impact</h4>'
+                f'<p class="finding-prose">{html.escape(impact_text)}</p>'
+            ) if impact_text else ""
+
+        # Description: a new section pulled from the narrative — explains
+        # root cause and attack model in detail. Goes BEFORE Impact so
+        # readers see the bug analysis before the consequences.
+        description_section = ""
+        if narrative and narrative.get("description"):
+            description_html = _narrative_md_to_html(narrative["description"])
+            if description_html:
+                description_section = f'<h4>Description</h4>{description_html}'
+
+        # Affected code: narrative section listing exact file:line cites.
+        affected_code_section = ""
+        if narrative and narrative.get("affected code"):
+            ac_html = _narrative_md_to_html(narrative["affected code"])
+            if ac_html:
+                affected_code_section = f'<h4>Affected code</h4>{ac_html}'
+
+        # Reproduction: a new section pulled from the narrative — concrete
+        # steps to demonstrate the bug. Goes AFTER L4 (where we summarize
+        # whether AFL caught it) and BEFORE Recommended fix.
+        reproduction_section = ""
+        if narrative and narrative.get("reproduction"):
+            reproduction_html = _narrative_md_to_html(narrative["reproduction"])
+            if reproduction_html:
+                reproduction_section = f'<h4>Reproduction</h4>{reproduction_html}'
+
+        # Recommendation: narrative section overrides boilerplate.
+        if narrative and narrative.get("recommended fix"):
+            rec_html = _narrative_md_to_html(narrative["recommended fix"])
+            recommendation_section = f'<h4>Recommended fix</h4>{rec_html}' if rec_html else ""
+        elif narrative and narrative.get("recommendation"):  # tolerate either spelling
+            rec_html = _narrative_md_to_html(narrative["recommendation"])
+            recommendation_section = f'<h4>Recommended fix</h4>{rec_html}' if rec_html else ""
+        else:
+            recommendation_section = (
+                f'<h4>Recommendation</h4>'
+                f'<p class="finding-prose">{html.escape(recommendation_text)}</p>'
+            ) if recommendation_text else ""
+
+        # References section pulled from the narrative — CWE numbers,
+        # CVEs, RFCs, internal artifacts. Goes at the end of the
+        # finding section.
+        references_section = ""
+        if narrative and narrative.get("references"):
+            refs_html = _narrative_md_to_html(narrative["references"])
+            if refs_html:
+                references_section = (
+                    f'<h4 style="margin-top:18px">References</h4>{refs_html}'
+                )
 
         # Move Prover counterexample excerpt (Aptos only). Surfaces the
         # actual state assignment that violated the spec, not just the
@@ -2668,6 +3014,10 @@ def _findings_writeup(
           {description_para}
           {cluster_chip}
 
+          {affected_code_section}
+
+          {description_section}
+
           {impact_section}
 
           <h4>{l3_label}</h4>
@@ -2676,6 +3026,8 @@ def _findings_writeup(
 
           {l4_section}
 
+          {reproduction_section}
+
           {recommendation_section}
 
           {gates_section}
@@ -2683,6 +3035,8 @@ def _findings_writeup(
           {l2_section}
 
           {p3_section}
+
+          {references_section}
         </section>
         """)
 
@@ -3549,7 +3903,7 @@ pre code.language-c .token.punctuation   {{ color: rgba(245,243,237,0.55); }}
     <thead><tr><th style="width:120px">Tier</th><th>Definition</th></tr></thead>
     <tbody>{''.join(
         f'<tr><td><span class="sev {s.value.lower()}">{s.value}</span></td>'
-        f'<td style="color:var(--text-2)">{html.escape(DEFINITIONS[s])}</td></tr>'
+        f'<td style="color:var(--text-2)">{html.escape(_C_SEVERITY_RUBRIC[s] if language == "c" else DEFINITIONS[s])}</td></tr>'
         for s in Severity
     )}</tbody>
   </table>
