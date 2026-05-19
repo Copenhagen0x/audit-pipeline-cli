@@ -51,9 +51,11 @@ class CRuntimeAdapter(LanguageRuntimeAdapter):
 
         return f"""You are authoring an AFL++ fuzz harness for the Jelleo audit engine.
 
-The harness will be compiled with `afl-clang-fast` and ASan/UBSan,
-then run with `afl-fuzz` for a bounded time budget. AFL++ mutates
-stdin, tracks coverage, and saves crashes/hangs to disk.
+The harness will be compiled with `afl-clang-fast` and ASan/UBSan/
+SignedOverflowSan, then run with `afl-fuzz` for a bounded time
+budget. AFL++ mutates stdin, tracks coverage, and saves to disk any
+input that causes the harness to ABORT — including ASan/UBSan
+sanitizer-aborts and explicit `abort()` calls.
 
 # Hypothesis under test
 
@@ -65,42 +67,61 @@ Function under test: {engine_function}
 
 {source_context}
 
-# Harness pattern
+# Choosing the right harness shape — read carefully
 
-```c
-#include <stdio.h>
-#include <stdint.h>
-#include <unistd.h>
-#include "{engine_function or 'program_a'}.h"
+A "crash" in AFL terminology is ANY non-zero abnormal termination
+(SIGSEGV, SIGABRT, sanitizer abort). The harness's job is to feed the
+function under test attacker-shaped inputs until ONE such termination
+fires. There are TWO valid shapes — pick the one that matches the bug
+class:
 
-int main(int argc, char **argv) {{
-    // Read input from stdin (AFL feeds harness via stdin by default)
-    static unsigned char buf[4096];
-    ssize_t n = read(0, buf, sizeof(buf));
-    if (n <= 0) return 0;
+  * **MEMORY-SAFETY HARNESS** (out-of-bounds write/read, use-after-
+    free, double-free, format-string injection, null-deref, integer-
+    overflow-then-allocate). The sanitizers do the bug-detection;
+    YOUR harness just needs to DRIVE the function with attacker-
+    controlled bytes. Do NOT add a custom `abort()` — ASan/UBSan
+    aborts the process automatically when the bug fires, AFL records
+    the crash, you're done. Example for an off-by-one in parse_frame:
 
-    // Decode the input into the function-under-test's arguments.
-    // Be conservative: bail on inputs shorter than the minimum
-    // structure size — AFL prefers harnesses that exit quickly
-    // on malformed inputs so it can move on.
-    if (n < 4) return 0;
+        unsigned char buf[4096];
+        ssize_t n = read(0, buf, sizeof(buf));
+        if (n < 3) return 0;
+        Frame f;
+        (void)parse_frame(buf, (size_t)n, &f);   /* ASan catches OOB inside */
+        return 0;
 
-    // Construct + call the function under test
-    Frame f;
-    if (parse_frame(buf, (size_t)n, &f) == 0) {{
-        // Optional: assert an invariant on parsed output
-        if (f.length > sizeof(f.payload)) abort();
-    }}
+  * **LOGIC-INVARIANT HARNESS** (missing privilege check, save/load
+    divergence, predictable output, broken role gate). The sanitizers
+    will NOT catch these because they're not memory bugs. YOUR harness
+    drives the function and then explicitly checks the caller-visible
+    security contract; on violation, call `abort()` so AFL records
+    that input as a crash. The aborted predicate must encode the
+    function's RETURN value or DOCUMENTED OUTPUT — NOT a random
+    internal struct field. Example for a missing-role-gate bug:
 
-    return 0;
-}}
-```
+        Session s;
+        unsigned char buf[32];
+        ssize_t n = read(0, buf, sizeof(buf));
+        if (n < 8) return 0;
+        uint64_t tok = *(uint64_t *)buf;
+        session_create(&s, "attacker", tok, 3600);
+        int ok = session_check(&s, s.token, time(NULL));
+        /* Caller assumes ok==1 implies admin. session_check doesn't
+         * check role, so a non-admin session also returns ok==1 — that's
+         * the bug. abort() lets AFL log this as a crash. */
+        if (ok && !s.is_admin) abort();
+
+If unsure which shape to pick: prefer MEMORY-SAFETY HARNESS — it's
+harder to get wrong because the sanitizers do the work.
 
 # Your task
 
-Write a `afl_<finding_name>.c` that:
+Write `afl_<finding_name>.c` that:
 
-1. Reads input from stdin into a buffer.
+1. Reads input from stdin into a buffer with `read(0, buf, ...)`.
+   AFL feeds the harness via stdin by default; the harness must
+   exit cleanly on inputs too short to construct the function args
+   so AFL can mutate quickly.
 
    STATIC FUNCTIONS: if the engine_function is declared `static` inside
    a program_*.c file (no header export), you MUST #include that .c
@@ -112,12 +133,29 @@ Write a `afl_<finding_name>.c` that:
        #include "program_X.c"
        #undef main
 
-2. Decodes the input into the arguments of the function under test.
-3. Calls the function. If the function returns success but produces
-   invalid output (per the hypothesis claim), call `abort()` to
-   surface the violation as a "crash" AFL records.
-4. Exit cleanly on malformed inputs (return 0). Speed is important
-   for the fuzzer.
+2. Decodes the input bytes into the function's argument types
+   (lengths, pointers, structs). Keep the decoder simple — AFL's
+   coverage feedback works best when the input-to-args mapping is
+   short and deterministic.
+3. Calls the function. Picks the right HARNESS SHAPE above:
+     - Memory-safety bug → no custom abort, let ASan fire.
+     - Logic-invariant bug → check the caller-visible contract and
+       `abort()` on violation.
+4. Exit cleanly on inputs that don't satisfy the function's
+   preconditions (return 0). Speed matters — AFL prefers fast
+   harnesses so it can throw more mutations per second.
+
+# Important
+
+* DO NOT write `if (f.field > SIZE) abort()` for memory-safety bugs.
+  That checks an unrelated field, the actual OOB/UAF fires un-
+  detected, and AFL reports 0 crashes after the full time budget.
+  Let the sanitizers detect memory bugs; only use `abort()` for
+  logic invariants the sanitizers can't see.
+* Pin any "interesting" input position the hypothesis names (e.g.,
+  if the bug needs the length byte to equal 64, you can either let
+  AFL find that input naturally or seed the corpus — but do NOT hard-
+  code the value in the harness; AFL needs to be able to mutate it).
 
 # Output format
 
