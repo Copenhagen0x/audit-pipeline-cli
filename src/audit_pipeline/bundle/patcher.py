@@ -203,6 +203,158 @@ Constraints:
 """
 
 
+PATCH_AUTHORSHIP_PROMPT_C = """You are writing a minimal-scope security patch for a C program.
+The bug has already been CONFIRMED via a PoC test that triggers the violation under
+clang + AddressSanitizer / UndefinedBehaviorSanitizer. Your output MUST be a valid
+unified diff that, when applied, makes the PoC stop firing.
+
+# Confirmed finding
+
+Hypothesis ID:   {hypothesis_id}
+Bug class:       {bug_class}
+Severity:        {severity}
+Title:           {title}
+
+# Bug-class fix template
+
+{patch_intent}
+
+# PoC test (this is what your patch must defuse)
+
+```c
+{poc_source}
+```
+
+# Target source file (this is the file your patch should modify)
+
+Path: `{target_file_path}`
+
+Each line below is prefixed with its 1-indexed line number followed by `: `.
+**The line-number prefix is REFERENCE ONLY** — it lets you cite correct
+line numbers in your `@@` hunk headers. **DO NOT** include the `NNNN: `
+prefix in the diff body. The diff body must contain the raw source lines
+exactly as they appear in the file (without prefix), with a leading space
+for context lines, `+` for added lines, `-` for removed lines.
+
+```c
+{target_source}
+```
+
+{sig_index_section}
+
+# Output requirements
+
+Reply with EXACTLY:
+
+  1. A brief 1-2 sentence rationale of what your patch does, prefixed with `RATIONALE:`
+  2. A blank line
+  3. The unified diff, starting with `--- a/{target_file_path}` and `+++ b/{target_file_path}`
+
+NO additional prose. NO markdown fences. NO commentary after the diff.
+
+## Patch philosophy: STRUCTURAL fix, not symptom patch
+
+A *symptom* patch enlarges a buffer to accommodate the specific input that
+triggered the PoC, or adds a band-aid check at one call site, leaving the
+underlying invariant unenforced. A different caller, or the same caller
+with slightly different input, re-triggers the bug. **DO NOT do this.**
+
+A *structural* fix eliminates the bug at its root: the buggy invariant
+becomes impossible to violate, no matter who calls the function. For
+memory-safety bugs, that means using language idioms that the C standard
+or POSIX has hardened against the attack class. For logic bugs, it means
+enforcing the contract at the WRITE side (the choke point), not on every
+READ site.
+
+# C-specific fix patterns (use the one that matches the bug class)
+
+## Off-by-one / out-of-bounds write
+WRONG (symptom):
+    char payload[128];          /* just make the buffer bigger */
+    /* original `>=` guard unchanged — moves the same bug to len==128 */
+
+RIGHT (structural):
+    if (sizeof(out->payload) > payload_len) {{   /* strict less-than */
+        memcpy(out->payload, src, payload_len);
+        out->payload[payload_len] = 0;           /* now in-bounds */
+    }} else {{
+        return -1;
+    }}
+
+## TOCTOU / symlink-follow at `fopen` / `open`
+WRONG (symptom): add an `lstat` re-check between guard and open — the
+window just shrinks, doesn't close.
+
+RIGHT (structural):
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (fd < 0) return -1;
+    struct stat st;
+    if (fstat(fd, &st) != 0) {{ close(fd); return -1; }}
+    /* validate st via fstat on the fd, not lstat on the path */
+    FILE *fp = fdopen(fd, "w");
+
+## Use-after-free in callback
+WRONG (symptom): set `job = NULL` after the free — the dereference still
+fires via the cb argument.
+
+RIGHT (structural): reorder so the callback is invoked BEFORE the free,
+or stop calling the callback in the retry branch entirely. The retry
+branch's intent is to LET THE CALLER decide whether to retry — return
+a non-zero rc and let the caller call `cb(ctx)` themselves with a fresh
+job allocation.
+
+## Format-string injection via `fprintf(stream, attacker_buf)`
+WRONG (symptom): grep `attacker_buf` for `%` and reject — incomplete and
+brittle.
+
+RIGHT (structural): pass the buffer as a `%s` argument, never as the
+format string itself:
+    fprintf(stream, "%s", line);          /* one-line fix */
+    /* or: */
+    fputs(line, stream); fputc('\\n', stream);
+
+## Missing role / privilege gate
+WRONG (symptom): one-shot session consumption (zero `flags` on first
+check) — breaks every other caller and still doesn't add a role gate.
+
+RIGHT (structural): extend the Session struct with an explicit role /
+privilege field, set it at session_create time from the caller's
+provenance, and add a parameter to session_check (or a dedicated
+session_check_role helper) that gates against the requested operation.
+
+## Save/load divergence (write side accepts unbounded; read side rejects)
+WRONG (symptom): enlarge the read-side buffer to match the worst case the
+write side might produce — the divergence reappears the moment a slightly
+longer value arrives.
+
+RIGHT (structural): enforce the length cap at the WRITE side
+(`minimap_put` / `store_save`) so every persisted line satisfies the
+read-side parser. The write side is the SINGLE choke point; the read
+side trusts the file format invariant.
+
+## Weak token entropy (deterministic hash of literal)
+WRONG (symptom): XOR the hash with a hardcoded constant — still
+deterministic.
+
+RIGHT (structural): mix in kernel-backed entropy. Use `getrandom(2)`
+(Linux) or `arc4random_buf` (BSD) once at process start, or per-token,
+and combine the result with the user identity for the final token.
+
+# General principles
+
+Prefer fixes that:
+  1. Make the buggy invariant impossible to violate at the helper level
+  2. Are local (modify the helper itself, not every caller)
+  3. Don't add new public surface (no new function signatures, no new
+     headers in the public API, no new dependencies)
+  4. Match the existing codebase's conventions (error return values,
+     null-check ordering, allocation patterns) so the change is reviewable
+  5. Use POSIX / C standard idioms when they exist (`O_NOFOLLOW`,
+     `getrandom`, `mkstemp`, strict-less-than bounds checks). Avoid
+     reinventing safety mechanisms the kernel or libc already provides.
+"""
+
+
 PATCH_AUTHORSHIP_PROMPT = """You are writing a minimal-scope security patch for a Solana program.
 The bug has already been CONFIRMED via a PoC test that triggers the violation.
 Your output MUST be a valid unified diff that, when applied, makes the PoC stop triggering the bug.
@@ -351,13 +503,16 @@ def author_patch(
     if engine_repo is not None:
         sig_index_section = build_sig_index(engine_repo, target_file_path)
 
-    # Pick the language-appropriate prompt template. Solidity targets
-    # get a Solidity-idiomatic prompt (CEI, onlyOwner, custom errors,
-    # forge test format) instead of the Solana one (capabilities,
-    # saturating_sub, Anchor-style guards). Detected from the target
-    # path's file extension — .sol → Solidity, else Rust/Solana default.
+    # Pick the language-appropriate prompt template. Detected from the
+    # target path's file extension:
+    #   .sol           → Solidity (CEI, onlyOwner, custom errors)
+    #   .c / .h / .cpp → C (strict-bounds checks, O_NOFOLLOW, %s in fprintf,
+    #                       getrandom, length-cap at write side)
+    #   anything else  → Rust / Solana default (capabilities, saturating_*)
     if target_file_path.endswith(".sol"):
         _prompt_template = PATCH_AUTHORSHIP_PROMPT_SOLIDITY
+    elif target_file_path.endswith((".c", ".h", ".cc", ".cpp", ".hpp")):
+        _prompt_template = PATCH_AUTHORSHIP_PROMPT_C
     else:
         _prompt_template = PATCH_AUTHORSHIP_PROMPT
 

@@ -57,6 +57,7 @@ which is treated as a FAIL by `auth.write_authorization()`.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -147,18 +148,30 @@ def _cargo_test_argv(engine_repo: Path, *extra: str) -> list[str]:
 
 def _detect_engine_language(engine_repo: Path) -> str:
     """Inspect the repo root for the toolchain marker. Returns the language
-    tag used by the adapter modules: "rust" | "solidity" | "move" | "unknown".
+    tag used by the adapter modules: "rust" | "solidity" | "move" | "c" |
+    "unknown".
 
     Used by the test-suite gate to dispatch the right runner (cargo /
-    forge / aptos move test). Order matters — Solidity repos often
-    coexist with a Cargo.toml from a side tool, but foundry.toml is
-    the strongest signal that the audit target is Solidity."""
+    forge / aptos move test / clang+ASan). Order matters — Solidity
+    repos often coexist with a Cargo.toml from a side tool, but
+    foundry.toml is the strongest signal that the audit target is
+    Solidity. C repos have no universal manifest, so we detect them
+    via src/*.c files in the absence of every other marker.
+    """
     if (engine_repo / "foundry.toml").is_file():
         return "solidity"
     if (engine_repo / "Move.toml").is_file():
         return "move"
     if (engine_repo / "Cargo.toml").is_file():
         return "rust"
+    # C eval targets have no manifest — sniff src/ for *.c files.
+    src_dir = engine_repo / "src"
+    if src_dir.is_dir():
+        try:
+            for _ in src_dir.rglob("*.c"):
+                return "c"
+        except OSError:
+            pass
     return "unknown"
 
 
@@ -437,6 +450,73 @@ def _gate_poc_fails_pre_patch_solidity(
     )
 
 
+def _gate_poc_fails_pre_patch_c(
+    workspace: Path,
+    finding_id: int,
+    engine_repo: Path,
+    poc_test_name: str,
+) -> GateResult:
+    """C variant: read the L2 clang+ASan/UBSan runlog to verify the PoC
+    fired pre-patch. The L2 runlog at
+    ``hunts/<cycle>/poc/runlog_<slug>.log`` already contains the
+    sanitizer / `FIRE:` marker output from when L2 dispatched the PoC.
+    If it contains an ASan/UBSan report, a `FIRE:` marker, or an
+    assertion failure tied to the engine source, the bug is reproducible
+    on the unpatched repo and this gate PASSES.
+    """
+    t0 = time.time()
+    slug = poc_test_name[5:] if poc_test_name.startswith("test_") else poc_test_name
+    poc_dir_candidates = list(workspace.glob("hunts/*/poc"))
+    if not poc_dir_candidates:
+        return GateResult(None, "skipped — no hunts/*/poc dir found",
+                          time.time() - t0)
+    poc_dir = sorted(poc_dir_candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+    runlog = poc_dir / f"runlog_{slug}.log"
+    if not runlog.is_file():
+        return GateResult(None, f"skipped — L2 runlog not found at {runlog}",
+                          time.time() - t0)
+    try:
+        log_text = runlog.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return GateResult(None, f"skipped — could not read L2 runlog {runlog}",
+                          time.time() - t0)
+    # C fire markers: explicit FIRE:, ASan ERROR, UBSan runtime error,
+    # or a stderr assertion-failed line. Any of these indicates the
+    # PoC reached the bug site on the unpatched engine.
+    fired = (
+        "FIRE:" in log_text
+        or "AddressSanitizer:" in log_text
+        or "runtime error:" in log_text
+        or "Assertion " in log_text and "failed" in log_text
+    )
+    if fired:
+        first = next(
+            (ln for ln in log_text.splitlines()
+             if ("FIRE:" in ln or "AddressSanitizer:" in ln
+                 or "runtime error:" in ln
+                 or ("Assertion " in ln and "failed" in ln))),
+            "",
+        )[:180]
+        return GateResult(
+            True,
+            f"PoC fired at L2 (clang+ASan/UBSan runlog): {first}",
+            time.time() - t0,
+            details={"outcome": "fired", "mode": "clang-l2-runlog"},
+        )
+    if "compile error" in log_text.lower() or "error:" in log_text:
+        return GateResult(
+            False,
+            "PoC at L2 had compile error — bundle cannot be authorized "
+            "without a fired PoC",
+            time.time() - t0,
+        )
+    return GateResult(
+        False,
+        f"PoC at L2 did not fire (no sanitizer / FIRE marker in {runlog.name})",
+        time.time() - t0,
+    )
+
+
 def _gate_poc_fails_pre_patch(
     workspace: Path,
     finding_id: int,
@@ -448,10 +528,15 @@ def _gate_poc_fails_pre_patch(
         return GateResult(None, "skipped — no engine_repo provided", time.time() - t0)
     if not poc_test_name:
         return GateResult(None, "skipped — no poc_test_name provided", time.time() - t0)
-    # Language-aware dispatch: Solidity reads the forge L2 runlog;
+    # Language-aware dispatch: Solidity / C read the L2 runlog;
     # Rust/Solana re-runs cargo test on the standalone PoC.
-    if _detect_engine_language(engine_repo) == "solidity":
+    lang = _detect_engine_language(engine_repo)
+    if lang == "solidity":
         return _gate_poc_fails_pre_patch_solidity(
+            workspace, finding_id, engine_repo, poc_test_name,
+        )
+    if lang == "c":
+        return _gate_poc_fails_pre_patch_c(
             workspace, finding_id, engine_repo, poc_test_name,
         )
     if not _have_cargo():
@@ -844,6 +929,124 @@ def _gate_poc_passes_post_patch_solidity(
     )
 
 
+def _gate_poc_passes_post_patch_c(
+    workspace: Path,
+    finding_id: int,
+    engine_repo: Path,
+    poc_test_name: str,
+) -> GateResult:
+    """C variant: apply the patch to the engine repo, recompile the L2
+    PoC test (`tests/c/test_<slug>.c`) with clang + ASan + UBSan
+    against the patched src/, run it, and assert the FIRE / sanitizer
+    marker is GONE. If the patch eliminates the bug, the recompiled
+    PoC returns 0 (or at minimum stops firing); if the bug still
+    fires post-patch, this gate FAILS.
+    """
+    t0 = time.time()
+    slug = poc_test_name[5:] if poc_test_name.startswith("test_") else poc_test_name
+
+    # Locate the original PoC source under the workspace
+    workspace_root_candidates = list(workspace.glob("tests/c"))
+    if not workspace_root_candidates:
+        return GateResult(None, "skipped — no tests/c dir under workspace",
+                          time.time() - t0)
+    test_src = workspace / "tests" / "c" / f"test_{slug}.c"
+    if not test_src.is_file():
+        return GateResult(None, f"skipped — PoC test source not found at {test_src}",
+                          time.time() - t0)
+
+    # Apply the patch.diff to the engine repo (stashed; we'll revert)
+    p = patch_path(workspace, finding_id)
+    if not p.is_file():
+        return GateResult(False, "no patch.diff to apply", time.time() - t0)
+    patch_text = p.read_text(encoding="utf-8", errors="replace")
+    ok_apply, err_apply = _apply_patch(engine_repo, patch_text)
+    if not ok_apply:
+        return GateResult(False, f"could not apply patch: {err_apply}",
+                          time.time() - t0)
+
+    try:
+        # Recompile the L2 PoC against the patched engine src/.
+        # Skip main()-bearing src files (same rule as L2 adapter).
+        include_dir = engine_repo / "src"
+        _MAIN_RE = re.compile(r"^\s*(?:int|void|static\s+int)\s+main\s*\(", re.M)
+        src_files: list[str] = []
+        if include_dir.is_dir():
+            for sp in include_dir.rglob("*.c"):
+                if "vendor" in sp.parts or "tests" in sp.parts:
+                    continue
+                try:
+                    if _MAIN_RE.search(sp.read_text(encoding="utf-8", errors="replace")):
+                        continue
+                except OSError:
+                    pass
+                src_files.append(str(sp))
+        # The PoC may need pthread (CSMALL03 etc.) — link it unconditionally.
+        bin_path = workspace / "tests" / "c" / f"bin_postpatch_{slug}"
+        compile_cmd = [
+            "clang", "-g", "-O0",
+            "-fsanitize=address,undefined,signed-integer-overflow",
+            "-fno-omit-frame-pointer", "-lpthread",
+            f"-I{include_dir}",
+            str(test_src), *src_files,
+            "-o", str(bin_path),
+        ]
+        try:
+            cp = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=180)
+        except FileNotFoundError:
+            return GateResult(None, "skipped — clang not in PATH", time.time() - t0)
+        except subprocess.TimeoutExpired:
+            return GateResult(False, "clang compile timed out (>180s)",
+                              time.time() - t0)
+        if cp.returncode != 0:
+            return GateResult(
+                False,
+                f"post-patch PoC failed to COMPILE — patch likely broke API "
+                f"({cp.stderr[-200:]})",
+                time.time() - t0,
+            )
+        # Run the recompiled PoC. Disable leak detection so a noisy
+        # but benign minimap leak doesn't make us think the bug
+        # persists.
+        env = dict(os.environ)
+        env["ASAN_OPTIONS"] = "detect_leaks=0"
+        try:
+            rp = subprocess.run([str(bin_path)], capture_output=True, text=True,
+                                timeout=90, env=env)
+        except subprocess.TimeoutExpired:
+            return GateResult(False, "post-patch PoC run timed out (>90s)",
+                              time.time() - t0)
+        run_log = (rp.stderr or "") + (rp.stdout or "")
+        fired = (
+            "FIRE:" in run_log
+            or "AddressSanitizer:" in run_log
+            or "runtime error:" in run_log
+            or ("Assertion " in run_log and "failed" in run_log)
+        )
+        if fired:
+            first = next(
+                (ln for ln in run_log.splitlines()
+                 if ("FIRE:" in ln or "AddressSanitizer:" in ln
+                     or "runtime error:" in ln
+                     or ("Assertion " in ln and "failed" in ln))),
+                "",
+            )[:180]
+            return GateResult(
+                False,
+                f"PoC STILL FIRES post-patch — patch does not fix the bug: {first}",
+                time.time() - t0,
+            )
+        return GateResult(
+            True,
+            f"PoC stops firing post-patch (returncode={rp.returncode}); patch fixes the bug",
+            time.time() - t0,
+            details={"mode": "clang-recompile-rerun"},
+        )
+    finally:
+        # Always revert the patch so the engine repo stays clean.
+        _unapply_patch(engine_repo, patch_text)
+
+
 def _gate_poc_passes_post_patch(
     workspace: Path,
     finding_id: int,
@@ -856,8 +1059,13 @@ def _gate_poc_passes_post_patch(
     if not poc_test_name:
         return GateResult(None, "skipped — no poc_test_name provided", time.time() - t0)
     # Language-aware dispatch
-    if _detect_engine_language(engine_repo) == "solidity":
+    lang = _detect_engine_language(engine_repo)
+    if lang == "solidity":
         return _gate_poc_passes_post_patch_solidity(
+            workspace, finding_id, engine_repo, poc_test_name,
+        )
+    if lang == "c":
+        return _gate_poc_passes_post_patch_c(
             workspace, finding_id, engine_repo, poc_test_name,
         )
     if not _have_cargo():
@@ -981,6 +1189,19 @@ def _gate_tests_pass_post_patch(
     if lang == "solidity":
         if not _have_forge():
             return GateResult(None, "skipped — forge not in PATH (Solidity target needs Foundry)", time.time() - t0)
+    elif lang == "c":
+        # C eval targets don't carry a unified test runner (no
+        # `make test`, no `cargo test`); the per-bug PoC fire is the
+        # authoritative correctness signal, already exercised by the
+        # poc_passes_post_patch gate. Skip this gate cleanly so it
+        # doesn't fail with cargo exit 101 ("no Cargo.toml").
+        return GateResult(
+            None,
+            "skipped — C target has no engine-level test suite; "
+            "regression coverage delegated to poc_passes_post_patch "
+            "(clang+ASan rebuild of the L2 PoC against patched src)",
+            time.time() - t0,
+        )
     else:
         if not _have_cargo():
             return GateResult(None, "skipped — cargo not in PATH", time.time() - t0)
