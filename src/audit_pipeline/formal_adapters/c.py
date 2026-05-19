@@ -602,6 +602,12 @@ write a real harness, output:
                 f"CBMC harness not found at {harness_path}. Did write_harness_file run?"
             )
 
+        # Allow env override of wall-clock cap (CBMC_TIMEOUT seconds);
+        # 2026-05-19 c-medium: lowered to 180s for OSec eval time budget
+        # so undecidable filesystem-modeled hyps fail fast instead of
+        # consuming the per-cell wall-clock cap.
+        timeout_s = int(os.environ.get('CBMC_TIMEOUT', str(timeout_s)))
+
         body = harness_path.read_text(encoding="utf-8", errors="replace")
         if "CANNOT_VERIFY" in body:
             return FormalOutcome(
