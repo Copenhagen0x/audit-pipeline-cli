@@ -915,14 +915,16 @@ def _scope_section(
                 )
     elif language == "c":
         # C workspace: src/**/*.c + src/**/*.h, recursive — c repos use
-        # subdirs (auth/, common/, etc.). Skip vendor/ and tests/ trees.
+        # subdirs (auth/, common/, etc.). Skip tests/ trees, but INCLUDE
+        # vendor/ because vendored libraries (e.g. minihash/map.c) are
+        # patched by the pipeline and therefore in scope for the cycle.
         src_dir = engine_root / "src"
         if src_dir.is_dir():
             for ext in ("*.c", "*.h"):
                 sources.extend(
                     str(p.relative_to(engine_root))
                     for p in sorted(src_dir.rglob(ext))
-                    if "vendor" not in p.parts and "tests" not in p.parts
+                    if "tests" not in p.parts
                 )
     else:
         # Percolator workspace: src/*.rs at engine root.
@@ -978,7 +980,7 @@ def _scope_section(
       <tr><td style="color:var(--text-3)">Hypothesis library</td>
           <td>{n_hyps_in_library} invariant claim(s) {("covering memory safety (off-by-one, OOB, UAF, double-free), filesystem-race (TOCTOU, predictable-path, symlink-follow), format-string injection, authorization (missing role gates, weak token entropy), and integer-overflow." if language == "c" else "covering authorization, arithmetic safety, accounting consistency, capability handling, event auditability, and oracle / time freshness")}</td></tr>
       <tr><td style="color:var(--text-3)">Out of scope</td>
-          <td style="color:var(--text-2)">{("System libraries (libc, libpthread, libcrypto); kernel-side syscall behavior; build scripts and Makefile / build.sh logic; vendored third-party headers under src/vendor/; the test harness itself under tests/." if language == "c" else "Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>" + ("Move.toml" if language == "aptos" else ("foundry.toml" if language == "solidity" else "Cargo.toml")) + "</code> beyond their declared interfaces.")}</td></tr>
+          <td style="color:var(--text-2)">{("System libraries (libc, libpthread, libcrypto); kernel-side syscall behavior; build scripts and Makefile / build.sh logic; the test harness itself under tests/. Vendored third-party code under src/vendor/ IS in scope when the pipeline patches it." if language == "c" else "Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>" + ("Move.toml" if language == "aptos" else ("foundry.toml" if language == "solidity" else "Cargo.toml")) + "</code> beyond their declared interfaces.")}</td></tr>
     </tbody>
   </table>
 """
@@ -1863,10 +1865,12 @@ def _hunt_funnel_section(
 
     # Wall-clock fallback: if elapsed_seconds is missing, zero, or
     # implausibly short (resume bug: the timer resets on each --resume-cycle
-    # so a multi-hour Solidity hunt can report 0.1s), derive it from the
+    # so a multi-hour cycle can report seconds), derive it from the
     # FIRST→LAST event timestamps in hunt.log.jsonl. That captures total
-    # wall-clock across resumes.
-    if (not elapsed_seconds or elapsed_seconds < 60) and (cycle_dir / "hunt.log.jsonl").is_file():
+    # wall-clock across resumes. ALWAYS prefer the log-span when it is
+    # wider than the summary's elapsed_seconds, because summary.elapsed
+    # only reflects the most-recent run, not the cumulative wall-clock.
+    if (cycle_dir / "hunt.log.jsonl").is_file():
         try:
             from datetime import datetime as _dt, timezone as _tz
             first_ts: str | None = None
@@ -1893,7 +1897,12 @@ def _hunt_funnel_section(
                 t0 = _dt.fromisoformat(first_ts.replace("Z", "+00:00"))
                 t1 = _dt.fromisoformat(last_ts.replace("Z", "+00:00"))
                 delta = (t1 - t0).total_seconds()
-                if delta > 0:
+                # Prefer the log-span when it is wider than the summary's
+                # elapsed_seconds (the summary only reflects the most-recent
+                # resume window, not the cumulative wall-clock).
+                if delta > 0 and (
+                    elapsed_seconds is None or delta > elapsed_seconds
+                ):
                     elapsed_seconds = delta
         except (ValueError, OSError):
             pass
@@ -2482,12 +2491,30 @@ def _findings_writeup(
             if ev:
                 if ev.get("counterexample") is True:
                     raw_reason = (ev.get("reason") or "").strip()[:200]
-                    l3_status = (
-                        "✓ CBMC counterexample found "
-                        "(bug confirmed by bounded model checking; full trace "
-                        f"in formal/c/harness_{hyp_slug}_invariant.c)."
-                        + (f" {raw_reason}" if raw_reason else "")
-                    )
+                    # CBMC's libc time() model dereferences NULL during symbolic
+                    # execution before the bug site is reached. This is a
+                    # libc-model artifact, not a counterexample at the actual
+                    # defect — reframe as inconclusive and defer to L2.
+                    if (
+                        "time.pointer_dereference" in raw_reason
+                        or "*tloc" in raw_reason
+                    ):
+                        l3_status = (
+                            "L3 inconclusive — CBMC's libc `time()` model "
+                            "dereferenced NULL during symbolic execution "
+                            "before the bug site was reached. The libc-model "
+                            "trip (`[time.pointer_dereference.1]`) is not a "
+                            "counterexample at the actual defect. See Layer 2 "
+                            "(ASan/UBSan PoC fire) for the authoritative bug "
+                            "confirmation."
+                        )
+                    else:
+                        l3_status = (
+                            "✓ CBMC counterexample found "
+                            "(bug confirmed by bounded model checking; full trace "
+                            f"in formal/c/harness_{hyp_slug}_invariant.c)."
+                            + (f" {raw_reason}" if raw_reason else "")
+                        )
                 elif ev.get("proved") is True:
                     l3_status = (
                         "CBMC proved the invariant holds within bounded unwind "
