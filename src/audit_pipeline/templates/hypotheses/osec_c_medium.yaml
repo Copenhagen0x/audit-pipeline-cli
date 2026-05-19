@@ -1,0 +1,455 @@
+# OtterSec evaluation — C / c-medium hypothesis library.
+#
+# Authored after a manual read of every source file in
+# sahuang-osec/c-medium (~2,300 LOC across 13 source files + 5 headers,
+# subsystems: protocol/frame_parser, storage/db, queue/job, auth/session,
+# runtime/files, common/{buffer,config,log}, vendor/{minihash,ini}, and
+# three program_* entry points). Each hypothesis is bound to a concrete
+# function/file in that repo — NOT speculative, NOT cross-target.
+#
+# Carry-over patterns from c-small (verified to still apply here):
+#   * frame parser key off-by-one          (CMED01)
+#   * doubling-overflow in growable arrays (CMED09 — queue/job)
+#   * fopen() symlink-follow / TOCTOU      (CMED03, CMED12)
+#   * format-string injection via log API  (CMED13, CMED16)
+#   * session signed-overflow on expires_at(CMED08)
+#
+# New attack surface unique to c-medium:
+#   * Role-aware session_validate with admin/service backdoors (CMED06, CMED07)
+#   * runtime_is_safe_path naive substring check                 (CMED11)
+#   * runtime_read_text_checked uint64+1 overflow → unbounded fread (CMED10)
+#   * Path-traversal in handle_import via symlink under base_dir (CMED18)
+#   * Double-free in enqueue_import on push failure              (CMED19)
+#   * OOB read in run_report — job->payload used as %s without NUL (CMED20)
+#   * HashDoS via FNV-1a collisions in the minihash table       (CMED15)
+#   * INI parser silent line truncation                          (no hyp; logic-only)
+#
+# Toolchain reminder for this language cell:
+#   * L2 PoC: clang 14 + ASan/UBSan/SignedOverflowSan
+#   * L3 formal: CBMC 5.12
+#   * L4 runtime: AFL++ 4.00c + afl-clang-fast
+#
+# Static-function reach in L2: same #define main __unused_main_program_X
+# + #include "program_X.c" trick as c-small. The C adapter prompts already
+# teach this.
+#
+# Run with:
+#   audit-pipeline hunt \
+#     --hypotheses .../osec_c_medium.yaml \
+#     --language c \
+#     --refinement-rounds 1 \
+#     --max-concurrent 4
+
+hypotheses:
+
+  # ─────────────────── protocol/frame_parser.c ───────────────────
+
+  - id: CMED01-frame-parse-key-off-by-one
+    class: memory_safety
+    severity: Critical
+    bug_class: heap-buffer-overflow
+    engine_function: frame_parse
+    target_file: src/protocol/frame_parser.c
+    claim: >
+      `frame_parse` uses `sizeof(frame->key) >= frame->key_len` as the
+      key-length guard. `frame->key` is `char key[64]`. The `>=` admits
+      `key_len == 64`, after which the code executes
+      `frame->key[frame->key_len] = '\0'`, writing one byte past the
+      end of the 64-byte buffer. Direct parallel of the c-small
+      CSMALL01 off-by-one but in a different module.
+    relevant_instructions: |
+      Inspect the bounds check at the `sizeof(frame->key) >= frame->key_len`
+      site and the immediate NUL-terminator write
+      `frame->key[frame->key_len] = '\0'` ~10 lines below it.
+    relevant_constants: |
+      sizeof(frame->key) == 64
+
+  - id: CMED02-frame-parse-input-length-not-pre-validated
+    class: input_validation
+    severity: High
+    bug_class: missing-length-sanity
+    engine_function: frame_parse
+    target_file: src/protocol/frame_parser.c
+    claim: >
+      `frame_parse` reads version/type/flags/stream_id/key_len/body_len
+      from the input buffer one field at a time via `buffer_read_*`
+      helpers and only validates `body_len <= 16 MiB` AFTER pulling
+      every header field. There is no upstream total-input-size check;
+      a malformed short frame can flow most of the way through the
+      parser before being rejected, and an attacker who controls the
+      input stream can fuzz arbitrary `key_len`/`body_len` pairs against
+      the downstream bounds checks (cf. CMED01).
+    relevant_instructions: |
+      Walk frame_parse end-to-end; note that `body_len <= 16 MiB` is the
+      only size guard and it fires after the per-field reads.
+
+  # ─────────────────── storage/db.c ───────────────────
+
+  - id: CMED03-db-save-symlink-follow
+    class: filesystem_race
+    severity: High
+    bug_class: toctou-symlink
+    engine_function: db_save
+    target_file: src/storage/db.c
+    claim: >
+      `db_save` calls `fopen(db->path, "wb")` with no `O_NOFOLLOW`,
+      no `O_CREAT|O_EXCL`, no pre-`lstat`, no post-`fstat`. An attacker
+      who controls the parent directory of `db->path` (e.g. running
+      under `/tmp` or any world-writable dir) can pre-place a symlink
+      at that path pointing to a victim file; the engine's serialised
+      key=value payload is then written through the symlink to the
+      victim. Same primitive as c-small CSMALL03 but on a different
+      sink.
+    relevant_instructions: |
+      Inspect `db_save` start-to-finish — there is exactly one fopen
+      and zero fd-based opens or symlink defenses anywhere in the
+      function.
+
+  - id: CMED04-db-save-no-line-escaping
+    class: data_integrity
+    severity: Medium
+    bug_class: save-load-divergence
+    engine_function: db_save
+    target_file: src/storage/db.c
+    claim: >
+      `db_save` serialises each entry as `<key>=<value>\n` via
+      `fprintf(fp, "%s=", n->key)` then `fwrite(v->data, 1, v->len, fp)`
+      then `fputc('\n', fp)`. Neither key nor value bytes are escaped.
+      If a stored value contains a `\n` (newline) or `=` byte,
+      `db_load`'s line-oriented parser will split mid-value and treat
+      the trailing fragment as a new key=value pair — silently
+      corrupting the round-trip and potentially injecting attacker-
+      controlled keys.
+    relevant_instructions: |
+      Compare the byte-for-byte write path in db_save against the
+      newline-split + `=`-split parser in db_load + db_import_line.
+
+  - id: CMED05-db-load-not-atomic-on-failure
+    class: data_integrity
+    severity: Medium
+    bug_class: partial-load-leakage
+    engine_function: db_load
+    target_file: src/storage/db.c
+    claim: >
+      `db_load`'s parse loop calls `db_import_line` for each line and
+      `break`s out with `rc = -1` on the first malformed line — but
+      the entries that were imported BEFORE the failure remain in the
+      Map. The function returns -1 to the caller while the in-memory
+      Db is in a partially-loaded inconsistent state. Callers that
+      assume failure means "nothing loaded" will operate on a half-
+      populated store.
+    relevant_instructions: |
+      Inspect the for-loop in db_load and the `break` exit; trace
+      whether the partially-built Map is rolled back on failure.
+
+  # ─────────────────── auth/session.c ───────────────────
+
+  - id: CMED06-session-validate-admin-role-bypass
+    class: authorization
+    severity: Critical
+    bug_class: authorization-bypass
+    engine_function: session_validate
+    target_file: src/auth/session.c
+    claim: >
+      In `session_validate`, when the actual session role does NOT
+      match the `required_role`, the code computes
+      `allowed = (3 > s->failed_checks) && (0 == strcmp(s->user->role, "admin"))`
+      and returns `allowed ? 0 : -1`. This grants ANY admin-roled
+      session a free pass for the first 2 wrong-role attempts against
+      ANY required_role — an admin token validates as "writer",
+      "reader", "auditor", etc. without limit until failed_checks
+      reaches 3. The role check is structurally broken: admin is
+      treated as a wildcard role for the first N tries.
+    relevant_instructions: |
+      Read session_validate's wrong-role branch line-by-line — the
+      `allowed = (3 > failed_checks) && role == "admin"` line is the
+      bug.
+
+  - id: CMED07-session-validate-service-name-backdoor
+    class: authorization
+    severity: Critical
+    bug_class: hardcoded-backdoor
+    engine_function: session_validate
+    target_file: src/auth/session.c
+    claim: >
+      In the revocation branch of `session_validate` (when failed_checks
+      exceeds the threshold and the session is being revoked), the code
+      checks `if (0 != strcmp(s->user->name, "service")) { /* fall through */ }
+      else { return 0; }` — a session whose user.name is the literal
+      string `"service"` is REVOKED but the function returns 0 (success)
+      to the caller, granting the access that just got the session
+      revoked. Hardcoded backdoor. The c-small `program_a.c` happens to
+      mint a session with user.name="service" at startup (`session_create
+      (..., "local-admin", "service", "admin")`), making this directly
+      reachable in the default-config attack model.
+    relevant_instructions: |
+      Inspect the revocation else-branch in session_validate; look for
+      the literal string "service" being compared against s->user->name.
+
+  - id: CMED08-session-expires-at-signed-overflow
+    class: integer_overflow
+    severity: Medium
+    bug_class: signed-overflow
+    engine_function: session_create
+    target_file: src/auth/session.c
+    claim: >
+      `session_create` and `session_touch` compute `s->expires_at =
+      (time_t)store->ttl_seconds + time(NULL)`. `time_t` is signed on
+      every supported platform; for sufficiently large ttl_seconds (a
+      caller-supplied unsigned int up to UINT_MAX), the sum overflows
+      signed `time_t` and undefined behaviour results. CBMC's
+      SignedOverflowSan flags this class of bug on Layer 3. Same
+      defect class as c-small CSMALL11.
+    relevant_instructions: |
+      Locate every `expires_at = ... + time(NULL)` site (session_create
+      and session_touch); check the operand types.
+
+  # ─────────────────── queue/job.c ───────────────────
+
+  - id: CMED09-reserve-jobs-doubling-overflow
+    class: integer_overflow
+    severity: High
+    bug_class: doubling-overflow
+    engine_function: reserve_jobs
+    target_file: src/queue/job.c
+    claim: >
+      `reserve_jobs` doubles `ncap` in `while (need > ncap) { ncap =
+      ncap * 2; }` without any overflow guard. For sufficiently large
+      `need`, `ncap * 2` wraps `size_t` to a small value, the loop
+      exits with an undersized `ncap`, `realloc(q->items, sizeof(Job*)
+      * ncap)` allocates a too-small buffer, and the subsequent
+      `q->items[q->len] = job` writes out-of-bounds. Direct parallel
+      of c-small CSMALL13 but in the job-queue subsystem (which c-medium
+      added — c-small had no separate job queue).
+      Note: common/buffer.c HAS the overflow guard `if ((ncap <=
+      (SIZE_MAX / 2)))` — only queue/job.c is unhardened.
+    relevant_instructions: |
+      Compare the doubling loop in `reserve_jobs` (queue/job.c) against
+      the same pattern in `grow_to` (common/buffer.c) — the buffer
+      version has the SIZE_MAX/2 guard, the queue version does not.
+
+  # ─────────────────── runtime/files.c ───────────────────
+
+  - id: CMED10-runtime-read-text-size-overflow
+    class: integer_overflow
+    severity: High
+    bug_class: integer-overflow-then-oob-write
+    engine_function: runtime_read_text_checked
+    target_file: src/runtime/files.c
+    claim: >
+      `runtime_read_text_checked` computes the size guard as
+      `!((1 + info.size > out_len) || (max_len < info.size))`.
+      `info.size` is `uint64_t`. On a malicious / corrupted filesystem
+      reporting size near UINT64_MAX (or with a sparse file), `1 +
+      info.size` wraps to 0, `0 > out_len` is false, and the guard
+      ACCEPTS the request. The subsequent `fread(out, 1, info.size,
+      fp)` then tries to read UINT64_MAX bytes into the caller's
+      `out` buffer — an unbounded heap/stack overflow.
+    relevant_instructions: |
+      Inspect the `1 + info.size > out_len` expression — the addition
+      occurs before the comparison, so the wrap happens before the
+      bound is enforced.
+
+  - id: CMED11-runtime-is-safe-path-insufficient
+    class: input_validation
+    severity: Medium
+    bug_class: insufficient-path-validation
+    engine_function: runtime_is_safe_path
+    target_file: src/runtime/files.c
+    claim: >
+      `runtime_is_safe_path` rejects absolute paths and any path
+      containing the literal substring `".."`, but never canonicalises
+      the path nor verifies the resolved target stays under `base`.
+      The check is a name-only heuristic: an attacker can place a
+      symlink at `<base>/innocent_name` pointing to `/etc/passwd` and
+      `runtime_is_safe_path(base, "innocent_name")` returns true.
+      Combined with the lack of `O_NOFOLLOW` in `buffer_read_file` /
+      `runtime_read_text_checked`, this is a directory-traversal-via-
+      symlink primitive.
+    relevant_instructions: |
+      Inspect the substring-only logic; confirm there is no realpath,
+      no readlink, and no comparison of the resolved path against base.
+
+  - id: CMED12-runtime-write-text-symlink-follow
+    class: filesystem_race
+    severity: High
+    bug_class: toctou-symlink
+    engine_function: runtime_write_text
+    target_file: src/runtime/files.c
+    claim: >
+      `runtime_write_text` calls `fopen(path, "wb")` with no
+      `O_NOFOLLOW` and no `O_CREAT|O_EXCL`. Any caller passing an
+      attacker-influenced path enables a symlink-clobber primitive.
+      Same defect class as CMED03 / c-small CSMALL03 but in the
+      shared file-utility helper used by multiple callers.
+    relevant_instructions: |
+      Inspect every fopen in runtime/files.c — runtime_write_text and
+      the read paths are the targets.
+
+  # ─────────────────── common/log.c ───────────────────
+
+  - id: CMED13-log-message-format-string-injection
+    class: format_string
+    severity: Critical
+    bug_class: format-string-injection
+    engine_function: log_message
+    target_file: src/common/log.c
+    claim: >
+      `log_message(logger, level, message)` forwards `message` to
+      `log_write(logger, level, message)`, which executes `vfprintf(
+      logger->stream, message, ap)` — `message` is consumed as the
+      format string with no varargs supplied. Any caller passing
+      attacker-controlled bytes (`%s`/`%n`/`%p` specifiers) into
+      log_message gets arbitrary read / write primitives. Direct
+      parallel of c-small CSMALL09 audit_sink but in the generic
+      logger; reachable from every module that includes common/log.h.
+    relevant_instructions: |
+      Trace log_message -> log_write -> vfprintf. The bug is that
+      log_message passes `message` to log_write as the `fmt` parameter.
+
+  # ─────────────────── common/config.c ───────────────────
+
+  - id: CMED14-config-get-int-silent-overflow
+    class: integer_overflow
+    severity: Medium
+    bug_class: integer-truncation
+    engine_function: config_get_int
+    target_file: src/common/config.c
+    claim: >
+      `config_get_int` calls `strtol(v, &end, 10)` and only checks for
+      no-digits-consumed and trailing-garbage. It does NOT check
+      `errno == ERANGE`. For a value string outside the long range
+      (e.g. `"99999999999999999999"`), strtol returns LONG_MAX/LONG_MIN
+      with errno=ERANGE, and the code returns `(int)LONG_MAX` — which
+      on platforms where sizeof(long) > sizeof(int) further truncates,
+      producing a near-random `int` value silently. Callers that gate
+      security-relevant limits (max retries, max payload, etc.) on
+      this return value can be steered to nonsense values by config
+      poisoning.
+    relevant_instructions: |
+      Inspect the strtol check at the tail of config_get_int — confirm
+      ERANGE is never tested.
+
+  # ─────────────────── vendor/minihash/map.c ───────────────────
+
+  - id: CMED15-minihash-hashdos
+    class: dos
+    severity: Medium
+    bug_class: hash-collision-dos
+    engine_function: hash_key
+    target_file: src/vendor/minihash/map.c
+    claim: >
+      `hash_key` is a textbook FNV-1a 32-bit hash with no secret seed.
+      Bucket count is fixed at init time (251 for the Db, 127 for the
+      SessionStore) and never grown. An attacker who can submit
+      arbitrary keys (e.g. via FRAME_PUT or FRAME_AUTH) can pre-compute
+      a set of keys that all hash to the same bucket modulo 251 (or
+      127), turning `map_put`/`map_get`/`map_remove` into O(N) per
+      call against that bucket. Classic HashDoS pattern.
+    relevant_instructions: |
+      Inspect hash_key (no seed) and map_init (fixed nbuckets, no
+      rehash); attacker controls keys via every public map_put caller.
+
+  # ─────────────────── program_a.c — Ingest entrypoint ───────────────────
+
+  - id: CMED16-program-a-handle-get-network-format-string
+    class: format_string
+    severity: Critical
+    bug_class: format-string-injection
+    engine_function: handle_get
+    target_file: src/program_a.c
+    claim: >
+      In the cache-miss branch of `handle_get`, the code calls
+      `log_message(&app->log, LOG_WARN, frame->key)`. `frame->key` is
+      attacker-controlled (set by `frame_parse` from a `FRAME_GET`
+      input). Combined with CMED13 (log_message uses message as
+      format), this is a remote format-string injection reachable
+      from any peer who can send a FRAME_GET with a key containing
+      `%s` / `%n` / `%p` specifiers. Critical — full read/write
+      primitive from network input.
+    relevant_instructions: |
+      The single line `log_message(&app->log, LOG_WARN, frame->key)`
+      in handle_get's miss branch — combine with CMED13.
+
+  - id: CMED17-program-a-handle-auth-deterministic-token
+    class: crypto_weakness
+    severity: High
+    bug_class: weak-token-derivation
+    engine_function: handle_auth
+    target_file: src/program_a.c
+    claim: >
+      `handle_auth` derives the session token via
+      `snprintf(token, sizeof(token), "token-%s", user)`. The token
+      is `"token-<username>"` — fully deterministic and trivially
+      forgeable. An attacker who knows or guesses a target username
+      can compute the exact token offline and submit it as the
+      session id on subsequent requests. No entropy, no HMAC, no
+      timestamp — same defect class as c-small CSMALL11 but the
+      attack is even cheaper because the construction is plaintext-
+      visible.
+    relevant_instructions: |
+      The `snprintf(token, sizeof(token), "token-%s", user)` line
+      inside handle_auth.
+
+  # ─────────────────── program_b.c — KV daemon ───────────────────
+
+  - id: CMED18-program-b-handle-import-symlink-traversal
+    class: input_validation
+    severity: High
+    bug_class: path-traversal-symlink
+    engine_function: handle_import
+    target_file: src/program_b.c
+    claim: >
+      `handle_import` calls `runtime_is_safe_path(daemon->base_dir,
+      req->key)` (which rejects only absolute paths and `..` substrings
+      — see CMED11), then constructs `path = "<base_dir>/<key>"` and
+      reads via `runtime_read_text_checked`. An attacker who can write
+      under base_dir (or who can influence base_dir's contents at any
+      prior point) can pre-place a symlink there, and the import path
+      will follow the symlink to ANY file readable by the daemon UID
+      — including /etc/passwd, /etc/shadow (if euid=0), or service
+      secrets. The "safe path" check is name-only and never
+      canonicalises.
+    relevant_instructions: |
+      Walk handle_import top-to-bottom; note that runtime_is_safe_path
+      is the only gate before fopen.
+
+  # ─────────────────── program_c.c — Worker ───────────────────
+
+  - id: CMED19-program-c-enqueue-import-double-free
+    class: memory_safety
+    severity: Critical
+    bug_class: double-free
+    engine_function: enqueue_import
+    target_file: src/program_c.c
+    claim: >
+      In `enqueue_import`, the failure-path code reads
+      `job_free(job); job_free(job);` — TWO consecutive `job_free`
+      calls on the same pointer in the same statement block. When
+      `job_queue_push` fails, this immediately double-frees the Job
+      allocation (including its payload). Critical — direct path to
+      heap corruption via the standard double-free pattern.
+    relevant_instructions: |
+      Inspect enqueue_import's job_queue_push failure branch — the
+      two adjacent `job_free(job)` calls are the bug.
+
+  - id: CMED20-program-c-run-report-payload-oob-read
+    class: memory_safety
+    severity: High
+    bug_class: oob-read
+    engine_function: run_report
+    target_file: src/program_c.c
+    claim: >
+      `run_report` formats `snprintf(report, needed, "...payload=%s",
+      ..., job->payload ? (char *)job->payload : "")` — using
+      `job->payload` as a C string. But `job->payload` is allocated
+      and populated by `job_new` via `malloc(payload_len)` +
+      `memcpy(payload, src, payload_len)` with NO NUL terminator
+      appended. If the payload byte stream contains no `'\0'` within
+      payload_len bytes (which is the common case for binary
+      payloads), `%s` reads past the allocation looking for the
+      terminator — out-of-bounds read, potential info-leak into the
+      report buffer (and onward into the log stream).
+    relevant_instructions: |
+      Cross-reference run_report's `%s` use of job->payload against
+      job_new's malloc+memcpy (no NUL append).
