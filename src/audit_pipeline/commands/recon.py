@@ -1115,6 +1115,19 @@ def _parse_verdict(text: str) -> tuple[str, str]:
             r"(?i)\bverdict\s*[:=\-]\s*(NEEDS[_\s]LAYER[_\s]2(?:[_\s]TO[_\s]DECIDE)?|TRUE|FALSE)\b\s*\(?\s*confidence",
             # Recommendation: ... is/should be ... TRUE/FALSE (within a sentence)
             r"(?im)\brecommendation\b[^.]{0,200}?\b(?:is|should\s+be)\b[^.]{0,80}?\b(TRUE|FALSE)\b",
+            # FIX 2026-05-19: VERDICT: TOKEN (anything-in-parens) more leniently.
+            # CMED21 ended with `**VERDICT: FALSE (as-shipped) / TRUE (latent...)**`
+            # — the closing `**` was after the parens, defeating the strongest
+            # fallback above. Accept the FIRST verdict token after `VERDICT:` /
+            # `Verdict:` regardless of what comes after.
+            r"(?im)\*{0,2}\s*verdict\s*[:=\-]\s*\*{0,2}(NEEDS[_\s]LAYER[_\s]2(?:[_\s]TO[_\s]DECIDE)?|TRUE|FALSE)\b",
+            # FIX 2026-05-19: Markdown table row verdicts. CMED23/CMED25 ended
+            # with rows like `| **Overall claim** | **TRUE** |` or
+            # `| Confidence | **HIGH** |` — verdict only appears as a bolded
+            # table cell, no `## Verdict` heading. Scan the LAST 800 chars of
+            # the text for `| **(TRUE|FALSE|NEEDS_LAYER_2)** |` patterns.
+            # Last-chars window prevents false-positives from in-narrative
+            # tables earlier in the response.
         )
         for pat in FALLBACKS:
             m = re.search(pat, text)
@@ -1125,6 +1138,23 @@ def _parse_verdict(text: str) -> tuple[str, str]:
                 else:
                     verdict = tok
                 break
+
+        # Table-cell fallback — only scan the final 800 chars to avoid
+        # false-positives from analysis tables earlier in the response.
+        if verdict == "UNKNOWN":
+            tail = text[-800:]
+            table_pat = (
+                r"\|\s*\*{0,2}\s*(?:overall\s+claim|verdict|conclusion|"
+                r"final\s+verdict|UAF\s+exists)\s*\*{0,2}\s*\|"
+                r"\s*\*{0,2}\s*(NEEDS[_\s]LAYER[_\s]2(?:[_\s]TO[_\s]DECIDE)?|TRUE|FALSE)\b"
+            )
+            m = re.search(table_pat, tail, re.I)
+            if m:
+                tok = m.group(1).upper().replace(" ", "_")
+                if "NEEDS" in tok:
+                    verdict = "NEEDS_LAYER_2_TO_DECIDE"
+                else:
+                    verdict = tok
 
     # Confidence — search block first (typed near the verdict), else
     # whole text as fallback.

@@ -67,6 +67,112 @@ def build_source_tree_map(target_repo_root: Path) -> str:
         lines.append(f"  {c}")
     return "\n".join(lines)
 
+
+def build_c_api_index(target_repo_root: Path) -> str:
+    """Extract function declarations, struct fields, and enum values from
+    every ``.h`` file under ``<repo>/src/`` and return them as a compact
+    API reference.
+
+    Mirror of the Move sig-index from
+    ``engine_signature_grounding_2026_05_15.md`` — without this, the L2
+    PoC author hallucinates plausible-but-wrong API symbols like
+    ``buffer_new()`` (real: ``buffer_init(Buffer*, size_t)``) or
+    ``JOB_KIND_TRANSFER`` (real enum values: ``JOB_NONE``,
+    ``JOB_EMAIL``, etc.).
+
+    Parses each .h via permissive regex — no Tree-sitter, no full C
+    parser. Catches the 95% case: extern function declarations, struct
+    definitions, typedef enum bodies. Macros, function pointers, and
+    deeply nested constructs may be missed; the prompt instructs the
+    LLM to fall back to reading the .h directly if a symbol it needs
+    isn't in the index.
+    """
+    src_dir = target_repo_root / "src"
+    if not src_dir.is_dir():
+        return "(no src/ subdirectory found — API index unavailable)"
+
+    # Strip C block + line comments so they don't confuse the regexes.
+    block_re = re.compile(r"/\*.*?\*/", re.DOTALL)
+    line_re = re.compile(r"//[^\n]*")
+
+    # Function declarations: `<type-spec> <name>(<args>);` at file scope.
+    # Type-spec can be multi-word (e.g. `static int`, `const char *`,
+    # `unsigned long long`). We require the trailing `;` and ban `{` to
+    # exclude definitions and stray code.
+    fn_re = re.compile(
+        r"^\s*"
+        r"(?P<ret>(?:static\s+|extern\s+|inline\s+|const\s+|unsigned\s+|signed\s+|long\s+|short\s+|struct\s+\w+\s*\*?\s*|enum\s+\w+\s*|"
+        r"[A-Za-z_]\w*\s*\*?\s*)+)"
+        r"(?P<name>[A-Za-z_]\w*)\s*"
+        r"\((?P<args>[^;{}]*)\)\s*;",
+        re.M,
+    )
+
+    # Struct typedefs: `typedef struct Name { ... } Alias;` OR `struct Name { ... };`
+    struct_re = re.compile(
+        r"(?:typedef\s+)?struct\s+(?P<name>\w+)\s*\{(?P<body>[^}]*)\}\s*(?P<alias>\w*)\s*;",
+        re.DOTALL,
+    )
+
+    # Enum typedefs: `typedef enum Name { V1, V2 = 3, ... } Alias;`
+    enum_re = re.compile(
+        r"(?:typedef\s+)?enum\s+(?P<name>\w+)?\s*\{(?P<body>[^}]*)\}\s*(?P<alias>\w*)\s*;",
+        re.DOTALL,
+    )
+
+    sections: list[str] = []
+    for h_path in sorted(src_dir.rglob("*.h")):
+        try:
+            text = h_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        # Strip comments before regex matching
+        text = block_re.sub(" ", text)
+        text = line_re.sub(" ", text)
+
+        rel = str(h_path.relative_to(src_dir)).replace("\\", "/")
+        block_lines: list[str] = []
+
+        # Structs
+        for m in struct_re.finditer(text):
+            name = m.group("name") or "(anon)"
+            alias = m.group("alias") or ""
+            label = name if not alias or alias == name else f"{name} (typedef {alias})"
+            # Compress whitespace in body; keep field list as a one-liner.
+            body = re.sub(r"\s+", " ", m.group("body").strip())
+            block_lines.append(f"  struct {label} {{ {body} }};")
+
+        # Enums
+        for m in enum_re.finditer(text):
+            name = m.group("name") or "(anon)"
+            alias = m.group("alias") or ""
+            label = name if not alias or alias == name else f"{name} (typedef {alias})"
+            body = re.sub(r"\s+", " ", m.group("body").strip())
+            block_lines.append(f"  enum {label} {{ {body} }};")
+
+        # Function declarations
+        for m in fn_re.finditer(text):
+            ret = re.sub(r"\s+", " ", m.group("ret").strip())
+            name = m.group("name")
+            args = re.sub(r"\s+", " ", m.group("args").strip())
+            # Skip noise: declarations whose "return type" is actually a
+            # control-flow keyword or a local identifier we mistakenly
+            # captured (e.g. `if (cond)` somehow leaking through).
+            if name in {"if", "while", "for", "switch", "return", "sizeof",
+                        "do", "else", "static", "extern", "const", "struct",
+                        "enum", "union", "typedef", "void"}:
+                continue
+            block_lines.append(f"  {ret} {name}({args});")
+
+        if block_lines:
+            sections.append(f"// {rel}")
+            sections.extend(block_lines)
+            sections.append("")
+
+    if not sections:
+        return "(no API symbols extracted from src/*.h)"
+    return "\n".join(sections).rstrip()
+
 class CRuntimeAdapter(LanguageRuntimeAdapter):
     language = "c"
     harness_file_extension = ".c"
@@ -83,6 +189,7 @@ class CRuntimeAdapter(LanguageRuntimeAdapter):
         engine_function = hyp.get("engine_function", "")
 
         source_tree_map = build_source_tree_map(target_repo_root)
+        c_api_index = build_c_api_index(target_repo_root)
         return f"""You are authoring an AFL++ fuzz harness for the Jelleo audit engine.
 
 The harness will be compiled with `afl-clang-fast` and ASan/UBSan/
@@ -153,6 +260,17 @@ harder to get wrong because the sanitizers do the work.
 These are the ONLY valid `#include` paths in this target. **Do NOT use plausible-but-wrong paths like `utils/buffer.h`, `util/buffer.h`, `collections/map.h`, `lib/foo.h`, `includes/bar.h`.** Use ONLY paths that appear below.
 
 {source_tree_map}
+
+# C API index — ACTUAL function signatures + struct fields + enum values
+
+Auto-extracted from every `.h` in `src/`. **Use ONLY symbols that
+appear below.** Do NOT invent function names (e.g. `buffer_new()` —
+not real; use the actual `buffer_init`). Do NOT invent enum values
+(e.g. `JOB_KIND_TRANSFER` — not real; use the actual `JOB_EMAIL`).
+Match argument counts EXACTLY — passing 1 arg to a 2-arg function
+will fail at compile time.
+
+{c_api_index}
 
 # Your task
 

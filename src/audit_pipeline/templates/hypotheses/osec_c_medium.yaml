@@ -453,3 +453,118 @@ hypotheses:
     relevant_instructions: |
       Cross-reference run_report's `%s` use of job->payload against
       job_new's malloc+memcpy (no NUL append).
+
+
+  - id: CMED21-frame-body-len-32bit-malloc-overflow
+    class: integer_overflow
+    severity: Medium
+    bug_class: integer-overflow-then-oob-write
+    engine_function: frame_parse
+    target_file: src/protocol/frame_parser.c
+    claim: >
+      `frame_parse` at line 105 executes `malloc(1 + frame->body_len)` where
+      `body_len` is `uint32_t`. On a 32-bit build where `size_t` is also
+      32-bit, `1 + 0xFFFFFFFF` wraps to 0, `malloc(0)` returns either NULL
+      or a non-writable canonical pointer, and the subsequent `memcpy
+      (frame->body, body.data, frame->body_len)` at line 111 writes up to
+      4 GiB into the undersized allocation. The 16 MiB sanity check at
+      line 95 currently gates this — remove the check and it becomes a
+      direct heap-overflow primitive. Latent on 64-bit (size_t widens
+      cleanly), live on 32-bit; flagged by CMED01 challenger.
+    relevant_instructions: |
+      Inspect the malloc + memcpy pair at frame_parser.c:105 and 111; the
+      gating 16 MiB check is at line 95.
+
+  - id: CMED22-db-load-symlink-follow
+    class: filesystem_race
+    severity: Medium
+    bug_class: toctou-symlink
+    engine_function: db_load
+    target_file: src/storage/db.c
+    claim: >
+      `db_load` (line 146) reads the on-disk store via
+      `buffer_read_file(&b, db->path, 16 MiB)`. The underlying
+      `buffer_read_file` (`common/buffer.c:142`) calls `fopen(path, "rb")`
+      with NO `O_NOFOLLOW`, NO `lstat` pre-check, NO `fstat` post-check.
+      An attacker who controls the parent directory of `db->path` can
+      pre-place a symlink there pointing to any file readable by the
+      daemon UID (e.g., `/etc/passwd`, service secrets). The daemon
+      reads that file's contents and processes them through
+      `db_import_line` as if it were the legitimate store — read-side
+      symlink primitive (info leak + state injection). Symmetric to
+      CMED03 which covers the write-side primitive; flagged by CMED03
+      challenger.
+    relevant_instructions: |
+      Trace db_load → buffer_read_file → fopen("rb"). Confirm no symlink
+      defense exists between db.h's path field and the fopen call.
+
+  - id: CMED23-session-validate-revoke-use-after-free
+    class: memory_safety
+    severity: High
+    bug_class: use-after-free
+    engine_function: session_validate
+    target_file: src/auth/session.c
+    claim: >
+      In the revocation else-branch of `session_validate`, the code at
+      line 125 calls `session_revoke(store, id)` which invokes
+      `map_remove(..., free_session)` → `free(s->user); free(s);` — both
+      the User struct and the Session struct are freed and removed from
+      the map. The very next line (126) executes `strcmp(s->user->name,
+      "service")` reading both the Session pointer AND the freed User
+      pointer. The read is allocator-dependent (on most allocators the
+      bytes survive briefly so `strcmp` returns the expected value), but
+      the UAF is unconditional. This is a distinct defect class from
+      CMED07's "service" backdoor logic flaw — they share a code site
+      but the UAF exists regardless of whether the backdoor logic
+      triggers. Flagged independently by 3 agents (CMED07 proposer,
+      CMED06 challenger, CMED08 challenger).
+    relevant_instructions: |
+      Trace session_validate's else-branch at session.c:125–129;
+      cross-reference with session_revoke → map_remove → free_session.
+
+  - id: CMED24-load-payload-file-size-overflow
+    class: integer_overflow
+    severity: High
+    bug_class: integer-overflow-then-oob-write
+    engine_function: load_payload_file
+    target_file: src/program_c.c
+    claim: >
+      `load_payload_file` at line 57 computes `alloc = 1 + (size_t)info
+      .size` and calls `malloc(alloc)` at line 58. `info.size` is
+      `uint64_t` populated from `stat()`. Unlike
+      `runtime_read_text_checked` — which has a redundant `max_len <
+      info.size` guard that blocks large sizes (the reason CMED10 was
+      ruled FALSE) — `load_payload_file` has NO companion size cap. On
+      a stat result reporting a size near UINT64_MAX (corrupted FS,
+      sparse file, or stat-of-symlink-target with a huge nominal
+      size), `1 + info.size` wraps to 0 → `malloc(0)` → unbounded
+      `fread(buf, 1, (size_t)info.size, fp)` at line 62. This is the
+      unguarded variant of CMED10's defect; flagged by CMED10
+      challenger.
+    relevant_instructions: |
+      Compare load_payload_file (program_c.c:48–86) against
+      runtime_read_text_checked (files.c:38–63). Note the second has
+      `(1 + info.size > out_len) || (max_len < info.size)` whereas the
+      first has only the 1+size computation and the malloc.
+
+  - id: CMED25-runtime-read-text-stat-access-fopen-toctou
+    class: filesystem_race
+    severity: Medium
+    bug_class: toctou-multi-syscall
+    engine_function: runtime_read_text_checked
+    target_file: src/runtime/files.c
+    claim: >
+      `runtime_read_text_checked` performs three separate syscalls on
+      the same path string with no fd locking: `runtime_stat` (line 44,
+      which calls `stat()`), `access(path, R_OK)` (line 46), and
+      `fopen(path, "rb")` (line 47). An attacker who races between any
+      pair — most directly between `access` and `fopen` — can swap the
+      file at the path between the check and the open. Even with a
+      non-symlink target and a passing safe-path check, the race lets
+      the attacker substitute a different file at open time. Distinct
+      from the symlink-traversal class (CMED11/CMED18) because no
+      symlink is required — just a swap. Flagged by CMED11, CMED14,
+      and CMED18 challengers.
+    relevant_instructions: |
+      Inspect files.c:44–49 — three syscalls on `path`, no `openat`,
+      no `O_NOFOLLOW`, no fd-based revalidation.
