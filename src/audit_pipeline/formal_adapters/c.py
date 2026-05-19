@@ -331,6 +331,62 @@ def _select_minimal_sources(harness_path: Path, candidate_src_files: list[str]) 
 
 
 
+def _classify_cbmc_failures(stdout: str) -> tuple[str, str]:
+    """Inspect every `[scope.check.N] ... FAILURE` line in CBMC stdout
+    and decide whether the run found a REAL counterexample or merely
+    hit its own unwind bound on a setup loop.
+
+    CBMC emits one line per failed check, of the form:
+        [main.unwind.0] line 65 unwinding assertion loop 0: FAILURE
+        [frame_parse.array_bounds.1] line 93 array bounds violated: FAILURE
+        [scope.pointer_dereference.7] dereference failure: FAILURE
+        [scope.assertion.3] my_invariant: FAILURE
+
+    The 2nd field after the dot is the CHECK TYPE. `unwind` means CBMC
+    gave up unrolling a loop — that's not a bug, it's CBMC saying
+    "I cannot decide past this point." Any other check type
+    (`assertion`, `array_bounds`, `pointer_dereference`, `overflow`,
+    `division-by-zero`, `NaN`, `NULL`, `bit_count`) is a REAL bug
+    constructively demonstrated by CBMC.
+
+    Returns (verdict, summary_line) where verdict is one of:
+        "real_counterexample"   — at least one non-unwind FAILURE
+        "unwind_incomplete"     — only unwind FAILUREs
+        "unknown"               — no FAILURE lines parseable
+    """
+    failure_re = re.compile(r"\[([^\]]+)\]\s+([^\n]+?):\s+FAILURE", re.MULTILINE)
+    failures: list[tuple[str, str]] = []
+    for m in failure_re.finditer(stdout):
+        tag = m.group(1)   # e.g. "main.unwind.0" or "frame_parse.array_bounds.1"
+        descr = m.group(2)
+        # Pull the check type — second dotted segment, robust to leading scope.
+        # Common shapes: "func.check.idx", "main.unwind.0".
+        parts = tag.split(".")
+        check_type = parts[1] if len(parts) >= 2 else parts[0]
+        failures.append((check_type, f"[{tag}] {descr}"))
+
+    if not failures:
+        return ("unknown", "")
+
+    UNWIND_TYPES = {"unwind", "unwinding"}
+    REAL_TYPES = {
+        "assertion", "array_bounds", "pointer_dereference",
+        "overflow", "signed-overflow-check", "unsigned-overflow-check",
+        "division-by-zero", "div-by-zero", "NaN", "NULL", "nil",
+        "bit_count", "bit-count", "pointer", "conversion",
+        "memory-leak", "memory_leak",
+    }
+
+    real = [f for f in failures if f[0] in REAL_TYPES or f[0] not in UNWIND_TYPES]
+    if real:
+        return ("real_counterexample", real[0][1][:200])
+
+    # All failures are unwind-type.
+    sample = failures[0][1][:200]
+    return ("unwind_incomplete", sample)
+
+
+
 class CFormalAdapter(LanguageFormalAdapter):
     """C formal-verification adapter (CBMC)."""
 
@@ -463,9 +519,17 @@ Write a single self-contained C file `harness_<finding_name>.c` that:
 
 # Important
 
-* Loop unwinding bound is 16 by default — write the harness to
-  fit within that bound or use `__CPROVER_assume(i < 16)` on loop
+* Loop unwinding bound is 64 by default — write the harness to
+  fit within that bound or use `__CPROVER_assume(i < 64)` on loop
   counters.
+* **DO NOT use for-loops to symbolically initialize buffers.** CBMC's
+  `--unwinding-assertions` flag will trip on a loop with >64 iterations
+  and falsely report a counterexample. Instead, declare the buffer on
+  the stack (`unsigned char buf[N];`) and let CBMC treat the
+  uninitialized contents as implicitly symbolic; set only the SPECIFIC
+  bytes that must hold concrete values (magic / version / length
+  fields). This both fits within --unwind and makes the harness
+  smaller.
 * If a struct has many fields, you don't need to initialize all of
   them — CBMC treats uninitialized values as symbolic.
 * Use `__CPROVER_assume(...)` on POINTER VALIDITY before
@@ -520,7 +584,7 @@ write a real harness, output:
     # Per-language unwind bound. 16 is generous for most boundary
     # checks but small for any harness that scans buffers — callers
     # can override via env CBMC_UNWIND.
-    DEFAULT_UNWIND = 32
+    DEFAULT_UNWIND = 64  # bumped 2026-05-19 (c-medium): covers typical 64-byte symbolic-buffer setup
 
     def run_verifier(
         self,
@@ -650,9 +714,52 @@ write a real harness, output:
             stdout = stdout + "\n...[truncated]...\n" + full_stdout[-4000:]
         stderr = proc.stderr[:4000]
 
-        # CBMC reports outcomes via these terminal lines (read full output)
+        # CBMC reports outcomes via these terminal lines (read full output).
+        # We must distinguish a REAL counterexample (e.g. array bounds
+        # violated at the bug site) from CBMC tripping on its own
+        # --unwinding-assertions flag because a SETUP loop in the
+        # harness exceeded --unwind. Both surface as "VERIFICATION
+        # FAILED", but only the former is a bug confirmation.
         if "VERIFICATION FAILED" in full_stdout:
-            # Counterexample found — bug constructively proven
+            verdict, sample = _classify_cbmc_failures(full_stdout)
+            if verdict == "real_counterexample":
+                return FormalOutcome(
+                    proved=False,
+                    counterexample=True,
+                    harness_path=harness_path,
+                    stdout=stdout,
+                    stderr=stderr,
+                    returncode=proc.returncode,
+                    duration_s=duration,
+                    verifier=self.verifier,
+                    reason=f"CBMC found counterexample: {sample}",
+                    metadata={"assertion_failed": sample},
+                )
+            if verdict == "unwind_incomplete":
+                # CBMC's --unwinding-assertions flag fired because a
+                # loop (typically the harness's symbolic-input setup)
+                # exceeded --unwind. This is NOT a bug — CBMC just
+                # couldn't unroll past its bound. Report as
+                # (proved=false, counterexample=false) so the engine
+                # treats this run as "incomplete" not "bug confirmed".
+                return FormalOutcome(
+                    proved=False,
+                    counterexample=False,
+                    harness_path=harness_path,
+                    stdout=stdout,
+                    stderr=stderr,
+                    returncode=proc.returncode,
+                    duration_s=duration,
+                    verifier=self.verifier,
+                    reason=(
+                        f"cbmc unwind-bound exceeded on setup loop: {sample} "
+                        "(harness setup loop > --unwind; bump CBMC_UNWIND or "
+                        "rewrite harness to avoid for-loop symbolic init)"
+                    ),
+                    metadata={"unwind_incomplete": True},
+                )
+            # Fell through both — unknown failure shape, still surface as cex
+            # with the raw match (defensive; old behavior).
             assertion_line = "(no specific assertion line found)"
             m = re.search(r"\[.+?\]\s+(.+?):\s+FAILURE", full_stdout)
             if m:
