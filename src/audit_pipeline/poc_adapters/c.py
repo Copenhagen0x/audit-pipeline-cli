@@ -67,6 +67,56 @@ _PSEUDO_PASS_MARKERS = (
 )
 
 
+def build_source_tree_map(target_repo_root: Path) -> str:
+    """Walk ``<repo>/src/`` and return a tree of include-relative paths.
+
+    The LLM PoC / harness author needs the actual file layout to write
+    correct ``#include`` directives. Without this, the model defaults to
+    plausible-but-wrong paths like ``utils/buffer.h`` or
+    ``collections/map.c`` when the real paths are ``common/buffer.h`` and
+    ``vendor/minihash/map.c``. Walking src/ once at prompt-build time
+    eliminates that whole class of grounding error.
+
+    Returns a string like:
+        Header files (.h) — usable in ``#include "..."``:
+          auth/session.h
+          common/buffer.h
+          ...
+        Source files (.c) — auto-compiled + linked into the test binary:
+          auth/session.c
+          common/buffer.c
+          vendor/minihash/map.c
+          ...
+
+    On a missing src/, returns an empty advisory string (caller can
+    decide how to surface that — most likely the target_repo_root itself
+    is misconfigured).
+    """
+    src_dir = target_repo_root / "src"
+    if not src_dir.is_dir():
+        return "(no src/ subdirectory found under target repo root)"
+    headers: list[str] = []
+    sources: list[str] = []
+    for p in sorted(src_dir.rglob("*.h")):
+        try:
+            headers.append(str(p.relative_to(src_dir)).replace("\\", "/"))
+        except ValueError:
+            continue
+    for p in sorted(src_dir.rglob("*.c")):
+        try:
+            sources.append(str(p.relative_to(src_dir)).replace("\\", "/"))
+        except ValueError:
+            continue
+    lines = ['Header files (.h) — usable in `#include "..."`:']
+    for h in headers:
+        lines.append(f"  {h}")
+    lines.append("")
+    lines.append("Source files (.c) — auto-compiled + linked into the test binary by the engine build path. You do NOT need to #include these unless the bug is in a static function.")
+    for c in sources:
+        lines.append(f"  {c}")
+    return "\n".join(lines)
+
+
 class CAdapter(LanguagePocAdapter):
     """C PoC adapter (clang + ASan/UBSan)."""
 
@@ -87,6 +137,7 @@ class CAdapter(LanguagePocAdapter):
         engine_function = hyp.get("engine_function", "")
         relevant = hyp.get("relevant_instructions") or ""
 
+        source_tree_map = build_source_tree_map(target_repo_root)
         return f"""You are authoring a Layer-2 Proof-of-Concept C test for the Jelleo audit engine.
 
 Your test will be compiled with:
@@ -95,8 +146,12 @@ Your test will be compiled with:
         -fsanitize=address,undefined,signed-integer-overflow \\
         -fno-omit-frame-pointer \\
         -I {target_repo_root}/src \\
-        -o /tmp/poc test_<name>.c <required .c files from src/>
+        -o /tmp/poc test_<name>.c <ALL .c files under src/, recursively, except those with their own main()>
   /tmp/poc
+
+The engine's build path AUTOMATICALLY discovers and links every `.c`
+file under `src/` (including `src/vendor/*/`). You do NOT need to list
+them. Just `#include` the public headers you need.
 
 The test FIRES (= bug confirmed) when ANY of these happen:
   * AddressSanitizer reports buffer-overflow / UAF / double-free / etc
@@ -120,13 +175,24 @@ Relevant instructions: {relevant}
 
 {source_context}
 
+# Source tree map — ACTUAL paths in this target
+
+These are the ONLY valid `#include` paths in this target. **Do NOT use
+plausible-but-wrong paths like `utils/buffer.h`, `util/buffer.h`,
+`collections/map.h`, `lib/foo.h`, `includes/bar.h`.** Use ONLY paths
+that appear below.
+
+{source_tree_map}
+
 # Your task
 
 Write a single self-contained C file `test_<finding_name>.c` that:
 
 1. `#include`s the headers needed to call `{engine_function}` and
-   construct the witness state. Use the actual paths from src/
-   (e.g. `#include "auth/session.h"`).
+   construct the witness state. Use ONLY paths from the Source tree map
+   above (e.g. `#include "auth/session.h"`). If you can't find a header
+   you need in the map, the target file probably exposes the symbol
+   through a different header — re-read the Grounded source above.
 
    STATIC FUNCTIONS: if `{engine_function}` is declared `static` inside
    a program_*.c file (no header export), you MUST #include that .c
@@ -264,17 +330,25 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
                 reason="target repo missing src/ subdir",
             )
 
-        # Discover .c files in src/ (excluding tests/ and vendor/ for cleanliness).
+        # Discover .c files in src/ (excluding tests/ only).
         # CRITICAL: skip any .c file that defines its own top-level `int main`
         # otherwise linking multi-program OSec eval targets (program_a.c,
         # program_b.c, program_c.c, each standalone) explodes with
         # "multiple definition of main". The PoC test file owns main(); the
         # LLM-authored test must #include the relevant program .c directly
         # to reach static functions when calling them through headers won't work.
+        #
+        # NOTE: vendor/ is INCLUDED in the compile/link path. Earlier the
+        # adapter skipped vendor/ on the assumption that vendored deps were
+        # header-only (true for c-small's `vendor/minimap/map.h`). c-medium
+        # has real vendored .c sources (`vendor/minihash/map.c`,
+        # `vendor/ini/ini.c`) that engine source files (db.c, config.c,
+        # session.c) call into — skipping them produced linker errors like
+        # `undefined reference to map_put`. Leave vendored .c files in.
         _MAIN_RE = re.compile(r"^\s*(?:int|void|static\s+int)\s+main\s*\(", re.M)
         src_files = []
         for p in include_dir.rglob("*.c"):
-            if "vendor" in p.parts or "tests" in p.parts:
+            if "tests" in p.parts:
                 continue
             try:
                 if _MAIN_RE.search(p.read_text(encoding="utf-8", errors="replace")):

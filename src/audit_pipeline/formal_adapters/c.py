@@ -52,6 +52,39 @@ from typing import Any
 from audit_pipeline.formal_adapters.base import FormalOutcome, LanguageFormalAdapter
 
 
+def build_source_tree_map(target_repo_root: Path) -> str:
+    """Walk ``<repo>/src/`` and return a tree of include-relative paths.
+
+    The LLM author needs the actual file layout to write correct
+    ``#include`` directives. Without this, the model defaults to
+    plausible-but-wrong paths like ``utils/buffer.h`` or
+    ``collections/map.c``. Walking src/ once at prompt-build time
+    eliminates that whole class of grounding error.
+    """
+    src_dir = target_repo_root / "src"
+    if not src_dir.is_dir():
+        return "(no src/ subdirectory found under target repo root)"
+    headers: list[str] = []
+    sources: list[str] = []
+    for p in sorted(src_dir.rglob("*.h")):
+        try:
+            headers.append(str(p.relative_to(src_dir)).replace("\\", "/"))
+        except ValueError:
+            continue
+    for p in sorted(src_dir.rglob("*.c")):
+        try:
+            sources.append(str(p.relative_to(src_dir)).replace("\\", "/"))
+        except ValueError:
+            continue
+    lines = ['Header files (.h) — usable in `#include "..."`:']
+    for h in headers:
+        lines.append(f"  {h}")
+    lines.append("")
+    lines.append("Source files (.c) — auto-compiled + linked into the binary by the engine build path. You do NOT need to #include these unless the bug is in a static function.")
+    for c in sources:
+        lines.append(f"  {c}")
+    return "\n".join(lines)
+
 class CFormalAdapter(LanguageFormalAdapter):
     """C formal-verification adapter (CBMC)."""
 
@@ -69,6 +102,7 @@ class CFormalAdapter(LanguageFormalAdapter):
         claim = hyp.get("claim", "(no claim)")
         engine_function = hyp.get("engine_function", "")
 
+        source_tree_map = build_source_tree_map(target_repo_root)
         return f"""You are authoring a CBMC formal-verification harness for the Jelleo audit engine.
 
 CBMC explores ALL admitted inputs under bounded loop unwinding and
@@ -100,11 +134,17 @@ CBMC FIRES (= bug constructively proven) when it finds a counterexample:
 CBMC SUCCEEDS (= invariant holds within unwind bound) when it proves:
   VERIFICATION SUCCESSFUL
 
+# Source tree map — ACTUAL paths in this target
+
+These are the ONLY valid `#include` paths in this target. **Do NOT use plausible-but-wrong paths like `utils/buffer.h`, `util/buffer.h`, `collections/map.h`, `lib/foo.h`, `includes/bar.h`.** Use ONLY paths that appear below.
+
+{source_tree_map}
+
 # Your task
 
 Write a single self-contained C file `harness_<finding_name>.c` that:
 
-1. `#include`s the headers needed to call `{engine_function}`.
+1. `#include`s the headers needed to call `{engine_function}`. Use ONLY paths from the Source tree map below.
 
    STATIC FUNCTIONS: if `{engine_function}` is declared `static` inside
    a program_*.c file (no header export), you MUST #include that .c
@@ -263,7 +303,7 @@ write a real harness, output:
         src_files = []
         if include_dir.is_dir():
             for p in include_dir.rglob("*.c"):
-                if "vendor" in p.parts or "tests" in p.parts:
+                if "tests" in p.parts:  # vendor/ INCLUDED: c-medium has real vendored .c sources (vendor/minihash/map.c, vendor/ini/ini.c) that engine sources call into
                     continue
                 try:
                     if _MAIN_RE_C.search(p.read_text(encoding="utf-8", errors="replace")):

@@ -973,7 +973,7 @@ def _gate_poc_passes_post_patch_c(
         src_files: list[str] = []
         if include_dir.is_dir():
             for sp in include_dir.rglob("*.c"):
-                if "vendor" in sp.parts or "tests" in sp.parts:
+                if "tests" in sp.parts:  # vendor/ INCLUDED: c-medium has real vendored .c sources that engine sources call into
                     continue
                 try:
                     if _MAIN_RE.search(sp.read_text(encoding="utf-8", errors="replace")):

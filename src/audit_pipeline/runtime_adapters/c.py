@@ -34,6 +34,39 @@ from typing import Any
 from audit_pipeline.runtime_adapters.base import LanguageRuntimeAdapter, RuntimeOutcome
 
 
+def build_source_tree_map(target_repo_root: Path) -> str:
+    """Walk ``<repo>/src/`` and return a tree of include-relative paths.
+
+    The LLM author needs the actual file layout to write correct
+    ``#include`` directives. Without this, the model defaults to
+    plausible-but-wrong paths like ``utils/buffer.h`` or
+    ``collections/map.c``. Walking src/ once at prompt-build time
+    eliminates that whole class of grounding error.
+    """
+    src_dir = target_repo_root / "src"
+    if not src_dir.is_dir():
+        return "(no src/ subdirectory found under target repo root)"
+    headers: list[str] = []
+    sources: list[str] = []
+    for p in sorted(src_dir.rglob("*.h")):
+        try:
+            headers.append(str(p.relative_to(src_dir)).replace("\\", "/"))
+        except ValueError:
+            continue
+    for p in sorted(src_dir.rglob("*.c")):
+        try:
+            sources.append(str(p.relative_to(src_dir)).replace("\\", "/"))
+        except ValueError:
+            continue
+    lines = ['Header files (.h) — usable in `#include "..."`:']
+    for h in headers:
+        lines.append(f"  {h}")
+    lines.append("")
+    lines.append("Source files (.c) — auto-compiled + linked into the binary by the engine build path. You do NOT need to #include these unless the bug is in a static function.")
+    for c in sources:
+        lines.append(f"  {c}")
+    return "\n".join(lines)
+
 class CRuntimeAdapter(LanguageRuntimeAdapter):
     language = "c"
     harness_file_extension = ".c"
@@ -49,6 +82,7 @@ class CRuntimeAdapter(LanguageRuntimeAdapter):
         claim = hyp.get("claim", "(no claim)")
         engine_function = hyp.get("engine_function", "")
 
+        source_tree_map = build_source_tree_map(target_repo_root)
         return f"""You are authoring an AFL++ fuzz harness for the Jelleo audit engine.
 
 The harness will be compiled with `afl-clang-fast` and ASan/UBSan/
@@ -113,6 +147,12 @@ class:
 
 If unsure which shape to pick: prefer MEMORY-SAFETY HARNESS — it's
 harder to get wrong because the sanitizers do the work.
+
+# Source tree map — ACTUAL paths in this target
+
+These are the ONLY valid `#include` paths in this target. **Do NOT use plausible-but-wrong paths like `utils/buffer.h`, `util/buffer.h`, `collections/map.h`, `lib/foo.h`, `includes/bar.h`.** Use ONLY paths that appear below.
+
+{source_tree_map}
 
 # Your task
 
@@ -227,7 +267,7 @@ If you can't write a real harness:
         src_files = []
         if include_dir.is_dir():
             for p in include_dir.rglob("*.c"):
-                if "vendor" in p.parts or "tests" in p.parts:
+                if "tests" in p.parts:  # vendor/ INCLUDED: c-medium has real vendored .c sources that engine sources call into
                     continue
                 try:
                     if _MAIN_RE_C.search(p.read_text(encoding="utf-8", errors="replace")):
