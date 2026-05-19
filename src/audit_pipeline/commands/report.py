@@ -405,6 +405,7 @@ def _table_of_contents(
     findings: list[dict],
     *,
     workspace: Path | None = None,
+    cycle_id: str = "",
 ) -> str:
     """Print-style TOC linking every finding by anchor id.
 
@@ -428,6 +429,14 @@ def _table_of_contents(
     # short descriptive title (e.g. "Missing auth check on transfer_admin")
     # rather than the truncated claim prose.
     hyp_library = _load_hypothesis_library(workspace) if workspace else {}
+    # Resolve the narratives directory so we can prefer the narrative H1
+    # title over the DB-truncated claim. Falls back if narratives aren't
+    # present (older cycles).
+    narratives_dir: Path | None = None
+    language = ""
+    if workspace and cycle_id:
+        narratives_dir = workspace / "hunts" / cycle_id / "narratives"
+        language = _detect_language(workspace, cycle_id)
 
     lis = []
     for idx, f in enumerate(sorted_findings, 1):
@@ -440,13 +449,24 @@ def _table_of_contents(
         hyp_yaml = hyp_library.get(hyp_id, {}) if hyp_id else {}
         bug_class = (f.get("bug_class") or hyp_yaml.get("bug_class") or "").strip() or "—"
         engine_function = (hyp_yaml.get("engine_function") or "").strip()
-        display_title = _short_finding_title(
-            bug_class=bug_class,
-            engine_function=engine_function,
-            hypothesis_id=hyp_id,
-            hyp_yaml=hyp_yaml,
-            db_title=f.get("title"),
-        )
+        # Prefer the narrative H1 title — same source of truth as the
+        # body. Falls back to _short_finding_title if no narrative is
+        # available (older cycles, missing files).
+        narrative_title = ""
+        if narratives_dir and hyp_id:
+            narr = _load_narrative_sections(narratives_dir, hyp_id, language=language)
+            if narr:
+                narrative_title = narr.get("_title", "") or ""
+        if narrative_title:
+            display_title = narrative_title
+        else:
+            display_title = _short_finding_title(
+                bug_class=bug_class,
+                engine_function=engine_function,
+                hypothesis_id=hyp_id,
+                hyp_yaml=hyp_yaml,
+                db_title=f.get("title"),
+            )
         # Strip backticks from TOC entries (no nested <code> inside <a>);
         # the function name stays inline.
         toc_text = display_title.replace("`", "")
@@ -1151,34 +1171,63 @@ _SOLANA_LINE_PHRASES = (
     "anchor handler",
 )
 
+# Mid-sentence clauses that drag a C systems-software finding into DeFi /
+# blockchain framing ("user funds", "program upgrade", "node or program",
+# "fund transfers", "loss of assets"). Spliced out at clause boundaries so
+# the rest of the sentence still reads cleanly. Each pattern matches up to
+# the next sentence terminator.
+_DEFI_CLAUSE_PATTERNS = (
+    r",?\s*potentially trapping user funds[^.]*\.",
+    r",?\s*until a program upgrade is deployed",
+    r",?\s*until a program upgrade is shipped",
+    r",?\s*before it is committed",
+    r"\bIn a node or program context\b",
+    r"\bIn a node context\b",
+    r",?\s*partial or full loss of assets or integrity cannot be ruled out\.",
+    r",?\s*directly impacting the correctness guarantees of the queue\.",
+    r",?\s*\(state writes, fund transfers, administrative operations\)",
+)
+
 
 def _strip_solana_taint(md: str) -> str:
-    """Remove Solana-flavored sentences/bullets from a C-cycle narrative.
+    """Remove Solana / DeFi flavored sentences from a C-cycle narrative.
 
     The narrative author was not language-aware when these were generated,
-    so some sentences in Impact / References sections drift into Solana
-    territory (PDA validation, Anchor handlers, BPF environment). For a C
-    cycle these are nonsense. Strategy: drop any line whose lowercased
-    text contains one of `_SOLANA_LINE_PHRASES`. We also splice out
-    individual clauses introduced by ", or, in the Solana context, …"
-    inside otherwise-clean paragraphs.
+    so some sentences drift into Solana / blockchain territory (PDA,
+    Anchor, BPF, user funds, program upgrade, fund transfers). For a C
+    cycle these are nonsense. Strategy:
+      1. Splice out mid-sentence Solana-context clauses.
+      2. Splice out mid-sentence DeFi-flavored clauses.
+      3. Drop whole lines saturated with Solana terminology.
+      4. Clean up trailing punctuation left behind by the splice
+         (dangling em-dashes, double periods, "—.").
     """
     if not md:
         return md
-    # Splice out mid-sentence "in the Solana context" / "or, in the Solana context" clauses.
+    # 1. Splice out mid-sentence Solana-context clauses.
     md = re.sub(
         r",?\s*(?:or,?\s+)?in the [Ss]olana context[^.]*\.",
         ".",
         md,
     )
-    # Drop whole bullets/lines that are saturated with Solana terminology.
+    # 2. Splice out DeFi-flavored clauses.
+    for pat in _DEFI_CLAUSE_PATTERNS:
+        md = re.sub(pat, "", md)
+    # 3. Drop whole bullets/lines saturated with Solana terminology.
     kept: list[str] = []
     for line in md.splitlines():
         low = line.lower()
         if any(p in low for p in _SOLANA_LINE_PHRASES):
             continue
         kept.append(line)
-    return "\n".join(kept)
+    md = "\n".join(kept)
+    # 4. Clean up trailing-punctuation droppings from the splice.
+    md = re.sub(r"\s+—\s*\.", ".", md)   # "...execution —." → "...execution."
+    md = re.sub(r"\s+—\s*$", "", md, flags=re.M)  # trailing em-dash on EOL
+    md = re.sub(r"\.\s*\.", ".", md)      # ".." → "."
+    md = re.sub(r",\s*\.", ".", md)       # ",." → "."
+    md = re.sub(r"\s+\.", ".", md)        # " ." → "."
+    return md
 
 
 def _load_narrative_sections(
@@ -1276,6 +1325,20 @@ def _narrative_md_to_html(md: str) -> str:
                 lang = ""
                 code = seg
             code = code.strip("\n")
+            # Dedent: if every non-empty line shares a leading-whitespace
+            # prefix, strip it. Narrative authors often indent inline fences
+            # by the list-item depth, which carries into the code box.
+            code_lines = code.split("\n")
+            non_empty = [ln for ln in code_lines if ln.strip()]
+            if non_empty:
+                common = min(
+                    (len(ln) - len(ln.lstrip(" \t")) for ln in non_empty),
+                    default=0,
+                )
+                if common > 0:
+                    code_lines = [ln[common:] if len(ln) >= common else ln
+                                  for ln in code_lines]
+                    code = "\n".join(code_lines)
             cls = f' class="language-{lang}"' if lang else ""
             out.append(
                 f'<pre class="code-block code-tight"><code{cls}>'
@@ -1314,9 +1377,14 @@ def _render_md_text(md: str) -> str:
             out.append("</ul>")
             in_list.clear()
 
+    # Pre-process: narrative authors frequently write numbered lists inline
+    # ("1. Build … 2. Run … 3. Check …" all on one line). Split those so
+    # each numbered item starts its own line and renders as a bullet.
+    md = re.sub(r"(?<=[^\n])\s+(\d+\.\s+)", r"\n\1", md)
+
     for raw_line in md.splitlines():
         line = raw_line.rstrip()
-        m_li = re.match(r"^\s*[-*]\s+(.+)$", line)
+        m_li = re.match(r"^\s*(?:[-*]|\d+\.)\s+(.+)$", line)
         if m_li:
             _flush_para()
             in_list.append(m_li.group(1).strip())
@@ -3117,6 +3185,7 @@ def _fix_bundle_section(
             "status":   status,
             "gates":    gates_passed,
             "authorized": ap.is_file(),
+            "severity": (f.get("severity") or "Info") if isinstance(f, dict) else "Info",
         })
 
     if not rows:
@@ -3261,13 +3330,20 @@ def _fix_bundle_section(
         authz_mark = "&#x2713;" if r["authorized"] else "&middot;"
         finding_status = finding_status_by_hyp.get(r["hyp"], "")
         role = _role_for(r["hyp"], finding_status)
-        role_color = {
-            "confirmed": "var(--critical)",
-        }.get(role.split(" ")[0], "var(--text-3)")
-        # Special-case the visual emphasis for the "cluster rep" / plain
-        # "confirmed" rows so they stand out from triaged duplicates.
+        role_color = "var(--text-3)"
+        # Color the "confirmed" / "cluster rep" cells by the finding's
+        # actual severity so a Medium doesn't render in critical-red and
+        # mislead a fast-scan reader. Triaged (SOFT / FALSE / duplicate)
+        # rows stay neutral.
         if role.startswith("cluster rep") or role == "confirmed":
-            role_color = "var(--critical)"
+            sev_color_map = {
+                "Critical": "var(--critical)",
+                "High":     "var(--high)",
+                "Medium":   "var(--medium)",
+                "Low":      "var(--low)",
+                "Info":     "var(--info)",
+            }
+            role_color = sev_color_map.get(r.get("severity", "Info"), "var(--text-3)")
         body_rows.append(
             f"<tr>"
             f"<td><code>{r['id']}</code></td>"
@@ -3891,7 +3967,7 @@ pre code.language-c .token.punctuation   {{ color: rgba(245,243,237,0.55); }}
 
   {_scope_section(workspace, target_name, cycle, language, protocol_label)}
 
-  {_table_of_contents(findings, workspace=workspace)}
+  {_table_of_contents(findings, workspace=workspace, cycle_id=cycle_id_raw)}
 
   {_findings_writeup(findings, workspace, cycle_id) if workspace else ""}
 
@@ -3927,7 +4003,7 @@ pre code.language-c .token.punctuation   {{ color: rgba(245,243,237,0.55); }}
       <tr><td><code>Layer 4</code></td>
           <td style="color:var(--text-2)">{("Property-based fuzzing via <code>aptos move test</code>. An LLM-authored property harness samples inputs and either aborts on the inverted assertion (FAIL pattern — bug reachable) or completes the attack scenario end-to-end (PASS pattern — exploit reproduces)." if language == "aptos" else ("Property-based fuzzing + invariant testing via <code>forge test</code>. An LLM-authored harness uses Foundry's fuzz / invariant runner — either a counterexample fires the inverted assertion (bug reachable) or the harness completes the attack scenario end-to-end." if language == "solidity" else ("Coverage-guided fuzzing via <code>AFL++</code> with <code>afl-clang-fast</code> + ASan/UBSan. An LLM-authored harness reads attacker-shaped bytes from stdin and feeds them to the function under test. AFL records as a 'crash' any input that triggers a sanitizer abort or explicit <code>abort()</code>." if language == "c" else "On-chain BPF reproduction. The Solana program is deployed into LiteSVM and the PoC re-executed through the deployed instructions, confirming the wrapper-side defenses don't catch the bug.")))}</td></tr>
       <tr><td><code>Layer P3</code></td>
-          <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 6-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass, and a language-specific symbolic/runtime check — Kani for Solana, Move Prover for Aptos, Halmos for Solidity, CBMC for C). Some gates auto-skip when the language doesn&rsquo;t apply (Kani/LiteSVM gates skip on non-Solana cycles; the test-suite gate skips for C eval targets that ship without a unified runner). Operator authorization is required before any upstream PR is opened.</td></tr>
+          <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 6-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass, and a language-specific symbolic/runtime check — Kani for Solana, Move Prover for Aptos, Halmos for Solidity, CBMC for C). Gates auto-skip when the language doesn&rsquo;t apply (the symbolic / runtime gates of one toolchain skip on cycles authored against another, with that language&rsquo;s verdict already reported under Layer 3 / Layer 4); the test-suite gate skips for eval targets that ship without a unified runner. Operator authorization is required before any upstream PR is opened.</td></tr>
     </tbody>
   </table>
 
