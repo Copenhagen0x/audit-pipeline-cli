@@ -108,21 +108,22 @@ _SOLANA_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 
 
 # PHASE 1e — fast-path FALSE patterns for C (clang + ASan/UBSan output).
-# Most C false-fires are sanitizer hits in the TEST file itself, not the
-# program under test. The post-cycle gate already filters pseudo-pass
-# stubs; these patterns catch the "ASan caught my own malloc bug in
-# main()" case.
+#
+# Earlier version (cycle 20260519-001419) classified every C fire as
+# FALSE because the patterns matched any ASan/UBSan output that mentioned
+# a test_*.c file ANYWHERE in the report. But ALL C PoC stack traces
+# mention test_*.c (it's the entry point in main); even genuine engine
+# bugs produce ASan reports with test_*.c in frame #1+. The previous
+# patterns were therefore unconditional FALSE for every C fire — they
+# silently dropped every confirmed bug into FALSE, including all 8
+# confirmed fires in c-small cycle 20260519-001419.
+#
+# Corrected rule: a C PoC fire is a real bug-in-program iff the cargo log
+# contains AT LEAST ONE stack frame in an engine source file (paths under
+# src/ that are NOT under tests/). Pure-test-frame reports are still
+# FALSE (the test caused its own UB unrelated to the program under test).
+# Otherwise the LLM judge gets the call.
 _C_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (
-        # Sanitizer report whose stack frame is in our test_*.c file —
-        # we caused the violation, not the program under test.
-        re.compile(
-            r"(?=.*AddressSanitizer)(?=.*test_\w+\.c)",
-            re.IGNORECASE | re.DOTALL,
-        ),
-        "AddressSanitizer hit inside the test_*.c file itself "
-        "(witness state setup broke memory safety, not the program)",
-    ),
     (
         # Compile error in the PoC — not a fire, just a broken test source.
         # Note: we shouldn't normally see this through the L2.5 path
@@ -135,17 +136,40 @@ _C_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "clang compile error in the PoC source — broken test, not a real fire",
     ),
-    (
-        # libubsan reporting a runtime error specifically inside test_*.c's
-        # main() function. Same logic as ASan-in-test above.
-        re.compile(
-            r"runtime error:.*\btest_\w+\.c:",
-            re.IGNORECASE,
-        ),
-        "UBSan caught undefined behavior inside the test file itself, "
-        "not the program under test",
-    ),
 )
+
+
+def _c_stack_has_engine_frame(log: str) -> bool:
+    """True if any sanitizer stack frame cites an engine source file.
+
+    Engine sources live under ``src/`` and never under ``tests/``. A
+    stack frame containing a path like ``/repos/<target>/src/<file>.c``
+    or ``../<...>/src/<file>.c`` indicates the bad behavior reached
+    engine code — that's a real fire. A trace with ONLY ``test_*.c``
+    frames is a test-side defect (witness setup broke its own memory).
+    """
+    # The stack frame lines have the shape
+    #   #N 0x<pc> in <symbol> <path>:<line>:<col>
+    # plus the leading "runtime error:" / "ERROR:" header that may carry
+    # a path directly. Look for any path that:
+    #   * ends with .c or .h
+    #   * does NOT contain "/tests/" or "test_" filename component
+    #   * has an "/src/" or "src/" segment that anchors it to engine code
+    # An empty log returns False (handled upstream as LOST).
+    if not log:
+        return False
+    # Match path segments inside the stack frames.
+    path_re = re.compile(
+        r"(?P<path>[^\s'\"`(){}<>]*?(?:\b|/)src/[^\s'\"`(){}<>]+\.(?:c|h))",
+        re.IGNORECASE,
+    )
+    for m in path_re.finditer(log):
+        path = m.group("path")
+        # Reject test-side paths that happen to embed "src/" (defensive)
+        if "/tests/" in path or "/test_" in path:
+            continue
+        return True
+    return False
 
 
 # PHASE 1e — fast-path FALSE patterns for Solidity (Foundry forge output).
@@ -530,22 +554,53 @@ _C_JUDGE_PROMPT = """\
 You are a C security audit triage judge. You receive ONE PoC fire from
 the L2 layer (clang + ASan + UBSan).
 
-CRITICAL — UNDERSTAND THE FIRE-SIGNAL FORMAT:
-* AddressSanitizer reports as `==<pid>==ERROR: AddressSanitizer: <kind>`
-  followed by stack frames. UBSan reports as `runtime error: <kind>`.
-* The stack frame location is the key signal. If the top frame is in
-  the program-under-test (not test_<name>.c), the fire is STRONG. If
-  the top frame is in test_<name>.c itself, the test caused its own
-  memory bug = FALSE.
+CRITICAL — UNDERSTAND C POC STRUCTURE BEFORE READING THE STACK:
+
+A C PoC is a `tests/c/test_<slug>.c` file linked against the engine
+sources (`src/**/*.c`, excluding any `main()`-bearing program files).
+The PoC's own `main()` drives the engine API to a target state, then
+SIGNALS A FIRE in one of these well-known ways:
+
+  (a) ASan / UBSan crashes the process from INSIDE engine code. The
+      stack's top frame (`#0`) is in `src/*.c` (the program). This is
+      the strongest signal: the program executed an unsafe operation
+      under real input.
+
+  (b) ASan / UBSan crashes from inside a TEST-DEFINED CALLBACK that
+      the engine handed control to. Top frame `#0` is in `test_*.c`,
+      but frames `#1+` include `src/*.c` (engine called the callback
+      AFTER mutating state into the bad condition — e.g., engine
+      called `cb(job, ...)` after `free(job)`). This is also STRONG —
+      the engine's contract violation is the root cause.
+
+  (c) The PoC observes an engine-produced bad state (file written to
+      the wrong path, store fails to reload, admin gate passed by a
+      non-admin) and TRAPS via `assert(0 && "FIRE: <reason>")` from
+      its own main. Top frame is `test_*.c:main`, the stack has NO
+      sanitizer report, but the assertion text contains an explicit
+      "FIRE:" / "CSMALL*:" marker AND the test source calls into
+      `src/*.c` engine functions before asserting. This is the
+      canonical pattern for non-memory bugs (TOCTOU, format-string
+      injection, weak entropy, predictable path, missing role gate,
+      save/load divergence). It is STRONG.
+
+  (d) Genuine test-side defect: ASan stack has NO engine frame at
+      any depth (every frame is in `test_*.c` or libc). Or the PoC
+      compiled with errors. This is FALSE.
+
+DO NOT classify (b) or (c) as FALSE just because the top frame is in
+the test file. The C PoC convention USES test_*.c assertions and
+callbacks as deliberate fire signals.
 
 Classify into exactly one of:
-  STRONG - Sanitizer hit inside the program-under-test (heap-buffer-
-           overflow / use-after-free / signed-integer-overflow with
-           top frame in `src/*.c`, NOT in test_<name>.c).
-  SOFT   - Sanitizer hit in PUT but on a different invariant than
-           the hypothesis claims.
-  FALSE  - Sanitizer hit inside test_<name>.c (we caused the bug).
-           Compile errors. Empty signal.
+  STRONG - Engine bug confirmed via any of patterns (a), (b), or (c).
+           Look for ANY engine source path (`src/*.c`) in the stack OR
+           a "FIRE:" / "CSMALL*:" marker tied to engine-state output.
+  SOFT   - Engine bug fired but on a different invariant than the
+           hypothesis specifically claims (still a real bug, but the
+           hypothesis statement doesn't quite capture it).
+  FALSE  - Pure test-side defect (pattern (d)): NO engine frame in any
+           stack and NO "FIRE:"/"CSMALL*:" marker; or compile error.
 
 Return JSON only. Schema:
   {"classification": "STRONG"|"SOFT"|"FALSE",
@@ -1033,19 +1088,42 @@ def triage_cycle(
         poc = poc_results.get(hyp_id, {})
         meta = hyp_meta.get(hyp_id, {})
 
-        # Read test body + cargo log
+        # Read test body + cargo log.
+        #
+        # Phase 2 (cross-language path resolution): the poc dict stores
+        # scaffold_path / cargo_log_path as workspace-relative strings
+        # (e.g. ``tests/c/test_<slug>.c``, ``hunts/<cycle>/poc/runlog_<slug>.log``).
+        # The previous code did Path(...).read_text() which resolves
+        # against CWD, not workspace — so triage invoked via
+        # ``audit-pipeline triage-fires`` (CWD != workspace) always saw
+        # both fields empty -> LOST. The Solana path happened to work
+        # only when CWD == workspace. For C / Aptos / Solidity cycles
+        # this silently dropped every fire into LOST.
+        # Fix: anchor relative paths to the workspace root.
+        # cycle_dir is ``<workspace>/hunts/<cycle_id>``, so workspace
+        # = cycle_dir.parent.parent.
+        _workspace_root = cycle_dir.parent.parent
+
+        def _resolve_ws_rel(p):
+            if not p:
+                return None
+            pp = Path(p)
+            return pp if pp.is_absolute() else (_workspace_root / pp)
+
         scaffold_path = poc.get("scaffold_path")
         cargo_log_path = poc.get("cargo_log_path")
         test_body = ""
-        if scaffold_path:
+        _sp = _resolve_ws_rel(scaffold_path)
+        if _sp is not None:
             try:
-                test_body = Path(scaffold_path).read_text(encoding="utf-8", errors="replace")
+                test_body = _sp.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 pass
         cargo_log = ""
-        if cargo_log_path:
+        _cp = _resolve_ws_rel(cargo_log_path)
+        if _cp is not None:
             try:
-                cargo_log = Path(cargo_log_path).read_text(encoding="utf-8", errors="replace")
+                cargo_log = _cp.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 pass
 
