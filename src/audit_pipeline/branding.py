@@ -666,10 +666,16 @@ def topbar_html(status_label: str = "Active", status_class: str = "ok",
 def footer_html(extra: str = "", protocol_label: str = "Solana") -> str:
     # "Solidity DeFi" reads as a language label rather than an ecosystem.
     # Map Solidity → EVM in the footer so the strap-line stays coherent.
-    ecosystem_label = "EVM" if protocol_label == "Solidity" else protocol_label
+    # For non-crypto targets (C systems software) "DeFi" doesn't apply —
+    # use a target-agnostic strapline instead.
+    if protocol_label.startswith("C "):
+        strapline = f"{PRODUCT_NAME} · Autonomous security audits for C / systems software"
+    else:
+        ecosystem_label = "EVM" if protocol_label == "Solidity" else protocol_label
+        strapline = f"{PRODUCT_NAME} · The underwriting layer for {ecosystem_label} DeFi"
     return f"""
     <div class="footer">
-      <span>{PRODUCT_NAME} · The underwriting layer for {ecosystem_label} DeFi · <a href="https://jelleo.com">jelleo.com</a></span>
+      <span>{strapline} · <a href="https://jelleo.com">jelleo.com</a></span>
       <span class="muted">{extra}</span>
     </div>
     """
@@ -882,7 +888,7 @@ def cover_page_html(
         <div class="cover-info">
           <div class="header">Platform · v0.1</div>
           <div class="body">
-            <strong>{PRODUCT_NAME}</strong> · The underwriting layer for {("EVM" if protocol_label == "Solidity" else protocol_label)} DeFi.
+            <strong>{PRODUCT_NAME}</strong> · {("Autonomous security audits for C / systems software" if protocol_label.startswith("C ") else f"The underwriting layer for {('EVM' if protocol_label == 'Solidity' else protocol_label)} DeFi")}.
             <div class="row"><span class="key">Methodology</span><a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a></div>
             <div class="row"><span class="key">Disclosure</span><a href="https://jelleo.com/security.html">jelleo.com/security.html</a></div>
             <div class="row"><span class="key">Source</span><a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a></div>

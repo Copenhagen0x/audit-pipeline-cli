@@ -3135,6 +3135,8 @@ def _render_cycle_html(
         protocol_label = "Aptos"
     elif language == "solidity":
         protocol_label = "Solidity"
+    elif language == "c":
+        protocol_label = "C / systems-software"
     else:
         protocol_label = "Solana"
 
@@ -3364,6 +3366,24 @@ pre code.language-rust .token.function {{ color: #ffce4a; }}
 pre code.language-rust .token.number {{ color: #60a5fa; }}
 pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ color: #c084fc; }}
 
+/* C code highlighting — mirrors Rust palette. Covers PoC excerpts and
+   patch context lines that aren't styled by language-diff. Prism.js
+   needs an explicit `prism-c` grammar loaded; absent that, these rules
+   match the same token classes Prism emits when language-c is set. */
+pre code.language-c .token.keyword       {{ color: #f5b800; font-weight: 600; }}
+pre code.language-c .token.string        {{ color: #4ade80; }}
+pre code.language-c .token.comment       {{ color: rgba(245,243,237,0.42); font-style: italic; }}
+pre code.language-c .token.function      {{ color: #ffce4a; }}
+pre code.language-c .token.number        {{ color: #60a5fa; }}
+pre code.language-c .token.macro,
+pre code.language-c .token.macro-rule,
+pre code.language-c .token.directive,
+pre code.language-c .token.directive-hash {{ color: #c084fc; }}
+pre code.language-c .token.class-name,
+pre code.language-c .token.type          {{ color: #f5b800; }}
+pre code.language-c .token.operator      {{ color: rgba(245,243,237,0.78); }}
+pre code.language-c .token.punctuation   {{ color: rgba(245,243,237,0.55); }}
+
 /* ============================== FINDING NARRATIVE ============================== */
 .finding-narrative {{
   margin-top: 18px;
@@ -3545,15 +3565,15 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
       <tr><td><code>Layer 1.5</code></td>
           <td style="color:var(--text-2)">Adversarial debate. Contested verdicts (NEEDS_L2 or split verdicts) are promoted through a single-round attacker / defender debate, with a separate judge resolving the final verdict.</td></tr>
       <tr><td><code>Layer 2</code></td>
-          <td style="color:var(--text-2)">Concrete proof-of-concept. An inverted-assertion test is authored in {("Move and run via <code>aptos move test</code>" if language == "aptos" else ("Solidity and run via <code>forge test</code>" if language == "solidity" else "Rust and run via <code>cargo test</code>"))}. The test &quot;fires&quot; iff an abort with a custom error code originates in the target module (not stdlib / setup).</td></tr>
+          <td style="color:var(--text-2)">Concrete proof-of-concept. An inverted-assertion test is authored in {("Move and run via <code>aptos move test</code>" if language == "aptos" else ("Solidity and run via <code>forge test</code>" if language == "solidity" else ("C and compiled with <code>clang</code> + ASan/UBSan/SignedOverflowSan" if language == "c" else "Rust and run via <code>cargo test</code>")))}. The test &quot;fires&quot; iff an abort {("from the sanitizer or an explicit <code>assert(0)</code>" if language == "c" else "with a custom error code")} originates in the target module (not stdlib / setup).</td></tr>
       <tr><td><code>Layer 2.5</code></td>
           <td style="color:var(--text-2)">Triage. An LLM judge classifies each fire as <code>STRONG</code> (real bug), <code>SOFT</code> (wrong invariant), <code>FALSE</code> (artifactual abort), or <code>LOST</code> (signal missing). STRONG fires are clustered by (engine_function, target_file) so the same code-site bug under multiple hypothesis IDs collapses to one root cause.</td></tr>
       <tr><td><code>Layer 3</code></td>
-          <td style="color:var(--text-2)">Symbolic verification. {("Move Prover with Boogie + Z3 / CVC5 backends. The spec asserts the violated invariant; the prover either finds a counterexample (bug confirmed by SMT) or proves the invariant holds within the spec's bounded model." if language == "aptos" else ("Halmos symbolic execution with Z3 backend. An LLM-authored harness encodes the violated invariant as a <code>check_*</code> function; Halmos either finds a concrete counterexample (bug confirmed by SMT) or proves the invariant holds within bounded depth." if language == "solidity" else "Kani-based bounded model checking. The harness asserts the violated invariant; Kani either finds a counterexample within the bounded depth or proves safety."))}</td></tr>
+          <td style="color:var(--text-2)">Symbolic verification. {("Move Prover with Boogie + Z3 / CVC5 backends. The spec asserts the violated invariant; the prover either finds a counterexample (bug confirmed by SMT) or proves the invariant holds within the spec's bounded model." if language == "aptos" else ("Halmos symbolic execution with Z3 backend. An LLM-authored harness encodes the violated invariant as a <code>check_*</code> function; Halmos either finds a concrete counterexample (bug confirmed by SMT) or proves the invariant holds within bounded depth." if language == "solidity" else ("CBMC bounded model checking with built-in <code>--bounds-check</code>, <code>--pointer-check</code>, and integer-overflow checks. The harness drives the function under test with symbolic inputs; CBMC either reports a concrete counterexample (sanitizer-equivalent FAILURE at the bug site) or proves the invariant holds within the unwind bound." if language == "c" else "Kani-based bounded model checking. The harness asserts the violated invariant; Kani either finds a counterexample within the bounded depth or proves safety.")))}</td></tr>
       <tr><td><code>Layer 4</code></td>
-          <td style="color:var(--text-2)">{("Property-based fuzzing via <code>aptos move test</code>. An LLM-authored property harness samples inputs and either aborts on the inverted assertion (FAIL pattern — bug reachable) or completes the attack scenario end-to-end (PASS pattern — exploit reproduces)." if language == "aptos" else ("Property-based fuzzing + invariant testing via <code>forge test</code>. An LLM-authored harness uses Foundry's fuzz / invariant runner — either a counterexample fires the inverted assertion (bug reachable) or the harness completes the attack scenario end-to-end." if language == "solidity" else "On-chain BPF reproduction. The Solana program is deployed into LiteSVM and the PoC re-executed through the deployed instructions, confirming the wrapper-side defenses don't catch the bug."))}</td></tr>
+          <td style="color:var(--text-2)">{("Property-based fuzzing via <code>aptos move test</code>. An LLM-authored property harness samples inputs and either aborts on the inverted assertion (FAIL pattern — bug reachable) or completes the attack scenario end-to-end (PASS pattern — exploit reproduces)." if language == "aptos" else ("Property-based fuzzing + invariant testing via <code>forge test</code>. An LLM-authored harness uses Foundry's fuzz / invariant runner — either a counterexample fires the inverted assertion (bug reachable) or the harness completes the attack scenario end-to-end." if language == "solidity" else ("Coverage-guided fuzzing via <code>AFL++</code> with <code>afl-clang-fast</code> + ASan/UBSan. An LLM-authored harness reads attacker-shaped bytes from stdin and feeds them to the function under test. AFL records as a 'crash' any input that triggers a sanitizer abort or explicit <code>abort()</code>." if language == "c" else "On-chain BPF reproduction. The Solana program is deployed into LiteSVM and the PoC re-executed through the deployed instructions, confirming the wrapper-side defenses don't catch the bug.")))}</td></tr>
       <tr><td><code>Layer P3</code></td>
-          <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 6-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass, and a language-specific symbolic/runtime check — Kani for Solana, Move Prover for Aptos, Halmos for Solidity). Two gates auto-skip when the language doesn&rsquo;t apply. Operator authorization is required before any upstream PR is opened.</td></tr>
+          <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 6-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass, and a language-specific symbolic/runtime check — Kani for Solana, Move Prover for Aptos, Halmos for Solidity, CBMC for C). Some gates auto-skip when the language doesn&rsquo;t apply (Kani/LiteSVM gates skip on non-Solana cycles; the test-suite gate skips for C eval targets that ship without a unified runner). Operator authorization is required before any upstream PR is opened.</td></tr>
     </tbody>
   </table>
 
@@ -3563,7 +3583,7 @@ pre code.language-rust .token.macro, pre code.language-rust .token.attribute {{ 
     Every finding originates as a falsifiable invariant claim from a per-protocol
     hypothesis library, dispatched to Layer 1 multi-agent recon, promoted on
     contested verdicts via Layer 1.5 adversarial debate, and confirmed empirically
-    through {"a Layer 2 <code>aptos move test</code> proof-of-concept" if language == "aptos" else ("a Layer 2 <code>forge test</code> proof-of-concept" if language == "solidity" else "a Layer 2 <code>cargo test</code> proof-of-concept")}.
+    through {"a Layer 2 <code>aptos move test</code> proof-of-concept" if language == "aptos" else ("a Layer 2 <code>forge test</code> proof-of-concept" if language == "solidity" else ("a Layer 2 clang + ASan/UBSan proof-of-concept" if language == "c" else "a Layer 2 <code>cargo test</code> proof-of-concept"))}.
     Layer 2.5 triage classifies each fire as
     <code>STRONG</code> / <code>SOFT</code> / <code>FALSE</code> / <code>LOST</code>;
     only STRONG cluster representatives advance to <code>confirmed</code> and
