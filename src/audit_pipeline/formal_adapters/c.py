@@ -123,11 +123,45 @@ Write a single self-contained C file `harness_<finding_name>.c` that:
 3. Uses `__CPROVER_assume(...)` to bound the search to REALISTIC
    inputs only — without bounds, CBMC explores the entire u64 range
    and runs forever. Pick bounds that match how the function is
-   called in practice.
+   called in practice AND pin any symbolic input the hypothesis says
+   the bug needs (e.g. for an off-by-one bug at `len == sizeof(buf)`,
+   pin `__CPROVER_assume(len == sizeof(buf))`).
 4. Calls `{engine_function}` with the symbolic inputs.
-5. Uses `__CPROVER_assert(invariant, "message")` to express the
-   invariant that should hold. The invariant is the OPPOSITE of the
-   bug claim — if the invariant fails, the bug is real.
+5. Chooses the right ASSERTION STRATEGY for the bug class:
+
+   * **MEMORY-SAFETY BUGS** (out-of-bounds write/read, use-after-free,
+     double-free, null-deref, integer-overflow-then-allocate). DO NOT
+     write your own `__CPROVER_assert`. CBMC's built-in flags catch
+     these AUTOMATICALLY:
+       - `--bounds-check`   → flags `buf[i] = …` when `i >= sizeof(buf)`
+       - `--pointer-check`  → flags use-after-free, double-free, null-deref
+       - `--signed-overflow-check` / `--unsigned-overflow-check` →
+         flags integer overflow in size computations
+     Just SET UP the precondition that exercises the bug and CALL the
+     function. CBMC reports `VERIFICATION FAILED` with the exact line
+     of the OOB write / UAF / overflow inside the engine source.
+     Example (off-by-one):
+         uint16_t payload_len = nondet_uint16();
+         __CPROVER_assume(payload_len == sizeof(out.payload));  /* pin to the boundary case */
+         (void)parse_frame(raw, raw_len, &out);  /* CBMC's --bounds-check fires inside */
+
+   * **LOGIC / AUTHORIZATION / OUTPUT bugs** (missing privilege check,
+     save/load divergence, predictable token, format-string injection,
+     race condition). DO write a single `__CPROVER_assert(...)` that
+     encodes the security contract the CALLER relies on. The assertion
+     must be observable from the function's RETURN value or the
+     function's documented side-effects — NOT a random struct field.
+     Example (missing role gate — `session_check` doesn't take a role):
+         int ok = session_check(&attacker_sess, attacker_sess.token, now);
+         /* The caller wrongly assumes ok==1 means admin. session_check
+          * doesn't check role at all → every valid non-admin session
+          * returns ok==1 → assertion fails. */
+         __CPROVER_assert(!ok || attacker_sess.is_admin,
+                          "session_check passed for a non-admin caller");
+
+   Choose the right strategy based on the hypothesis's `bug_class`.
+   If unsure, prefer the MEMORY-SAFETY strategy — it's harder to get
+   wrong because CBMC does the bug-detection.
 
 # Important
 
@@ -138,6 +172,15 @@ Write a single self-contained C file `harness_<finding_name>.c` that:
   them — CBMC treats uninitialized values as symbolic.
 * Use `__CPROVER_assume(...)` on POINTER VALIDITY before
   dereferencing pointers in the harness body.
+* When the hypothesis claim names a SPECIFIC boundary input that
+  triggers the bug (`payload_len == 64`, `attempts >= 2`, value of
+  exactly `sizeof(buf)`), PIN that value via `__CPROVER_assume(...)`.
+  Otherwise CBMC may spend its unwind budget on non-boundary inputs
+  and exit without exercising the bug.
+* DO NOT write `__CPROVER_assert(field < SIZE, ...)` for memory-
+  safety bugs — that asserts the wrong thing and CBMC will return
+  "VERIFICATION SUCCESSFUL" while the OOB write still happens. The
+  bug is the OOB write itself; let `--bounds-check` find it.
 
 # Output format
 
@@ -282,14 +325,31 @@ write a real harness, output:
             )
 
         duration = time.time() - t0
-        stdout = proc.stdout[:8000]
+        # 2026-05-18: parse the FULL stdout for the terminal verdict
+        # line before truncating. CBMC's "VERIFICATION FAILED" /
+        # "VERIFICATION SUCCESSFUL" is the LAST line; truncating to
+        # the first 8000 chars buries the verdict for any non-trivial
+        # harness (typical c-small CSMALL01 output is ~40k chars
+        # because every memory-safety check on every dereference site
+        # gets its own SUCCESS/FAILURE line). Previously every C cycle
+        # silently came back "neither proved nor produced counter-
+        # example" — the engine never saw the verdict line.
+        full_stdout = proc.stdout
+        stdout = full_stdout[:8000]
+        # Append the tail of full_stdout if the verdict line lives past
+        # the 8000-char window, so the verdict + the last FAILURE
+        # report survive into the stored stdout for downstream readers.
+        if ("VERIFICATION FAILED" in full_stdout
+                or "VERIFICATION SUCCESSFUL" in full_stdout) \
+                and "VERIFICATION" not in stdout:
+            stdout = stdout + "\n...[truncated]...\n" + full_stdout[-4000:]
         stderr = proc.stderr[:4000]
 
-        # CBMC reports outcomes via these terminal lines
-        if "VERIFICATION FAILED" in stdout:
+        # CBMC reports outcomes via these terminal lines (read full output)
+        if "VERIFICATION FAILED" in full_stdout:
             # Counterexample found — bug constructively proven
             assertion_line = "(no specific assertion line found)"
-            m = re.search(r"\[.+?\]\s+(.+?):\s+FAILURE", stdout)
+            m = re.search(r"\[.+?\]\s+(.+?):\s+FAILURE", full_stdout)
             if m:
                 assertion_line = m.group(0)[:200]
             return FormalOutcome(
@@ -304,7 +364,7 @@ write a real harness, output:
                 reason=f"CBMC found counterexample: {assertion_line}",
                 metadata={"assertion_failed": assertion_line},
             )
-        if "VERIFICATION SUCCESSFUL" in stdout:
+        if "VERIFICATION SUCCESSFUL" in full_stdout:
             return FormalOutcome(
                 proved=True,
                 counterexample=False,

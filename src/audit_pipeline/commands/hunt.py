@@ -1490,6 +1490,23 @@ def _hunt_run(
             except OSError:
                 _latest = {}
             for _hyp_id, _evt in _latest.items():
+                # 2026-05-18: do NOT overwrite an entry the operator
+                # manually patched into hunt_summary.json (and which the
+                # earlier .pre-resume loader already pulled into
+                # poc_results). Hand-authored PoCs and operator-flipped
+                # fires are marked hand_authored=True in the summary;
+                # they outrank a stale event-log replay. Without this
+                # guard, c-small cycle 20260519-001419 lost 3 hand-PoC
+                # fires (CSMALL05/09/11) on every resume — the fast-
+                # resume block REBUILT poc_results from log events and
+                # silently nuked the operator's manual fixes.
+                _existing = poc_results.get(_hyp_id) or {}
+                if _existing.get("hand_authored"):
+                    # Preserve the patched entry exactly. We still mark
+                    # it resumed so downstream layers know it survived.
+                    _existing.setdefault("resumed", True)
+                    poc_results[_hyp_id] = _existing
+                    continue
                 _slug = _slugify(_hyp_id)
                 _runlog = cycle_dir / "poc" / f"runlog_{_slug}.log"
                 poc_results[_hyp_id] = {
