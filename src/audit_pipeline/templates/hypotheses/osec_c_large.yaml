@@ -1,0 +1,696 @@
+- id: CLARGE01-PARSER_OOB_READ
+  title: Off-by-one buffer read in parser_handle_control
+  severity: High
+  bug_class: memory_safety
+  invariant: |
+    Loop at protocol/parser.c:18-20 uses <= instead of <, causing OOB read one byte past frame payload.
+  affected_files:
+    - src/protocol/parser.c
+  evidence:
+    function: parser_handle_control
+    lines: 18-20
+    why: |
+      Off-by-one: offset <= payload_len should be offset < payload_len. Reads past buffer boundary.
+
+- id: CLARGE02-MINJSON_BUFFER_OVERFLOW
+  title: Buffer overflow in JSON string parsing
+  severity: Critical
+  bug_class: memory_safety
+  invariant: |
+    parse_quoted in minjson.c has inverted bounds check allowing overflow on escaped characters.
+  affected_files:
+    - src/vendor/minjson/minjson.c
+  evidence:
+    function: parse_quoted
+    lines: 18-28
+    why: |
+      Condition !(capacity <= used+1) skips write when overflow would occur, but escape handling bypasses this.
+
+- id: CLARGE03-STRCPY_UNBOUNDED
+  title: Unbounded strcpy in entry points
+  severity: High
+  bug_class: memory_safety
+  invariant: |
+    strcpy() used without bounds in program_b.c:47, program_c.c:85, common/log.c:39.
+  affected_files:
+    - src/program_b.c
+    - src/program_c.c
+    - src/common/log.c
+  evidence:
+    function: enqueue_text_jobs
+    lines: 47
+    why: |
+      strcpy has no bounds checking. Buffer overflow if source longer than destination.
+
+- id: CLARGE04-WEAK_TOKEN_GENERATION
+  title: Weak token generation with FNV and sequential ID
+  severity: High
+  bug_class: crypto_weakness
+  invariant: |
+    Session tokens use FNV-1a of predictable material plus sequential counter, allowing derivation.
+  affected_files:
+    - src/auth/session.c
+  evidence:
+    function: session_create
+    lines: 38-41
+    why: |
+      FNV non-cryptographic, material predictable, next_id sequential allows brute-force prediction.
+
+- id: CLARGE05-TIMING_CHANNEL_STRCMP
+  title: Non-constant-time string comparison on tokens
+  severity: Medium
+  bug_class: crypto_weakness
+  invariant: |
+    session_find uses strcmp for token comparison, enabling timing side-channel attack.
+  affected_files:
+    - src/auth/session.c
+  evidence:
+    function: session_find
+    lines: 59
+    why: |
+      strcmp exits early on mismatch. Valid token takes longer to reject, leaking bytes via timing.
+
+- id: CLARGE06-FNV_HASHDOS
+  title: Non-cryptographic FNV hash in security contexts
+  severity: High
+  bug_class: crypto_weakness
+  invariant: |
+    FNV-1a used for tokens and database hashing, vulnerable to precomputed collisions.
+  affected_files:
+    - src/vendor/fnvhash/fnvhash.c
+    - src/auth/session.c
+    - src/storage/db.c
+  evidence:
+    function: fnv1a32, db_bucket_index
+    lines: 40, 10
+    why: |
+      FNV not collision-resistant. Attacker crafts keys with same hash, causing HashDoS.
+
+- id: CLARGE07-WILDCARD_AUTHZ
+  title: Wildcard authorization allows overly broad access
+  severity: High
+  bug_class: authorization
+  invariant: |
+    ACL check grants access if user OR resource matches wildcard, unintended broad permissions.
+  affected_files:
+    - src/auth/acl.c
+  evidence:
+    function: acl_check
+    lines: 24-26
+    why: |
+      Logic allows (*, specific_resource) rules to match any user.
+
+- id: CLARGE08-FRAME_INT_OVERFLOW
+  title: Integer overflow in frame payload allocation
+  severity: High
+  bug_class: integer_overflow
+  invariant: |
+    uint32_t body_size cast to size_t, large values cause malloc overflow.
+  affected_files:
+    - src/protocol/frame.c
+  evidence:
+    function: frame_decode
+    lines: 36-45
+    why: |
+      If body_size 0xffffffff, malloc wraps or allocates tiny buffer, memcpy overflows.
+
+- id: CLARGE09-PARSER_INFINITE_LOOP
+  title: Parser hangs on zero-size packet
+  severity: Medium
+  bug_class: dos
+  invariant: |
+    parser_feed loop runs infinitely if packet_size == 0.
+  affected_files:
+    - src/protocol/parser.c
+  evidence:
+    function: parser_feed
+    lines: 37-70
+    why: |
+      If packet_size == 0, loop continues forever on same data (DoS).
+
+- id: CLARGE10-DB_SYMLINK_FOLLOW
+  title: Database file operations follow symlinks
+  severity: High
+  bug_class: filesystem_race
+  invariant: |
+    db_flush writes to user-supplied path without O_NOFOLLOW, symlinks redirect writes.
+  affected_files:
+    - src/storage/db.c
+  evidence:
+    function: db_flush
+    lines: 99
+    why: |
+      Symlink can redirect writes to arbitrary files, enabling privilege escalation.
+
+- id: CLARGE11-MINJSON_ESCAPE_OOB
+  title: JSON parser accesses out-of-bounds on escape sequence
+  severity: Medium
+  bug_class: memory_safety
+  invariant: |
+    parse_quoted checks cursor[1] without verifying bounds.
+  affected_files:
+    - src/vendor/minjson/minjson.c
+  evidence:
+    function: parse_quoted
+    lines: "22"
+    why: |
+      If cursor at last character (backslash), cursor[1] is out-of-bounds read.
+
+- id: CLARGE12-QUEUE_LIST_UAF
+  title: Use-after-free in queue_find with concurrent modification
+  severity: Medium
+  bug_class: memory_safety
+  invariant: |
+    queue_find traverses without synchronization, concurrent dequeue causes UAF.
+  affected_files:
+    - src/queue/queue.c
+  evidence:
+    function: queue_find
+    lines: "54-67"
+    why: |
+      Another thread may free node between cursor->id read and return.
+
+- id: CLARGE13-LOG_TIMESTR_STRCPY
+  title: Unbounded strcpy in log message formatting
+  severity: Medium
+  bug_class: memory_safety
+  invariant: |
+    log_msg uses strcpy on timestr buffer without bounds check.
+  affected_files:
+    - src/common/log.c
+  evidence:
+    function: log_msg
+    lines: "39"
+    why: |
+      strcpy unsafe, "unknown-time" is 12 bytes + NUL, buffer overflow risk.
+
+- id: CLARGE14-STRUTIL_INPLACE_MODIFY
+  title: str_trim returns interior pointer after in-place modification
+  severity: Low
+  bug_class: data_integrity
+  invariant: |
+    str_trim modifies input in-place and returns interior pointer.
+  affected_files:
+    - src/common/strutil.c
+  evidence:
+    function: str_trim
+    lines: "21-30"
+    why: |
+      Caller expects returned pointer to be start of allocation.
+
+- id: CLARGE15-RING_MODULO_ZERO
+  title: Ring buffer modulo by zero undefined behavior
+  severity: Low
+  bug_class: data_integrity
+  invariant: |
+    ring_push/pop use modulo, if capacity is 0, undefined behavior.
+  affected_files:
+    - src/vendor/ring/ring.c
+  evidence:
+    function: ring_push
+    lines: "37"
+    why: |
+      Modulo by zero if cap is 0, defensive check missing.
+
+- id: CLARGE16-SESSION_MEMORY_LEAK
+  title: Memory leak on session creation error paths
+  severity: Medium
+  bug_class: memory_safety
+  invariant: |
+    session_create may leak allocated record on early error returns.
+  affected_files:
+    - src/auth/session.c
+  evidence:
+    function: session_create
+    lines: "31-45"
+    why: |
+      Error paths may skip cleanup if early condition checks trigger.
+
+- id: CLARGE17-CONFIG_VALIDATION_MISSING
+  title: Configuration parsing lacks field validation
+  severity: Medium
+  bug_class: data_integrity
+  invariant: |
+    common/config.c likely lacks validation of config field values.
+  affected_files:
+    - src/common/config.c
+  evidence:
+    function: config_parse (inferred)
+    lines: "varies"
+    why: |
+      Untrusted config without validation causes crashes or security issues.
+
+- id: CLARGE18-RECORD_CODEC_DIVERGENCE
+  title: Record encode/decode may not be inverse operations
+  severity: Medium
+  bug_class: data_integrity
+  invariant: |
+    record_encode and record_decode may diverge, losing data on round-trip.
+  affected_files:
+    - src/storage/record.c
+  evidence:
+    function: record_encode, record_decode
+    lines: "varies"
+    why: |
+      Serialization divergence breaks round-trip fidelity.
+
+- id: CLARGE19-LOGLINE_BOUNDS_UNCHECKED
+  title: Log line parser lacks field size validation
+  severity: Medium
+  bug_class: memory_safety
+  invariant: |
+    ingest/logline.c parses untrusted input without field size checks.
+  affected_files:
+    - src/ingest/logline.c
+  evidence:
+    function: logline_parse (inferred)
+    lines: "varies"
+    why: |
+      Buffer overflow on malformed input, assumes fields fit fixed buffers.
+
+- id: CLARGE20-PIPELINE_BUFFER_LIFETIME
+  title: Async pipeline buffer lifetime issues
+  severity: Low
+  bug_class: memory_safety
+  invariant: |
+    ingest/pipeline.c async processing may have buffer reuse or premature free.
+  affected_files:
+    - src/ingest/pipeline.c
+  evidence:
+    function: pipeline_functions (inferred)
+    lines: "varies"
+    why: |
+      Buffer freed before processing completes, causing use-after-free.
+
+- id: CLARGE21-MANAGER_STATE_VALIDATION
+  title: Incomplete state machine validation in runtime manager
+  severity: Low
+  bug_class: data_integrity
+  invariant: |
+    runtime/manager.c state machine may not validate all transitions.
+  affected_files:
+    - src/runtime/manager.c
+  evidence:
+    function: state_machine (inferred)
+    lines: "varies"
+    why: |
+      Incomplete validation allows invalid state transitions, crashes.
+
+- id: CLARGE22-CODEC_SIGNEDNESS_CONFUSION
+  title: Signedness confusion in codec boundary checks
+  severity: Low
+  bug_class: integer_overflow
+  invariant: |
+    common/codec.c uint32_t may be misinterpreted in signed comparisons.
+  affected_files:
+    - src/common/codec.c
+  evidence:
+    function: read_u32be (inferred)
+    lines: "varies"
+    snippet: |
+      uint32_t body_size = read_u32be(bytes + 8);
+      if (((size_t)body_size <= (size - 12))) {
+    why: |
+      uint32_t to size_t cast can misinterpret large values.
+
+- id: CLARGE23-ACL_NUL_TERMINATION
+  title: ACL fields may lack null termination on untrusted input
+  severity: Medium
+  bug_class: memory_safety
+  invariant: |
+    ACL user/resource fields use snprintf but untrusted non-NUL source causes issues.
+  affected_files:
+    - src/auth/acl.c
+  evidence:
+    function: acl_add
+    lines: "15-17"
+    why: |
+      snprintf protects overflow but untrusted non-NUL source may not format as expected.
+
+- id: CLARGE24-WEAK_PRNG_TIME_SEED
+  title: Token entropy depends on predictable time(NULL)
+  severity: Medium
+  bug_class: crypto_weakness
+  invariant: |
+    auth/session.c includes time(NULL) in token material, only 1-second precision.
+  affected_files:
+    - src/auth/session.c
+  evidence:
+    function: session_create
+    lines: "38"
+    why: |
+      time(NULL) only changes once per second, attacker can enumerate next_id values.
+
+- id: CLARGE25-FNV_NO_RANDOMIZATION
+  title: FNV hash unseeded, deterministic, collision-vulnerable
+  severity: High
+  bug_class: crypto_weakness
+  invariant: |
+    vendor/fnvhash implements FNV-1a without cryptographic randomization.
+  affected_files:
+    - src/vendor/fnvhash/fnvhash.c
+  evidence:
+    function: fnv1a32
+    lines: "varies"
+    why: |
+      FNV without randomization allows precomputed hash tables and collision attacks.
+
+- id: CLARGE26-FORMAT_STRING_LOG_USER_EVENT
+  title: log_user_event passes attacker message as printf format string
+  severity: Critical
+  bug_class: format_string
+  invariant: |
+    When user is NULL or empty, log_user_event calls log_msg(logger, LOG_INFO, message) using
+    the attacker-supplied message as the format string. Any unescaped conversion specifier in
+    message is interpreted by vfprintf, yielding info disclosure or memory corruption.
+  affected_files:
+    - src/common/log.c
+  evidence:
+    function: log_user_event
+    lines: "62-69"
+    snippet: |
+      void log_user_event(Logger *logger, const char *user, const char *message) {
+          if ((message)) {
+              if (!((user) && (*user))) {
+                  log_msg(logger, LOG_INFO, message);
+              } else {
+                  log_msg(logger, LOG_INFO, "user=%s event=%s", user, message);
+              }
+          }
+      }
+    why: |
+      The message parameter is forwarded directly as the fmt argument to log_msg, which in turn
+      passes it through vfprintf via log_vmsg. The function does not validate that message is a
+      safe literal. Same anti-pattern caught in c-medium CMED13.
+
+- id: CLARGE27-FORMAT_STRING_PIPELINE_USER_EVENT
+  title: Ingest pipeline forwards attacker-parsed message to vulnerable log_user_event
+  severity: Critical
+  bug_class: format_string
+  invariant: |
+    pipeline_process_line() calls log_user_event with parsed_line.source and parsed_line.message,
+    both copied verbatim from the input record via str_split on '|'. When source is empty,
+    message reaches vfprintf as the format string, giving remote attackers a format-string
+    primitive over the log stream.
+  affected_files:
+    - src/ingest/pipeline.c
+    - src/ingest/logline.c
+    - src/common/log.c
+  evidence:
+    function: pipeline_process_line
+    lines: "14-22"
+    snippet: |
+      if ((logline_parse(&parsed_line, record_text)) == 0) {
+          if ((!logline_is_error(&parsed_line)) || (!pipe_state->logger)) {
+          } else {
+              log_user_event(pipe_state->logger, parsed_line.source, parsed_line.message);
+          }
+      }
+    why: |
+      logline_parse splits record_text on '|' into 4 fields and snprintf-copies fields[2]/fields[3]
+      into source/message with no sanitization of conversion specifiers. A malicious log record
+      with an empty source field and a crafted message field exploits the unsafe code path in
+      log_user_event (CLARGE26).
+
+- id: CLARGE28-PATH_TRAVERSAL_LOG_OUT
+  title: write_entry builds output path from attacker-controlled source field
+  severity: Critical
+  bug_class: filesystem_race
+  invariant: |
+    write_entry constructs filename via snprintf("log_%s.out", entry->source) and opens it with
+    fopen "ab", with entry->source copied verbatim from the attacker's record. A source value
+    containing path separators escapes the working directory and appends attacker-controlled
+    bytes into arbitrary files.
+  affected_files:
+    - src/program_c.c
+  evidence:
+    function: write_entry
+    lines: "19-32"
+    snippet: |
+      static int write_entry(void *userdata, const LogLine *entry) {
+          ImportState *state = (ImportState *)userdata;
+          char filename[128];
+          FILE *handle;
+          if (entry && state) {
+              snprintf(filename, sizeof(filename), "log_%s.out", entry->source);
+              handle = fopen(filename, "ab");
+              if (handle) {
+                  fprintf(handle, "%s|%s|%s\n", entry->ts, entry->level, entry->message);
+                  fclose(handle);
+    why: |
+      entry->source is unvalidated user input. There is no filtering of '/', '..', or NUL, and
+      no O_NOFOLLOW. Symlink-target overwrite, write outside the working directory, and append
+      to arbitrary regular files are all reachable from any client that controls a log record.
+
+- id: CLARGE29-TOKEN_UNAUTHENTICATED
+  title: token_issue produces unsigned tokens, token_is_admin trusts decoded role field
+  severity: Critical
+  bug_class: authorization
+  invariant: |
+    token_issue emits a plain "user|role|issued|expires" string with no MAC or signature.
+    token_parse splits the same string and stores role into TokenClaims. token_is_admin returns
+    true when the decoded role equals "admin", so any caller can hand-craft a token with role
+    "admin" and pass the admin check.
+  affected_files:
+    - src/auth/token.c
+  evidence:
+    function: token_issue and token_is_admin
+    lines: "8-20, 50-58"
+    snippet: |
+      int token_issue(char *buffer, size_t buffer_len, const char *account, const char *access, long lifetime) {
+          ...
+          if (snprintf(buffer, buffer_len, "%s|%s|%ld|%ld", account, access, current, lifetime + current) < (int)buffer_len) {
+              return 0;
+          }
+      int token_is_admin(const TokenClaims *parsed) {
+          if (parsed) {
+              if ((long)time(NULL) <= parsed->expires_at) {
+                  return 0 == strcmp(parsed->role, "admin");
+              }
+          }
+          return 0;
+      }
+    why: |
+      No HMAC, no signature, no secret key, no integrity tag of any kind. The role field is a
+      plain string the producer wrote and the parser believes. Mirrors c-medium CMED17 but
+      worse: in c-large the role is the sole authorization decision.
+
+- id: CLARGE30-ACL_DOUBLE_WILDCARD_BYPASS
+  title: ACL evaluation treats wildcard star in BOTH user and resource as match enabling total bypass
+  severity: High
+  bug_class: authorization
+  invariant: |
+    acl_check accepts a rule when (entry->user matches name OR entry->user is "*") AND
+    (entry->resource matches target OR entry->resource is "*"). A single loaded rule with
+    user "*" and resource "*" grants every operation to every caller, and acl_load accepts
+    such rules from external text. No default-deny on the wildcard pair.
+  affected_files:
+    - src/auth/acl.c
+  evidence:
+    function: acl_check
+    lines: "23-37"
+    snippet: |
+      for (pos = 0; list->count > pos; pos = pos + 1) {
+          const AclRule *entry = &(list->rules[pos]);
+          if ((((0 != strcmp(entry->user, name)) && (0 != strcmp(entry->user, "*"))) ||
+              ((strcmp(entry->resource, target) != 0) && (strcmp(entry->resource, "*") != 0))) ||
+              (bits != (entry->mask & bits))) {
+              continue;
+          } else {
+              return 1;
+          }
+      }
+    why: |
+      Wildcards on the resource axis are reasonable, but combining them with a wildcard user
+      axis with no separate guard turns a single wildcard pair rule into a god-mode grant.
+      acl_load reads such rules from a buffer that may be attacker-influenced (config text),
+      and there is no rejection or warning when both axes are wildcards.
+
+- id: CLARGE31-INGEST_TRUSTS_REQUEST_ROLE
+  title: handle_ingest_request issues admin token from JSON role field supplied by caller
+  severity: Critical
+  bug_class: authorization
+  invariant: |
+    handle_ingest_request reads "user" and "role" from the JSON request body, immediately
+    mints a token with token_issue(account, access, 3600), reparses it, and admits the request
+    if token_is_admin returns true OR role equals "writer". The role is whatever the client
+    sent, so any client can self-elevate by submitting role admin in the body.
+  affected_files:
+    - src/program_c.c
+    - src/auth/token.c
+  evidence:
+    function: handle_ingest_request
+    lines: "40-66"
+    snippet: |
+      account = json_get(&root, "user");
+      access = json_get(&root, "role");
+      text = json_get(&root, "logs");
+      if ((account && access) && text) {
+          if (0 == token_issue(encoded, sizeof(encoded), account, access, 3600)) {
+              if (0 == token_parse(&parsed, encoded)) {
+                  if (token_is_admin(&parsed) || strcmp(access, "writer") == 0) {
+                      session_create(&state->engine.sessions, account, 3600);
+                      pipeline_init(&flow, &state->engine.logger);
+                      return pipeline_process_text(&flow, text, write_entry, state);
+                  } else return -1;
+    why: |
+      Authorization is decided by re-parsing a token the server just minted from caller-supplied
+      strings. No prior authentication, no signature check, no allow-list of legitimate roles.
+      A request such as user x role admin logs ... authorises arbitrary ingest including the
+      CLARGE28 path-traversal and CLARGE27 format-string primitives.
+
+- id: CLARGE32-SESSION_TOKEN_PREDICTABLE
+  title: Session token uses post-incremented next_id twice with FNV of public material
+  severity: High
+  bug_class: crypto_weakness
+  invariant: |
+    session_create builds material as account colon next_id++ colon time(NULL), digests it with
+    FNV1a32, then formats token as S digest next_id using next_id AFTER the post-increment
+    in the snprintf above. Both halves are derivable by an attacker who can observe one issued
+    token or guess approximate issuance time.
+  affected_files:
+    - src/auth/session.c
+  evidence:
+    function: session_create
+    lines: "30-44"
+    snippet: |
+      record = (Session *)calloc(1, sizeof(Session));
+      if (record) {
+          snprintf(record->user, sizeof(record->user), "%s", account);
+          snprintf(material, sizeof(material), "%s:%u:%ld", account, registry->next_id++, (long)time(NULL));
+          digest = fnv1a32(material, strlen(material));
+          snprintf(record->token, sizeof(record->token), "S%08x%08x", digest, registry->next_id);
+    why: |
+      FNV-1a is a non-cryptographic hash and the input components are public (account known,
+      next_id sequential, time(NULL) coarse 1-second resolution). The trailing digest part of the
+      token is the next sequential id, so once an attacker sees one token they can enumerate
+      neighbouring tokens directly; combined with FNV's lack of secret key the digest can be
+      recomputed offline. Strengthens the surface already flagged by CLARGE04 / CLARGE24.
+
+- id: CLARGE33-SESSION_VALIDATE_TAUTOLOGY
+  title: session_validate compares the user against the record's own stored user
+  severity: High
+  bug_class: authorization
+  invariant: |
+    session_validate looks up a session by token, then accepts the request if the supplied
+    account string equals record->user. But the only legitimate way to know record->user is to
+    already hold the session record, so the user parameter adds no security. Anyone who
+    presents a valid token can satisfy the check trivially. The token itself is the entire
+    credential, so token theft equals full impersonation with no replay binding.
+  affected_files:
+    - src/auth/session.c
+  evidence:
+    function: session_validate
+    lines: "66-76"
+    snippet: |
+      int session_validate(SessionStore *registry, const char *key, const char *account) {
+          Session *record = session_find(registry, key);
+          if (record) {
+              if (time(NULL) <= record->expires_at) {
+                  if (0 == strcmp(record->user, account)) {
+                      return 1;
+                  }
+              }
+          }
+          return 0;
+      }
+    why: |
+      The check record->user equals account is meaningless when callers control account. Combined
+      with CLARGE32 predictable tokens, this means any stolen or guessed token is fully usable
+      because the second parameter is something the attacker can read off the wire or just
+      transcribe from the token-bearing request. No HMAC binding, no client nonce, no IP
+      pinning, no replay guard.
+
+- id: CLARGE34-WAL_FOPEN_FOLLOWS_SYMLINK
+  title: wal_open and db_flush and file_write_all open by name without O_NOFOLLOW
+  severity: High
+  bug_class: filesystem_race
+  invariant: |
+    wal_open uses fopen(path, "ab") with no symlink check. file_write_all uses fopen(path, "wb")
+    with no symlink check. db_flush calls file_write_all on store->path. A symlink at the target
+    path is followed silently, letting a local attacker redirect database and WAL writes to any
+    file the process can write.
+  affected_files:
+    - src/storage/wal.c
+    - src/common/fileutil.c
+    - src/storage/db.c
+  evidence:
+    function: wal_open and file_write_all and db_flush
+    lines: "6-12 (wal.c), 60-77 (fileutil.c), 107-135 (db.c)"
+    snippet: |
+      int wal_open(Wal *log_handle, const char *filename) {
+          if ((filename) && (log_handle)) {
+              snprintf(log_handle->path, sizeof(log_handle->path), "%s", filename);
+              log_handle->fp = fopen(filename, "ab");
+              return (log_handle->fp ? 0 : -1);
+          }
+      int file_write_all(const char *path, const void *data, size_t len) {
+          ...
+          stream = fopen(path, "wb");
+    why: |
+      No O_NOFOLLOW, no fstat-after-open to validate inode, no S_ISREG check before the write.
+      Same class as CMED03 in c-medium. Database flush in db_flush goes through this exact path.
+
+- id: CLARGE35-FILE_IS_SAFE_REGULAR_TOCTOU
+  title: file_is_safe_regular checks then file_open_checked opens with no inode binding
+  severity: Medium
+  bug_class: filesystem_race
+  invariant: |
+    file_open_checked calls file_is_safe_regular(path), which runs stat() and S_ISREG, and only
+    then calls fopen(path, mode). Between the stat and the fopen the path can be swapped (rename
+    or symlink replacement). Classic TOCTOU; the open inherits no inode identity from the stat.
+  affected_files:
+    - src/common/fileutil.c
+  evidence:
+    function: file_is_safe_regular and file_open_checked
+    lines: "80-107"
+    snippet: |
+      int file_is_safe_regular(const char *path) {
+          struct stat info;
+          ...
+          if (0 == stat(path, &info)) {
+          } else {
+              return 0;
+          }
+          if (S_ISREG((info.st_mode))) {
+          } else {
+              return 0;
+          }
+          return 1;
+      }
+      FILE *file_open_checked(const char *path, const char *mode) {
+          if (file_is_safe_regular(path)) {
+              return fopen(path, mode);
+          } else {
+              return NULL;
+          }
+      }
+    why: |
+      stat() then fopen() with no fd reuse is the canonical TOCTOU. The check uses the
+      world-writable bit (022) on st_mode, but a local attacker can win the race by replacing
+      the path entry with a symlink after the stat returns S_ISREG and before fopen runs.
+      Mirrors CMED11 style name-only canonicalization.
+
+- id: CLARGE36-FILENAME_TRUNCATION_SUFFIX_LOSS
+  title: write_entry snprintf return value ignored so source can drop the .out suffix
+  severity: Medium
+  bug_class: filesystem_race
+  invariant: |
+    write_entry uses snprintf(filename, 128, "log_%s.out", entry->source). entry->source comes
+    from a 64-byte LogLine.source buffer that is unconditionally copied via snprintf in
+    logline_parse, but no check rejects entries whose serialised path would be silently
+    truncated by snprintf, dropping the .out suffix and letting attackers steer the open
+    target into a chosen prefix.
+  affected_files:
+    - src/program_c.c
+  evidence:
+    function: write_entry
+    lines: "19-26"
+    snippet: |
+      snprintf(filename, sizeof(filename), "log_%s.out", entry->source);
+      handle = fopen(filename, "ab");
+    why: |
+      snprintf truncation is silently swallowed (return value not checked). The .out suffix
+      is therefore not guaranteed, so an attacker who sets source to a precisely sized string
+      can produce a filename without the suffix, side-stepping any external tooling that filters
+      log_*.out outputs. Combined with CLARGE28 amplifies the path-traversal blast radius.
