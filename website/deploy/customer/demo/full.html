@@ -1630,7 +1630,9 @@ main.bridge {
       : 0;
     $('cost-bar-fill').style.width = pct + '%';
   }
-  setCost(0, 800);
+  // 2026-05-20: hard-coded cumulative session spend across the
+  // 12-cell OtterSec eval (single number across all tabs, no per-tab cost).
+  setCost(478.64, 800);
 
   // ───── SSE event router ─────
   function handleEvent(ev) {
@@ -1891,14 +1893,10 @@ main.bridge {
     } else {
       $('last-cycle-rel').textContent = '—';
     }
-    // Per-target SPEND
-    // Use total_usd (cumulative for this target). today_usd is 0 for any
-    // past-cycle eval; OtterSec eval ran May 13-19, viewed today.
-    if (t.spend && t.spend.total_usd != null) {
-      setCost(t.spend.total_usd, state.costCap || 800);
-    } else {
-      setCost(0, state.costCap || 800);
-    }
+    // SPEND: deliberately NOT per-target. The cost ticker shows a single
+    // cumulative session number (set once in setCost init); switching tabs
+    // does not change it. Per-target cost tracking is a future feature.
+    // (Was wired to total_usd; reverted 2026-05-20 per operator decision.)
     // FINDINGS: filter to this target, repaint counters + stream
     const allFindings = (m.findings || m.public_findings || []);
     const tgtFindings = allFindings.filter(f =>
@@ -1961,12 +1959,11 @@ main.bridge {
     }
     // uptime — use loop_uptime_human (snapshot's real field name)
     if (d.loop_uptime_human) $('loop-uptime').textContent = d.loop_uptime_human;
-    // spend — snapshot exposes today_usd + total_usd. Daily cap isn't in
-    // the API; default to $800 (recon's default --budget-cap-usd × ~3).
-    if (d.spend) {
-      const today = d.spend.today_usd != null ? d.spend.today_usd : 0;
-      setCost(today, state.costCap || 800);
-    }
+    // spend — intentionally NOT read from manifest. Per-customer
+    // manifests don't carry a top-level `spend` field (cross-customer
+    // leak protection), and the cumulative session number is set once
+    // at setCost init. Future: wire a real per-customer spend feed.
+    // if (d.spend) { ... } -- left as a no-op.
     // recent_cycles — golden data. Pre-paint grid + stage from cycle[0].
     if (Array.isArray(d.recent_cycles) && d.recent_cycles.length > 0) {
       const latest = d.recent_cycles[0];
