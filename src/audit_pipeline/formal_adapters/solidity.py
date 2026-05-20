@@ -299,7 +299,7 @@ If unable: `// CANNOT_VERIFY: <one-line reason>` + a no-op contract:
             "halmos",
             "--root", str(target_repo_root),
             "--match-test", "^check_",
-            "--match-contract", f"^.*$",  # match any contract — we filter by test func name
+            "--match-contract", "^.*$",  # match any contract — we filter by test func name
             "--json-output", str(json_out),
             "--solver-timeout-assertion", "60000",  # 60s per assertion
             "--solver-timeout-branching", "1000",

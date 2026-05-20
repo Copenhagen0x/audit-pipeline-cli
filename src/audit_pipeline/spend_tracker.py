@@ -56,7 +56,8 @@ def _cost(usage, model: str) -> float:
         get = usage.get
     else:
         # anthropic SDK Usage object — has attributes
-        get = lambda k, default=0: getattr(usage, k, default) or 0
+        def get(k, default=0):
+            return getattr(usage, k, default) or 0
     inp = get("input_tokens", 0) or 0
     out = get("output_tokens", 0) or 0
     cache_create = get("cache_creation_input_tokens", 0) or 0
@@ -135,7 +136,6 @@ def install() -> None:
     if _installed:
         return
     try:
-        import anthropic
         from anthropic.resources.messages import Messages
         try:
             from anthropic.resources.messages import AsyncMessages

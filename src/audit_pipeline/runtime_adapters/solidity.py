@@ -275,8 +275,7 @@ If unable: `// CANNOT_FUZZ: <reason>` stub.
             body = body.replace(u, a)
         # Anything still non-ASCII becomes a space — last-resort safety net
         # so a single rogue char doesn't tank the whole harness compile.
-        body = "".join(c if ord(c) < 128 else " " for c in body)
-        return body
+        return "".join(c if ord(c) < 128 else " " for c in body)
 
     def write_harness_file(
         self,

@@ -478,7 +478,7 @@ def _table_of_contents(
             f'<span class="toc-sev"><span class="sev {sev_cls}">{sev.value}</span></span>'
             f'<a href="#finding-{idx:02d}">{html.escape(toc_text)}</a>'
             + class_chip
-            + f'</li>'
+            + '</li>'
         )
     return (
         '<div class="toc">'
@@ -1228,8 +1228,7 @@ def _strip_solana_taint(md: str) -> str:
     md = re.sub(r"\s+—\s*$", "", md, flags=re.M)  # trailing em-dash on EOL
     md = re.sub(r"\.\s*\.", ".", md)      # ".." → "."
     md = re.sub(r",\s*\.", ".", md)       # ",." → "."
-    md = re.sub(r"\s+\.", ".", md)        # " ." → "."
-    return md
+    return re.sub(r"\s+\.", ".", md)        # " ." → "."
 
 
 def _load_narrative_sections(
@@ -1392,17 +1391,20 @@ def _render_md_text(md: str) -> str:
             in_list.append(m_li.group(1).strip())
             continue
         if not line.strip():
-            _flush_para(); _flush_list()
+            _flush_para()
+            _flush_list()
             continue
         m_h3 = re.match(r"^###\s+(.+)$", line)
         if m_h3:
-            _flush_para(); _flush_list()
+            _flush_para()
+            _flush_list()
             out.append(f'<h5 style="font-size:12.5px;margin:14px 0 4px;color:var(--text)">{_inline_md(m_h3.group(1).strip())}</h5>')
             continue
         _flush_list()
         in_para.append(line.strip())
 
-    _flush_para(); _flush_list()
+    _flush_para()
+    _flush_list()
     return "\n".join(out)
 
 
@@ -1411,8 +1413,7 @@ def _inline_md(text: str) -> str:
     s = html.escape(text)
     s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', s)
     s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
-    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
-    return s
+    return re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
 
 
 def _render_inline_backticks(text: str) -> str:
@@ -1872,7 +1873,8 @@ def _hunt_funnel_section(
     # only reflects the most-recent run, not the cumulative wall-clock.
     if (cycle_dir / "hunt.log.jsonl").is_file():
         try:
-            from datetime import datetime as _dt, timezone as _tz
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
             first_ts: str | None = None
             last_ts: str | None = None
             for line in (cycle_dir / "hunt.log.jsonl").read_text(
@@ -1909,7 +1911,8 @@ def _hunt_funnel_section(
     # Last-resort fallback: started_at -> latest disk mtime
     if (not elapsed_seconds or elapsed_seconds < 60) and started_at_iso:
         try:
-            from datetime import datetime as _dt, timezone as _tz
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
             t0 = _dt.fromisoformat(started_at_iso.replace("Z", "+00:00"))
             try:
                 latest_mt = max(

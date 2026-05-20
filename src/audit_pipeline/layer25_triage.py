@@ -136,6 +136,19 @@ _C_FALSE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "clang compile error in the PoC source — broken test, not a real fire",
     ),
+    (
+        # ASan/UBSan fires whose top stack frame is in the test_*.c file
+        # itself (not engine src/). That's a witness-setup defect — the
+        # PoC code corrupted its own memory before reaching engine code.
+        # Distinguish from a real fire which would have an engine src/
+        # frame; that case falls through to the LLM judge.
+        re.compile(
+            r"(?:AddressSanitizer|UndefinedBehaviorSanitizer).*?test_[\w-]+\.c"
+            r"|test_[\w-]+\.c.*?(?:AddressSanitizer|UndefinedBehaviorSanitizer)",
+            re.DOTALL,
+        ),
+        "ASan fired in the test_*.c file itself (test file itself, not engine src/) — setup error",
+    ),
 )
 
 
@@ -1084,31 +1097,29 @@ def triage_cycle(
     results: list[TriageResult] = []
     n_llm_calls = 0
 
+    # Phase 2 (cross-language path resolution): the poc dict stores
+    # scaffold_path / cargo_log_path as workspace-relative strings
+    # (e.g. ``tests/c/test_<slug>.c``, ``hunts/<cycle>/poc/runlog_<slug>.log``).
+    # The previous code did Path(...).read_text() which resolves
+    # against CWD, not workspace — so triage invoked via
+    # ``audit-pipeline triage-fires`` (CWD != workspace) always saw
+    # both fields empty -> LOST. Anchored to the workspace root so the
+    # C/Aptos/Solidity cycles stop silently dropping every fire into LOST.
+    # Hoisted out of the per-hyp loop (1) because cycle_dir doesn't vary
+    # per-iteration and (2) so the closure binding is unambiguous (B023).
+    _workspace_root = cycle_dir.parent.parent
+
+    def _resolve_ws_rel(p):
+        if not p:
+            return None
+        pp = Path(p)
+        return pp if pp.is_absolute() else (_workspace_root / pp)
+
     for hyp_id in fired_hyp_ids:
         poc = poc_results.get(hyp_id, {})
         meta = hyp_meta.get(hyp_id, {})
 
         # Read test body + cargo log.
-        #
-        # Phase 2 (cross-language path resolution): the poc dict stores
-        # scaffold_path / cargo_log_path as workspace-relative strings
-        # (e.g. ``tests/c/test_<slug>.c``, ``hunts/<cycle>/poc/runlog_<slug>.log``).
-        # The previous code did Path(...).read_text() which resolves
-        # against CWD, not workspace — so triage invoked via
-        # ``audit-pipeline triage-fires`` (CWD != workspace) always saw
-        # both fields empty -> LOST. The Solana path happened to work
-        # only when CWD == workspace. For C / Aptos / Solidity cycles
-        # this silently dropped every fire into LOST.
-        # Fix: anchor relative paths to the workspace root.
-        # cycle_dir is ``<workspace>/hunts/<cycle_id>``, so workspace
-        # = cycle_dir.parent.parent.
-        _workspace_root = cycle_dir.parent.parent
-
-        def _resolve_ws_rel(p):
-            if not p:
-                return None
-            pp = Path(p)
-            return pp if pp.is_absolute() else (_workspace_root / pp)
 
         scaffold_path = poc.get("scaffold_path")
         cargo_log_path = poc.get("cargo_log_path")

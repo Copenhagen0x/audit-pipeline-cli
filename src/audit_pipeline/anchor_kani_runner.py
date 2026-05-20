@@ -33,7 +33,6 @@ from typing import Any
 
 from audit_pipeline.anchor_builder import _solana_augmented_path
 
-
 # Sidecar Cargo workspace for one Kani harness. The proofs crate is
 # self-contained (no path deps on the audit target) so isolation is
 # total — the LLM author embeds whatever program-fragment it needs to

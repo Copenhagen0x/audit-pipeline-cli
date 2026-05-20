@@ -23,7 +23,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 # Bug-class slug substrings that indicate a "missing authorization" claim.
 # If the function body actually has an authorization check, the hyp is
 # unreachable.

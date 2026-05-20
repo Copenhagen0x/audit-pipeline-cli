@@ -292,7 +292,7 @@ def _select_minimal_sources(harness_path: Path, candidate_src_files: list[str]) 
     file_text: dict[str, str] = {}
     for path_str in candidate_src_files:
         try:
-            with open(path_str, "r", encoding="utf-8", errors="replace") as fh:
+            with open(path_str, encoding="utf-8", errors="replace") as fh:
                 raw = fh.read()
         except OSError:
             continue

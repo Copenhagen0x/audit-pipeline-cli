@@ -11,7 +11,6 @@ Cargo workspace. Nothing is ever written into the audited repository.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
@@ -21,12 +20,8 @@ from pathlib import Path
 from typing import Any
 
 from audit_pipeline.anchor_builder import (
-    AnchorBuildResult,
-    build_anchor_program,
-    list_anchor_programs,
     _solana_augmented_path,
 )
-
 
 # Sidecar workspace Cargo.toml template. anchor-lang version is pinned
 # to match the program's own dependency; the rest of the deps are the

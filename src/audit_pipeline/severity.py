@@ -93,7 +93,7 @@ def color_html(s: Severity) -> str:
 #
 # borrow-global-no-auth is special-cased: Critical when target_file
 # mentions treasury/vault, else High. See severity_floor_for_bug_class.
-SEVERITY_FLOOR_BY_BUG_CLASS: dict[str, "Severity"] = {
+SEVERITY_FLOOR_BY_BUG_CLASS: dict[str, Severity] = {
     "treasury-drain": Severity.CRITICAL,
     "treasury_drain": Severity.CRITICAL,
     "acl-mint-cap-permissionless": Severity.CRITICAL,
@@ -116,7 +116,7 @@ SEVERITY_FLOOR_BY_BUG_CLASS: dict[str, "Severity"] = {
 def severity_floor_for_bug_class(
     bug_class: str | None,
     target_file: str | None = None,
-) -> "Severity | None":
+) -> Severity | None:
     """Return the minimum severity for a hyp given its bug_class.
 
     Returns None if no floor applies (LLM rating stands).

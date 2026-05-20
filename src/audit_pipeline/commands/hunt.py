@@ -2447,10 +2447,10 @@ def _hunt_run(
                 engine_src = engine_dir_for_cargo / "src"
                 if not engine_src.is_dir():
                     return ""
-                prof = _pf(config_language)
+                prof = _pf(language)
                 src_files: list[Path] = []
                 for ext in prof.source_exts:
-                    if config_language == "c":
+                    if language == "c":
                         src_files.extend(sorted(engine_src.rglob(f"*{ext}")))
                     else:
                         src_files.extend(sorted(engine_src.glob(f"*{ext}")))
@@ -2689,22 +2689,38 @@ def _hunt_run(
         )
 
         if _is_anchor_workspace_l3:
+            from audit_pipeline.anchor_builder import (
+                list_anchor_programs as _l3_list_anchor_programs,
+            )
+            from audit_pipeline.anchor_kani_runner import (
+                _slugify as _kani_slugify,
+            )
             from audit_pipeline.anchor_kani_runner import (
                 build_anchor_l3_prompt as _build_l3_prompt,
+            )
+            from audit_pipeline.anchor_kani_runner import (
                 build_kani_compile_fix_prompt as _build_l3_fix_prompt,
-                parse_llm_response as _parse_l3_response,
-                write_kani_sidecar as _write_kani_sidecar,
-                run_kani_proof as _run_kani_proof,
-                parse_kani_outcome as _parse_kani_outcome,
+            )
+            from audit_pipeline.anchor_kani_runner import (
                 is_cannot_verify as _is_cannot_verify,
-                _slugify as _kani_slugify,
+            )
+            from audit_pipeline.anchor_kani_runner import (
+                parse_kani_outcome as _parse_kani_outcome,
+            )
+            from audit_pipeline.anchor_kani_runner import (
+                parse_llm_response as _parse_l3_response,
+            )
+            from audit_pipeline.anchor_kani_runner import (
+                run_kani_proof as _run_kani_proof,
+            )
+            from audit_pipeline.anchor_kani_runner import (
+                write_kani_sidecar as _write_kani_sidecar,
             )
             from audit_pipeline.anchor_litesvm_runner import (
                 _gather_program_source as _l3_gather_source,
-                resolve_program_for_hyp as _l3_resolve_program,
             )
-            from audit_pipeline.anchor_builder import (
-                list_anchor_programs as _l3_list_anchor_programs,
+            from audit_pipeline.anchor_litesvm_runner import (
+                resolve_program_for_hyp as _l3_resolve_program,
             )
             from audit_pipeline.utils import complete as _l3_complete
             _l3_anchor_programs_list = _l3_list_anchor_programs(
@@ -3145,22 +3161,40 @@ def _hunt_run(
 
         if _is_anchor_workspace_l4:
             from audit_pipeline.anchor_builder import (
-                build_anchor_program as _build_anchor_program,
                 AnchorBuildResult as _AnchorBuildResult,
             )
-            from audit_pipeline.anchor_litesvm_runner import (
-                build_anchor_l4_prompt as _build_l4_prompt,
-                build_compile_fix_prompt as _build_l4_fix_prompt,
-                parse_llm_response as _parse_l4_response,
-                write_sidecar_workspace as _write_sidecar,
-                run_sidecar_test as _run_sidecar,
-                parse_litesvm_outcome as _parse_l4_outcome,
-                resolve_program_for_hyp as _l4_resolve_program,
-                _detect_program_id as _l4_detect_program_id,
-                _gather_program_source as _l4_gather_source,
+            from audit_pipeline.anchor_builder import (
+                build_anchor_program as _build_anchor_program,
             )
             from audit_pipeline.anchor_builder import (
                 list_anchor_programs as _l4_list_anchor_programs,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                _detect_program_id as _l4_detect_program_id,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                _gather_program_source as _l4_gather_source,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                build_anchor_l4_prompt as _build_l4_prompt,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                build_compile_fix_prompt as _build_l4_fix_prompt,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                parse_litesvm_outcome as _parse_l4_outcome,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                parse_llm_response as _parse_l4_response,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                resolve_program_for_hyp as _l4_resolve_program,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                run_sidecar_test as _run_sidecar,
+            )
+            from audit_pipeline.anchor_litesvm_runner import (
+                write_sidecar_workspace as _write_sidecar,
             )
             _anchor_programs_list = _l4_list_anchor_programs(engine_dir_for_cargo)
             from audit_pipeline.utils import complete as _l4_complete
@@ -3175,7 +3209,7 @@ def _hunt_run(
 
             # Cache program builds — each Anchor program crate compiles
             # once per cycle regardless of how many findings reference it.
-            _program_build_cache: dict[str, "_AnchorBuildResult"] = {}
+            _program_build_cache: dict[str, _AnchorBuildResult] = {}
 
             for v in fired_for_litesvm:
                 hyp_id = v["hypothesis_id"]

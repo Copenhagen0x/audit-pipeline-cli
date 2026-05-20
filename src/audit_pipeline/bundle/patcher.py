@@ -19,8 +19,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from audit_pipeline.bundle.templates import template_for
 from audit_pipeline.bundle.sig_index import build_sig_index
+from audit_pipeline.bundle.templates import template_for
 from audit_pipeline.utils import LLMUnavailable, complete, is_available
 
 

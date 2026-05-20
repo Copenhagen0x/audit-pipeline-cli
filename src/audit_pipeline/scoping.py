@@ -50,11 +50,35 @@ KNOWN_PREDICATES: set[str] = {
 
 # Recognized hypothesis classes (must match severity.derive_severity input).
 KNOWN_CLASSES: set[str] = {
+    # original 5 propagator classes
     "invariant_property",
     "state_transition",
     "authorization",
     "arithmetic_overflow",
     "implicit_invariant",
+    # categorical classes used by C / Solidity / non-Solana cells.
+    # Added 2026-05-20 after c-small/medium/large + osec_solana_class
+    # rolled them out in production.
+    "account-validation",
+    "arithmetic",
+    "cpi-correctness",
+    "cross-program",
+    "crypto_weakness",
+    "data_integrity",
+    "dos",
+    "filesystem_race",
+    "format_string",
+    "input_validation",
+    "insecure_temp_file",
+    "integer_overflow",
+    "lifecycle",
+    "logic",
+    "logic_error",
+    "memory_safety",
+    "oracle",
+    "pda-derivation",
+    "state-machine",
+    "token-economics",
 }
 
 
@@ -67,8 +91,8 @@ KNOWN_CLASSES: set[str] = {
 # trailing capital letter for emphasis. The regex is intentionally
 # permissive — loader-level uniqueness + bug_class is what actually drives
 # propagation.
-_ID_RE = re.compile(r"^[A-Z]+\d*-[A-Za-z0-9][A-Za-z0-9-]*$")
-_BUG_CLASS_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+_ID_RE = re.compile(r"^[A-Z]+\d*-[A-Za-z0-9][A-Za-z0-9_-]*$")
+_BUG_CLASS_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 _SEVERITY_ORDER: dict[Severity, int] = {
@@ -476,19 +500,23 @@ def _normalize_and_validate(
             f"{where}: 'id' must match {_ID_RE.pattern} (got {hid!r})"
         )
 
-    # Required: class
+    # Optional: class. C / non-Solana YAMLs sometimes only carry
+    # bug_class (the fine-grained propagation key); class is the
+    # coarser severity-derivation hint. Validate only when present.
     klass = h.get("class")
-    if klass not in KNOWN_CLASSES:
+    if klass is not None and klass not in KNOWN_CLASSES:
         raise HypothesisValidationError(
             f"{where} ({hid}): 'class' must be one of {sorted(KNOWN_CLASSES)} "
             f"(got {klass!r})"
         )
 
-    # Required: claim
-    claim = h.get("claim")
+    # Required: claim (or invariant — the C/Solidity YAML schema uses
+    # invariant for the same semantic content; either is accepted so
+    # the older non-Solana libraries don't have to migrate field names).
+    claim = h.get("claim") or h.get("invariant")
     if not isinstance(claim, str) or len(claim.strip()) < 20:
         raise HypothesisValidationError(
-            f"{where} ({hid}): 'claim' must be a string of at least 20 characters"
+            f"{where} ({hid}): 'claim' (or 'invariant') must be a string of at least 20 characters"
         )
 
     # Optional: severity

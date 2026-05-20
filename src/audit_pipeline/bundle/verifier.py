@@ -439,8 +439,8 @@ def _gate_poc_fails_pre_patch_solidity(
     if "Compilation failed" in log_text or "compile error" in log_text.lower():
         return GateResult(
             False,
-            f"PoC at L2 had COMPILE error — bundle cannot be authorized "
-            f"without a fired PoC",
+            "PoC at L2 had COMPILE error — bundle cannot be authorized "
+            "without a fired PoC",
             time.time() - t0,
         )
     return GateResult(
@@ -1095,8 +1095,8 @@ def _gate_poc_passes_post_patch(
         _unapply_patch(engine_repo, patch_text_chk)
         return GateResult(
             True,
-            f"patch applies cleanly; PoC is rustc-standalone "
-            f"(runtime witness delegated to LiteSVM / tests gate)",
+            "patch applies cleanly; PoC is rustc-standalone "
+            "(runtime witness delegated to LiteSVM / tests gate)",
             time.time() - t0,
             details={"mode": "rustc-standalone-delegated"},
         )

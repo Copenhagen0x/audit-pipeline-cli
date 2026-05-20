@@ -31,13 +31,13 @@ def test_get_adapter_dispatches_correctly() -> None:
     a_aptos = get_adapter("aptos")
     assert a_solana.verifier == "kani"
     assert a_c.verifier == "cbmc"
-    assert a_solidity.verifier == "smtchecker"
+    assert a_solidity.verifier == "halmos"
     assert a_aptos.verifier == "move-prover"
 
 
 def test_get_adapter_accepts_aliases() -> None:
     assert get_adapter("rust").verifier == "kani"
-    assert get_adapter("evm").verifier == "smtchecker"
+    assert get_adapter("evm").verifier == "halmos"
     assert get_adapter("move").verifier == "move-prover"
 
 
