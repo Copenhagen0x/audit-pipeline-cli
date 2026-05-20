@@ -983,9 +983,8 @@ main.bridge {
         <span class="val" id="idle-since">—</span>
       </span>
       <span class="bridge-cost">
-        <span id="cost-now">$ 0.000</span>
-        <span class="cap">/ $ <span id="cost-cap">—</span> today</span>
-        <span class="bridge-cost-bar"><div id="cost-bar-fill" style="width: 0%"></div></span>
+        <span class="label" style="color: var(--ink-3); margin-right: 8px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;">Cumulative cost</span>
+        <span id="cost-now">$478.64</span>
       </span>
     </div>
   </div>
@@ -1616,19 +1615,11 @@ main.bridge {
   }
 
   // ───── Cost ticker (with digit-roll animation feel via transition) ─────
-  function setCost(now, cap) {
-    if (typeof now === 'number') {
-      state.costNow = now;
-      $('cost-now').textContent = '$ ' + now.toFixed(3);
-    }
-    if (typeof cap === 'number' && cap > 0) {
-      state.costCap = cap;
-      $('cost-cap').textContent = cap.toFixed(0);
-    }
-    const pct = state.costCap > 0
-      ? Math.min(100, (state.costNow / state.costCap) * 100)
-      : 0;
-    $('cost-bar-fill').style.width = pct + '%';
+  function setCost(now, _capUnused) {
+    if (typeof now !== 'number') return;
+    state.costNow = now;
+    const el = $('cost-now');
+    if (el) el.textContent = '$' + now.toFixed(2);
   }
   // 2026-05-20: hard-coded cumulative session spend across the
   // 12-cell OtterSec eval (single number across all tabs, no per-tab cost).
