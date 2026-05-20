@@ -2141,10 +2141,14 @@ main.bridge {
     if (!name) return;
     const t = findTargetByName(name);
     if (!t) return;
+    const m = state.cachedManifest;
+    if (!m) return;
     // Cycle id
     if (t.last_cycle_id) {
       state.activeCycle = t.last_cycle_id;
       $('active-cycle').textContent = safeStr(t.last_cycle_id, 28);
+    } else {
+      $('active-cycle').textContent = '—';
     }
     // Engine SHA (10-char short form already)
     if (t.engine_sha) setEngineSha(t.engine_sha);
@@ -2155,12 +2159,54 @@ main.bridge {
         state.lastCycleAt = ts;
         $('last-cycle-rel').textContent = fmtRel(ts);
       }
+    } else {
+      $('last-cycle-rel').textContent = '—';
     }
-    // Per-target spend — replaces the platform-wide `d.spend` path which
-    // is intentionally omitted from per-customer manifests for leak
-    // protection. target.spend = {today_usd, total_usd, cycles_count}.
-    if (t.spend && t.spend.today_usd != null) {
-      setCost(t.spend.today_usd, state.costCap || 800);
+    // Per-target SPEND
+    // Use total_usd (cumulative for this target). today_usd is 0 for any
+    // past-cycle eval; OtterSec eval ran May 13-19, viewed today.
+    if (t.spend && t.spend.total_usd != null) {
+      setCost(t.spend.total_usd, state.costCap || 800);
+    } else {
+      setCost(0, state.costCap || 800);
+    }
+    // FINDINGS: filter to this target, repaint counters + stream
+    const allFindings = (m.findings || m.public_findings || []);
+    const tgtFindings = allFindings.filter(f =>
+      (f && (f.target_name === name || f.target_name === t.name))
+    );
+    let crit = 0, high = 0, conf = 0;
+    tgtFindings.forEach(f => {
+      const sev = f.severity || f.sev || '';
+      if (sev === 'Critical') crit++;
+      if (sev === 'High') high++;
+      const st = f.status || '';
+      if (st === 'confirmed' || st === 'disclosed' || st === 'fixed' || st === 'verified') conf++;
+    });
+    $('ct-crit').textContent = crit;
+    $('ct-high').textContent = high;
+    $('ct-confirmed').textContent = conf;
+    $('findings-count').textContent = tgtFindings.length;
+    // Clear + re-render the finding stream for this target.
+    const stream = $('findings-stream');
+    if (stream) {
+      stream.innerHTML = '';
+      state.findings = new Map();
+      clearFindingsLoadingMsg();
+      if (tgtFindings.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'color: var(--ink-4); font-family: var(--mono); font-size: 10px; padding: 20px 0; text-align: center; letter-spacing: 0.18em; text-transform: uppercase;';
+        empty.textContent = 'no findings on ' + safeStr(name, 32);
+        stream.appendChild(empty);
+      } else {
+        tgtFindings.slice(0, 40).forEach(f => upsertFinding(f));
+      }
+    }
+    // Cycle grid / stage from THIS target's latest cycle
+    if (Array.isArray(t.cycles) && t.cycles.length > 0) {
+      const latest = t.cycles[0];
+      try { paintStageFromCycle(latest); } catch (e) {}
+      try { paintGridFromCycle(latest); } catch (e) {}
     }
   }
   // Wire to the tab-bar's switch event — instant repaint on tab click.
@@ -2225,36 +2271,41 @@ main.bridge {
       const nameEl = document.querySelector('.bridge-customer-tag .name');
       if (nameEl) nameEl.textContent = d.customer.name;
     }
-    // Findings — manifest doesn't have a `findings` key today; uses
-    // `public_findings` (same shape as snapshot). When customer-private
-    // findings ship, this code path picks them up via either key.
-    const findings = (d.findings || d.public_findings || []);
-    let crit = 0, high = 0, conf = 0;
-    findings.forEach(f => {
-      const sev = f.severity || f.sev || '';
-      if (sev === 'Critical') crit++;
-      if (sev === 'High') high++;
-      const st = f.status || '';
-      if (st === 'confirmed' || st === 'disclosed' || st === 'fixed' || st === 'verified') conf++;
-    });
-    $('ct-crit').textContent = crit;
-    $('ct-high').textContent = high;
-    $('ct-confirmed').textContent = conf;
-    $('findings-count').textContent = findings.length;
-    clearFindingsLoadingMsg();
-    if (findings.length === 0) {
-      const stream = $('findings-stream');
-      if (stream && stream.children.length === 0) {
-        const empty = document.createElement('div');
-        empty.style.cssText = 'color: var(--ink-4); font-family: var(--mono); font-size: 10px; padding: 20px 0; text-align: center; letter-spacing: 0.18em; text-transform: uppercase;';
-        empty.textContent = 'no open findings · last cycle clean';
-        stream.appendChild(empty);
-      }
-    } else {
-      findings.slice(0, 40).forEach(f => {
-        const fid = f.id != null ? String(f.id) : (f.hypothesis_id + '-' + (f.cycle_id || ''));
-        if (!state.findings.has(fid)) upsertFinding(f);
+    // Multi-target customers: applyTargetView() handles per-target
+    // filtering + render. Skip the global paint here so tabs show
+    // distinct data instead of the same 156-finding union on every tab.
+    if (!window.JELLEO_ACTIVE_TARGET) {
+      // Findings — manifest doesn't have a `findings` key today; uses
+      // `public_findings` (same shape as snapshot). When customer-private
+      // findings ship, this code path picks them up via either key.
+      const findings = (d.findings || d.public_findings || []);
+      let crit = 0, high = 0, conf = 0;
+      findings.forEach(f => {
+        const sev = f.severity || f.sev || '';
+        if (sev === 'Critical') crit++;
+        if (sev === 'High') high++;
+        const st = f.status || '';
+        if (st === 'confirmed' || st === 'disclosed' || st === 'fixed' || st === 'verified') conf++;
       });
+      $('ct-crit').textContent = crit;
+      $('ct-high').textContent = high;
+      $('ct-confirmed').textContent = conf;
+      $('findings-count').textContent = findings.length;
+      clearFindingsLoadingMsg();
+      if (findings.length === 0) {
+        const stream = $('findings-stream');
+        if (stream && stream.children.length === 0) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'color: var(--ink-4); font-family: var(--mono); font-size: 10px; padding: 20px 0; text-align: center; letter-spacing: 0.18em; text-transform: uppercase;';
+          empty.textContent = 'no open findings · last cycle clean';
+          stream.appendChild(empty);
+        }
+      } else {
+        findings.slice(0, 40).forEach(f => {
+          const fid = f.id != null ? String(f.id) : (f.hypothesis_id + '-' + (f.cycle_id || ''));
+          if (!state.findings.has(fid)) upsertFinding(f);
+        });
+      }
     }
     // Pre-paint grid + stage from recent_cycles[0] if we have it
     // (manifest mirrors snapshot today; covers the case where snapshot
