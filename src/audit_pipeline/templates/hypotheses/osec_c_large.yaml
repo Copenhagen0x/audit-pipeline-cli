@@ -5,10 +5,15 @@ hypotheses:
 - id: CLARGE01-PARSER_OOB_READ
   title: Off-by-one stack OOB write in parser_handle_control (1 byte past action[32])
   severity: High
-  bug_class: memory_safety
-  invariant: 'Loop at protocol/parser.c:18-20 uses <= instead of <, causing OOB read one byte past frame payload.
-
-    '
+  bug_class: stack-buffer-overflow
+  target_file: src/protocol/parser.c
+  engine_function: parser_handle_control
+  claim: |
+    parser_handle_control reads frame payload bytes into a fixed-size stack buffer
+    `action[32]` using a loop whose bound uses `offset <= payload_len` instead of
+    `offset < payload_len`. When payload_len equals 32 the loop performs one extra
+    iteration and writes one byte past the end of the action buffer on the stack.
+    Direct off-by-one violating the action[32] bound at protocol/parser.c:18-20.
   affected_files:
   - src/protocol/parser.c
   evidence:
@@ -65,27 +70,47 @@ hypotheses:
 
       '
 - id: CLARGE05-TIMING_CHANNEL_STRCMP
-  title: Non-constant-time strcmp on session tokens at session.c:126 + 154
+  title: Non-constant-time strcmp on session tokens enables timing side-channel
   severity: Medium
-  bug_class: crypto_weakness
-  invariant: 'session_find uses strcmp for token comparison, enabling timing side-channel attack.
-
-    '
+  bug_class: timing-channel
+  target_file: src/auth/session.c
+  engine_function: session_find
+  claim: |
+    session_find walks the SessionStore linked list and compares the supplied
+    `key` against each `entry->token` using libc `strcmp`, which short-circuits
+    on the first mismatching byte. The cumulative early-exit gives the comparison
+    a data-dependent timing signature: the more leading bytes a guess shares with
+    a stored token, the longer the call takes. A remote attacker who can issue
+    repeated session_find lookups (e.g. session_validate, session_revoke) and
+    measure wall-clock latency can recover a valid token one byte at a time.
+    The session token is the entire credential (see CLARGE33 tautology), so a
+    timing leak escalates directly to impersonation. All token compare sites
+    must use a constant-time helper that XORs every byte regardless of mismatch.
   affected_files:
   - src/auth/session.c
   evidence:
     function: session_find
-    lines: 59
+    lines: 51-64
     why: 'strcmp exits early on mismatch. Valid token takes longer to reject, leaking bytes via timing.
 
       '
 - id: CLARGE06-FNV_HASHDOS
-  title: Non-cryptographic FNV hash in security contexts
+  title: Non-cryptographic FNV hash enables hash-collision DoS in db bucket index
   severity: High
-  bug_class: crypto_weakness
-  invariant: 'FNV-1a used for tokens and database hashing, vulnerable to precomputed collisions.
-
-    '
+  bug_class: hash-collision-dos
+  target_file: src/storage/db.c
+  engine_function: db_bucket_index
+  claim: |
+    db_bucket_index keys storage entries by calling vendor fnv1a32 on each key
+    and modding into a small bucket array. FNV-1a is a non-cryptographic hash
+    with a fully public, key-less mixing function; an attacker who can submit
+    keys (via any ingest path that lands in db_save / db_insert) can pre-compute
+    a family of distinct strings that all collide into the same bucket. Inserting
+    N such keys forces the bucket linked list to grow to length N and every
+    subsequent lookup degrades from O(1) to O(N), giving the attacker an
+    asymmetric CPU DoS. Mitigation: replace FNV-1a with a keyed hash
+    (SipHash-2-4 with a per-process random seed) so the bucket layout is
+    unpredictable.
   affected_files:
   - src/vendor/fnvhash/fnvhash.c
   - src/auth/session.c
@@ -97,12 +122,22 @@ hypotheses:
 
       '
 - id: CLARGE07-WILDCARD_AUTHZ
-  title: Wildcard authorization allows overly broad access
+  title: ACL wildcard match grants overly broad access
   severity: High
-  bug_class: authorization
-  invariant: 'ACL check grants access if user OR resource matches wildcard, unintended broad permissions.
-
-    '
+  bug_class: authorization-bypass
+  target_file: src/auth/acl.c
+  engine_function: acl_check
+  claim: |
+    acl_check iterates over loaded AclRule entries and accepts the request when
+    (entry->user == name || entry->user == "*") AND
+    (entry->resource == target || entry->resource == "*") AND
+    bits == (entry->mask & bits). The wildcard branch is OR'd into both axes
+    with no separate guard or default-deny, so any rule with user "*" on a
+    sensitive resource grants that resource to every caller, and any rule with
+    resource "*" grants every operation to a specific user. acl_load accepts
+    such rules from arbitrary input. Mitigation: require explicit principals
+    for sensitive resources, or split wildcard matching into a separately
+    audited code path that logs each grant.
   affected_files:
   - src/auth/acl.c
   evidence:
@@ -142,12 +177,22 @@ hypotheses:
 
       '
 - id: CLARGE10-DB_SYMLINK_FOLLOW
-  title: Database file operations follow symlinks
+  title: db_flush opens database path via fopen without O_NOFOLLOW
   severity: High
-  bug_class: filesystem_race
-  invariant: 'db_flush writes to user-supplied path without O_NOFOLLOW, symlinks redirect writes.
-
-    '
+  bug_class: toctou-symlink
+  target_file: src/storage/db.c
+  engine_function: db_flush
+  claim: |
+    db_flush serialises the in-memory store to disk by calling
+    `fopen(store->path, "wb")` with no `O_NOFOLLOW`, no `O_CREAT|O_EXCL`,
+    no pre-`lstat` check, and no post-`fstat` validation of the resulting
+    inode. An attacker who controls the parent directory of `store->path`
+    (or who can win a rename/symlink-swap race during process startup) can
+    pre-place a symlink at the database path pointing to a victim regular
+    file; the next db_flush then writes the serialised store payload through
+    the symlink and clobbers the victim. Mitigation: open via
+    open(path, O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW, 0600) then fdopen, and
+    fstat-validate S_ISREG before writing.
   affected_files:
   - src/storage/db.c
   evidence:
@@ -174,16 +219,27 @@ hypotheses:
 - id: CLARGE12-QUEUE_LIST_UAF
   title: "Double-free in worker retry path (worker_retry \u2192 worker_run_once)"
   severity: Medium
-  bug_class: memory_safety
-  invariant: 'queue_find traverses without synchronization, concurrent dequeue causes UAF.
-
-    '
+  bug_class: double-free
+  target_file: src/queue/worker.c
+  engine_function: worker_run_once
+  claim: |
+    worker_run_once dequeues a Job via queue_pop, dispatches it, and on failure
+    calls `worker_retry(worker, queue, entry)`. When entry->attempts >= 3 the
+    retry branch logs "dropping job" and calls `job_free(entry)` itself, then
+    returns -1. worker_run_once observes the non-zero return and falls into its
+    else branch, which calls `job_free(entry)` a second time on the same pointer.
+    A double-free on the libc heap is a memory-safety violation that
+    corrupts allocator metadata and is exploitable for arbitrary write on most
+    glibc allocators. Mitigation: worker_retry must NOT free on the drop path;
+    centralise the free in worker_run_once, or have worker_retry distinguish
+    "retry queued" (do not free in caller) from "drop" (caller frees) via a
+    distinct return value and set entry to NULL after free.
   affected_files:
-  - src/queue/queue.c
+  - src/queue/worker.c
   evidence:
-    function: queue_find
-    lines: 54-67
-    why: 'Another thread may free node between cursor->id read and return.
+    function: worker_run_once
+    lines: 29-50
+    why: 'worker_retry frees entry on the dropping branch then returns -1; worker_run_once then frees entry a second time in its else branch.
 
       '
 - id: CLARGE13-LOG_TIMESTR_STRCPY
@@ -262,17 +318,29 @@ hypotheses:
 
       '
 - id: CLARGE18-RECORD_CODEC_DIVERGENCE
-  title: Record encode/decode may not be inverse operations
+  title: Record encode and decode round-trip is not bit-exact, silently corrupts payload
   severity: Medium
-  bug_class: data_integrity
-  invariant: 'record_encode and record_decode may diverge, losing data on round-trip.
-
-    '
+  bug_class: save-load-divergence
+  target_file: src/storage/record.c
+  engine_function: record_encode
+  claim: |
+    record_encode in storage/record.c emits a Record into a Buffer via a sequence
+    of length-prefixed field writes, and record_decode parses the same bytes back
+    into a Record struct. The encode and decode paths use different field
+    bounds and orderings for the optional fields, so a Record carrying a value
+    that contains the field delimiter byte (or whose length straddles an internal
+    boundary) round-trips into a DIFFERENT Record. db_load consumes the decoded
+    Record, so any disagreement between encode and decode causes silent data
+    corruption: the value persisted on disk is not what was queried back on the
+    next process start. Mitigation: tighten both paths to a single shared
+    declarative schema (TLV with explicit length prefixes for every field),
+    fuzz the round-trip with random Record inputs until encode(decode(x))==x
+    holds for the full Record space, and reject malformed encodings on decode.
   affected_files:
   - src/storage/record.c
   evidence:
     function: record_encode, record_decode
-    lines: varies
+    lines: 51-130
     why: 'Serialization divergence breaks round-trip fidelity.
 
       '
@@ -415,20 +483,23 @@ hypotheses:
 - id: CLARGE27-FORMAT_STRING_PIPELINE_USER_EVENT
   title: Ingest pipeline forwards attacker-parsed message to vulnerable log_user_event
   severity: Critical
-  bug_class: format_string
-  invariant: 'pipeline_process_line() calls log_user_event with parsed_line.source and parsed_line.message,
-
-    both copied verbatim from the input record via str_split on ''|''. When source is empty,
-
-    message reaches vfprintf as the format string, giving remote attackers a format-string
-
-    primitive over the log stream.
-
-    '
-  affected_files:
-  - src/ingest/pipeline.c
-  - src/ingest/logline.c
-  - src/common/log.c
+  bug_class: format-string-injection
+  target_file: src/ingest/pipeline.c
+  engine_function: pipeline_process_line
+  claim: |
+    pipeline_process_line parses an incoming ingest record via logline_parse,
+    which splits the input on '|' into four fields (ts, level, source, message)
+    and snprintf-copies each into a fixed buffer on a LogLine struct without
+    sanitising conversion specifiers. The function then calls
+    `log_user_event(pipe_state->logger, parsed_line.source, parsed_line.message)`.
+    log_user_event (CLARGE26) reaches the unsafe path when source is empty or
+    NULL and forwards message as the FORMAT STRING to log_msg → vfprintf. The
+    message field is therefore a remote format-string primitive: attacker-
+    controlled conversion specifiers in the message read or write process
+    memory via %s / %n. Mitigation: log_user_event must call log_msg with a
+    fixed literal format ("%s") and never accept caller bytes as fmt;
+    pipeline_process_line should additionally reject records where source is
+    empty so the fallback log path is never reached at all.
   evidence:
     function: pipeline_process_line
     lines: 14-22
@@ -475,18 +546,23 @@ hypotheses:
 - id: CLARGE29-TOKEN_UNAUTHENTICATED
   title: token_issue produces unsigned tokens, token_is_admin trusts decoded role field
   severity: Critical
-  bug_class: authorization
-  invariant: 'token_issue emits a plain "user|role|issued|expires" string with no MAC or signature.
-
-    token_parse splits the same string and stores role into TokenClaims. token_is_admin returns
-
-    true when the decoded role equals "admin", so any caller can hand-craft a token with role
-
-    "admin" and pass the admin check.
-
-    '
-  affected_files:
-  - src/auth/token.c
+  bug_class: weak-token-format
+  target_file: src/auth/token.c
+  engine_function: token_issue
+  claim: |
+    token_issue serialises a token as a plain pipe-delimited string of the form
+    "<account>|<role>|<issued>|<expires>" via snprintf into a caller-supplied
+    buffer. There is no HMAC, no Ed25519 signature, no AEAD wrapping and no
+    secret key of any kind. token_parse splits the same string back into a
+    TokenClaims struct and token_is_admin returns true whenever
+    `strcmp(parsed->role, "admin") == 0` and the expiry has not passed. Any
+    client that can present a token string can therefore forge `role=admin`
+    directly by typing "x|admin|0|9999999999" and pass the admin check, because
+    no verifier ever checks integrity. Mitigation: emit token as
+    `<base64(claims)>.<base64(HMAC_SHA256(claims, server_secret))>`, verify the
+    MAC in token_parse before returning success, store the secret in the
+    server's runtime config (never round-tripped through the client), and
+    constant-time compare the MAC tag.
   evidence:
     function: token_issue and token_is_admin
     lines: 8-20, 50-58
@@ -536,19 +612,23 @@ hypotheses:
 - id: CLARGE31-INGEST_TRUSTS_REQUEST_ROLE
   title: handle_ingest_request issues admin token from JSON role field supplied by caller
   severity: Critical
-  bug_class: authorization
-  invariant: 'handle_ingest_request reads "user" and "role" from the JSON request body, immediately
-
-    mints a token with token_issue(account, access, 3600), reparses it, and admits the request
-
-    if token_is_admin returns true OR role equals "writer". The role is whatever the client
-
-    sent, so any client can self-elevate by submitting role admin in the body.
-
-    '
-  affected_files:
-  - src/program_c.c
-  - src/auth/token.c
+  bug_class: authorization-bypass
+  target_file: src/program_c.c
+  engine_function: handle_ingest_request
+  claim: |
+    handle_ingest_request reads `account = json_get(&root, "user")` and
+    `access = json_get(&root, "role")` directly from the unauthenticated JSON
+    request body, then calls `token_issue(encoded, ..., account, access, 3600)`
+    to mint a token, `token_parse(&parsed, encoded)` to deserialise it, and
+    admits the request when `token_is_admin(&parsed) || strcmp(access, "writer") == 0`.
+    Authorization is decided by re-parsing a token the server just minted from
+    caller-supplied strings — there is no prior authentication, no signature
+    check, and no allow-list of legitimate roles. A request such as
+    `{"user":"x","role":"admin","logs":"..."}` self-elevates and authorises the
+    CLARGE28 path-traversal and CLARGE27 format-string primitives. Mitigation:
+    bind handle_ingest_request to a real session (validate session_id against
+    SessionStore before reading the request body), and accept role only from
+    the validated Session record, never from the request JSON.
   evidence:
     function: handle_ingest_request
     lines: 40-66
@@ -635,22 +715,24 @@ hypotheses:
 
       '
 - id: CLARGE34-WAL_FOPEN_FOLLOWS_SYMLINK
-  title: wal_open and db_flush and file_write_all open by name without O_NOFOLLOW
+  title: wal_open and file_write_all open by name without O_NOFOLLOW
   severity: High
-  bug_class: filesystem_race
-  invariant: 'wal_open uses fopen(path, "ab") with no symlink check. file_write_all uses fopen(path, "wb")
-
-    with no symlink check. db_flush calls file_write_all on store->path. A symlink at the target
-
-    path is followed silently, letting a local attacker redirect database and WAL writes to any
-
-    file the process can write.
-
-    '
-  affected_files:
-  - src/storage/wal.c
-  - src/common/fileutil.c
-  - src/storage/db.c
+  bug_class: toctou-symlink
+  target_file: src/storage/wal.c
+  engine_function: wal_open
+  claim: |
+    wal_open is the WAL initialisation entry point and calls
+    `fopen(filename, "ab")` after snprintf-copying the user-supplied path into
+    its own buffer. There is no O_NOFOLLOW, no pre-lstat, no fstat-after-open
+    to validate that the resulting file descriptor refers to a regular file
+    (S_ISREG) at the expected inode. The same anti-pattern repeats in
+    file_write_all (common/fileutil.c) which db_flush calls on store->path.
+    A local attacker who controls the parent directory of the WAL or DB path
+    can pre-place a symlink at the target name pointing to any file the process
+    can write; the next append-mode WAL write or rewrite flush is then
+    redirected through the symlink and clobbers the victim. Mitigation: replace
+    fopen(..., "ab") with open(path, O_WRONLY|O_APPEND|O_CREAT|O_NOFOLLOW, 0600)
+    + fdopen, and fstat-validate S_ISREG before any write.
   evidence:
     function: wal_open and file_write_all and db_flush
     lines: 6-12 (wal.c), 60-77 (fileutil.c), 107-135 (db.c)
@@ -666,16 +748,22 @@ hypotheses:
 - id: CLARGE35-FILE_IS_SAFE_REGULAR_TOCTOU
   title: file_is_safe_regular checks then file_open_checked opens with no inode binding
   severity: Medium
-  bug_class: filesystem_race
-  invariant: 'file_open_checked calls file_is_safe_regular(path), which runs stat() and S_ISREG, and only
-
-    then calls fopen(path, mode). Between the stat and the fopen the path can be swapped (rename
-
-    or symlink replacement). Classic TOCTOU; the open inherits no inode identity from the stat.
-
-    '
-  affected_files:
-  - src/common/fileutil.c
+  bug_class: toctou-race
+  target_file: src/common/fileutil.c
+  engine_function: file_open_checked
+  claim: |
+    file_open_checked is the public "safe open" helper: it first calls
+    file_is_safe_regular(path) which runs `stat(path, &info)` and confirms
+    `S_ISREG(info.st_mode)`, and ONLY THEN calls `fopen(path, mode)` on the
+    same path string. Between the stat and the fopen the directory entry can
+    be swapped (rename, unlink+symlink) by any process with write access to
+    the parent directory, so the stat decision does not bind to the inode the
+    fopen ultimately receives. Classic TOCTOU: an attacker wins the race by
+    replacing the path entry with a symlink to a non-regular target (FIFO,
+    device, or another regular file under the attacker's control) after stat
+    returns and before fopen runs. Mitigation: open with O_NOFOLLOW first to
+    get an fd, then fstat the fd, then S_ISREG-check on the stat result — the
+    fd binds to the inode so the check cannot be raced.
   evidence:
     function: file_is_safe_regular and file_open_checked
     lines: 80-107
