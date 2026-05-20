@@ -1,11 +1,9 @@
 # OtterSec evaluation — C / c-large hypothesis library.
-#
-# 36 hyps from manual read of 49 source files / ~12500 LOC.
-# 12th and final OSec eval cell.
+# 36 hyps authored; manual verification kept 11 publishable findings.
 
 hypotheses:
 - id: CLARGE01-PARSER_OOB_READ
-  title: Off-by-one buffer read in parser_handle_control
+  title: Off-by-one stack OOB write in parser_handle_control (1 byte past action[32])
   severity: High
   bug_class: memory_safety
   invariant: 'Loop at protocol/parser.c:18-20 uses <= instead of <, causing OOB read one byte past frame payload.
@@ -67,7 +65,7 @@ hypotheses:
 
       '
 - id: CLARGE05-TIMING_CHANNEL_STRCMP
-  title: Non-constant-time string comparison on tokens
+  title: Non-constant-time strcmp on session tokens at session.c:126 + 154
   severity: Medium
   bug_class: crypto_weakness
   invariant: 'session_find uses strcmp for token comparison, enabling timing side-channel attack.
@@ -174,7 +172,7 @@ hypotheses:
 
       '
 - id: CLARGE12-QUEUE_LIST_UAF
-  title: Use-after-free in queue_find with concurrent modification
+  title: "Double-free in worker retry path (worker_retry \u2192 worker_run_once)"
   severity: Medium
   bug_class: memory_safety
   invariant: 'queue_find traverses without synchronization, concurrent dequeue causes UAF.
