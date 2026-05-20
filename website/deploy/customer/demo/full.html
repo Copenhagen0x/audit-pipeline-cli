@@ -1219,6 +1219,10 @@ main.bridge {
     },
     triage: { strong: 0, soft: 0, false_: 0, lost: 0 },
     sseConnected: false,
+    // 2026-05-20: cache the most recent manifest fetch so the per-target
+    // tab-switch handler can re-read target-scoped data (cycles, spend,
+    // engine_sha, last_cycle_id) without waiting for the next 60s refresh.
+    cachedManifest: null,
   };
 
   // ───── Helpers ─────
@@ -1851,6 +1855,48 @@ main.bridge {
     }
   }
 
+  // ───── Multi-target view: repaint header widgets per active target ─────
+  // 2026-05-20: in multi-target mode the global widgets (cycle id, engine
+  // SHA, spend ticker, last-cycle-rel) belong to the ACTIVE target, not
+  // to a platform-wide aggregate. dashboard.py now writes per-target
+  // `cycles[]` + `spend{}` to manifest.targets[]; this helper reads them
+  // on tab switch and on every manifest refresh.
+  function findTargetByName(name) {
+    const m = state.cachedManifest;
+    if (!m || !Array.isArray(m.targets)) return null;
+    return m.targets.find(t => t && t.name === name) || null;
+  }
+  function applyTargetView(name) {
+    if (!name) return;
+    const t = findTargetByName(name);
+    if (!t) return;
+    // Cycle id
+    if (t.last_cycle_id) {
+      state.activeCycle = t.last_cycle_id;
+      $('active-cycle').textContent = safeStr(t.last_cycle_id, 28);
+    }
+    // Engine SHA (10-char short form already)
+    if (t.engine_sha) setEngineSha(t.engine_sha);
+    // Last cycle relative time
+    if (t.last_cycle_at) {
+      const ts = Date.parse(t.last_cycle_at);
+      if (!isNaN(ts)) {
+        state.lastCycleAt = ts;
+        $('last-cycle-rel').textContent = fmtRel(ts);
+      }
+    }
+    // Per-target spend — replaces the platform-wide `d.spend` path which
+    // is intentionally omitted from per-customer manifests for leak
+    // protection. target.spend = {today_usd, total_usd, cycles_count}.
+    if (t.spend && t.spend.today_usd != null) {
+      setCost(t.spend.today_usd, state.costCap || 800);
+    }
+  }
+  // Wire to the tab-bar's switch event — instant repaint on tab click.
+  window.addEventListener('jelleo:target-switched', (e) => {
+    if (e && e.detail && e.detail.target) applyTargetView(e.detail.target);
+  });
+
   // ───── snapshot.json (public aggregate) ─────
   // Real shape keys: cycles_total, services[], loop_uptime_human, spend{},
   // recent_cycles[], public_findings[], stats{}, targets[].
@@ -1898,6 +1944,11 @@ main.bridge {
   async function refreshManifest() {
     const d = await fetchJson(MANIFEST_URL);
     if (!d) return;
+    // 2026-05-20: cache for per-target tab-switch repaint (see applyTargetView).
+    state.cachedManifest = d;
+    // Multi-target mode: paint widgets for the currently active target.
+    // Single-target mode: window.JELLEO_ACTIVE_TARGET is undefined and this is a no-op.
+    if (window.JELLEO_ACTIVE_TARGET) applyTargetView(window.JELLEO_ACTIVE_TARGET);
     // Customer name into the top-left tag
     if (d.customer && d.customer.name) {
       const nameEl = document.querySelector('.bridge-customer-tag .name');

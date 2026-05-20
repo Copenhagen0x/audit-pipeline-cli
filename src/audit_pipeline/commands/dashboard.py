@@ -845,8 +845,8 @@ def _customers_to_publish(workspace: Path) -> list[dict]:
 
 
 def _build_customer_target_rows(
-    owned_targets: list[dict],
-    customer_findings: list[dict],
+    owned_targets,
+    customer_findings,
     cycles: list[dict],
     db,
 ) -> list[dict]:
@@ -857,7 +857,23 @@ def _build_customer_target_rows(
       n_findings, severity_counts (used by tab badges + lobby cards)
       last_cycle_id, last_cycle_at, engine_sha (used by "Last scan ...")
       status (scanned / scanning / idle, used by lobby card classes)
+      cycles[]   recent cycles owned by THIS target (for the bridge
+                 view's per-tab cycle history list)
+      spend{}    per-target spend rollup {today_usd, total_usd,
+                 cycles_count} for the per-tab cost widget. Scoped to
+                 the customer's owned targets so cross-customer leak
+                 protection is preserved (the platform-wide spend
+                 field remains intentionally omitted from this manifest
+                 -- see _build_customer_manifest).
+
+    The cycles[] + spend{} fields were added 2026-05-20 to wire the
+    multi-target bridge view: tab buttons existed but every tab showed
+    the same global aggregate because the manifest carried no per-target
+    cycle data or spend. The bridge JS now reads manifest.targets
+    .find(t => t.name === activeTarget).{cycles,spend} on tab switch
+    and repaints the widgets per-target.
     """
+    from datetime import datetime, timezone
     # Badge counts must reflect what the customer has actually DISCLOSED
     # (matches the published PDF totals on each cycle).
     # Triaged + confirmed findings are still visible in the detail list but
@@ -878,19 +894,59 @@ def _build_customer_target_rows(
         s = f.get("severity") or "Info"
         if s in d["sev"]:
             d["sev"][s] += 1
-    last_cycle_by_tid: dict[int, dict] = {}
+
+    # Group cycles by target so we can build per-target cycle lists and
+    # spend rollups. `cycles` is already filtered to owned targets by
+    # _build_customer_manifest, so summing cost_usd across it is safe --
+    # it never includes cycles from other customers.
+    cycles_by_tid: dict[int, list[dict]] = {}
     for c in cycles:
         tid = c.get("target_id")
         if tid is None:
             continue
-        cur = last_cycle_by_tid.get(tid)
-        if not cur or (c.get("started_at") or "") > (cur.get("started_at") or ""):
-            last_cycle_by_tid[tid] = c
+        cycles_by_tid.setdefault(tid, []).append(c)
+    # Sort each target's cycle list by started_at DESC so the bridge view
+    # can show the most recent first without re-sorting client-side.
+    for tid in cycles_by_tid:
+        cycles_by_tid[tid].sort(
+            key=lambda c: c.get("started_at") or "", reverse=True,
+        )
+
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+
+    last_cycle_by_tid: dict[int, dict] = {}
+    for tid, lst in cycles_by_tid.items():
+        if lst:
+            last_cycle_by_tid[tid] = lst[0]
+
     rows = []
     for t in owned_targets:
         agg = by_target_id.get(t["id"], {"n": 0, "sev": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}})
         lc = last_cycle_by_tid.get(t["id"])
         status = "scanned" if lc and lc.get("finished_at") else ("scanning" if lc else "idle")
+
+        # Per-target cycle list -- cap at 10 most recent.
+        tcycles = cycles_by_tid.get(t["id"], [])[:10]
+        target_cycles_payload: list[dict] = []
+        total_cost_usd = 0.0
+        today_cost_usd = 0.0
+        for c in tcycles:
+            cost = float(c.get("total_cost_usd") or 0.0)
+            total_cost_usd += cost
+            started = c.get("started_at") or ""
+            # Match "today" by UTC calendar date prefix (ISO YYYY-MM-DD).
+            if started.startswith(today_iso):
+                today_cost_usd += cost
+            target_cycles_payload.append({
+                "cycle_id":     c.get("cycle_id"),
+                "started_at":   c.get("started_at"),
+                "finished_at":  c.get("finished_at"),
+                "engine_sha":   (c.get("engine_sha") or "")[:10],
+                "n_dispatched": c.get("n_dispatched"),
+                "n_confirmed":  c.get("n_confirmed"),
+                "cost_usd":     round(cost, 4),
+            })
+
         rows.append({
             "id": t["id"],
             "name": t["name"],
@@ -901,6 +957,14 @@ def _build_customer_target_rows(
             "last_cycle_at": (lc or {}).get("started_at"),
             "engine_sha": ((lc or {}).get("engine_sha") or "")[:10],
             "status": status,
+            # NEW 2026-05-20: per-target cycle history + spend rollup so
+            # the bridge view tabs can paint distinct content per target.
+            "cycles": target_cycles_payload,
+            "spend": {
+                "today_usd":    round(today_cost_usd, 4),
+                "total_usd":    round(total_cost_usd, 4),
+                "cycles_count": len(target_cycles_payload),
+            },
         })
     return rows
 
