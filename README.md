@@ -4,17 +4,20 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776ab.svg)](https://www.python.org/downloads/)
 
-> **What this is:** the Python CLI that runs Jelleo's continuous Solana security hunt loop.
-> Reads protocol source, dispatches multi-agent recon, drives empirical PoCs to compile +
-> pass under `cargo test`, synthesises Kani harnesses, and writes signed disclosures into a
-> SQLite findings DB. Inaugural deployment: Anatoly Yakovenko's Percolator perpetual DEX.
+> **What this is:** the Python CLI that runs Jelleo's continuous security hunt loop —
+> multi-language (Rust/Anchor, Move, Solidity, C). Reads protocol source, dispatches
+> multi-agent recon, drives empirical PoCs to compile + pass under language-appropriate
+> test harnesses (`cargo test` for Rust/Anchor, `forge test` for Solidity, `aptos move test`
+> for Move, native harness for C), synthesises formal-verification harnesses (Kani / CBMC /
+> Move Prover / Slither), and writes signed disclosures into a findings DB.
 
 > **Methodology spec:** [`docs/methodology/`](docs/methodology/) — eleven §01–§10 sections covering pillars, hypothesis schema, propagation, severity rubric, lifecycle, attestation, reporting, the F7 case study, and engagement tiers. Layer-by-layer implementation notes under [`docs/methodology/layers/`](docs/methodology/layers/).
 
-> **30-second pitch:** Jelleo is the underwriting layer for Solana DeFi — continuous,
-> commit-anchored, on-chain-signed attestations of code-level invariant integrity, designed
-> for insurers / partner protocols / STRIDE evaluators to consume as a live signal. This
-> repo is the platform.
+> **30-second pitch:** Jelleo sells **Continuous Audit engagements** — multi-language,
+> commit-anchored, on-chain-signed attestations of code-level invariant integrity.
+> Designed for any team shipping production smart contracts (DeFi protocols, chains,
+> wallets, bridges, exchanges) and consumable by insurers / Foundation grant programs /
+> STRIDE evaluators as a live signal. This repo is the platform.
 
 **Track record.** F7 (residual-conservation insurance-siphon class) disclosed via
 [`aeyakovenko/percolator-prog#39`](https://github.com/aeyakovenko/percolator-prog/pull/39).
@@ -49,6 +52,21 @@ All four pillars are 100% at the Y0 (pre-funded) tier as of 2026-05-11. Y1+ delt
 
 ---
 
+## Multi-language coverage
+
+Four language adapters in the engine — same 4-step methodology (catalog hypotheses → tool-using verification → empirical confirmation → sibling derivation) runs on each stack with language-aware tooling:
+
+| Language | Empirical confirmation | Formal verification |
+|---|---|---|
+| **Rust / Anchor** (Solana) | `cargo test` | Kani |
+| **Move** (Aptos) | `aptos move test` | Move Prover |
+| **Solidity** (EVM) | `forge test` | Slither |
+| **C** | native harness | CBMC |
+
+Adding a new language ships an adapter, not a rewrite. Per-language hypothesis catalogs grow as confirmations accumulate in each stack. Customer pipeline is not Solana-only — engine is ready for non-Solana ecosystem expansion without new engine work.
+
+---
+
 ## Implementation pipeline
 
 The 4 pillars above are implemented as a layered hunt cycle dispatched on every upstream commit. Layers compose into pillars; pillars are the product, layers are the technical architecture:
@@ -80,7 +98,7 @@ Every verdict — confirmed, refuted, or escalated — is written to a SQLite fi
 | **HTML dashboard** | Self-contained HTML dashboard with KPIs, severity breakdown, target cards, recent findings, refreshing daemon status. SSE-driven live state, 60s polling as a silent safety net. |
 | **Per-cycle + weekly HTML reports** | Branded executive reports with severity rubric, finding details, audit trail. Signed (Ed25519) at every layer. |
 | **Target onboarding** | Single command — `audit-pipeline onboard <github-url>` — clones, pins, scaffolds, and registers a new target. Class libraries shipped: `perp_dex` (43), `amm_cp` (58), `clmm` (102), `lending` (94), `lst` (68). Plus 449 Percolator-specific hyps across 9 files (baseline 12, deep-protocol 101, F7 strict-helper 12, bounty regression 18, new-diff 138, ported-class 50, cross-instruction 32, verifiable-conservation 37, unchanged-reaudit 49) — **814 total invariants across 14 YAML files**. Loader picks libraries via `--protocol-class <name>`. |
-| **Multi-target capable** | Architecture supports N programs in parallel with full per-target isolation. Inaugural deployment is Percolator-only; multi-protocol scaling is the Year 2+ path. |
+| **Multi-target capable** | Architecture supports N programs in parallel with full per-target isolation across all 4 supported languages. Per-customer scoping built in. |
 
 ---
 
