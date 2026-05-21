@@ -1,0 +1,1227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Funding Proposal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0a0a0a;
+    --ink-2: #2d2d2d;
+    --ink-3: #595959;
+    --ink-4: #8a8a8a;
+    --rule: #d4d4d4;
+    --rule-2: #e8e8e8;
+    --bg: #ffffff;
+    --bg-2: #fafafa;
+    --accent: #b45309;     /* amber-700 — brand accent, prints clean */
+    --accent-2: #f59e0b;   /* amber-500 — bars, fills */
+    --accent-soft: #fef3c7;/* amber-100 — table-row highlights, soft fills */
+    --accent-tint: #fffbeb;/* amber-50 — subtle backgrounds */
+    --chart-1: #b45309;    /* primary line / bar */
+    --chart-2: #1d4ed8;    /* secondary line / bar */
+    --chart-3: #047857;    /* tertiary (positive cash flow) */
+    --chart-grid: #e5e5e5; /* gridlines */
+    --critical: #b91c1c;
+    --high: #c2410c;
+    --med: #a16207;
+    --low: #1d4ed8;
+    --ok: #047857;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 11pt; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  code, pre, .mono { font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace; }
+  code { font-size: .9em; background: var(--bg-2); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--rule-2); }
+  a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+  a:hover { border-bottom-color: var(--ink); }
+
+  /* Page-print setup */
+  @page {
+    size: letter;
+    margin: 0.5in;
+  }
+  @media print {
+    /* Body inherits 11pt from html/body declaration above; do NOT override here. */
+    .no-print { display: none; }
+    /* Cover always takes its own page — fit content within printable area */
+    .cover { height: auto; min-height: 0; page-break-after: always; }
+    /* Each top-level section starts on a new page */
+    .shell > section { page-break-before: always; break-before: page; }
+    /* Headers stay with following content */
+    h1, h2, h3, h4 { page-break-after: avoid; break-after: avoid; }
+    section > .section-num + h1.section-title { page-break-after: avoid; }
+    h2 + p, h2 + ul, h2 + table, h2 + .compare { page-break-before: avoid; }
+    /* Compares + stage callouts + kpi rows stay together (small blocks) */
+    .compare, .stage, .kpi-row, dl.meta-grid {
+      page-break-inside: avoid; break-inside: avoid;
+    }
+    /* Tables can split if needed (avoids large blank space at bottom) */
+    table { page-break-inside: auto; }
+    thead { display: table-header-group; }
+    tr, td, th { page-break-inside: avoid; }
+    /* Compact spacing for print */
+    .stage { margin: 0.08in 0; padding: 0.07in 0.13in; }
+    h2 { margin: 0.14in 0 0.05in; }
+    h3 { margin: 0.10in 0 0.04in; }
+    p, ul { margin-bottom: 0.07in; }
+    li { margin: 0.02in 0; }
+    th, td { padding: 5px 9px; }
+    h1.section-title { margin-bottom: 0.18in; }
+  }
+
+  .shell { max-width: 8.5in; margin: 0 auto; padding: 0.5in 0.4in; }
+
+  /* Cover */
+  .cover { padding: 0.4in 0.5in 0.4in; min-height: 95vh; display: flex;
+    flex-direction: column; justify-content: space-between;
+    border-bottom: 1px solid var(--rule); }
+  .cover .top { display: flex; align-items: center; margin-bottom: 0.25in; }
+  .cover .wordmark {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    font-weight: 700;
+    letter-spacing: .26em;
+    font-size: 14px;
+    padding: 5px 11px;
+    line-height: 1;
+  }
+  .cover .wordmark::before,
+  .cover .wordmark::after {
+    content: '';
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border: 1.5px solid var(--ink);
+  }
+  .cover .wordmark::before {
+    top: 0; right: 0;
+    border-left: none; border-bottom: none;
+  }
+  .cover .wordmark::after {
+    bottom: 0; left: 0;
+    border-right: none; border-top: none;
+  }
+  .cover h1 { font-size: 26pt; font-weight: 800; letter-spacing: -0.025em; line-height: 1.05;
+    margin: 0.1in 0 0.08in; }
+  .cover h2 { font-size: 17pt; font-weight: 500; color: var(--ink-2);
+    letter-spacing: -0.015em; margin: 0; line-height: 1.2; }
+  .cover .lede { font-size: 11pt; color: var(--ink-2); margin-top: 0.14in; margin-bottom: 0.06in;
+    max-width: 6.5in; line-height: 1.4; }
+  .cover .meta { color: var(--ink-3); font-size: 9.5pt; line-height: 1.5;
+    border-top: 1px solid var(--rule); padding-top: 0.14in; }
+  .cover .meta dt { font-weight: 600; color: var(--ink-2);
+    text-transform: uppercase; letter-spacing: .08em; font-size: 9pt; }
+  .cover .meta dd { margin: 0 0 0.1in 0; }
+  .cover .meta-grid { display: grid; grid-template-columns: 1.5in 1fr; gap: 0.05in 0.2in; }
+  .cover .conf { font-size: 9pt; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-3); }
+
+  /* Section */
+  .section-num { font-size: 9pt; color: var(--accent); letter-spacing: .12em;
+    text-transform: uppercase; font-weight: 700; margin: 0 0 0.05in;
+    font-family: 'JetBrains Mono', monospace; }
+  h1.section-title {
+    font-size: 22pt; font-weight: 700; letter-spacing: -0.018em;
+    margin: 0 0 0.25in; padding-bottom: 0.1in; border-bottom: 2px solid var(--accent); }
+  h2 { font-size: 14pt; font-weight: 600; margin: 0.3in 0 0.1in;
+    letter-spacing: -0.01em; }
+  h3 { font-size: 11.5pt; margin: 0.2in 0 0.05in; font-weight: 600;
+    letter-spacing: -0.005em; color: var(--ink); }
+  p { margin: 0 0 0.13in; color: var(--ink-2); }
+  ul, ol { margin: 0 0 0.13in; padding-left: 0.25in; color: var(--ink-2); }
+  li { margin: 0.04in 0; }
+  .lede { color: var(--ink-2); margin-bottom: 0.2in; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 0.1in 0 0.2in;
+    font-size: 10pt; }
+  th, td { padding: 7px 11px; text-align: left; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { background: var(--bg-2); font-weight: 600; color: var(--ink);
+    text-transform: uppercase; font-size: 8.5pt; letter-spacing: .07em;
+    border-bottom: 1.5px solid var(--ink); }
+  td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; }
+  td.kpi { font-weight: 700; color: var(--accent); }
+  tbody tr:last-child td { border-bottom: 1px solid var(--ink); }
+  tbody tr:hover { background: var(--accent-tint); }
+  tbody tr:nth-child(even) { background: var(--bg-2); }
+
+  /* Compare two-column for NOW vs FUNDED */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2in;
+    margin: 0.15in 0 0.25in; }
+  .compare > div { background: var(--bg-2); border: 1px solid var(--rule);
+    border-radius: 4px; padding: 0.18in 0.22in; }
+  .compare h4 { font-size: 9pt; text-transform: uppercase; letter-spacing: .12em;
+    margin: 0 0 0.1in; color: var(--ink-3); font-weight: 700; }
+  .compare h4.now { color: var(--ink-3); }
+  .compare h4.future { color: var(--ok); }
+  .compare ul { padding-left: 0.18in; font-size: 10pt; margin: 0; }
+  .compare li { margin: 0.05in 0; color: var(--ink); }
+  .compare > div.accent { background: var(--accent-tint); border: 1px solid var(--accent);
+    border-left: 4px solid var(--accent); }
+  .compare > div.accent h4 { color: var(--accent); font-weight: 800; }
+
+  /* KPI tiles for use-of-funds */
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.1in; margin: 0.1in 0 0.2in; }
+  .kpi-tile { border: 1px solid var(--rule); border-radius: 4px; padding: 0.13in 0.15in; background: var(--bg); }
+  .kpi-tile .label { font-size: 8.5pt; color: var(--ink-3); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
+  .kpi-tile .value { font-size: 16pt; font-weight: 700; line-height: 1.1; margin-top: 0.05in; letter-spacing: -0.015em; color: var(--accent); }
+  .kpi-tile .note { font-size: 8.5pt; color: var(--ink-3); margin-top: 0.04in; }
+
+  /* Stage callout */
+  .stage { border-left: 3px solid var(--accent); padding: 0.1in 0.2in;
+    margin: 0.15in 0; background: var(--accent-tint); }
+  .stage h3 { margin-top: 0; color: var(--accent); text-transform: none;
+    letter-spacing: 0; font-size: 12pt; }
+
+  /* Footer */
+  .footer { margin-top: 0.15in; padding-top: 0.08in; border-top: 1px solid var(--rule);
+    color: var(--ink-3); font-size: 9pt; display: flex; justify-content: space-between;
+    page-break-before: avoid; break-before: avoid; page-break-inside: avoid; }
+
+  /* Severity tags */
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 999px;
+    font-size: 8pt; font-weight: 600; letter-spacing: .04em;
+    text-transform: uppercase; }
+  .tag.ok { background: #ecfdf5; color: var(--ok); border: 1px solid #a7f3d0; }
+  .tag.now { background: #f5f5f5; color: var(--ink-2); border: 1px solid var(--rule); }
+  .tag.future { background: #f0f9ff; color: #075985; border: 1px solid #bae6fd; }
+
+  /* Inline metric */
+  .metric { display: inline-block; padding: 1px 6px; background: var(--bg-2);
+    border: 1px solid var(--rule); border-radius: 3px; font-family: 'JetBrains Mono', monospace;
+    font-size: 9pt; font-weight: 500; color: var(--ink); }
+
+  blockquote { margin: 0.1in 0; padding: 0.1in 0.2in; border-left: 3px solid var(--ink-4);
+    color: var(--ink-2); font-style: italic; }
+
+  /* Charts (SVG-based, print-friendly) */
+  .chart {
+    margin: 0.18in 0 0.22in;
+    padding: 0.16in 0.18in 0.12in;
+    background: var(--accent-tint);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .chart figcaption {
+    font-size: 10pt;
+    color: var(--ink);
+    font-weight: 700;
+    margin-bottom: 0.1in;
+    letter-spacing: -0.005em;
+  }
+  .chart figcaption .sub {
+    display: block;
+    font-size: 8.5pt;
+    color: var(--ink-3);
+    font-weight: 500;
+    letter-spacing: 0;
+    margin-top: 2px;
+  }
+
+  /* Hero stats banner */
+  .stats-banner { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.15in;
+    margin: 0.25in 0; padding: 0.18in 0; border-top: 2px solid var(--accent);
+    border-bottom: 2px solid var(--accent); }
+  .stat { text-align: center; }
+  .stat .value { font-family: 'JetBrains Mono', monospace; font-size: 17pt;
+    font-weight: 700; letter-spacing: -0.02em; color: var(--accent); line-height: 1.1; }
+  .stat .label { font-size: 8pt; color: var(--ink-3); text-transform: uppercase;
+    letter-spacing: .1em; margin-top: 0.05in; font-weight: 600; }
+
+  /* Methodology step component */
+  .method-step { display: grid; grid-template-columns: 0.55in 1fr; gap: 0.18in;
+    margin: 0.18in 0; padding: 0.14in 0; border-top: 1px solid var(--rule-2); }
+  .method-step:first-of-type { border-top: none; padding-top: 0.05in; }
+  .method-step .step-num { font-family: 'JetBrains Mono', monospace; font-size: 22pt;
+    font-weight: 700; color: var(--ink-4); line-height: 1; letter-spacing: -0.02em; }
+  .method-step h3 { margin: 0 0 0.07in; text-transform: none; letter-spacing: 0;
+    font-size: 12pt; color: var(--ink); font-weight: 600; }
+  .method-step p { margin: 0; }
+
+  /* Terminal / code block */
+  .terminal { background: #0a0a0a; color: #e8e8e8; border-radius: 4px;
+    padding: 0.13in 0.18in; font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5pt; margin: 0.15in 0; line-height: 1.6; }
+  .terminal .prompt { color: #4ade80; margin-right: 0.08in; font-weight: 700;
+    user-select: none; }
+  .terminal .comment { color: #71717a; }
+  .terminal .accent { color: #60a5fa; }
+
+  /* Callouts */
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-tint);
+    padding: 0.16in 0.22in; margin: 0.2in 0; border-radius: 0 4px 4px 0; }
+  .callout.demo { border-left-color: #047857; background: #ecfdf5; }
+  .callout h3 { margin: 0 0 0.08in; text-transform: none; letter-spacing: 0;
+    color: var(--ink); font-size: 12pt; font-weight: 700; }
+  .callout p { margin: 0 0 0.08in; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout ol, .callout ul { margin: 0.05in 0 0.08in; }
+
+  /* Print buttons (hidden when printing) */
+  .print-bar { position: fixed; top: 12px; right: 12px; padding: 8px 14px;
+    background: var(--ink); color: white; border-radius: 4px;
+    font-size: 11pt; cursor: pointer; border: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  @media print { .print-bar { display: none; } }
+</style>
+</head>
+<body>
+
+<button class="print-bar no-print" onclick="window.print()">Print to PDF →</button>
+
+<!-- ============================== COVER ============================== -->
+<section class="cover page-break">
+  <div>
+    <div class="top">
+      <span class="wordmark">JELLEO</span>
+    </div>
+    <div>
+      <div class="conf">Confidential · Funding Proposal</div>
+      <h1>Autonomous Immune System<br>for Solana DeFi</h1>
+      <h2>Four interlocking pillars. v1 live; depth-scale ahead.</h2>
+
+      <p class="lede"><strong>What we sell:</strong> continuous, signed-receipt audit coverage for production smart contracts — multi-language, every commit, fix bundles included.</p>
+
+      <p class="lede"><strong>Who buys it:</strong> any team shipping production smart contracts — DeFi protocols, chains, wallets, bridges, exchanges, stablecoin issuers, DAOs.</p>
+
+      <p class="lede"><strong>The proof:</strong> v1 engine deployed today — 4 interlocking pillars with 8 internal pipeline layers, multi-language coverage. Source open at <a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a>; signed cycle receipts at <a href="https://jelleo.com/cycles/">jelleo.com/cycles/</a>.</p>
+
+      <p class="lede"><strong>The ask:</strong> $700K staged SAFE at $7M post-money cap (20% discount + MFN) to ship depth-scale, on-chain mainnet attestation, and general-case fix-bundle delivery in 12 months.</p>
+    </div>
+  </div>
+
+  <dl class="meta meta-grid">
+    <dt>Prepared for</dt><dd>Anatoly Yakovenko</dd>
+    <dt>Prepared by</dt><dd>Kirill Sakharuk</dd>
+    <dt>Contact</dt><dd>kirill@jelleo.com</dd>
+    <dt>Track record</dt><dd>v1 engine deployed; 12-codebase multi-language pilot complete; F7 disclosure (PR #39) as origin</dd>
+    <dt>Platform repo</dt><dd>github.com/Copenhagen0x/audit-pipeline-cli</dd>
+    <dt>Live operations</dt><dd>jelleo.com</dd>
+    <dt>Date</dt><dd>May 21, 2026</dd>
+  </dl>
+</section>
+
+<!-- ============================== EXECUTIVE SUMMARY ============================== -->
+<div class="shell">
+
+<section>
+  <div class="section-num">01 · Executive Summary</div>
+  <h1 class="section-title">The opportunity</h1>
+
+  <div style="border-left: 3px solid var(--accent); background: var(--accent-tint); padding: 0.16in 0.22in; margin: 0 0 0.22in 0; font-size: 11pt;">
+    <strong>▸ Operational reference / data room:</strong>
+    <ul style="margin: 0.08in 0 0 0.2in; padding: 0;">
+      <li>Engine live at <a href="https://jelleo.com" style="font-weight: 600;">jelleo.com</a></li>
+      <li>Public cycle archive at <a href="https://jelleo.com/cycles/">jelleo.com/cycles/</a></li>
+      <li>Pipeline source (Apache-2.0) at <a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a></li>
+      <li>Every claim in this document is reproducible from the live deployment and the open-source code</li>
+    </ul>
+  </div>
+
+  <div class="stats-banner" style="margin: 0.12in 0; padding: 0.08in 0;">
+    <div class="stat"><div class="value" style="font-size: 14pt;">v1.0</div><div class="label">Engine live</div></div>
+    <div class="stat"><div class="value" style="font-size: 14pt;">4</div><div class="label">Languages covered</div></div>
+    <div class="stat"><div class="value" style="font-size: 14pt;">8</div><div class="label">Pipeline layers</div></div>
+    <div class="stat"><div class="value" style="font-size: 14pt;">285K</div><div class="label">Project LOC</div></div>
+  </div>
+
+  <p class="lede"><strong>Jelleo is the continuous audit engine for smart contracts.</strong> Solana-primary,
+  multi-language. <strong>Four interlocking pillars</strong> — counterfactual mainnet detection,
+  cross-protocol bug-class propagation, closed-loop fix bundles, and on-chain attestation — running
+  through <strong>8 internal pipeline layers</strong> that complement one-shot point-in-time audit engagements
+  with continuous, code-grounded, signed-receipt coverage between them. v1 of the engine is live today with three of
+  four pillars complete in code and the fourth (on-chain attestation) running off-chain via per-cycle
+  Merkle roots with Ed25519 signatures.</p>
+
+  <p class="lede"><strong>Where Jelleo fits.</strong> Top-tier audit firms — Trail of Bits,
+  Asymmetric, Zellic, Halborn, Sec3 — deliver comprehensive point-in-time engagements at
+  <strong>$60K–$200K+</strong>, typically ~2 months for a Solana-scale Anchor program with
+  post-delivery touch-ups. Jelleo covers what happens between those engagements: continuous code-level
+  depth on every commit, exhaustive coverage past what a developer can prompt from an LLM directly,
+  false-positive removal, real-time attack-pattern detection on the deployed surface, immediate
+  cross-protocol pattern propagation when a bug class is disclosed anywhere, and verified closed-loop fix
+  delivery — all anchored by a tamper-proof attestation registry that other protocols can compose against.</p>
+
+  <p class="lede" style="page-break-before: always;"><strong>Per-LOC Continuous Audit engagements.</strong> $7/LOC onboarding
+  (Y1 only) + $5/LOC Continuous Audit (annual, renewable). For a 14K-LOC codebase: Y1 lands at $168K
+  (onboarding + first year), Y2+ continuous renewal at $70K &mdash; 3-year LTV $308K with continuous
+  coverage across all 36 months. Enterprise tier (~$200K+/yr) for protocols requiring SLA + dedicated
+  capacity. Detailed in Section 06.</p>
+
+  <h3>The proposal</h3>
+  <p>Jelleo today is a working v1 with three of four pillars complete in code, multi-language coverage,
+  and an open-source pipeline any technical reader can verify from the repo. The funded 12 months put
+  real money behind three things: <strong>(1)</strong> the third-party audit our P4 on-chain
+  attestation registry needs before mainnet ship (we cannot credibly self-audit our own on-chain
+  code); <strong>(2)</strong> running the engine at full multi-round depth — Kani synthesis on
+  every Critical/High and attack-chain enumeration — at substantially higher per-cycle API compute
+  than the self-funded exploratory depth supports today; <strong>(3)</strong> founder runway to sign
+  the first paying continuous-coverage customers and ship remaining engineering work as the natural
+  progression of dedicated development. Solo operator, AI-native execution, capital-efficient by
+  design.</p>
+
+  <h3>The ask</h3>
+  <p><strong>$700K SAFE</strong> at <strong>$7M post-money valuation cap</strong> with
+  <strong>20% discount</strong> and <strong>MFN clause</strong> — ~10% stake at conversion (discount
+  protects if Series A comes in below cap; MFN auto-upgrades terms if a later SAFE prices better).
+  Two tranches: <strong>$350K initial close → $350K at the 90-day milestone trigger</strong>
+  (P3 fix-bundle pipeline hardened + P4 devnet MVP live with indexer/query API + first customer
+  engagement signed or in late-stage diligence). Funds the
+  third-party Anchor audit ($80K), API compute budget for full-depth operation, production
+  infrastructure, and 12 months of founder runway. Cap priced at the midpoint of two independent
+  third-party valuation analyses ($6–8M pre-money range). Your package — equity upside,
+  strategic role (advisor immediately, board observer at Series A), and a complete Continuous Audit
+  at full throttle on a codebase of your choosing for the duration of the build phase (~$168K
+  retail value per Section 06, included) — detailed in Section 10.</p>
+</section>
+
+
+<!-- ============================== METHODOLOGY ============================== -->
+<section>
+  <div class="section-num">02 · Architecture</div>
+  <h1 class="section-title">Four interlocking pillars, eight internal layers</h1>
+
+  <p class="lede">Four interlocking pillars wrap a bug-finding pipeline that runs on every cycle. The
+  pillars are <strong>what the engine ships as capabilities</strong>: live mainnet detection (P1),
+  cross-protocol propagation (P2), closed-loop fix delivery (P3), tamper-proof attestation (P4).
+  Underneath them, <strong>eight internal layers</strong> execute the work — most of them inside P3,
+  which contains the bug-finding pipeline itself. No platform today combines all four.</p>
+
+  <div class="method-step">
+    <div class="step-num">P1</div>
+    <div>
+      <h3>Counterfactual mainnet detection</h3>
+      <p style="margin-bottom: 0.07in;">Always-on watchdog on the deployed surface. Per-transaction
+      parallel simulation; state divergence flags the transaction within seconds of slot finality.</p>
+      <p style="margin-bottom: 0.07in;"><strong>Today:</strong> <code>shadow.py</code> runs in two
+      modes — log-pattern detection (regex match against on-chain program logs) and account-state-delta
+      tracking (watches u128 / u64 invariant fields for forbidden transitions). Commit-triggered on
+      the upstream repo. This is the engine's L6 layer.</p>
+      <p><strong>Funded scope:</strong> sub-slot replay for time-sensitive invariants requires
+      validator-grade infrastructure or a premium archival-RPC subscription — that's the real
+      funded dependency. Live mainnet ingestion and on-call alert routing ship as engineering work
+      during the 12 months.</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">P2</div>
+    <div>
+      <h3>Cross-protocol bug-class propagation</h3>
+      <p style="margin-bottom: 0.07in;">When a bug class is disclosed anywhere, the engine extracts the
+      structural pattern and searches every indexed protocol in the corpus — vulnerable instances
+      flagged in minutes.</p>
+      <p style="margin-bottom: 0.07in;"><strong>Today:</strong> <code>propagate.py</code>,
+      <code>propagate_ast.py</code>, and <code>propagate_chain.py</code> drive a structural pattern
+      extractor over a multi-language corpus indexed across all four supported languages.
+      Substring + regex signature search at the source level. Operational across the same four-language
+      adapter stack the rest of the engine uses.</p>
+      <p><strong>Funded scope:</strong> running propagation continuously at full depth across the
+      indexed corpus is API-compute bound — funding pays the compute. AST-level pattern matching
+      and disclosure-feed integrations (Immunefi, GitHub Security Advisory, public PR feed) ship as
+      engineering work during the 12 months.</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">P3</div>
+    <div>
+      <h3>Closed-loop fix bundle — the core of the engine</h3>
+      <p style="margin-bottom: 0.07in;">Bug + agent-authored fix + Kani proof + tests, bundled as a
+      single PR with five-gate verification before any disclosure ships. The heaviest pillar — it
+      contains the bug-finding pipeline itself, organized as seven internal layers.</p>
+      <p style="margin-bottom: 0.07in;"><em>Conceptually, P3 runs a four-step methodology — catalog
+      hypotheses → tool-using verification → empirical confirmation → sibling derivation — at
+      production depth, language-aware, with formal-verification synthesis and fix-bundle assembly
+      chained on the end. The seven layers below are how those four steps execute:</em></p>
+      <ul style="margin: 0 0 0.07in 0.2in; padding: 0;">
+        <li style="margin: 0.04in 0;"><strong>L1 Recon</strong> — multi-agent parallel hypothesis
+        verification. Jelleo dispatches each hypothesis to a tool-using agent with
+        <code>read_file</code> / <code>grep</code> / <code>find_function</code>; the agent renders a
+        line-cited verdict (TRUE / FALSE / INCONCLUSIVE + confidence). Language-aware system prompts
+        per stack. LLM-provider-agnostic abstraction layer (no vendor lock-in at the model).</li>
+        <li style="margin: 0.04in 0;"><strong>L1.5 Debate</strong> — adversarial second-opinion gate
+        on contested or HIGH-severity findings; a second agent disputes the first's verdict and a
+        third arbitrates.</li>
+        <li style="margin: 0.04in 0;"><strong>L2 PoC author</strong> — autonomously generates a
+        language-appropriate test (<code>cargo test</code> for Rust, <code>forge test</code> for
+        Solidity, <code>aptos move test</code> for Move, native C harness for C) and compiles it
+        against the actual code.</li>
+        <li style="margin: 0.04in 0;"><strong>L2.5 Triage</strong> — fast-path regex filter + LLM
+        judge classifies each fire as STRONG / SOFT / FALSE / LOST. Saves $200–500 per cycle in
+        wasted formal-verification dispatch.</li>
+        <li style="margin: 0.04in 0;"><strong>L3 Formal verification</strong> — Kani for Rust,
+        CBMC for C, Move Prover for Aptos, Slither for Solidity. Math-grade proof attempt on STRONG
+        fires; produces a model-checked counterexample if the bug is real.</li>
+        <li style="margin: 0.04in 0;"><strong>L4 Fuzz coverage expansion</strong> — AFL corpora
+        expansion to widen coverage past what the static pipeline reached.</li>
+        <li style="margin: 0.04in 0;"><strong>L5 Bundle assembly + 5-gate verification</strong> —
+        patch + Kani proof + tests + writeup, bundled as a single PR. Five gates: (1) patch
+        authoring via Claude, (2) machine verification (compilation, test fires, Kani re-runs),
+        (3) operator review, (4) typed-authorization phrase, (5) tuple-matching recheck of
+        (finding, engine SHA, patch SHA) before PR open. No PR opens without all five.</li>
+      </ul>
+      <p style="margin-bottom: 0.07in;"><strong>Today:</strong> P3 is COMPLETE across all four
+      languages (Rust/Anchor, Move, Solidity, C). Code lives in <code>bundle/</code> (assembly,
+      patcher, verifier, auth) plus per-layer modules in <code>commands/</code>
+      (<code>recon</code>, <code>debate</code>, <code>poc</code>, <code>triage</code>,
+      <code>synth_kani</code>, <code>expand_coverage</code>, <code>bundle</code>).</p>
+      <p><strong>Funded scope:</strong> the engine runs at <strong>single-pass exploratory depth</strong>
+      today to stay within self-funded budget. Funded operation runs at full multi-round depth —
+      refinement on every hypothesis, formal-verification synthesis on every Critical/High,
+      attack-chain enumeration — at substantially higher per-cycle API compute. That compute is the
+      real funded dependency. Native GitHub PR integration (the engine drafts PRs today but a human
+      opens them by design) and general-case fix-bundle templates ship as engineering work during the
+      12 months.</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">P4</div>
+    <div>
+      <h3>Tamper-proof attestation registry</h3>
+      <p style="margin-bottom: 0.07in;">Every cycle publishes a signed Merkle root — which invariants
+      were verified at which commit SHA — cryptographically signed so anyone can independently verify a
+      cycle's findings without trusting Jelleo.</p>
+      <p style="margin-bottom: 0.07in;"><strong>Today (off-chain):</strong> <code>merkle.py</code>
+      computes a per-cycle Merkle root over the findings set; Ed25519 signing seeded from HKDF over
+      the platform private key; per-cycle <code>merkle.json</code> sidecars published to the public
+      cycle archive at <a href="https://jelleo.com/cycles/">jelleo.com/cycles/</a>; hourly heartbeat
+      publishes the engine's current root + uptime. This is the engine's 8th internal layer — outside
+      the per-cycle bug-finding pipeline (L1–L5) and the always-on mainnet shadow (L6), but executed
+      every cycle as the trust-anchor step.</p>
+      <p style="margin-bottom: 0.07in;"><strong>Funded scope (Y1):</strong> a
+      <strong>third-party audit covering the trust chain</strong> before P4 mainnet ship —
+      $80K minimum engagement at top Solana audit firms, scoped against the standard ~$14/LOC
+      rate to cover approximately <strong>5,500 LOC</strong>: the ~500-LOC Anchor program PLUS the
+      security-critical engine paths that produce and sign attestations (Merkle root computation,
+      Ed25519 signing path, cycle attestation lifecycle, per-customer scoping, key derivation).
+      Required because we cannot credibly self-audit our own trust-anchor code; without it the
+      chain breaks. The Anchor program itself, on-chain Merkle publication, indexer + query API
+      all ship as engineering work during the 12 months. Devnet deployment is free; mainnet ships
+      after the audit clears at day 180.</p>
+      <p><strong>Y2+ commitment:</strong> a full audit of the engine — <strong>58K LOC
+      today</strong> across the auditable engine source (~285K LOC across the full project
+      including tests, deploy scripts, website, and docs) — is a Year-2-and-beyond commitment as
+      revenue can absorb it. The engine grows continuously, so the actual cost of a full-engine
+      audit at the time we commission it will be <strong>substantially higher</strong> than the
+      ~$812K estimate against today's footprint (58K × $14/LOC). Year-1 audit scope covers the
+      critical trust chain that produces and signs attestations; the broader pipeline,
+      LLM-dispatch, and reporting code is open-source under Apache-2.0 and relies on public
+      scrutiny in the interim.</p>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================== LEARNING LOOP ============================== -->
+<section>
+  <div class="section-num">03 · Learning loop</div>
+  <h1 class="section-title">What compounds with every cycle</h1>
+
+  <p class="lede">Jelleo improves cycle-over-cycle — every confirmed finding adds to the catalog,
+  every propagation run extends reach, every false-positive judgment is captured. The compounding
+  is what continuous coverage actually delivers.</p>
+
+  <h2>What actually compounds</h2>
+
+  <div class="method-step">
+    <div class="step-num">01</div>
+    <div>
+      <h3>Language-portable methodology</h3>
+      <p>The same 4-step pipeline (catalog → verify → confirm → derive) runs on each of the four
+      supported language stacks. Pattern detection is language-aware per stack — Rust/Anchor, Move,
+      Solidity, and C each get their own bug catalog and tooling references. Adding a new language
+      ships an adapter, not a rewrite; the per-language catalog then grows as confirmations
+      accumulate in that stack. Methodology portability is what made covering four languages with a
+      solo team possible in the first place.</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">02</div>
+    <div>
+      <h3>Sibling derivation in practice</h3>
+      <p>Every confirmed bug auto-generates 3–5 sibling hypotheses targeting the same class through
+      different code paths. Confirmed siblings can spawn their own siblings. The catalog deepens
+      recursively with every cycle. The engine's first disclosure (F7 — see appendix) spawned
+      <strong>6 siblings</strong>; cross-protocol propagation then swept the indexed corpus
+      (Drift, Mango, Jupiter — 517 files) for the same structural pattern.</p>
+    </div>
+  </div>
+
+  <div class="method-step">
+    <div class="step-num">03</div>
+    <div>
+      <h3>Engine learns from external disclosures</h3>
+      <p>Disclosure-feed ingestion (Immunefi, GitHub Security Advisory, public PR feed — ships as
+      engineering work during the funded 12 months) means every bug class disclosed anywhere in the
+      ecosystem becomes a propagation target. The engine does not need to find a bug first to know
+      what to search for — external catalog growth automatically extends coverage across the
+      indexed corpus.</p>
+    </div>
+  </div>
+
+  <h2>Continuous vs point-in-time, over a 12-month horizon</h2>
+  <div class="compare">
+    <div>
+      <h4 class="now">Point-in-time firm engagement</h4>
+      <ul>
+        <li>Comprehensive engagement spanning ~2 months for Solana-scale programs, plus post-delivery touch-ups</li>
+        <li>Coverage closes at engagement end; subsequent commits await next engagement</li>
+        <li>Findings reflect the codebase scope at delivery</li>
+        <li>Each engagement scoped fresh per protocol</li>
+        <li>External disclosures land outside the engagement window</li>
+      </ul>
+    </div>
+    <div class="accent">
+      <h4>Jelleo continuous coverage</h4>
+      <ul>
+        <li>Every commit re-audited; signed receipt published</li>
+        <li>Per-language catalog grows with every confirmed finding</li>
+        <li>Sibling derivation deepens variant pattern coverage cycle-over-cycle</li>
+        <li>Cross-protocol propagation extends reach across the indexed corpus</li>
+        <li>Disclosure feeds keep the catalog current with the ecosystem <em>(funded delta)</em></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================== NOW vs FUNDED ============================== -->
+<section>
+  <div class="section-num">04 · Today vs Funded</div>
+  <h1 class="section-title">Where v1 stands, where the funded build takes it</h1>
+
+  <p class="lede">Section 02 covers Today + Funded for each pillar individually. This section gives
+  the horizontal view — five dimensions that cut across pillars, summarizing the deltas the funded
+  12 months deliver.</p>
+
+  <table>
+    <thead><tr><th>Dimension</th><th>Today (v1)</th><th>Funded — what real money buys</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Engine state</strong></td>
+        <td>58K LOC engine source, 8 pipeline layers, 4-language adapters (Rust/Anchor, Move,
+        Solidity, C); P1 + P2 + P3 complete in code; P4 off-chain</td>
+        <td><strong>Third-party audit</strong> enables P4 mainnet ship at day 180 (cost detailed
+        in Trust anchor row below); <strong>12 months of founder runway</strong> continues engine
+        hardening as paying customers onboard</td>
+      </tr>
+      <tr>
+        <td><strong>Coverage breadth</strong></td>
+        <td>Multi-language corpus indexed across all 4 stacks; cross-protocol propagation
+        operational at commit-trigger</td>
+        <td><strong>API compute budget</strong> runs propagation continuously at scale across the
+        indexed corpus — not just on commit</td>
+      </tr>
+      <tr>
+        <td><strong>Depth per cycle</strong></td>
+        <td>Single-pass exploratory depth (self-funded budget cap)</td>
+        <td><strong>API compute</strong> for full multi-round depth: refinement on every
+        hypothesis, formal-verification synthesis (Kani / CBMC / Move Prover / Slither) on every
+        Critical/High, attack-chain enumeration</td>
+      </tr>
+      <tr>
+        <td><strong>Customer-facing</strong></td>
+        <td>Token-gated per-customer portals at <code>jelleo.com/customer/&lt;id&gt;/</code>;
+        public cycle archive at <code>jelleo.com/cycles/</code>; per-cycle signed receipts;
+        hourly heartbeat</td>
+        <td><strong>Founder runway</strong> supports SLA + on-call commitments to enterprise
+        customers; <strong>minor production infra extension</strong> (paging service, separate VPS
+        for enterprise dedicated capacity, ~$150/mo combined)</td>
+      </tr>
+      <tr>
+        <td><strong>Trust anchor</strong></td>
+        <td>Off-chain — per-cycle Merkle root + Ed25519 signing + public archive at
+        <code>jelleo.com/cycles/</code></td>
+        <td><strong>$80K third-party audit</strong> covers the Anchor program + ~5K LOC of
+        critical engine attestation paths (enables mainnet ship); <strong>minor SOL costs</strong>
+        for mainnet deployment</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>Funded column above lists only real-money items. The supporting engineering (P4 Anchor
+  program code, indexer + query API, SLA infrastructure, on-call alert routing, branded PDF
+  cadence, dedicated-capacity scheduling, etc.) ships as the natural progression of dedicated
+  engineering work during the 12 months — covered by founder runway, not separately listed as
+  funded justifications.</p>
+</section>
+
+
+<!-- ============================== UNIT ECONOMICS ============================== -->
+<section>
+  <div class="section-num">05 · Unit Economics</div>
+  <h1 class="section-title">Cost model — measured, not estimated</h1>
+
+  <p class="lede">Numbers measured from actual engine spend on Sonnet 4.6 ($3 / $15 per MTok) plus
+  Opus 4.7 extrapolation at 2.25× effective rate (35% tokenizer overhead).
+  <a href="https://platform.claude.com/docs/en/about-claude/pricing">Official Anthropic pricing</a>.</p>
+
+  <h2>Per-hypothesis cost</h2>
+  <table>
+    <thead><tr><th>Mode</th><th class="num">Sonnet 4.6</th><th class="num">Opus 4.7</th></tr></thead>
+    <tbody>
+      <tr><td>Speculation recon</td><td class="num">~$0.05</td><td class="num">~$0.11</td></tr>
+      <tr><td>+ refinement round</td><td class="num">~$0.08</td><td class="num">~$0.18</td></tr>
+      <tr><td>Tool-using deep audit (15–25 turns)</td><td class="num">~$1.50</td><td class="num">~$3.40</td></tr>
+      <tr><td>Custom PoC + compile/run (language-appropriate)</td><td class="num">~$2.00</td><td class="num">~$4.50</td></tr>
+      <tr><td>Multi-step exploit-chain authoring</td><td class="num">~$3.00</td><td class="num">~$6.75</td></tr>
+    </tbody>
+  </table>
+
+  <h2>What the funded $200K API line covers</h2>
+  <p>The $200K Anthropic API line in the ask (Section 08) is the full engine-compute budget for the
+  12 months. Per-customer engagement compute is billed cost-plus separately (Section 06) and does NOT
+  draw from this budget.</p>
+  <table>
+    <thead><tr><th>Use</th><th class="num">12-month estimate</th><th>What it pays for</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Your free Percolator Continuous Audit — Jelleo's compute cost to deliver</td>
+        <td class="num kpi">~$75K</td>
+        <td>Full multi-round depth on Percolator: quarterly full-catalog comprehensive re-runs +
+        smart per-commit incrementals + propagation runs, 12 months. This $75K is Jelleo's <strong>API compute cost</strong>
+        to deliver the audit (cache+batch assumed; ~1,500-hyp catalog × $1 blended per-hyp avg).
+        The same service at retail would be <strong>~$168K</strong> (14K LOC × $12 Y1 blended,
+        Section 06) — you pay $0. Your investor-package benefit, detailed in Section 10.</td>
+      </tr>
+      <tr>
+        <td>Engine R&amp;D + sibling derivation + new bug-class development</td>
+        <td class="num kpi">~$75K</td>
+        <td>Catalog growth across all 4 language stacks, deep runs for demos, hypothesis-library
+        expansion</td>
+      </tr>
+      <tr>
+        <td>Operating reserve — ad-hoc deep-run spikes</td>
+        <td class="num kpi">~$50K</td>
+        <td>Headroom for one-off deep runs, customer-facing depth demonstrations, unforeseen
+        deep-run needs during the 12 months</td>
+      </tr>
+      <tr>
+        <td><strong>Total — funded API budget</strong></td>
+        <td class="num kpi"><strong>~$200K</strong></td>
+        <td><strong>Covers the full engine-compute need during the funded 12 months</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Cache + batch assumptions</h2>
+  <p>Cost numbers assume <strong>~70% prompt-cache hit rate</strong> on the per-protocol engine
+  context after a 4-week warmup (cache hits 0.1× base input, cache-miss writes 1.25×) and
+  <strong>~50% Batch-API utilization</strong> on non-urgent cycles. These assumptions are derived
+  from observed cache + batch behavior on the engine's real cycle log, not modeled top-down.</p>
+
+  <h2>Infrastructure — production-grade from day 1</h2>
+  <p>Hetzner AX102-class dedicated server runs the hunt loop, formal-verification dispatch,
+  customer dashboard, and the cycle archive at jelleo.com/cycles/. Automated nightly database +
+  filesystem snapshots to a separate-DC Hetzner Storage Box (RPO ≤24h, restore-tested monthly).
+  Observability via Grafana Cloud + Slack + Cloudflare. All-in <strong>~$400/mo</strong> for the
+  production VPS; add <strong>~$150/mo</strong> for paging service + separate dedicated VPS once
+  the first enterprise customer signs. 12-month total <strong>~$5–7K</strong> — sits comfortably
+  under Section 08's $20K infra line, with headroom for an SLA-grade hot-standby DC upgrade
+  (~$300/mo) when scale requires it.</p>
+</section>
+
+
+<!-- ============================== REVENUE MODEL ============================== -->
+<section>
+  <div class="section-num">06 · Revenue model & path to self-funding</div>
+  <h1 class="section-title">How protocols pay, how Jelleo pays for itself</h1>
+
+  <p class="lede" style="font-style: italic; color: var(--ink-3); border-left: 2px solid var(--ink-4); padding-left: 0.15in;">This section answers: how does Jelleo make money, when does it pay for itself, and what does the SAFE convert to?</p>
+
+  <p class="lede"><strong>Continuous Audit engagements</strong>, priced per LOC of code under coverage —
+  same engagement structure top audit firms use, just continuous instead of one-shot. Customer signs
+  an annual engagement letter; Jelleo runs against their codebase for the full term; renewal is a
+  fresh engagement, not auto-billing. Three revenue streams: <strong>per-LOC Continuous Audit</strong>
+  (most customers), <strong>enterprise flat contracts</strong> (5&ndash;10% of customers,
+  ~30&ndash;40% of revenue), and <strong>Foundation/STRIDE grants</strong> (supplementary, Y2+ path).</p>
+
+  <h2>Pricing &mdash; undercuts top firms by 49% over 3 years</h2>
+  <table>
+    <thead><tr><th>Component</th><th class="num">Rate</th><th>What it covers</th><th class="num">Our COGS<br><span style="font-size: 7pt; font-weight: 400; text-transform: none;">(Anthropic API spend)</span></th><th class="num">Margin</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Onboarding scan</strong> (Y1 only, one-time &middot; <em>months 1&ndash;2</em>)</td><td class="num kpi">$7/LOC</td><td><strong>First full scan of the entire codebase.</strong> Cold prompt cache, full ~1,500-hyp catalog runs deep against every line; 4-week engine context warmup. One-time cost; the heavy lift.</td><td class="num">~$1&ndash;2/LOC</td><td class="num">71&ndash;86%</td></tr>
+      <tr><td><strong>Continuous Audit</strong> (annual, renewable &middot; <em>months 3&ndash;12 &amp; renewals</em>)</td><td class="num kpi">$5/LOC</td><td><strong>Ongoing coverage after the onboarding scan.</strong> Diff-based re-audit on every commit + new-hyp sweeps + propagation alerts + always-on shadow + signed cycle attestations. Cached operation; much cheaper to deliver.</td><td class="num">~$0.50&ndash;1.50/LOC/yr</td><td class="num">70&ndash;90%</td></tr>
+      <tr><td><strong>Y1 blended</strong></td><td class="num kpi">$12/LOC</td><td>Onboarding + first 12 months of Continuous Audit</td><td class="num">&mdash;</td><td class="num">~75%</td></tr>
+      <tr><td><strong>Y2+ steady</strong></td><td class="num kpi">$5/LOC</td><td>Annual Continuous Audit renewal</td><td class="num">&mdash;</td><td class="num">~85%</td></tr>
+      <tr><td><strong>Enterprise tier</strong> (flat contract)</td><td class="num kpi">$200K+/yr</td><td>SLA + on-call + dedicated capacity + first-call incident response</td><td class="num">~$50&ndash;80K/yr</td><td class="num">60&ndash;75%</td></tr>
+    </tbody>
+  </table>
+  <p>Blended gross margin at scale: <strong>~80%</strong> &mdash; SaaS-grade margins on AI-native
+  security infrastructure. Per-customer engagement compute is billed cost-plus and does NOT draw
+  from the $200K Section 05 R&amp;D budget.</p>
+
+  <h2>How the compute split shapes pricing</h2>
+  <p>Onboarding (months 1&ndash;2) runs the full ~1,500-hyp catalog deep against the entire codebase
+  &mdash; cold prompt cache, full sweep, the expensive phase. Continuous Audit (months 3&ndash;12 and
+  annual renewals) is much cheaper to deliver: engine context warmed (70% cache hit), diff-based
+  smart incrementals on every commit, sweeping only NEW hypotheses. The catalog isn't re-run daily
+  &mdash; that would burn $50K/customer/month for no signal.</p>
+
+  <p>The first 2 months cost roughly the same as the next 10. Pricing reflects this directly:
+  <strong>$7/LOC for the onboarding lift, $5/LOC for cached steady-state thereafter.</strong></p>
+
+  <h2>Per-customer annual revenue (examples)</h2>
+  <table>
+    <thead><tr><th>Customer profile</th><th class="num">Codebase LOC</th><th class="num">Y1 (onboarding + Continuous)</th><th class="num">Y2+ steady</th><th class="num">3-yr LTV</th></tr></thead>
+    <tbody>
+      <tr><td>Light DeFi / new protocol</td><td class="num">3K</td><td class="num kpi">$36K</td><td class="num">$15K</td><td class="num">$66K</td></tr>
+      <tr><td>Small DeFi</td><td class="num">8K</td><td class="num kpi">$96K</td><td class="num">$40K</td><td class="num">$176K</td></tr>
+      <tr><td><strong>Medium DeFi (anchor)</strong></td><td class="num">14K</td><td class="num kpi"><strong>$168K</strong></td><td class="num"><strong>$70K</strong></td><td class="num kpi"><strong>$308K</strong></td></tr>
+      <tr><td>Active / large DeFi</td><td class="num">30K</td><td class="num kpi">$360K</td><td class="num">$150K</td><td class="num">$660K</td></tr>
+      <tr><td>Multi-program enterprise</td><td class="num">50K</td><td class="num kpi">$600K</td><td class="num">$250K</td><td class="num">$1.1M</td></tr>
+      <tr><td>Enterprise (flat contract)</td><td class="num">&mdash;</td><td class="num kpi">$200K+</td><td class="num kpi">$200K+</td><td class="num">$600K+</td></tr>
+    </tbody>
+  </table>
+  <p><strong>vs top firm $200K one-shot</strong> on a medium 14K-LOC anchor: Jelleo Y1 at $168K is
+  <strong>16% cheaper</strong> AND adds 12 months of continuous coverage. Y2+ continuous renewal at
+  $70K is <strong>65% cheaper</strong> than the firm's $200K re-audit.
+  <strong>3-year LTV: $308K vs firm $600K &mdash; 49% cheaper, no coverage gaps.</strong></p>
+
+  <h2>Burn rate + break-even</h2>
+  <p>Recurring monthly burn: <strong>~$49K/mo</strong> &mdash; founder runway $30K + Anthropic API
+  $17K (engine R&amp;D) + infra ~$1K + recurring legal/accounting ~$0.5K. Y1 average is higher
+  (~$57K/mo) including the one-time third-party Anchor audit and build materials.</p>
+
+  <p><strong>Two break-even views &mdash; both honest:</strong></p>
+  <ul>
+    <li><strong>Continuous ARR break-even (steady state):</strong> $588K/yr fixed burn &divide; ~75%
+    contribution margin = need ~$784K gross continuous ARR. Reached at <strong>M16&ndash;M18</strong>
+    with 6 medium + 2 enterprise customers ($820K continuous ARR).</li>
+    <li><strong>Cash-flow break-even (includes Y1 onboarding pops):</strong> Y1 booked revenue
+    $704K (3 medium &times; $168K + 1 enterprise &times; $200K) vs Y1 fixed burn $688K + variable
+    costs $165K = ~$150K Y1 cash gap, covered within Tranche 2 buffer. Y2 net cash
+    <strong>+$517K positive</strong>. Cumulative cash-positive by <strong>mid-Y2 (M15&ndash;M18)</strong>.</li>
+  </ul>
+  <p>Both views converge in the same window. The funded 12 + 6 month runway comfortably absorbs the
+  Y1 gap.</p>
+
+  <h2>Customer trajectory (realistic &mdash; not hockey-stick)</h2>
+  <p>Anchored to realistic B2B security-infra sales cycles (3&ndash;6 months from first contact to
+  signed engagement). Solo founder + AI-native execution + no sales team in Y1 caps acquisition
+  velocity at <strong>~1 customer every 3 months Y1, accelerating to ~1 every 2 months Y2</strong>
+  (4 new customers Y1, +6 Y2, +4 Y3 per the trajectory below). Continuous-only ARR shown
+  (onboarding pops captured separately in cash-flow view above).</p>
+  <table>
+    <thead><tr><th>Period</th><th class="num">Customers</th><th>Mix</th><th class="num">MRR</th><th class="num">Continuous ARR</th></tr></thead>
+    <tbody>
+      <tr><td>M3</td><td class="num">1</td><td>1 medium per-LOC</td><td class="num">~$6K</td><td class="num">$70K</td></tr>
+      <tr><td>M6</td><td class="num">2</td><td>2 medium per-LOC</td><td class="num">~$12K</td><td class="num">$140K</td></tr>
+      <tr><td>M9</td><td class="num">3</td><td>3 medium per-LOC</td><td class="num">~$18K</td><td class="num">$210K</td></tr>
+      <tr><td><strong>M12</strong></td><td class="num"><strong>4</strong></td><td><strong>3 medium + 1 enterprise</strong></td><td class="num kpi"><strong>~$34K</strong></td><td class="num kpi"><strong>$410K</strong></td></tr>
+      <tr><td>M15</td><td class="num">6</td><td>5 medium + 1 enterprise</td><td class="num">~$46K</td><td class="num">$550K</td></tr>
+      <tr><td><strong>M18</strong></td><td class="num"><strong>8</strong></td><td><strong>6 medium + 2 enterprise</strong></td><td class="num kpi"><strong>~$68K</strong></td><td class="num kpi"><strong>$820K</strong></td></tr>
+      <tr><td><strong>Y2 Q4</strong></td><td class="num"><strong>10</strong></td><td><strong>8 medium + 2 enterprise</strong></td><td class="num kpi"><strong>~$80K</strong></td><td class="num kpi"><strong>$960K</strong></td></tr>
+      <tr><td><strong>Y3 exit</strong></td><td class="num"><strong>14</strong></td><td><strong>11 medium + 3 enterprise</strong></td><td class="num kpi"><strong>~$114K</strong></td><td class="num kpi"><strong>$1.37M</strong></td></tr>
+    </tbody>
+  </table>
+  <p>Y3 exit ARR ($1.37M) is just below the typical Series A floor (~$1.5M) on the base
+  trajectory; realistic Series A timing is <strong>Y3.5&ndash;Y4</strong> at $15&ndash;30M
+  valuation. Strategic acquisition is the more probable near-term exit &mdash; Hexagate
+  (multi-chain runtime detection) sold to Chainalysis for ~$60M in December 2024 with a customer
+  book comparable to where Jelleo lands at Y2.5&ndash;Y3.</p>
+
+  <h2>Returns on the $700K SAFE @ $7M cap (~10% stake)</h2>
+  <table>
+    <thead><tr><th>Exit scenario</th><th class="num">Your stake value</th><th class="num">Multiple on $700K</th></tr></thead>
+    <tbody>
+      <tr><td>Series A at $15M (Y3, low)</td><td class="num">~$1.5M</td><td class="num kpi"><strong>2.1&times;</strong></td></tr>
+      <tr><td>Series A at $25M (Y3, base)</td><td class="num">~$2.5M</td><td class="num kpi"><strong>3.6&times;</strong></td></tr>
+      <tr><td>Series A at $50M (Y4 stretch)</td><td class="num">~$5M</td><td class="num kpi"><strong>7.1&times;</strong></td></tr>
+      <tr><td>Strategic acquisition $60M (Hexagate-class, Y2.5&ndash;Y3)</td><td class="num">~$6M</td><td class="num kpi"><strong>8.6&times;</strong></td></tr>
+      <tr><td>Acquisition $150M (upside)</td><td class="num">~$15M</td><td class="num kpi"><strong>21&times;</strong></td></tr>
+    </tbody>
+  </table>
+  <p>Plus the <strong>~$168K-equivalent free Percolator Continuous Audit at retail</strong> (per the
+  Section 06 pricing table for a 14K-LOC codebase) you receive as part of your investor package
+  &mdash; effective baseline return of <strong>~0.24&times; cash-equivalent</strong> on cash before
+  any equity outcome. Combined floor in even the low Series A
+  scenario: <strong>~2.4&times; total</strong>. 20% discount kicks in only if Series A comes in below
+  $8.75M ($7M cap &divide; 0.8) &mdash; protective in down scenarios. MFN clause auto-upgrades terms if a
+  later SAFE prices more favorably. Typical Series A rounds dilute another 15&ndash;25%, so headline
+  multiples above are pre-dilution; post-dilution effective is roughly 80&ndash;85% of the figures
+  shown (only applies if you don't take liquidity at Series A; in an acquisition the acquirer
+  buys out the cap-table directly).</p>
+
+  <h2>Foundation alignment &mdash; STRIDE (supplementary, Y2+ OKR)</h2>
+  <p>Solana Foundation launched <strong>STRIDE</strong> on April 6, 2026 with Asymmetric Research
+  &mdash; a tiered, foundation-funded program where <strong>Tier 2 protocols ($100M+ TVL)</strong>
+  receive formal-verification funding. <strong>We have no partnership with STRIDE today.</strong>
+  The structural fit is clean &mdash; STRIDE assessors evaluate, third-party vendors produce the
+  artifacts evaluated &mdash; and if Jelleo attestations are recognized as qualifying Tier 2 input,
+  protocols could direct that grant funding toward Jelleo as the artifact-producing vendor.
+  <strong>Year 2+ OKR:</strong> outreach to STRIDE assessors begins after P4 mainnet (day 180).
+  Estimated upside if approved: <strong>$200&ndash;500K/yr supplementary revenue by Y3</strong>.
+  No plan dependency &mdash; pure upside if it lands.</p>
+</section>
+
+
+<!-- ============================== STAGED PLAN ============================== -->
+<section>
+  <div class="section-num">07 · Staged plan</div>
+  <h1 class="section-title">12-month roadmap + path beyond</h1>
+
+  <p class="lede" style="font-style: italic; color: var(--ink-3); border-left: 2px solid var(--ink-4); padding-left: 0.15in;">This section answers: what does your $700K actually buy, in what order, and what does the Y2+ commercial expansion look like beyond the funded 12 months?</p>
+
+  <p class="lede">Engine v1 already operates all four pillars (Section 02): P1&ndash;P3 fully in code,
+  P4 off-chain attestation today with the on-chain Anchor program landing at day 180. The funded 12
+  months are about <strong>productizing for paying customers + the P4 on-chain mainnet milestone</strong>
+  &mdash; not building new engine surface. Two-tranche structure:
+  <strong>$350K at initial close &rarr; $350K at the 90-day Tranche 2 trigger</strong>.</p>
+
+  <div class="stage">
+    <h3>Stage 1 &mdash; Months 1&ndash;3 &middot; Engine hardening + first customer pipeline &middot; Pre-Tranche-2</h3>
+    <ul>
+      <li><strong>Engine v1 &rarr; production multi-tenancy:</strong> per-customer engagement
+      isolation, per-customer cycle archives, per-customer billing telemetry, dashboard SLA
+      scaffolding. Engine source itself is feature-complete; this work is operational hardening for
+      serving multiple paying customers in parallel.</li>
+      <li><strong>Customer-facing infrastructure:</strong> Ed25519-signed per-cycle receipts,
+      token-gated customer portals at <code>jelleo.com/customer/&lt;id&gt;/</code>, and 24h PDF
+      cadence <em>already shipped</em>. Y1 adds weekly/monthly branded PDF cadence, on-call
+      routing skeleton, engagement-letter templates, per-customer billing telemetry.</li>
+      <li><strong>Sales pipeline opens day 1.</strong> B2B security-infra sales cycles are
+      3&ndash;6 months &mdash; the first signed Continuous Audit engagement forecast at
+      <strong>M3</strong> per Section 06 trajectory.</li>
+      <li><strong>Day 90 &mdash; Tranche 2 trigger:</strong> P3 closed-loop fix-bundle pipeline
+      hardened (auto-PR off; human-in-the-loop authorization required per the P3 policy in
+      Section 02); P4 devnet MVP live with indexer + query API; first customer engagement signed
+      or in late-stage diligence. If P3/P4 or customer milestones miss, Tranche 2 release is delayed
+      &mdash; a lever you control.</li>
+    </ul>
+  </div>
+
+  <div class="stage">
+    <h3>Stage 2 &mdash; Months 4&ndash;7 &middot; Third-party Anchor audit + customer onboarding &middot; Post-Tranche-2</h3>
+    <ul>
+      <li><strong>Third-party Anchor program audit kicks off day 90</strong> (~$80K line in
+      Section 08). Covers the ~500-LOC Anchor program + ~5K LOC of critical engine attestation
+      paths (~5,500 LOC total scope &mdash; the security-critical perimeter that needs human-auditor
+      sign-off before mainnet).</li>
+      <li><strong>API compute budget runs full-depth operation</strong> on signed customers:
+      multi-round refinement on every hypothesis, formal-verification synthesis (Kani / CBMC /
+      Move Prover / Slither) on every Critical/High, attack-chain enumeration. Engine-R&amp;D vs
+      per-customer compute split per Section 05.</li>
+      <li><strong>Customer trajectory:</strong> M3 &rarr; 3 customers by M9 per Section 06 forecast
+      (~1 customer every 3 months Y1 average).</li>
+      <li><strong>Day 180 &mdash; P4 mainnet deployment</strong> (after the third-party audit
+      completes). Anchor program goes live on Solana mainnet. First Merkle-root attestations
+      published on-chain. Per-cycle receipts become independently verifiable via the on-chain
+      indexer.</li>
+    </ul>
+  </div>
+
+  <div class="stage">
+    <h3>Stage 3 &mdash; Months 8&ndash;12 &middot; 4-pillar production + first enterprise contract forecast</h3>
+    <ul>
+      <li><strong>All 4 pillars production-hardened end-to-end:</strong> P1 multi-language
+      counterfactual detection on signed customers' mainnet activity; P2 cross-protocol propagation
+      sweeps across the indexed customer corpus on every new bug class; P3 fix-bundle deliveries
+      gated on customer authorization; P4 on-chain attestation registry continuously appending.</li>
+      <li><strong>Customer trajectory forecast:</strong> 4 customers by M12 (3 per-LOC + 1
+      enterprise mix per Section 06). M12 continuous ARR <strong>~$410K</strong>; cumulative Y1
+      onboarding pops captured separately (~$700K Y1 booked total revenue).</li>
+      <li><strong>First enterprise contract &mdash; forecast, not guaranteed.</strong> Section 06
+      trajectory shows the first enterprise SLA contract landing somewhere in the Stage 3 window.
+      Enterprise sales cycles are longer (4&ndash;8 months); the Y1 enterprise close depends on
+      inbound that started in Stage 1 closing this window. Conservative downside: enterprise
+      slips to early Y2 and Y1 ARR comes in lower than the $410K base case.</li>
+      <li><strong>Public methodology + verification page</strong> live at jelleo.com/methodology/;
+      quarterly comprehensive re-runs (full formal-verification regression across the indexed
+      customer corpus); first-call-on-incident SLA active for the first enterprise customer.</li>
+    </ul>
+  </div>
+
+  <div class="stage">
+    <h3>Stage 4 &mdash; Year 2+ &middot; Commercial expansion <em>(SAFE upside; not part of 12-month commitment)</em></h3>
+    <ul>
+      <li><strong>Acquisition velocity accelerates</strong> to ~1 customer every 2 months in Y2 as
+      reference customers + word-of-mouth shorten the sales cycle (+6 new customers Y2 vs +4 Y1). <strong>M18:</strong> 8
+      customers / $820K continuous ARR. <strong>Y2 Q4:</strong> 10 customers / $960K ARR.
+      <strong>Y3 exit:</strong> 14 customers / $1.37M ARR (Section 06 trajectory).</li>
+      <li><strong>Strategic acquisition &mdash; the more probable near-term exit (Y2.5&ndash;Y3).</strong>
+      Reference: Hexagate (multi-chain runtime detection) sold to Chainalysis for ~$60M in
+      December 2024 with a customer book comparable to where Jelleo lands at Y2.5&ndash;Y3.
+      Returns table in Section 06: ~8.6&times; on the $700K SAFE at a Hexagate-class exit.</li>
+      <li><strong>Series A &mdash; backup path (Y3.5&ndash;Y4) at $15&ndash;30M valuation.</strong>
+      Y3 exit ARR ($1.37M) is just below the typical Series A floor (~$1.5M); base trajectory
+      hits the floor in early Y4 on the same acquisition velocity, or sooner if enterprise mix
+      outperforms. Returns at $25M base Series A: ~3.6&times; on the $700K SAFE.</li>
+      <li><strong>STRIDE outreach begins post-P4 mainnet (day 180).</strong> Solana Foundation's
+      STRIDE program (launched April 2026 with Asymmetric Research) funds Tier 2 protocols ($100M+
+      TVL) for formal-verification work &mdash; if Jelleo attestations are recognized as qualifying
+      input, supplementary revenue of $200&ndash;500K/yr by Y3 (Section 06). No plan dependency;
+      pure upside.</li>
+      <li><strong>Multi-language commercial expansion already shipped in code</strong> (Aptos/Move,
+      Solidity, C adapters complete per Section 02). Y2 expansion across non-Solana ecosystems
+      requires customer pipeline development, not new engine work &mdash; capital-efficient
+      market expansion.</li>
+    </ul>
+  </div>
+</section>
+
+
+<!-- ============================== USE OF FUNDS ============================== -->
+<section>
+  <div class="section-num">08 · Use of funds</div>
+  <h1 class="section-title">Where the capital goes</h1>
+
+  <p class="lede" style="font-style: italic; color: var(--ink-3); border-left: 2px solid var(--ink-4); padding-left: 0.15in;">This section answers: where does every dollar of the $700K go, when does it get spent, and what is intentionally NOT in the budget?</p>
+
+  <p class="lede"><strong>$700K / 12 months. Two tranches: $350K at initial close + $350K at the
+  90-day Tranche 2 trigger.</strong> Real-money items only &mdash; engine engineering work and
+  operational hardening ship as the natural progression of dedicated founder time (covered by the
+  runway line), not separately funded.</p>
+
+  <table>
+    <thead><tr><th>Category</th><th class="num">Tranche 1 (M1&ndash;5)</th><th class="num">Tranche 2 (M6&ndash;12)</th><th class="num">Total</th><th class="num">%</th></tr></thead>
+    <tbody>
+      <tr><td>Founder runway ($30K/mo &times; 12)</td><td class="num">$150K</td><td class="num">$210K</td><td class="num kpi">$360K</td><td class="num">51%</td></tr>
+      <tr><td>Anthropic API (engine R&amp;D + free Percolator audit + demos &middot; Section 05)</td><td class="num">$80K</td><td class="num">$120K</td><td class="num kpi">$200K</td><td class="num">29%</td></tr>
+      <tr><td>Third-party Anchor audit (day 180 &middot; ~5,500 LOC scope &middot; Section 02)</td><td class="num">&mdash;</td><td class="num">$80K</td><td class="num kpi">$80K</td><td class="num">11%</td></tr>
+      <tr><td>Legal + accounting (Delaware C-corp + SAFE + 12-mo ongoing)</td><td class="num">$20K</td><td class="num">$5K</td><td class="num kpi">$25K</td><td class="num">4%</td></tr>
+      <tr><td>Production infrastructure (Section 05 &mdash; setup + paging + standby)</td><td class="num">$20K</td><td class="num">&mdash;</td><td class="num kpi">$20K</td><td class="num">3%</td></tr>
+      <tr><td>Build materials + one-off services (RPC subscriptions &middot; HSM hardware &middot; dev tooling)</td><td class="num">$15K</td><td class="num">&mdash;</td><td class="num kpi">$15K</td><td class="num">2%</td></tr>
+      <tr><td><strong>Committed expenses per tranche window</strong></td><td class="num"><strong>$285K</strong></td><td class="num"><strong>$415K</strong></td><td class="num kpi"><strong>$700K</strong></td><td class="num"><strong>100%</strong></td></tr>
+      <tr><td><strong>Tranche cash released</strong></td><td class="num kpi"><strong>$350K</strong></td><td class="num kpi"><strong>$350K</strong></td><td class="num kpi"><strong>$700K</strong></td><td class="num"><strong>&mdash;</strong></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Tranche cash logic &mdash; $65K T1 carry-over closes the M6&ndash;12 gap</h2>
+  <p><strong>Tranche 1 releases $350K against $285K of M1&ndash;5 committed expenses.</strong> The
+  $65K surplus carries into M6+ as a reserve. <strong>Tranche 2 releases $350K against $415K of
+  M6&ndash;12 committed expenses</strong> &mdash; a $65K shortfall that the Tranche 1 carry-over
+  exactly offsets. Net dependency on customer revenue for committed expenses: <strong>$0</strong>.</p>
+
+  <p><strong>Y1 customer revenue is the safety margin on top.</strong> Per Section 06 trajectory,
+  the first signed customer pays the initial half (~$84K) by M5; by M12 the 4 signed customers
+  (3 medium + 1 enterprise) have paid in $400&ndash;700K of cash against $700K Y1 booked contract
+  value. Worst case (customer pipeline slips by 1 quarter): Tranche 2 release timing is the
+  protective lever &mdash; you defer Tranche 2 release until proof points materialize,
+  extending Tranche 1 carry-over deeper into Y1.</p>
+
+  <h2>Why each line is exactly this size</h2>
+  <p><strong>Founder runway ($360K)</strong> &mdash; Solo operator, AI-native execution. $30K/mo
+  is the baseline cost of one US-based founder paying themselves, working full-time, no other hires
+  in Y1. Cross-pillar integration engineering, P4 Anchor program code, indexer + query API, SLA
+  infrastructure, on-call routing, branded PDF cadence &mdash; all of this engineering ships from
+  this line, not separately funded.</p>
+
+  <p><strong>Anthropic API ($200K)</strong> &mdash; Full engine-compute budget for the 12 months,
+  detailed in Section 05 (free Percolator audit $75K + engine R&amp;D + sibling derivation $75K +
+  $50K compute reserve for ad-hoc deep-run spikes). Per-customer engagement compute is billed
+  cost-plus to the customer separately and does NOT draw from this line. API spend is roughly
+  evenly distributed across the 12 months at ~$17K/mo &mdash; T1 (5 months) = $80K, T2 (7 months)
+  = $120K, scaled to tranche window length. Cache + batch assumptions per Section 05.</p>
+
+  <p><strong>Third-party Anchor audit ($80K)</strong> &mdash; At day 180, after P4 devnet MVP
+  proves out, before mainnet ship. Scoped to the ~500-LOC Anchor program + ~5K LOC of critical
+  engine attestation paths (~5,500 LOC total) per Section 02. $80K is the floor of the Solana
+  audit-firm band for tight-scope Anchor engagements (Halborn, Sec3, Asymmetric-class). We cannot
+  credibly self-audit our own trust-anchor code.</p>
+
+  <p><strong>Legal + accounting ($25K)</strong> &mdash; Delaware C-corp formation, SAFE papering,
+  advisor agreement, IP assignment, plus 12 months of ongoing accounting/bookkeeping.
+  Front-loaded into Tranche 1.</p>
+
+  <p><strong>Production infrastructure ($20K)</strong> &mdash; Per Section 05's measured numbers:
+  Hetzner AX102-class dedicated server (~$400/mo) + paging service + separate VPS for enterprise
+  dedicated capacity (~$150/mo) + setup/migration costs + first-year buffer for SLA-grade
+  hot-standby DC upgrade when the first enterprise customer signs. All front-loaded into
+  Tranche 1.</p>
+
+  <p><strong>Build materials + one-off services ($15K)</strong> &mdash; RPC subscriptions (mainnet
+  + premium archival for sub-slot replay per P1 funded scope in Section 02), HSM hardware for
+  signing-key custody, dev tooling licenses, test infra beyond the production VPS. All front-loaded
+  into Tranche 1.</p>
+
+  <h2>What's NOT in the budget (and why)</h2>
+  <ul>
+    <li><strong>No separate operational reserve line.</strong> Section 05's $50K compute reserve
+    handles the most likely cost overrun (API spike). Tranche 2 release timing is the lever for
+    everything else. Budget is intentionally tight by design.</li>
+    <li><strong>No engineering hires.</strong> Solo founder + AI-native execution covers all
+    engineering work in Y1; first hire is a Y2 decision conditional on Series A or strategic
+    inbound.</li>
+    <li><strong>No per-customer compute.</strong> Billed cost-plus separately to the customer
+    (Section 06 pricing).</li>
+    <li><strong>No marketing/sales line.</strong> Y1 customer pipeline is inbound + warm intros +
+    the open-source repo + the live cycle archive. First dedicated sales hire is Y2+.</li>
+    <li><strong>No full engine-LOC audit beyond the $80K Anchor scope.</strong> A full audit of
+    the 58K-LOC engine source is a $812K Y2+ commitment per Section 02, absorbed by revenue not
+    the SAFE.</li>
+  </ul>
+</section>
+
+
+<!-- ============================== MILESTONES ============================== -->
+<section>
+  <div class="section-num">09 · Milestones</div>
+  <h1 class="section-title">30 / 90 / 180 / 365 day commitments</h1>
+
+  <p class="lede">All commitments below are <strong>delivery floors</strong> &mdash; overdelivery
+  is the realistic case. Engine v1 already operates all four pillars (Section 02); the funded 12
+  months productize for paying customers and ship P4 on-chain. Cross-ref Section 07 for stage
+  detail, Section 06 for customer trajectory.</p>
+
+  <table>
+    <thead><tr><th>Day</th><th>Commitments</th></tr></thead>
+    <tbody>
+      <tr><td><strong>30</strong></td><td>Delaware C-corp + IP assignment + SAFE docs complete
+      &middot; production multi-tenancy isolation in build &middot; customer-facing infra in build
+      (weekly/monthly PDF cadence, on-call routing, engagement-letter templates) &middot; sales
+      pipeline opens day 1 &middot; <strong>third-party Anchor audit slot booked</strong> (firms
+      book 6&ndash;12 weeks ahead) &middot; public methodology page in flight.</td></tr>
+
+      <tr><td><strong>90</strong> &middot; Tranche 2 trigger</td><td><strong>P3 fix-bundle pipeline
+      hardened</strong> (auto-PR off, human-in-the-loop per S02) &middot; <strong>P4 devnet MVP
+      live</strong> with indexer + query API &middot; <strong>first customer engagement signed OR
+      in late-stage diligence</strong> (M3 = 1 signed per S06) &middot; third-party Anchor audit
+      kicks off. <strong>If P3/P4 or customer milestones miss, Tranche 2 release delays &mdash;
+      your protective lever.</strong></td></tr>
+
+      <tr><td><strong>180</strong></td><td><strong>P4 mainnet deployment</strong> (after
+      third-party audit) &middot; first on-chain Merkle-root attestations published &middot;
+      receipts independently verifiable via on-chain indexer &middot; <strong>customer trajectory:
+      2 signed</strong> (M6 per S06) &middot; API budget runs full-depth on signed customers
+      (multi-round + formal-verification on every Critical/High + attack-chain enumeration)
+      &middot; cross-protocol propagation operational &middot; quarterly comprehensive re-run
+      cadence &middot; <strong>STRIDE outreach begins</strong> (S06 Y2+ OKR).</td></tr>
+
+      <tr><td><strong>365</strong></td><td><strong>All 4 pillars production-hardened end-to-end</strong>
+      &middot; <strong>customer trajectory: 4 signed</strong> (3 per-LOC + 1 enterprise &mdash;
+      <em>enterprise close is forecast; conservative downside slips to early Y2 per S07</em>)
+      &middot; <strong>M12 continuous ARR ~$410K</strong>, cumulative Y1 booked ~$700K &middot;
+      public methodology + verification page live &middot; quarterly comprehensive re-runs in
+      operation &middot; first-call-on-incident SLA active for first enterprise customer &middot;
+      public signed-disclosure registry on-chain.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+
+<!-- ============================== THE ASK ============================== -->
+<section>
+  <div class="section-num">10 · The ask</div>
+  <h1 class="section-title">Investment structure</h1>
+
+  <p class="lede"><strong>$700K SAFE at $7M post-money cap with 20% discount and MFN clause. Two
+  tranches: $350K initial close &rarr; $350K at the 90-day Tranche 2 trigger</strong> (P3
+  fix-bundle pipeline hardened + P4 devnet MVP live with indexer/query API + first customer
+  engagement signed or in late-stage diligence). Tranche 2 release is your protective lever per
+  Section 07: if milestones miss, you defer release.</p>
+
+  <table>
+    <thead><tr><th>Tranche</th><th>Trigger</th><th class="num">Amount</th><th>What it funds</th></tr></thead>
+    <tbody>
+      <tr><td><strong>1</strong></td><td>Initial close</td><td class="num kpi">$350K</td><td>M1&ndash;5 <strong>founder runway + API R&amp;D</strong> &middot; Delaware C-corp formation &middot; production multi-tenancy hardening &middot; first customer pipeline &middot; build materials (per Section 08)</td></tr>
+      <tr><td><strong>2</strong></td><td>Day 90 milestone</td><td class="num kpi">$350K</td><td>M6&ndash;12 <strong>founder runway + API R&amp;D</strong> (sustained engine compute + free Percolator audit) &middot; <strong>third-party Anchor audit</strong> ($80K, day 180) &middot; P4 mainnet ship (per Section 08)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Cap sensitivity &mdash; SAFE % at conversion</h2>
+  <table>
+    <thead><tr><th class="num">Cap</th><th class="num">SAFE %</th></tr></thead>
+    <tbody>
+      <tr><td>$5M post-money (investor-favorable)</td><td class="num">~14%</td></tr>
+      <tr><td><strong>$7M post-money</strong> &#9733;</td><td class="num kpi"><strong>~10%</strong></td></tr>
+      <tr><td>$10M post-money</td><td class="num">~7%</td></tr>
+      <tr><td>$15M post-money (founder-favorable)</td><td class="num">~4.7%</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>$7M cap basis:</strong> Two independent third-party valuation analyses converged at
+  the <strong>$6&ndash;8M pre-money range</strong>. Engine v1 (4 pillars, 8-layer pipeline,
+  multi-language adapters, jelleo.com live deployment) is the concrete asset anchoring the floor.
+  Comp transactions support the ceiling &mdash; Hexagate (multi-chain runtime detection) sold to
+  Chainalysis for ~$60M in December 2024 with a customer book comparable to where Jelleo lands at
+  Y2.5&ndash;Y3 (Section 06). <strong>20% discount + MFN clause protect downside</strong>: if
+  Series A prices below $8.75M ($7M cap &divide; 0.8), the discount triggers and you convert at the
+  better price; MFN auto-upgrades terms if any later SAFE prices more favorably.</p>
+
+  <h2>What you receive operationally</h2>
+  <ul>
+    <li><strong>Inaugural deployment partner</strong> &mdash; longest continuous attestation
+    history (every Jelleo cycle since v0.1) and first-protocol attestation reference for any future
+    insurer or STRIDE consumer (Solana Foundation grant program per Section 06).</li>
+
+    <li><strong>Free Percolator Continuous Audit &mdash; ~$168K-equivalent retail value</strong>
+    (per Section 06 pricing for a 14K-LOC codebase). Full 12 months at full throttle on Percolator
+    or any codebase of your choosing. Jelleo's compute cost to deliver: $75K (Section 05). <strong>You
+    pay $0.</strong></li>
+
+    <li>Auth'd live dashboard at <code>jelleo.com/customer/&lt;id&gt;/</code> with instant
+    Critical/High Slack/email push.</li>
+
+    <li>24h / weekly / monthly auto-emailed signed PDFs.</li>
+
+    <li>First-look on every finding before public disclosure + direct triage line.</li>
+
+    <li>Quarterly comprehensive reports as branded audit deliverables.</li>
+
+    <li><strong>Advisor role immediately; board observer at Series A.</strong></li>
+
+    <li><strong>Pro-rata rights</strong> to maintain ownership at Series A and subsequent rounds.</li>
+  </ul>
+
+  <p><strong>SAFE structure:</strong> Two-tranche papered as either (a) two SAFEs at the same $7M
+  cap (T1 at close, T2 at milestone) or (b) one SAFE plus a side letter for the day-90 trigger
+  &mdash; counsel agrees mechanics at signing.</p>
+
+  <p><strong>Continuity plan (founder bus-factor):</strong> All source / library / harnesses /
+  disclosure artifacts under permissive licenses (Apache-2.0 / CC BY 4.0), reproducible by any
+  technical reader; Ed25519 signing keys under multi-sig escrow with a named successor reviewer at
+  close; 30-day disclosure pause + your notification clause if founder is unavailable &gt;7 days;
+  all engagement state in the documented findings DB (SQLite operational; Postgres adapter shipped, opt-in).</p>
+</section>
+
+<!-- ============================== APPENDIX ============================== -->
+<section>
+  <div class="section-num">A</div>
+  <h1 class="section-title">Appendix · Artifacts &amp; citations</h1>
+
+  <h2>Public artifacts</h2>
+  <table>
+    <thead><tr><th>Artifact</th><th>What it shows</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://jelleo.com">jelleo.com</a></td><td>Operational reference of the live engine (today)</td></tr>
+      <tr><td><a href="https://jelleo.com/cycles/">jelleo.com/cycles/</a></td><td>Public cycle archive &mdash; signed per-cycle receipts, every Jelleo hunt cycle since v0.1</td></tr>
+      <tr><td><a href="https://github.com/aeyakovenko/percolator-prog/pull/39">aeyakovenko/percolator-prog#39</a></td><td>F7 disclosure — public PR with full attack-sequence + balance trace + proposed fix. <em>Closed without merge; maintainer absorbed the disclosure into existing engine defenses with regression coverage labeled <code>PR39/F7</code> on <code>main</code>.</em></td></tr>
+      <tr><td><a href="https://github.com/Copenhagen0x/audit-pipeline-cli">Copenhagen0x/audit-pipeline-cli</a></td><td>Platform source · Apache-2.0</td></tr>
+      <tr><td><a href="https://github.com/Copenhagen0x/audit-pipeline-cli/tree/main/examples/confirmed-tests">examples/confirmed-tests/</a></td><td>3 autonomously-generated Rust tests passing <code>cargo test</code> against the engine</td></tr>
+    </tbody>
+  </table>
+
+  <h2>External citations</h2>
+  <table>
+    <thead><tr><th>Topic</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>Anthropic API pricing (Sonnet 4.6 $3/$15; Opus 4.7 $5/$25; cache 0.1×; batch 50% off)</td><td><a href="https://platform.claude.com/docs/en/about-claude/pricing">platform.claude.com/docs/en/about-claude/pricing</a></td></tr>
+      <tr><td>STRIDE program · Solana Foundation × Asymmetric Research · April 6, 2026</td><td><a href="https://blog.asymmetric.re/introducing-stride-a-security-program-for-the-solana-ecosystem/">Asymmetric Research — Introducing STRIDE</a> · <a href="https://solana.com/news/solana-ecosystem-security">Solana Foundation</a></td></tr>
+      <tr><td>Drift exploit (~$285M, April 1 2026, DPRK; CoinDesk's headline cited the early ~$270M estimate before the final loss was reconciled)</td><td><a href="https://www.chainalysis.com/blog/lessons-from-the-drift-hack/">Chainalysis</a> · <a href="https://www.trmlabs.com/resources/blog/north-korean-hackers-attack-drift-protocol-in-285-million-heist">TRM Labs</a></td></tr>
+      <tr><td>Solana DeFi audit pricing $60K&ndash;$200K</td><td><a href="https://accretion.xyz/blog/solana-audit-cost">Accretion</a> · <a href="https://www.zealynx.io/blogs/audit-pricing-2026">Zealynx</a> · <a href="https://sherlock.xyz/post/smart-contract-audit-pricing-a-market-reference-for-2026">Sherlock 2026 reference</a></td></tr>
+      <tr><td>Solana DeFi TVL · 6 protocols crossed $1B</td><td><a href="https://defillama.com/chain/solana">DefiLlama</a> · <a href="https://crypto.news/6-solana-protocols-crossed-1b-tvl/">crypto.news</a></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<div class="footer">
+  <span>Jelleo · Confidential · Funding Proposal · May 2026</span>
+  <span>Kirill Sakharuk · kirill@jelleo.com</span>
+</div>
+
+</div>
+</body>
+</html>
