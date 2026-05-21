@@ -1,19 +1,48 @@
 {
   "customer_id": "ottersec",
-  "generated_at": "2026-05-17T17:53:00+00:00",
-  "engine_sha": "55bb98f670",
-  "cycles_total": 6,
-  "last_cycle_ts": "2026-05-17T17:52:04+00:00",
-  "last_cycle_id": "20260517-014506",
-  "last_cycle_target": "osec-solana-large",
+  "generated_at": "2026-05-18T21:41:53.467742+00:00",
+  "engine_sha": "e9dfd4210b",
+  "cycles_total": 10,
+  "last_cycle_id": "20260518-150020",
+  "last_cycle_ts": "2026-05-18T15:00:20+00:00",
+  "n_findings_total": 407,
+  "active_cycle_hyps_done": 41,
+  "session_total_spend_usd": 415.74,
+  "spend_baseline_usd": 310.67,
+  "spend_baseline_ts": "2026-05-16T17:16:27+00:00",
+  "spend_real_delta_usd": 105.070098,
   "service_summary": {
     "hunt_loop": "active",
+    "shadow": "active",
+    "sse": "active",
+    "token_auth": "active",
     "snapshot_writer": "active",
     "heartbeat": "active"
   },
   "services": [
-    {"name": "hunt_loop", "state": "up"},
-    {"name": "snapshot_writer", "state": "up"},
-    {"name": "heartbeat", "state": "up"}
+    {
+      "name": "hunt_loop",
+      "state": "up"
+    },
+    {
+      "name": "shadow",
+      "state": "up"
+    },
+    {
+      "name": "sse",
+      "state": "up"
+    },
+    {
+      "name": "token_auth",
+      "state": "up"
+    },
+    {
+      "name": "snapshot_writer",
+      "state": "up"
+    },
+    {
+      "name": "heartbeat",
+      "state": "up"
+    }
   ]
 }

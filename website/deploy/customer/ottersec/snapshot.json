@@ -1,6 +1,6 @@
 {
   "cycle_merkle_roots": [],
-  "cycles_total": 1,
+  "cycles_total": 2,
   "fix_bundle_stats": {
     "bundles_authorized": 0,
     "bundles_drafted": 0,
@@ -9,13 +9,13 @@
     "prs_merged": 0,
     "prs_opened": 0
   },
-  "generated_at": "2026-05-14T05:07:42+00:00",
-  "generated_at_ms": 1778735262475,
-  "loop_uptime_human": "4h 3m",
+  "generated_at": "2026-05-14T19:46:21+00:00",
+  "generated_at_ms": 1778787981109,
+  "loop_uptime_human": "2h 15m",
   "loop_uptime_source": "jelleo-shadow.service",
   "platform": "jelleo",
   "propagation_stats": {
-    "bug_classes_declared": 687,
+    "bug_classes_declared": 692,
     "bug_classes_with_signatures": 48,
     "dispatches_pending": 0,
     "dispatches_queued": 0,
@@ -23,66 +23,76 @@
     "propagation_reports": 0,
     "sibling_files": 0
   },
-  "public_findings": [],
+  "public_findings": 7,
   "receipts_signed": 17,
   "recent_cycles": [
+    {
+      "cycle_id": "20260514-151541",
+      "engine_sha": "5527255c10",
+      "finished_at": null,
+      "n_confirmed": 28,
+      "n_contested": 48,
+      "n_debate_done": 61,
+      "n_dispatched": 61,
+      "n_kani_harnesses": 0,
+      "n_litesvm": 0,
+      "n_poc_logs": 42,
+      "n_true_layer1": 48,
+      "receipt_fingerprint": null,
+      "started_at": "2026-05-14T15:15:41+00:00",
+      "target_id": 11,
+      "triage_counts": {
+        "FALSE": 22,
+        "LOST": 2,
+        "SOFT": 1,
+        "STRONG": 17
+      }
+    },
     {
       "cycle_id": "20260513-191318",
       "engine_sha": "e926fabc95",
       "finished_at": "2026-05-14T02:39:32+00:00",
       "n_confirmed": 7,
-      "n_contested": 14,
-      "n_debate_done": 40,
       "n_dispatched": 40,
-      "n_kani_harnesses": 0,
-      "n_litesvm": 4,
-      "n_poc_logs": 39,
-      "n_true_layer1": 14,
       "receipt_fingerprint": null,
       "started_at": "2026-05-13T19:13:18+00:00",
-      "target_id": 10,
-      "triage_counts": {
-        "FALSE": 2,
-        "LOST": 0,
-        "SOFT": 1,
-        "STRONG": 4
-      }
+      "target_id": 10
     }
   ],
   "services": [
     {
       "key": "shadow",
-      "last_tick_ms": 1778720625000,
+      "last_tick_ms": 1778779823000,
       "state": "up",
       "unit": "jelleo-shadow.service"
     },
     {
       "key": "watch",
-      "last_tick_ms": 1778720625000,
+      "last_tick_ms": 1778779823000,
       "state": "up",
       "unit": "jelleo-watch.service"
     },
     {
       "key": "scheduler-24h",
-      "last_tick_ms": 1778662903000,
-      "state": "up",
+      "last_tick_ms": null,
+      "state": "down",
       "unit": "jelleo-scheduler-24h.timer"
     },
     {
       "key": "scheduler-weekly",
-      "last_tick_ms": 1778490944000,
-      "state": "stale",
+      "last_tick_ms": null,
+      "state": "down",
       "unit": "jelleo-scheduler-weekly.timer"
     },
     {
       "key": "scheduler-monthly",
-      "last_tick_ms": 1778175216000,
-      "state": "stale",
+      "last_tick_ms": null,
+      "state": "down",
       "unit": "jelleo-scheduler-monthly.timer"
     },
     {
       "key": "snapshot",
-      "last_tick_ms": 1778735253000,
+      "last_tick_ms": 1778787933000,
       "state": "up",
       "unit": "jelleo-snapshot.timer"
     },
@@ -94,37 +104,45 @@
     },
     {
       "key": "health",
-      "last_tick_ms": 1778735228000,
+      "last_tick_ms": 1778787768000,
       "state": "up",
       "unit": "jelleo-health.timer"
     },
     {
       "key": "heartbeat",
-      "last_tick_ms": 1778731921000,
+      "last_tick_ms": 1778785920000,
       "state": "up",
       "unit": "jelleo-heartbeat.timer"
     }
   ],
   "spend": {
-    "last_24h_usd": 5.7,
-    "last_call_at": "2026-05-14T03:50:13+00:00",
-    "n_calls_total": 516,
+    "last_24h_usd": 18.34,
+    "last_call_at": "2026-05-14T19:41:48+00:00",
+    "n_calls_total": 833,
     "source": "/root/.audit_api_calls.jsonl",
-    "today_usd": 1.94,
-    "total_usd": 284.15
+    "today_usd": 14.57,
+    "total_usd": 296.79
   },
   "stats": {
     "by_severity_disclosed": {
-      "Critical": 0,
-      "High": 0,
-      "Info": 0,
-      "Low": 0,
-      "Medium": 0
+      "Critical": 4,
+      "High": 2,
+      "Medium": 0,
+      "Low": 1,
+      "Info": 0
     },
-    "n_cycles": 1,
-    "n_findings_disclosed": 0,
-    "n_findings_total": 40,
-    "n_targets": 12
+    "n_cycles": 2,
+    "n_findings_disclosed": 7,
+    "n_findings_total": 101,
+    "n_targets": 12,
+    "by_severity": {
+      "Critical": 4,
+      "High": 2,
+      "Medium": 0,
+      "Low": 1,
+      "Info": 0
+    },
+    "n_findings": 7
   },
   "targets": [
     {
@@ -144,33 +162,35 @@
     },
     {
       "engine_repo": "sahuang-osec/aptos-medium",
-      "last_cycle_at": null,
-      "last_cycle_id": null,
-      "n_findings": 0,
-      "n_findings_disclosed": 0,
+      "last_cycle_at": "2026-05-14T15:15:41+00:00",
+      "last_cycle_id": "20260514-151541",
+      "n_findings": 5,
+      "n_findings_disclosed": 5,
       "name": "osec-aptos-medium",
       "severity_counts": {
-        "Critical": 0,
-        "High": 0,
-        "Info": 0,
-        "Low": 0,
-        "Medium": 0
-      }
+        "Critical": 2,
+        "High": 2,
+        "Medium": 0,
+        "Low": 1,
+        "Info": 0
+      },
+      "status": "completed"
     },
     {
       "engine_repo": "sahuang-osec/aptos-small",
       "last_cycle_at": "2026-05-13T19:13:18+00:00",
       "last_cycle_id": "20260513-191318",
-      "n_findings": 40,
-      "n_findings_disclosed": 0,
+      "n_findings": 2,
+      "n_findings_disclosed": 2,
       "name": "osec-aptos-small",
       "severity_counts": {
-        "Critical": 3,
-        "High": 3,
-        "Info": 26,
-        "Low": 1,
-        "Medium": 7
-      }
+        "Critical": 2,
+        "High": 0,
+        "Medium": 0,
+        "Low": 0,
+        "Info": 0
+      },
+      "status": "completed"
     },
     {
       "engine_repo": "sahuang-osec/c-large",
@@ -308,5 +328,25 @@
       }
     }
   ],
-  "version": "v0.1"
+  "version": "v0.1",
+  "totals": {
+    "by_severity": {
+      "Critical": 4,
+      "High": 2,
+      "Medium": 0,
+      "Low": 1,
+      "Info": 0
+    },
+    "n_findings": 7,
+    "by_severity_disclosed": {
+      "Critical": 4,
+      "High": 2,
+      "Medium": 0,
+      "Low": 1,
+      "Info": 0
+    },
+    "n_findings_disclosed": 7,
+    "n_cycles": 2,
+    "n_targets": 12
+  }
 }

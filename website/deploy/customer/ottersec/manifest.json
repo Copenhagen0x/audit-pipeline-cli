@@ -7,9 +7,9 @@
     "since": "2026-05-13"
   },
   "branding": {
-    "hero_title": "OtterSec × Jelleo · Vendor Evaluation",
-    "footer_text": "Confidential — OtterSec multi-vendor benchmark, do not redistribute",
-    "pdf_watermark": "Confidential — OtterSec evaluation",
+    "hero_title": "OtterSec \u00d7 Jelleo \u00b7 Vendor Evaluation",
+    "footer_text": "Confidential \u2014 OtterSec multi-vendor benchmark, do not redistribute",
+    "pdf_watermark": "Confidential \u2014 OtterSec evaluation",
     "logo_path": "customers/ottersec/branding/logo.svg"
   },
   "services": {
@@ -17,16 +17,9 @@
     "snapshot_writer": "running",
     "heartbeat": "running"
   },
-  "cycles_total": 6,
+  "cycles_total": 0,
   "loop_uptime_human": "active",
-  "recent_cycles": [
-    {"cycle_id": "20260517-014506", "target": "osec-solana-large", "n_confirmed": 8, "started_at": "2026-05-17T01:45:06+00:00", "engine_sha": "55bb98f670"},
-    {"cycle_id": "20260516-030436", "target": "osec-solana-medium", "n_confirmed": 10, "started_at": "2026-05-16T03:04:36+00:00", "engine_sha": "54036c39b9"},
-    {"cycle_id": "20260515-192131", "target": "osec-aptos-medium", "n_confirmed": 7, "started_at": "2026-05-15T19:21:31+00:00", "engine_sha": "f280ea8a83"},
-    {"cycle_id": "20260514-233645", "target": "osec-aptos-large", "n_confirmed": 10, "started_at": "2026-05-14T23:36:45+00:00", "engine_sha": "5f7bff30e6"},
-    {"cycle_id": "20260514-151541", "target": "osec-solana-small", "n_confirmed": 5, "started_at": "2026-05-14T15:15:41+00:00", "engine_sha": "5527255c10"},
-    {"cycle_id": "20260513-191318", "target": "osec-aptos-small", "n_confirmed": 2, "started_at": "2026-05-13T19:13:18+00:00", "engine_sha": "e926fabc95"}
-  ],
+  "recent_cycles": [],
   "public_findings": [],
   "targets": [
     {
@@ -34,7 +27,13 @@
       "name": "osec-aptos-large",
       "status": "scanned",
       "n_findings": 10,
-      "severity_counts": {"Critical": 4, "High": 2, "Medium": 4, "Low": 0, "Info": 0},
+      "severity_counts": {
+        "Critical": 4,
+        "High": 2,
+        "Medium": 4,
+        "Low": 0,
+        "Info": 0
+      },
       "last_cycle_id": "20260514-233645",
       "last_cycle_at": "2026-05-15T12:52:07+00:00",
       "engine_sha": "5f7bff30e6"
@@ -43,60 +42,96 @@
       "id": 11,
       "name": "osec-aptos-medium",
       "status": "scanned",
-      "n_findings": 7,
-      "severity_counts": {"Critical": 3, "High": 0, "Medium": 0, "Low": 2, "Info": 2},
-      "last_cycle_id": "20260515-192131",
-      "last_cycle_at": "2026-05-16T22:26:08+00:00",
-      "engine_sha": "f280ea8a83"
+      "n_findings": 5,
+      "severity_counts": {
+        "Critical": 2,
+        "High": 2,
+        "Medium": 0,
+        "Low": 1,
+        "Info": 0
+      },
+      "last_cycle_id": "20260514-151541",
+      "last_cycle_at": "2026-05-14T20:36:06+00:00",
+      "engine_sha": "5527255c10"
     },
     {
       "id": 10,
       "name": "osec-aptos-small",
       "status": "scanned",
-      "n_findings": 2,
-      "severity_counts": {"Critical": 2, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
+      "n_findings": 5,
+      "severity_counts": {
+        "Critical": 3,
+        "High": 1,
+        "Medium": 0,
+        "Low": 1,
+        "Info": 0
+      },
       "last_cycle_id": "20260513-191318",
-      "last_cycle_at": "2026-05-17T00:30:55+00:00",
+      "last_cycle_at": "2026-05-14T02:39:32+00:00",
       "engine_sha": "e926fabc95"
     },
     {
       "id": 6,
       "name": "osec-c-large",
-      "status": "idle",
-      "n_findings": 0,
-      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
-      "last_cycle_id": null,
-      "last_cycle_at": null,
-      "engine_sha": ""
+      "status": "scanned",
+      "n_findings": 12,
+      "severity_counts": {
+        "Critical": 3,
+        "High": 5,
+        "Medium": 4,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": "20260519-230706",
+      "last_cycle_at": "2026-05-20T02:49:36+00:00",
+      "engine_sha": "73110357c3"
     },
     {
       "id": 5,
       "name": "osec-c-medium",
-      "status": "idle",
-      "n_findings": 0,
-      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
-      "last_cycle_id": null,
-      "last_cycle_at": null,
-      "engine_sha": ""
+      "status": "scanned",
+      "n_findings": 17,
+      "severity_counts": {
+        "Critical": 6,
+        "High": 6,
+        "Medium": 5,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": "20260519-163207",
+      "last_cycle_at": "2026-05-19T21:40:05+00:00",
+      "engine_sha": "640735f39c"
     },
     {
       "id": 4,
       "name": "osec-c-small",
-      "status": "idle",
-      "n_findings": 0,
-      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
-      "last_cycle_id": null,
-      "last_cycle_at": null,
-      "engine_sha": ""
+      "status": "scanned",
+      "n_findings": 8,
+      "severity_counts": {
+        "Critical": 3,
+        "High": 2,
+        "Medium": 3,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": "20260519-001419",
+      "last_cycle_at": "2026-05-19T03:07:07+00:00",
+      "engine_sha": "5deee49cd7"
     },
     {
       "id": 3,
       "name": "osec-solana-large",
       "status": "scanned",
-      "n_findings": 8,
-      "severity_counts": {"Critical": 4, "High": 2, "Medium": 1, "Low": 1, "Info": 0},
-      "last_cycle_id": "20260517-014506",
-      "last_cycle_at": "2026-05-17T17:52:04+00:00",
+      "n_findings": 28,
+      "severity_counts": {
+        "Critical": 8,
+        "High": 14,
+        "Medium": 4,
+        "Low": 2,
+        "Info": 0
+      },
+      "last_cycle_id": "20260517-021201",
+      "last_cycle_at": "2026-05-17T02:12:01+00:00",
       "engine_sha": "55bb98f670"
     },
     {
@@ -104,57 +139,92 @@
       "name": "osec-solana-medium",
       "status": "scanned",
       "n_findings": 10,
-      "severity_counts": {"Critical": 3, "High": 5, "Medium": 2, "Low": 0, "Info": 0},
+      "severity_counts": {
+        "Critical": 3,
+        "High": 5,
+        "Medium": 2,
+        "Low": 0,
+        "Info": 0
+      },
       "last_cycle_id": "20260516-030436",
-      "last_cycle_at": "2026-05-16T21:54:52+00:00",
+      "last_cycle_at": "2026-05-16T18:47:49+00:00",
       "engine_sha": "54036c39b9"
     },
     {
       "id": 1,
       "name": "osec-solana-small",
       "status": "scanned",
-      "n_findings": 5,
-      "severity_counts": {"Critical": 2, "High": 2, "Medium": 0, "Low": 1, "Info": 0},
-      "last_cycle_id": "20260514-151541",
-      "last_cycle_at": "2026-05-17T00:06:07+00:00",
-      "engine_sha": "5527255c10"
+      "n_findings": 22,
+      "severity_counts": {
+        "Critical": 9,
+        "High": 6,
+        "Medium": 1,
+        "Low": 4,
+        "Info": 2
+      },
+      "last_cycle_id": "20260515-192131",
+      "last_cycle_at": "2026-05-15T23:17:57+00:00",
+      "engine_sha": "f280ea8a83"
     },
     {
       "id": 9,
       "name": "osec-solidity-large",
-      "status": "idle",
-      "n_findings": 0,
-      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
-      "last_cycle_id": null,
-      "last_cycle_at": null,
-      "engine_sha": ""
+      "status": "scanned",
+      "n_findings": 10,
+      "severity_counts": {
+        "Critical": 5,
+        "High": 3,
+        "Medium": 2,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": "20260518-150020",
+      "last_cycle_at": "2026-05-18T19:52:49+00:00",
+      "engine_sha": "e9dfd4210b"
     },
     {
       "id": 8,
       "name": "osec-solidity-medium",
-      "status": "idle",
-      "n_findings": 0,
-      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
-      "last_cycle_id": null,
-      "last_cycle_at": null,
-      "engine_sha": ""
+      "status": "scanned",
+      "n_findings": 17,
+      "severity_counts": {
+        "Critical": 6,
+        "High": 5,
+        "Medium": 6,
+        "Low": 0,
+        "Info": 0
+      },
+      "last_cycle_id": "20260518-024129",
+      "last_cycle_at": "2026-05-18T06:14:24+00:00",
+      "engine_sha": "f50aa5ef92"
     },
     {
       "id": 7,
       "name": "osec-solidity-small",
-      "status": "idle",
-      "n_findings": 0,
-      "severity_counts": {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0},
-      "last_cycle_id": null,
-      "last_cycle_at": null,
-      "engine_sha": ""
+      "status": "scanned",
+      "n_findings": 12,
+      "severity_counts": {
+        "Critical": 3,
+        "High": 4,
+        "Medium": 2,
+        "Low": 3,
+        "Info": 0
+      },
+      "last_cycle_id": "20260517-193953",
+      "last_cycle_at": "2026-05-18T01:05:52+00:00",
+      "engine_sha": "0c928be33e"
     }
   ],
   "totals": {
     "n_targets": 12,
-    "n_targets_done": 6,
-    "n_findings": 42,
-    "by_severity": {"Critical": 18, "High": 11, "Medium": 7, "Low": 4, "Info": 2}
+    "n_findings": 156,
+    "by_severity": {
+      "Critical": 55,
+      "High": 55,
+      "Medium": 33,
+      "Low": 11,
+      "Info": 2
+    }
   },
-  "generated_at": "2026-05-17T17:53:00+00:00"
+  "generated_at": "2026-05-20T03:46:26.341008+00:00"
 }
