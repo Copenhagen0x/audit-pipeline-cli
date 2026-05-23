@@ -156,7 +156,7 @@ def main() -> int:
     if len(sys.argv) > 1:
         wrapper_dir = Path(sys.argv[1])
     else:
-        wrapper_dir = Path("C:/Users/btrco/OneDrive/Desktop/percolator-prog-litesvm")
+        wrapper_dir = Path("C:/Users/btrco/OneDrive/Desktop/Jelleo/code/percolator-prog-litesvm")
 
     if not wrapper_dir.exists():
         print(f"ERROR: wrapper dir not found at {wrapper_dir}", flush=True)
