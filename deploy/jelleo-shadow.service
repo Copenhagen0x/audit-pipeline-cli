@@ -10,6 +10,8 @@ OnFailure=jelleo-alert-failure@%n.service
 Type=simple
 User=root
 Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Block Python user-site path-hijack (audit finding R2-3).
+Environment=PYTHONNOUSERSITE=1
 WorkingDirectory=/root/audit_runs/percolator-live
 ExecStartPre=/bin/mkdir -p /root/audit_runs/percolator-live/shadow
 ExecStart=/bin/bash -c 'source /root/.audit-env && exec audit-pipeline --workspace /root/audit_runs/percolator-live shadow start --program 6qWZvUtfyShbxTQkwjCayk3LuGqTGJwBo2QfkePK5jdJ --watch-account CJKBStEn5VXEF9VNTChKKb5YW84MV7LycqMMziVuxJSc --interval 60 --limit 25'

@@ -70,10 +70,17 @@ mkdir -p /root/audit_runs/percolator-live/reports
 
 # Ensure cryptography is installed (Sprint 3 sign module needs it). pip
 # install is a no-op if already present.
+#
+# PIP_NO_USER=1 (audit finding R2-3): never install to /root/.local/lib/.../site-packages.
+# That path is the Python-path-hijack vector — a malicious shim placed there
+# is loaded before system site-packages and intercepts every sign() / verify() call
+# in any Python service running as root. System install is the safer surface
+# (still vulnerable to system-package compromise, but smaller blast radius and
+# easier to audit).
 echo "=== Ensuring cryptography is installed ==="
-/root/.local/bin/python3 -m pip install --user cryptography 2>/dev/null || \
-    python3 -m pip install --user cryptography || \
-    echo "  (could not install cryptography automatically — run 'pip install --user cryptography' manually)"
+PIP_NO_USER=1 /root/.local/bin/python3 -m pip install cryptography 2>/dev/null || \
+    PIP_NO_USER=1 python3 -m pip install cryptography || \
+    echo "  (could not install cryptography automatically — run 'PIP_NO_USER=1 pip install cryptography' manually)"
 
 # Generate the signing keypair on first run only — refuses to overwrite.
 if [[ ! -f /root/audit_runs/percolator-live/keys/jelleo.ed25519 ]]; then

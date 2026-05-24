@@ -2,13 +2,85 @@
 # Jelleo pipeline VPS bootstrap. Idempotent — safe to re-run.
 # Run AS THE `audit` USER on the VPS after the toolchain is installed.
 #
-# Usage:
-#   ssh -i ~/.ssh/percolator_vps <user>@<host>
-#   curl -sSL https://raw.githubusercontent.com/Copenhagen0x/audit-pipeline-cli/main/deploy/bootstrap.sh | bash
-# OR after scp'ing this file:
-#   bash bootstrap.sh
+# ── INTEGRITY-GATED USAGE (audit finding R2-2 5819e8b5) ─────────────────
+# The PREVIOUS instructions used curl-pipe-bash with NO integrity check —
+# a single MITM of raw.githubusercontent.com or repo compromise would land
+# arbitrary root code on the VPS. That pattern is now BLOCKED by the
+# JELLEO_BOOTSTRAP_VERIFIED gate below.
+#
+# Correct usage (one of three options, in order of preference):
+#
+#   1. scp + verify locally, then run:
+#        scp deploy/bootstrap.sh user@vps:~
+#        ssh user@vps
+#        sha256sum bootstrap.sh                # <-- compare with published checksum
+#        JELLEO_BOOTSTRAP_VERIFIED=<sha256> bash bootstrap.sh
+#
+#   2. Download + verify via gh (uses GitHub authenticated HTTPS):
+#        gh repo clone Copenhagen0x/audit-pipeline-cli
+#        cd audit-pipeline-cli
+#        git verify-commit HEAD               # require signed commit
+#        JELLEO_BOOTSTRAP_VERIFIED=$(sha256sum deploy/bootstrap.sh | cut -d' ' -f1) \
+#          bash deploy/bootstrap.sh
+#
+#   3. (TEMPORARY only) Bypass during development:
+#        JELLEO_BOOTSTRAP_VERIFIED=skip bash bootstrap.sh
+#      Logs a loud WARN.
+#
+# Do NOT use:
+#   curl -sSL https://raw.githubusercontent.com/.../bootstrap.sh | bash
+# ─────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
+
+# ── Integrity gate ──
+if [[ -z "${JELLEO_BOOTSTRAP_VERIFIED:-}" ]]; then
+    cat >&2 <<'EOF'
+ERROR: bootstrap.sh requires JELLEO_BOOTSTRAP_VERIFIED to be set.
+
+This protects against curl-pipe-bash supply chain attacks.
+
+Compute the SHA-256 of this script locally first:
+    sha256sum bootstrap.sh
+Then re-run with:
+    JELLEO_BOOTSTRAP_VERIFIED=<the-sha256-you-just-computed> bash bootstrap.sh
+
+Or, to bypass (DEVELOPMENT ONLY, NOT FOR PRODUCTION):
+    JELLEO_BOOTSTRAP_VERIFIED=skip bash bootstrap.sh
+
+EOF
+    exit 2
+fi
+
+if [[ "$JELLEO_BOOTSTRAP_VERIFIED" == "skip" ]]; then
+    echo "WARN: JELLEO_BOOTSTRAP_VERIFIED=skip — supply chain check BYPASSED" >&2
+elif [[ ${#JELLEO_BOOTSTRAP_VERIFIED} -ne 64 ]]; then
+    echo "ERROR: JELLEO_BOOTSTRAP_VERIFIED must be the 64-char SHA-256 hex, or 'skip'" >&2
+    exit 2
+else
+    # Actually cross-check the supplied hash against the running script's SHA-256.
+    # The previous version only validated the FORMAT of the supplied hash — it
+    # never compared it to the script itself, so a MITM that swapped both the
+    # script AND its published hash would bypass the gate. This block closes
+    # that hole. (Code-reviewer flagged this on initial draft.)
+    if ! command -v sha256sum >/dev/null 2>&1; then
+        echo "ERROR: sha256sum not available — install coreutils or set JELLEO_BOOTSTRAP_VERIFIED=skip" >&2
+        exit 2
+    fi
+    ACTUAL_SHA=$(sha256sum "$0" 2>/dev/null | awk '{print $1}')
+    if [[ -z "$ACTUAL_SHA" ]]; then
+        echo "ERROR: could not compute SHA-256 of $0" >&2
+        exit 2
+    fi
+    if [[ "$JELLEO_BOOTSTRAP_VERIFIED" != "$ACTUAL_SHA" ]]; then
+        echo "ERROR: SHA-256 mismatch" >&2
+        echo "  supplied: $JELLEO_BOOTSTRAP_VERIFIED" >&2
+        echo "  actual:   $ACTUAL_SHA" >&2
+        echo "Refusing to run a modified script." >&2
+        exit 2
+    fi
+    echo "Bootstrap SHA-256 verified: $ACTUAL_SHA"
+fi
 
 # ============================================================================
 # Config (edit if needed before running)
@@ -47,10 +119,13 @@ else
     cd "$HOME/solana-audit-pipeline" && git pull --ff-only && cd "$HOME"
 fi
 
-# 3. pip install the CLI in user mode
+# 3. pip install the CLI (system-site, NOT --user)
+# PIP_NO_USER=1 closes the path-hijack vector (audit finding R2-3): installing
+# to /root/.local/lib/.../site-packages would let a future supply-chain shim
+# silently override security-critical modules (cryptography, audit_pipeline.bundle).
 echo "[3/8] Installing audit-pipeline CLI..."
 cd "$HOME/audit-pipeline-cli"
-python3 -m pip install --user -e .
+PIP_NO_USER=1 python3 -m pip install -e .
 cd "$HOME"
 
 # Make sure ~/.local/bin is on PATH for this session

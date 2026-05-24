@@ -14,6 +14,10 @@ OnFailure=jelleo-alert-failure@%n.service
 Type=simple
 User=root
 Environment=PATH=/root/.cargo/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Block Python user-site path-hijack (audit finding R2-3): prevents loading
+# malicious shims from /root/.local/lib/.../site-packages even if one was
+# installed via a prior supply-chain compromise.
+Environment=PYTHONNOUSERSITE=1
 WorkingDirectory=/root/audit_runs/percolator-live
 ExecStartPre=/bin/mkdir -p /root/audit_runs/percolator-live/watch
 # Watch polls upstream every 5 min. On new commit, runs a CHEAP triage cycle

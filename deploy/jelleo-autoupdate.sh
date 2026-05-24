@@ -89,9 +89,63 @@ fi
 NEW_HEAD=$(git rev-parse HEAD 2>/dev/null || echo "?")
 log "  pulled to $NEW_HEAD"
 
+# ── SUPPLY-CHAIN GATE (audit finding 5c4e072e / 500607134) ────────────────
+# Verify the new HEAD is signed by an allowed key BEFORE installing it.
+# Without this, a GitHub account compromise = root code execution on the VPS
+# within 5 minutes (autoupdate cadence).
+#
+# Setup (one-time, on each signing machine):
+#   1. Generate a signing key:  ssh-keygen -t ed25519 -f ~/.ssh/jelleo-signing
+#   2. Tell git to use SSH signatures:
+#        git config --global gpg.format ssh
+#        git config --global user.signingkey ~/.ssh/jelleo-signing.pub
+#        git config --global commit.gpgsign true
+#   3. Add the PUBLIC half to ~/.ssh/jelleo-allowed-signers in this format:
+#        <email-of-author> ssh-ed25519 AAAA...
+#      and point git at it:
+#        git config --global gpg.ssh.allowedSignersFile ~/.ssh/jelleo-allowed-signers
+#   4. On the VPS, replicate the allowed_signers file (READ-ONLY for root)
+#      and point git at it via the same config above.
+#
+# If verification fails: rollback to the pre-pull HEAD and SKIP this update
+# (exit 0 — same pattern as a network blip). The next push WITHOUT a
+# verified signature will be REJECTED indefinitely until the operator
+# either (a) signs and re-pushes, or (b) sets JELLEO_ALLOW_UNSIGNED=1 to
+# temporarily disable the gate (NOT recommended; logged loudly).
+if [[ "${JELLEO_ALLOW_UNSIGNED:-0}" == "1" ]]; then
+    log "  WARN: JELLEO_ALLOW_UNSIGNED=1 — supply-chain gate DISABLED for this tick"
+elif ! git verify-commit HEAD >>"$LOG" 2>&1; then
+    log "BLOCKED: HEAD signature verification failed for $NEW_HEAD"
+    log "  → rolling back to $LOCAL (no install, no restart)"
+    log "  → set JELLEO_ALLOW_UNSIGNED=1 to bypass (logs WARN every tick)"
+    if ! git reset --hard "$LOCAL" >>"$LOG" 2>&1; then
+        log "  ERROR: rollback failed — repo may be in dirty state, operator action required"
+    fi
+    # Also sync submodules to the rolled-back pointer. `git reset --hard` only
+    # updates the .gitmodules POINTER, not the submodule working tree — leaving
+    # the submodule with rejected code still checked out. (Code-reviewer flag.)
+    if ! git submodule update --init --recursive >>"$LOG" 2>&1; then
+        log "  WARN: submodule sync after rollback non-zero (may be OK if no submodules)"
+    fi
+    # Exit non-zero on signature failure so systemd / journalctl shows this as
+    # a distinct security event rather than a clean success. The unit declares
+    # SuccessExitStatus=3 so the timer keeps firing without alerting on every
+    # blocked-unsigned tick (operator sets up signing once, then it goes back
+    # to silent "no commits to apply"). All OTHER failure paths still exit 0
+    # (network blips etc.) — only signature failure uses 3. (Code-reviewer flag.)
+    exit 3
+else
+    log "  signature verified for $NEW_HEAD"
+fi
+# ──────────────────────────────────────────────────────────────────────────
+
 # Reinstall Python package — picks up any new modules, new CLI commands,
 # and pinned dep changes.
-if pip install --user -e . >>"$LOG" 2>&1; then
+# Use --no-user when running under systemd to avoid /root/.local/ path-hijack
+# of security-critical imports (audit finding R2-3 chain). Combined with
+# PYTHONNOUSERSITE=1 in the service unit, this forces a clean site-packages
+# install with no shadow modules.
+if PIP_NO_USER=1 pip install -e . >>"$LOG" 2>&1; then
     log "  pip install: ok"
 else
     log "  WARN: pip install non-zero (continuing — may be a no-op rebuild)"

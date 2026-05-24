@@ -15,5 +15,14 @@ WorkingDirectory=/root/audit-pipeline-cli
 ExecStart=/usr/bin/env bash /root/audit-pipeline-cli/deploy/jelleo-autoupdate.sh
 TimeoutStartSec=600
 # Hardening — auto-update only needs the repo + write to its own log.
+# ProtectSystem=false is intentional: install_systemd.sh writes to /etc/systemd/system/.
+# A future refactor that moves install_systemd to a separate service should flip this to strict.
 ProtectSystem=false
 NoNewPrivileges=true
+# Block Python user-site path-hijack (audit finding R2-3) on this service too.
+Environment=PYTHONNOUSERSITE=1
+# Exit code 3 = "blocked-unsigned" — autoupdate.sh exits 3 when a pulled HEAD
+# fails signature verification. Treat as success so the timer keeps firing
+# (operator may push a signed commit later) but the exit code remains distinct
+# in journalctl for security-event observability.
+SuccessExitStatus=3

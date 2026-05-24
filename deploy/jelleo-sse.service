@@ -5,6 +5,8 @@ Documentation=https://jelleo.com
 
 [Service]
 Type=simple
+# Block Python user-site path-hijack (audit finding R2-3).
+Environment=PYTHONNOUSERSITE=1
 ExecStart=/usr/bin/python3 /root/jelleo-sse/jelleo-sse.py
 Restart=on-failure
 RestartSec=5
