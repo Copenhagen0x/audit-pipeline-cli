@@ -107,12 +107,45 @@ echo "=== Stopping legacy tmux sessions (if any) ==="
 tmux kill-session -t jelleo-shadow 2>/dev/null && echo "  killed jelleo-shadow tmux" || echo "  no jelleo-shadow tmux"
 tmux kill-session -t jelleo-watch 2>/dev/null  && echo "  killed jelleo-watch tmux"  || echo "  no jelleo-watch tmux"
 
+# Patch #13 (audit HIGH 46ca2392): idempotency-safe restart. The
+# previous unconditional `systemctl restart` interrupted running
+# daemons every install — even when the unit file hadn't changed.
+# Helper: only restart when the deployed unit differs from the
+# source, OR when the service isn't currently active. Reduces
+# midnight cron-driven outages where install_systemd.sh re-runs as
+# part of an autoupdate cycle and momentarily kills working units.
+_changed_or_inactive() {
+    local unit="$1"
+    local src="$DEPLOY_DIR/$unit"
+    local dst="$UNIT_DIR/$unit"
+    # Always restart if the destination file changed (cp above already
+    # happened, so cmp it against the source). cmp -s returns 0 if
+    # files are identical; we restart on NON-zero (changed or absent).
+    if [[ -f "$src" && -f "$dst" ]] && cmp -s "$src" "$dst"; then
+        # File unchanged. Restart only if the service isn't active.
+        if systemctl is-active --quiet "$unit"; then
+            return 1  # do not restart
+        fi
+    fi
+    return 0  # do restart
+}
+
 echo "=== Enabling + (re)starting units ==="
 systemctl daemon-reload
 systemctl enable jelleo-shadow.service
 systemctl enable jelleo-watch.service
-systemctl restart jelleo-shadow.service
-systemctl restart jelleo-watch.service
+if _changed_or_inactive jelleo-shadow.service; then
+    systemctl restart jelleo-shadow.service
+    echo "  restarted jelleo-shadow.service"
+else
+    echo "  jelleo-shadow.service unchanged + active — skipped restart"
+fi
+if _changed_or_inactive jelleo-watch.service; then
+    systemctl restart jelleo-watch.service
+    echo "  restarted jelleo-watch.service"
+else
+    echo "  jelleo-watch.service unchanged + active — skipped restart"
+fi
 # HMAC token-auth sidecar (loopback :8766). Listens for nginx auth_request
 # subrequests. Safe to enable always — does nothing until nginx is wired
 # via deploy/nginx-customer-auth-snippet.conf.
