@@ -70,11 +70,14 @@ hypotheses:
 
 
 def test_lint_unknown_severity_is_warning(tmp_path: Path) -> None:
+    # Patch #14: bug_class is now a required field (audit HIGH 19f45572).
+    # Include it so this test exercises the severity-only warning path.
     _yaml_file(tmp_path, "warn.yaml", """
 hypotheses:
   - id: H1
     class: implicit_invariant
     claim: x
+    bug_class: some-bug-class
     severity: WAY_TOO_CRITICAL
 """)
     r = _invoke(tmp_path)
