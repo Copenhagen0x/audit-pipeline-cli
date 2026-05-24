@@ -133,14 +133,30 @@ def run_kani_proof(
     env = os.environ.copy()
     env["PATH"] = _solana_augmented_path()
     cargo_bin = shutil.which("cargo", path=env["PATH"]) or "cargo"
-    proc = subprocess.run(
-        [cargo_bin, "kani", "--harness", harness_name],
-        cwd=str(sidecar_dir),
-        capture_output=True,
-        text=True,
-        timeout=timeout_s,
-        env=env,
-    )
+    # Patch #10 (audit HIGH ae465999): subprocess.TimeoutExpired was
+    # never caught — a 30-minute cargo kani hang propagated uncaught
+    # and killed the whole hunt cycle. Catch + return a clean failure
+    # tuple with returncode=124 (timeout convention) so the caller
+    # treats it as a structured fail rather than a crash.
+    try:
+        proc = subprocess.run(
+            [cargo_bin, "kani", "--harness", harness_name],
+            cwd=str(sidecar_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as _e_to:
+        to_stdout = (_e_to.stdout or b"").decode("utf-8", errors="replace") \
+            if isinstance(_e_to.stdout, bytes) else (_e_to.stdout or "")
+        to_stderr = (_e_to.stderr or b"").decode("utf-8", errors="replace") \
+            if isinstance(_e_to.stderr, bytes) else (_e_to.stderr or "")
+        combined = (
+            to_stdout + "\n--- STDERR ---\n" + to_stderr
+            + f"\n--- TIMEOUT after {timeout_s}s ---\n"
+        )
+        return 124, combined
     combined = (proc.stdout or "") + "\n--- STDERR ---\n" + (proc.stderr or "")
     return proc.returncode, combined
 
@@ -150,8 +166,13 @@ def run_kani_proof(
 # ---------------------------------------------------------------------------
 
 
-_KANI_SUCCESS_RE = re.compile(r"VERIFICATION:- SUCCESSFUL", re.MULTILINE)
-_KANI_FAILED_RE = re.compile(r"VERIFICATION:- FAILED", re.MULTILINE)
+# Patch #10 (audit HIGH 9e72ad1c): older cargo-kani versions emit
+# `Verification:- SUCCESSFUL` (capital V, lower-case rest) — the
+# case-sensitive regex missed those reports and silently
+# misclassified a successful proof as INCONCLUSIVE. Add re.IGNORECASE
+# so we capture both legacy and modern Kani output formats.
+_KANI_SUCCESS_RE = re.compile(r"VERIFICATION:- SUCCESSFUL", re.MULTILINE | re.IGNORECASE)
+_KANI_FAILED_RE = re.compile(r"VERIFICATION:- FAILED", re.MULTILINE | re.IGNORECASE)
 _KANI_COUNTER_RE = re.compile(r"Failed Checks:\s+(.+)", re.MULTILINE)
 
 
