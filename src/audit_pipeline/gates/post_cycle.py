@@ -192,7 +192,26 @@ def check_post_cycle(
         test_name = f"test_{slug}"
         db_poc_path = f.get("poc_path") or ""
         if db_poc_path and Path(db_poc_path).is_absolute():
-            poc_path = Path(db_poc_path)
+            # Patch #11 (audit HIGH e971bf01): poc_path from a DB row
+            # is attacker-influenceable (any code path that calls
+            # record_finding with a crafted poc_path would land here).
+            # An absolute path like /etc/passwd was previously trusted
+            # and read by _check_one_poc, leaking its content into the
+            # QA report. Round-1: confine to WORKSPACE root (cycle_dir's
+            # grandparent — workspace/hunts/<cid> → workspace) so
+            # legitimate Aptos/Solidity PoC paths under
+            # workspace/tests/<lang>/ still resolve, but /etc/passwd
+            # is rejected and falls back to the canonical layout.
+            workspace_root = cycle_dir.resolve(strict=False).parent.parent
+            try:
+                _resolved = Path(db_poc_path).resolve(strict=False)
+                _resolved.relative_to(workspace_root)
+                poc_path = Path(db_poc_path)
+            except (ValueError, OSError):
+                # Path escapes workspace — refuse, fall back to
+                # canonical layout. The fallback path is also under
+                # cycle_dir → workspace, so it's safe.
+                poc_path = cycle_dir / "poc" / f"{test_name}.rs"
         else:
             # Fallback for legacy rows: assume Solana `.rs` layout.
             poc_path = cycle_dir / "poc" / f"{test_name}.rs"

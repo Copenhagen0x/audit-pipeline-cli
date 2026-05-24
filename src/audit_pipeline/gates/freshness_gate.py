@@ -83,7 +83,20 @@ def _component_status(
     head_sha = head.get("sha", "")
     head_date_str = head.get("commit", {}).get("author", {}).get("date", "")
 
-    if pinned and (pinned.startswith(head_sha[: len(pinned)]) or head_sha.startswith(pinned)):
+    # Patch #11 (audit CRITICAL 0efd25c3): the previous prefix-match
+    # check `pinned.startswith(head_sha[:len(pinned)])` was trivially
+    # spoofable. An attacker who could submit a pin of length 7 (e.g.
+    # `abcdef0`) needed only to brute-force a commit whose 40-char SHA
+    # had ANY 7-char prefix matching their target (~10^9 combinations
+    # for a real upstream — easily reachable via auto-generated commits
+    # in a fork). The 7-prefix would compare equal and the freshness
+    # gate would PASS for an attacker-controlled commit. Round-1:
+    # require an EXACT 40-character SHA match. Pin must be the full
+    # SHA — short pins are explicitly rejected so the operator can't
+    # accidentally bypass the gate by typing a short hash.
+    _pin_norm = (pinned or "").lower().strip()
+    _head_norm = (head_sha or "").lower().strip()
+    if _pin_norm and len(_pin_norm) == 40 and _pin_norm == _head_norm:
         return {
             "component": component,
             "status": "fresh",
