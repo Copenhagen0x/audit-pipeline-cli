@@ -67,6 +67,23 @@ chmod +x "$DEPLOY_DIR/jelleo-autoupdate.sh" 2>/dev/null || true
 mkdir -p /root/audit_runs/percolator-live/scheduler
 mkdir -p /root/audit_runs/percolator-live/keys
 mkdir -p /root/audit_runs/percolator-live/reports
+# Round-4 fix (devils-advocate ROUND-3 MED #4): create the persistent
+# state dir for jelleo-autoupdate's dirty sentinel. The systemd unit's
+# ExecStartPre=-/bin/mkdir also covers this at runtime, but creating it
+# here means a fresh install has the dir + correct ownership before the
+# FIRST timer fire.
+# Round-6 fix (devils-advocate ROUND-5 MED #6): refuse install if
+# /var/lib/jelleo is a SYMLINK (attacker pre-placed it pointing to a
+# controlled target). `mkdir -p` is a no-op on existing dirs INCLUDING
+# symlinks, and the sentinel writes would follow the symlink target.
+if [[ -L /var/lib/jelleo ]]; then
+    echo "ERROR: /var/lib/jelleo exists as a symlink — refusing to install" >&2
+    echo "       (attacker pre-placement attack surface)" >&2
+    echo "       remove manually and re-run: rm /var/lib/jelleo" >&2
+    exit 1
+fi
+mkdir -p /var/lib/jelleo
+chmod 0700 /var/lib/jelleo  # operator-only access; contains sentinel forensic data
 
 # Ensure cryptography is installed (Sprint 3 sign module needs it). pip
 # install is a no-op if already present.

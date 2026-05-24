@@ -13,7 +13,7 @@ OnFailure=jelleo-alert-failure@%n.service
 [Service]
 Type=simple
 User=root
-Environment=PATH=/root/.cargo/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Block Python user-site path-hijack (audit finding R2-3): prevents loading
 # malicious shims from /root/.local/lib/.../site-packages even if one was
 # installed via a prior supply-chain compromise.

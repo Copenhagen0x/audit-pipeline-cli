@@ -150,13 +150,23 @@ def freshness_cmd(
             )
             continue
         console.print(f"[cyan]{component}: pulling {local_dir}...[/cyan]")
+        # Round-5 fix (Patch #1 / supply-chain devils-advocate round 4 CRITICAL):
+        # GIT_SAFE applied to fetch + checkout against third-party target repos
+        # (`aeyakovenko/percolator`, `aeyakovenko/percolator-prog`). Without
+        # `core.hooksPath=/dev/null + protocol.file.allow=never`, a compromised
+        # upstream that ships a malicious `.git/hooks/post-checkout` or
+        # `post-merge` script gets root RCE on the VPS the moment this runs
+        # (bootstrap step 6 + every operator-triggered `freshness --update`).
+        # The bash equivalents (refresh_corpus.sh, jelleo-autoupdate.sh) were
+        # hardened in earlier rounds; freshness.py was the missing Python sibling.
+        GIT_SAFE = ["-c", "core.hooksPath=/dev/null", "-c", "protocol.file.allow=never"]
         try:
             subprocess.run(
-                ["git", "fetch", "origin"], cwd=str(local_dir),
+                ["git", *GIT_SAFE, "fetch", "origin"], cwd=str(local_dir),
                 check=True, capture_output=True, text=True,
             )
             subprocess.run(
-                ["git", "checkout", latest["sha"]],
+                ["git", *GIT_SAFE, "checkout", latest["sha"]],
                 cwd=str(local_dir),
                 check=True, capture_output=True, text=True,
             )

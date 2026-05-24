@@ -9,7 +9,7 @@ OnFailure=jelleo-alert-failure@%n.service
 [Service]
 Type=simple
 User=root
-Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Block Python user-site path-hijack (audit finding R2-3).
 Environment=PYTHONNOUSERSITE=1
 WorkingDirectory=/root/audit_runs/percolator-live
