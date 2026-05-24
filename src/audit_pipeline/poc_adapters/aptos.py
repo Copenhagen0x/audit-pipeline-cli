@@ -833,6 +833,33 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
             test_funs = [f for f in all_funs if "test" in f.lower()]
             filter_name = (test_funs or all_funs or [f"test_{test_name}"])[0]
 
+        # Patch #16 (audit HIGH 4f30bcd3): the regex above captures
+        # values from LLM-authored harness body — an attacker
+        # influencing the harness could smuggle a value with embedded
+        # whitespace, newlines, or shell metacharacters that lands in
+        # subprocess argv as `--filter <attacker-controlled-string>`.
+        # `subprocess.run([...])` with a list does NOT invoke a shell,
+        # so classic shell-injection is already blocked, but a value
+        # like `"test_x\n"` or `"  "` would either match zero tests
+        # (silent pass) or behave unpredictably. Enforce the Move test-
+        # name convention regex via fullmatch so newline / whitespace
+        # / shell-meta values are rejected before they reach argv.
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", filter_name):
+            deployed_test.unlink(missing_ok=True)
+            return PocOutcome(
+                fired=False,
+                test_path=test_path,
+                stdout="",
+                stderr=f"filter_name {filter_name!r} doesn't match "
+                       f"^[A-Za-z_][A-Za-z0-9_]*$ — refusing to run "
+                       f"`aptos move test` with potentially-tainted argv",
+                returncode=-9,
+                duration_s=0.0,
+                framework=self.framework,
+                reason=f"refused tainted filter_name {filter_name!r}",
+                metadata={"infra_error": False},
+            )
+
         t0 = time.time()
         try:
             run_proc = subprocess.run(
