@@ -152,12 +152,25 @@ def file_cmd(
 
     issue_url = result.stdout.strip()
     console.print(f"[green]✓[/green] Opened: {issue_url}")
-    db.transition_finding(
-        finding_id=finding_id,
-        to_status=Status.DISCLOSED,
-        reason=f"GitHub issue filed: {issue_url}",
-        actor="audit-pipeline issue file",
-    )
+    # Patch #4 round-2 fix (devils-advocate #2 HIGH): transition_finding
+    # now raises ValueError on missing finding (was silent return on
+    # Postgres). Without this guard, a stale finding_id would leave a
+    # filed GitHub issue with no DB transition + a traceback on stderr.
+    # Catch and surface as a clean Click error so operator knows the
+    # issue was filed but DB state didn't update — they can reconcile.
+    try:
+        db.transition_finding(
+            finding_id=finding_id,
+            to_status=Status.DISCLOSED,
+            reason=f"GitHub issue filed: {issue_url}",
+            actor="audit-pipeline issue file",
+        )
+    except ValueError as _e_tx:
+        raise click.ClickException(
+            f"GitHub issue WAS filed at {issue_url} but the local DB "
+            f"transition failed: {_e_tx}. Manually transition finding "
+            f"{finding_id} to 'disclosed' to reconcile."
+        ) from _e_tx
 
 
 @issue_cmd.command(name="sync")
@@ -247,13 +260,21 @@ def sync_cmd(
             # CLOSED_NOT_PLANNED state — we got the path right, the
             # maintainer chose not to address it. Distinct signal for
             # renewal conversations + dashboards.
-            db.transition_finding(
-                finding_id=f["id"],
-                to_status=Status.CLOSED_NOT_PLANNED,
-                reason=f"upstream closed-not-planned: {url}",
-                actor="audit-pipeline issue sync",
-            )
-            n_rejected += 1
+            # Patch #4 round-2 fix (devils-advocate #2 HIGH): catch
+            # ValueError from missing-finding (Postgres now raises) so
+            # one stale row doesn't abort the whole sync loop.
+            try:
+                db.transition_finding(
+                    finding_id=f["id"],
+                    to_status=Status.CLOSED_NOT_PLANNED,
+                    reason=f"upstream closed-not-planned: {url}",
+                    actor="audit-pipeline issue sync",
+                )
+                n_rejected += 1
+            except ValueError as _e_sync:
+                console.print(
+                    f"[yellow]skip[/yellow] finding {f['id']}: {_e_sync}"
+                )
             console.print(f"[yellow]closed-not-planned[/yellow] finding {f['id']} (#{issue_no})")
 
     console.print(f"\nSynced {n_synced} finding(s); transitioned {n_rejected} to CLOSED_NOT_PLANNED.")

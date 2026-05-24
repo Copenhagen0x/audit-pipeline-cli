@@ -991,13 +991,23 @@ def record_pr_event_cmd(
                 f"Valid origin states: confirmed, disclosed, fixed."
             )
         for to_status in chain:
-            db.transition_finding(
-                finding_id=finding_id,
-                to_status=to_status,
-                reason=(f"PR merged upstream: {pr_url or '(url unknown)'} "
-                        f"(walked via bundle.record-pr-event)"),
-                actor="bundle.record-pr-event",
-            )
+            # Patch #4 round-2 fix (devils-advocate #2 HIGH): catch
+            # ValueError so a missing finding partway through the
+            # disclosed → fixed walk surfaces a clean error instead of
+            # leaving the bundle half-walked with a traceback.
+            try:
+                db.transition_finding(
+                    finding_id=finding_id,
+                    to_status=to_status,
+                    reason=(f"PR merged upstream: {pr_url or '(url unknown)'} "
+                            f"(walked via bundle.record-pr-event)"),
+                    actor="bundle.record-pr-event",
+                )
+            except ValueError as _e_walk:
+                raise click.ClickException(
+                    f"chain walk halted at {to_status.value}: {_e_walk}. "
+                    f"Bundle may be in inconsistent state; investigate."
+                ) from _e_walk
             console.print(f"[green]finding {finding_id} -> {to_status.value}[/green]")
 
     console.print(f"[green]bundle {finding_id} -> {new_status}[/green]")

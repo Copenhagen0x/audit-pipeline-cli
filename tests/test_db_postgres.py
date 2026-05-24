@@ -100,6 +100,89 @@ def test_pg_schema_has_required_tables() -> None:
         )
 
 
+# ─────────────── Patch #4 SQLite-parity signature tests ───────────────
+
+
+def test_finish_cycle_postgres_matches_sqlite_signature() -> None:
+    """Patch #4 (audit CRITICAL 016169998): Postgres `finish_cycle` was
+    missing the `n_dispatched` parameter that SQLite required, silently
+    dropping the dispatched count on Postgres-backed cycles."""
+    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.db_postgres import PostgresFindingsDB
+    sq_params = inspect.signature(FindingsDB.finish_cycle).parameters
+    pg_params = inspect.signature(PostgresFindingsDB.finish_cycle).parameters
+    missing = set(sq_params) - set(pg_params)
+    assert not missing, (
+        f"Postgres finish_cycle missing SQLite params: {sorted(missing)}"
+    )
+    assert "n_dispatched" in pg_params
+
+
+def test_list_findings_postgres_matches_sqlite_signature() -> None:
+    """Patch #4 (audit HIGH aad6075f): Postgres `list_findings` was
+    missing `severity` and `bug_class` filters."""
+    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.db_postgres import PostgresFindingsDB
+    sq_params = inspect.signature(FindingsDB.list_findings).parameters
+    pg_params = inspect.signature(PostgresFindingsDB.list_findings).parameters
+    missing = set(sq_params) - set(pg_params)
+    assert not missing, (
+        f"Postgres list_findings missing SQLite params: {sorted(missing)}"
+    )
+    assert "severity" in pg_params
+    assert "bug_class" in pg_params
+
+
+def test_list_confirmed_findings_postgres_matches_sqlite_signature() -> None:
+    """Patch #4 (audit CRITICAL ee63b539): Postgres
+    `list_confirmed_findings_by_bug_class` was missing `exclude_target_id`
+    and `limit` params + missed terminal-status filtering."""
+    from audit_pipeline.db import FindingsDB
+    from audit_pipeline.db_postgres import PostgresFindingsDB
+    sq_params = inspect.signature(
+        FindingsDB.list_confirmed_findings_by_bug_class
+    ).parameters
+    pg_params = inspect.signature(
+        PostgresFindingsDB.list_confirmed_findings_by_bug_class
+    ).parameters
+    missing = set(sq_params) - set(pg_params)
+    assert not missing, (
+        f"Postgres list_confirmed_findings_by_bug_class missing "
+        f"SQLite params: {sorted(missing)}"
+    )
+    # Source-level check: terminal-status filter applied
+    src = inspect.getsource(
+        PostgresFindingsDB.list_confirmed_findings_by_bug_class
+    )
+    assert "REJECTED" in src or "REJECTED.value" in src
+    assert "CLOSED_NOT_PLANNED" in src or "terminal_excluded" in src
+
+
+def test_stats_postgres_includes_by_status_and_by_severity() -> None:
+    """Patch #4 (audit CRITICAL 7fc92b22): Postgres stats() was missing
+    by_status + by_severity aggregations that the SQLite backend
+    returned. Dashboard + health check both broke on Postgres."""
+    import inspect as _ins
+    from audit_pipeline.db_postgres import PostgresFindingsDB
+    src = _ins.getsource(PostgresFindingsDB.stats)
+    assert "by_status" in src, "stats() must include by_status aggregation"
+    assert "by_severity" in src, "stats() must include by_severity aggregation"
+    # And it should group by both columns
+    assert "GROUP BY status" in src
+    assert "GROUP BY severity" in src
+
+
+def test_transition_finding_postgres_raises_on_missing() -> None:
+    """Patch #4 (audit HIGH 502b1994): Postgres `transition_finding`
+    silently returned on missing finding; SQLite raises ValueError.
+    Mirror SQLite behaviour."""
+    import inspect as _ins
+    from audit_pipeline.db_postgres import PostgresFindingsDB
+    src = _ins.getsource(PostgresFindingsDB.transition_finding)
+    # Must raise ValueError when finding not found (no silent return)
+    assert 'raise ValueError(f"finding ' in src or 'raise ValueError("finding ' in src
+
+
 def test_pg_schema_uses_postgres_idioms() -> None:
     """Sanity: schema doesn't accidentally contain SQLite-isms."""
     from audit_pipeline.db_postgres import SCHEMA_PG
