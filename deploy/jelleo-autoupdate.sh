@@ -44,7 +44,8 @@ LOCK="/var/lock/jelleo-autoupdate.lock"
 # Round-2 fix (devils-advocate CRITICAL #3): rollback submodule sync MUST use
 # hook-disabling flags; without them, the rollback IS the hook-execution
 # vector. Same `GIT_SAFE` array as refresh_corpus.sh.
-GIT_SAFE=(-c core.hooksPath=/dev/null -c protocol.file.allow=never)
+# R5b-3 (2026-05-24): protocol.ext.allow=never closes ext:: RCE.
+GIT_SAFE=(-c core.hooksPath=/dev/null -c protocol.file.allow=never -c protocol.ext.allow=never)
 # Round-2 fix (devils-advocate CRITICAL #2): pin allowedSignersFile at
 # invocation time so an attacker who writes /root/.gitconfig can't redirect
 # verify-commit to their own signers file. The file path is the operator's

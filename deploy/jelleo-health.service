@@ -17,6 +17,10 @@ Environment=PYTHONNOUSERSITE=1
 # `audit-pipeline` resolution would follow the EnvironmentFile-provided PATH.
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WorkingDirectory=/root/audit_runs/percolator-live
+# Audit-001 follow-up (R5b-2026-05-24): real sandboxing (see jelleo-shadow.service).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 ExecStart=/bin/bash -c 'source /root/.audit-env && exec audit-pipeline --workspace /root/audit_runs/percolator-live health --silent'
 StandardOutput=journal
 StandardError=journal

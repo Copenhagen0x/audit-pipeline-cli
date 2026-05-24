@@ -34,7 +34,9 @@ echo "$(date -u +%FT%TZ) refresh started" >> "$LOG"
 # not just submodule update — `git pull` can also run merge/post-rewrite
 # hooks under some configurations.
 # ──────────────────────────────────────────────────────────────────────────
-GIT_SAFE=(-c core.hooksPath=/dev/null -c protocol.file.allow=never)
+# R5b-3 (2026-05-24): protocol.ext.allow=never closes ext:: RCE
+# (corpus repos are third-party — submodule URLs not trusted).
+GIT_SAFE=(-c core.hooksPath=/dev/null -c protocol.file.allow=never -c protocol.ext.allow=never)
 
 failed=0
 ok=0

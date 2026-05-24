@@ -12,6 +12,16 @@ User=root
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Block Python user-site path-hijack (audit finding R2-3).
 Environment=PYTHONNOUSERSITE=1
+# Audit-001 follow-up (R5b-2026-05-24): finally close L9 properly.
+# Original P1 claim of "15 units sandboxed" was false — only
+# token-auth and sse had real sandbox flags. This block brings the
+# 9 root daemons up to the same baseline. ProtectSystem=full keeps
+# /usr, /boot, /etc read-only while leaving /root and /var writable
+# (we write to /root/audit_runs/). NoNewPrivileges blocks setuid
+# escalation. PrivateTmp gives each unit its own /tmp namespace.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 WorkingDirectory=/root/audit_runs/percolator-live
 ExecStartPre=/bin/mkdir -p /root/audit_runs/percolator-live/shadow
 ExecStart=/bin/bash -c 'source /root/.audit-env && exec audit-pipeline --workspace /root/audit_runs/percolator-live shadow start --program 6qWZvUtfyShbxTQkwjCayk3LuGqTGJwBo2QfkePK5jdJ --watch-account CJKBStEn5VXEF9VNTChKKb5YW84MV7LycqMMziVuxJSc --interval 60 --limit 25'

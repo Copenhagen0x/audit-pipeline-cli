@@ -135,19 +135,30 @@ def init_cmd(
 
 
 def _clone_at_sha(repo_url: str, sha: str, dest: Path) -> None:
-    """Shallow clone the repo, then checkout the specific SHA."""
+    """Shallow clone the repo, then checkout the specific SHA.
+
+    Audit-001 follow-up (R5b-2026-05-24): GIT_SAFE flags neutralize
+    malicious upstream `.git/hooks/post-checkout` scripts. Same class
+    as freshness.py's round-5 fix — _clone_at_sha was a missed Python
+    sibling. init runs at bootstrap step 4 against third-party repos
+    (`aeyakovenko/percolator`, `aeyakovenko/percolator-prog`).
+    """
+    # R5b-2 (2026-05-24): protocol.ext.allow=never closes ext:: RCE.
+    GIT_SAFE = ["-c", "core.hooksPath=/dev/null",
+                "-c", "protocol.file.allow=never",
+                "-c", "protocol.ext.allow=never"]
     if dest.exists() and (dest / ".git").exists():
         # Already cloned; just checkout
-        subprocess.run(["git", "fetch", "origin"], cwd=dest, check=True)
-        subprocess.run(["git", "checkout", sha], cwd=dest, check=True)
+        subprocess.run(["git", *GIT_SAFE, "fetch", "origin"], cwd=dest, check=True)
+        subprocess.run(["git", *GIT_SAFE, "checkout", sha], cwd=dest, check=True)
     else:
         if dest.exists():
             shutil.rmtree(dest)
         subprocess.run(
-            ["git", "clone", repo_url, str(dest)],
+            ["git", *GIT_SAFE, "clone", repo_url, str(dest)],
             check=True,
         )
-        subprocess.run(["git", "checkout", sha], cwd=dest, check=True)
+        subprocess.run(["git", *GIT_SAFE, "checkout", sha], cwd=dest, check=True)
 
 
 def _repo_name_from_url(url: str) -> str:

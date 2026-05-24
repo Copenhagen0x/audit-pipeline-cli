@@ -134,7 +134,10 @@ fi
 # `git clone` (before any commit verification could gate it). bootstrap.sh
 # has the strongest integrity guarantee of any script (SHA-256 self-check)
 # but that guarantee only covers THIS script, not the repos it then clones.
-GIT_SAFE=(-c core.hooksPath=/dev/null -c protocol.file.allow=never)
+# R5b-3 (2026-05-24): protocol.ext.allow=never closes ext:: RCE
+# (a `.gitmodules` URL `ext::malicious_cmd` would execute shell
+# during submodule init without this).
+GIT_SAFE=(-c core.hooksPath=/dev/null -c protocol.file.allow=never -c protocol.ext.allow=never)
 
 WORKSPACE="${WORKSPACE:-$HOME/audit_runs/percolator-live}"
 ENGINE_REPO="https://github.com/aeyakovenko/percolator"

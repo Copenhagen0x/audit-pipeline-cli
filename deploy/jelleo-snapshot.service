@@ -16,6 +16,16 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # sacred-zones rules). Without this, a shim in /root/.local/lib/pythonX.Y
 # intercepts the dashboard output.
 Environment=PYTHONNOUSERSITE=1
+# Audit-001 R5b-2 (2026-05-24): both reviewers found I missed snapshot
+# in the first R5b pass (NINE_DAEMONS list excluded it). It runs every
+# 60s as root, writes to /var/www/jelleo.com/ + touches the OSec bridge
+# `dashboard.py` — highest-frequency root daemon after watch. Adding
+# the same baseline sandbox as the other root daemons. /var is
+# writable under ProtectSystem=full so the snapshot.json write to
+# /var/www works.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 WorkingDirectory=/root/audit_runs/percolator-live
 # Writes a public-safe JSON snapshot of the findings DB to the path served
 # by the website. The dashboard.html page on jelleo.com fetches this every

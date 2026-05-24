@@ -11,6 +11,10 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Round-2 fix (devils-advocate HIGH #5): block Python user-site path-hijack.
 Environment=PYTHONNOUSERSITE=1
 WorkingDirectory=/root/audit_runs/percolator-live
+# Audit-001 follow-up (R5b-2026-05-24): real sandboxing (see jelleo-shadow.service).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 ExecStart=/bin/bash -c 'source /root/.audit-env && exec audit-pipeline --workspace /root/audit_runs/percolator-live scheduler tick --cadence monthly'
 StandardOutput=append:/root/audit_runs/percolator-live/scheduler/monthly.log
 StandardError=append:/root/audit_runs/percolator-live/scheduler/monthly.log

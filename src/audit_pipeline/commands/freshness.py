@@ -159,7 +159,11 @@ def freshness_cmd(
         # (bootstrap step 6 + every operator-triggered `freshness --update`).
         # The bash equivalents (refresh_corpus.sh, jelleo-autoupdate.sh) were
         # hardened in earlier rounds; freshness.py was the missing Python sibling.
-        GIT_SAFE = ["-c", "core.hooksPath=/dev/null", "-c", "protocol.file.allow=never"]
+        # R5b-2 (2026-05-24): protocol.ext.allow=never closes ext:: RCE
+        # (the original round-5 only blocked file://; goober R5b-2 found ext::).
+        GIT_SAFE = ["-c", "core.hooksPath=/dev/null",
+                    "-c", "protocol.file.allow=never",
+                    "-c", "protocol.ext.allow=never"]
         try:
             subprocess.run(
                 ["git", *GIT_SAFE, "fetch", "origin"], cwd=str(local_dir),

@@ -17,6 +17,11 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # launch Python today. Future edits that add Python would inherit this guard.
 Environment=PYTHONNOUSERSITE=1
 WorkingDirectory=/root/audit_runs/percolator-live
+# Audit-001 follow-up (R5b-2026-05-24): real sandboxing (see
+# jelleo-shadow.service for the full rationale block).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 ExecStart=/bin/bash /root/audit-pipeline-cli/deploy/backup_findings_db.sh
 StandardOutput=journal
 StandardError=journal

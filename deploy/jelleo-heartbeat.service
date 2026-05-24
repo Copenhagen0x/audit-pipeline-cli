@@ -13,6 +13,10 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # services but missed this one.
 Environment=PYTHONNOUSERSITE=1
 WorkingDirectory=/root/audit_runs/percolator-live
+# Audit-001 follow-up (R5b-2026-05-24): real sandboxing (see jelleo-shadow.service).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 # Emits <HEARTBEAT_PATH> + <HEARTBEAT_PATH>.sig. The path defaults to the
 # Netlify-served docroot so api.jelleo.com/heartbeat.json picks it up. The
 # signature is over the canonical bytes of the JSON (re-rendering breaks
