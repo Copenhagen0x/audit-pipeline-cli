@@ -329,7 +329,17 @@ def load_class_library(
                 (h.get("target_file") or "").strip().lower(),
                 claim_canon,
             )
-            if key in seen_class_target_claim and all(key):
+            # Patch #5 (audit HIGH 9f1ae5aa + MED 59c6faa7): the previous
+            # `and all(key)` guard meant that two hypotheses with the
+            # SAME (bug_class, target_file, claim) key but where ANY
+            # component was an empty string would NOT be deduped — the
+            # all(key) check is False if any tuple element is "", so the
+            # if-branch never fired even when the tuple was already seen.
+            # An attacker (or accidentally malformed YAML) could ship two
+            # identical hypothesis claims with blank bug_class fields and
+            # both would survive into the run. Drop the all(key) guard so
+            # dedup is keyed purely on the tuple's identity.
+            if key in seen_class_target_claim:
                 # Don't raise — log + skip the near-duplicate
                 skipped_near_dup.append((h["id"], str(f)))
                 continue
@@ -428,9 +438,24 @@ def filter_hypotheses(
             continue
 
         # 2. scope_conditions filter
+        # Patch #5 (audit CRITICAL 5587d02c): `cond.get(p, False)` made
+        # any UNKNOWN predicate name evaluate as False — a typo in a
+        # customer YAML (e.g. "is-solana" vs "is_solana") silently
+        # dropped every affected hypothesis with no operator alert. The
+        # operator believed they had run N hypotheses; in reality only
+        # M ran and the rest were silently scoped out. Now: an unknown
+        # predicate raises ValueError so the operator sees it loudly at
+        # load time.
         unmet = []
         for p in h.get("scope_conditions") or []:
-            if not cond.get(p, False):
+            if p not in cond:
+                raise ValueError(
+                    f"hypothesis {h.get('id')!r} references unknown "
+                    f"scope_condition predicate {p!r}. Known predicates: "
+                    f"{sorted(cond.keys())}. Fix the YAML or extend the "
+                    f"predicate set before re-running."
+                )
+            if not cond[p]:
                 unmet.append(p)
         if unmet:
             result.skipped.append(SkippedHypothesis(
