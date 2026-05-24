@@ -280,10 +280,30 @@ def scan_corpus_for_ast_patterns(
 
     skip_dirs = {"target", "node_modules", ".git", "build"}
     for repo_dir in sorted(p for p in corpus_path.iterdir() if p.is_dir()):
+        # Patch #15 (audit HIGH ffd663b2): rglob followed symlinks
+        # blindly. A malicious corpus member could include a
+        # `programs/x.rs → /root/.ssh/id_ed25519` symlink that
+        # rglob would walk into and read_text would happily ingest;
+        # the file content would then land in AST scan output.
+        # FIX B-#4 from propagate.py (the sibling module) closed
+        # the same gap there. Round-1: skip symlinks AND validate
+        # resolved path stays inside repo_dir (catches parent-
+        # symlink + symlinked-subdir escapes).
+        repo_dir_resolved = repo_dir.resolve(strict=False)
         for src_path in repo_dir.rglob("*.rs"):
+            if src_path.is_symlink():
+                continue
             if not src_path.is_file():
                 continue
             if any(part in skip_dirs for part in src_path.parts):
+                continue
+            # Defense-in-depth: even non-symlink entries can sit
+            # under a symlinked parent directory. Verify the
+            # resolved path remains under repo_dir.
+            try:
+                src_resolved = src_path.resolve(strict=False)
+                src_resolved.relative_to(repo_dir_resolved)
+            except (ValueError, OSError):
                 continue
             try:
                 content = src_path.read_text(encoding="utf-8", errors="replace")
