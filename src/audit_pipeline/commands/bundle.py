@@ -351,9 +351,11 @@ def draft_cmd(
     write_writeup(workspace, finding_id, writeup)
     console.print("[green]wrote writeup skeleton[/green]")
 
-    # Sign the bundle digest
+    # Sign the bundle digest. Patch #3 round-3 (devils-advocate #2):
+    # filename fixed from `jelleo.ed25519.priv` to `jelleo.ed25519` to
+    # match what `audit-pipeline sign keygen` produces (sign.py:158).
     sig = sign_bundle(workspace, finding_id,
-                       signing_key=workspace / "keys" / "jelleo.ed25519.priv")
+                       signing_key=workspace / "keys" / "jelleo.ed25519")
     if sig:
         console.print(f"[green]signed[/green] {sig.relative_to(workspace)}")
 
@@ -510,11 +512,75 @@ def review_cmd(
     typed = click.prompt("phrase", default="", show_default=False)
     op = authorizer or _os.environ.get("JELLEO_OPERATOR") or "kirill"
 
+    # Patch #3 round-1 fix (audit CRITICAL ed5baf8b): source engine_sha
+    # from `git rev-parse HEAD` of the engine repo at review TIME, not
+    # from verification.json. The verification.json `engine_sha` was
+    # recorded at VERIFY time — between verify and review, the engine
+    # repo could have moved forward (e.g., autoupdate fired). Trusting
+    # the stale value lets an attacker who controls intermediate updates
+    # bind the authorization to a SHA that no longer represents the
+    # currently-deployed engine. Resolve fresh and let mismatch surface
+    # as an explicit "re-verify with current engine" prompt.
+    #
+    # Patch #3 round-2 fixes (code-reviewer #3 + devils-advocate #5 +
+    # threat-modeler #6):
+    #   * loud warning when JELLEO_ENGINE_REPO is unset (was silent
+    #     no-op which fell through to stale verification.json value)
+    #   * validate the env-supplied path before using it as a git cwd
+    #     (prevent UNC-path side effects on Windows and bogus-cwd
+    #     errors from leaking up the stack)
+    engine_sha = verification.get("engine_sha", "")
+    engine_repo_env = _os.environ.get("JELLEO_ENGINE_REPO")
+    if engine_repo_env:
+        import os.path as _osp_rv
+        if not (
+            _osp_rv.isabs(engine_repo_env)
+            and _osp_rv.isdir(engine_repo_env)
+            and _osp_rv.isdir(_osp_rv.join(engine_repo_env, ".git"))
+        ):
+            console.print(
+                f"[yellow]Warning: JELLEO_ENGINE_REPO={engine_repo_env!r} "
+                f"is not an absolute path to a git working tree — engine_sha "
+                f"drift check skipped. Authorization will bind to the stale "
+                f"verification.json value.[/yellow]"
+            )
+        else:
+            try:
+                import subprocess as _subprocess
+                proc = _subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=engine_repo_env,
+                    capture_output=True, text=True, timeout=10,
+                )
+                if proc.returncode == 0 and proc.stdout.strip():
+                    fresh_sha = proc.stdout.strip()
+                    if fresh_sha != engine_sha:
+                        raise click.ClickException(
+                            f"engine_sha drift detected: verification.json was "
+                            f"recorded against {engine_sha[:12]} but engine repo "
+                            f"HEAD is now {fresh_sha[:12]}. Re-run "
+                            f"`bundle verify` against the current engine before "
+                            f"authorizing — otherwise the authorization binds to "
+                            f"an obsolete engine SHA."
+                        )
+                    engine_sha = fresh_sha
+            except (_subprocess.TimeoutExpired, OSError):
+                # Git unreachable — fall through to verification.json value.
+                # write_authorization() will reject if it's malformed.
+                pass
+    else:
+        console.print(
+            "[yellow]Warning: JELLEO_ENGINE_REPO not set — engine_sha "
+            "drift check skipped. Authorization will bind to the stale "
+            "verification.json value. For hardened deploys, export "
+            "JELLEO_ENGINE_REPO=/path/to/engine/repo.[/yellow]"
+        )
+
     try:
         marker = write_authorization(
             workspace,
             finding_id=finding_id,
-            engine_sha=verification.get("engine_sha", ""),
+            engine_sha=engine_sha,
             authorizer=op,
             typed_phrase=typed,
             ttl_hours=ttl_hours,
@@ -554,7 +620,74 @@ def open_pr_cmd(
     if not mp.is_file():
         raise click.ClickException(f"no bundle for finding {finding_id}")
     meta = json.loads(mp.read_text(encoding="utf-8"))
+
+    # Patch #3 round-2 fix (devils-advocate #2 + threat-modeler #1):
+    # CRITICAL — previously open_pr_cmd read engine_sha from meta.json,
+    # which lives in the attacker-writable bundle dir. validate_authorization
+    # then compared marker.engine_sha against this attacker-controlled
+    # value. An attacker who could write meta.json (same threat model that
+    # gives write access to authorization.json) could produce a self-
+    # consistent pair where both sides agree on a forged engine_sha.
+    # Resolve via `git rev-parse HEAD` on JELLEO_ENGINE_REPO — the SAME
+    # source review_cmd uses — so the AUTHORITATIVE engine_sha is the
+    # live git state, not bundle-dir-resident JSON.
+    import os as _os_pr
     engine_sha = meta.get("engine_sha", "")
+    engine_repo_env = _os_pr.environ.get("JELLEO_ENGINE_REPO")
+    if engine_repo_env:
+        import os.path as _osp_pr
+        if not (
+            _osp_pr.isabs(engine_repo_env)
+            and _osp_pr.isdir(engine_repo_env)
+            and _osp_pr.isdir(_osp_pr.join(engine_repo_env, ".git"))
+        ):
+            console.print(
+                f"[yellow]Warning: JELLEO_ENGINE_REPO={engine_repo_env!r} "
+                f"is not an absolute path to a git working tree — "
+                f"engine_sha sourced from meta.json (attacker-writable in "
+                f"shared-workspace deployments).[/yellow]"
+            )
+        else:
+            try:
+                import subprocess as _subprocess_pr
+                proc = _subprocess_pr.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=engine_repo_env,
+                    capture_output=True, text=True, timeout=10,
+                )
+                if proc.returncode == 0 and proc.stdout.strip():
+                    engine_sha = proc.stdout.strip()
+                else:
+                    # Patch #3 round-3 fix (code-reviewer #4 + devils-
+                    # advocate #6): git failed (detached HEAD, corrupt
+                    # repo, etc) — print warning before falling through.
+                    # Previously this branch was silent, making the
+                    # warning-on-path-invalid case strictly louder than
+                    # the warning-on-git-failure case.
+                    console.print(
+                        f"[yellow]Warning: `git rev-parse HEAD` in "
+                        f"JELLEO_ENGINE_REPO failed (exit "
+                        f"{proc.returncode}: {(proc.stderr or '').strip()[:120]}) — "
+                        f"engine_sha falling through to meta.json value "
+                        f"(attacker-writable in shared-workspace "
+                        f"deployments).[/yellow]"
+                    )
+            except (_subprocess_pr.TimeoutExpired, OSError) as _e_git:
+                console.print(
+                    f"[yellow]Warning: git subprocess for engine_sha "
+                    f"failed ({_e_git}) — engine_sha falling through "
+                    f"to meta.json.[/yellow]"
+                )
+    else:
+        # JELLEO_ENGINE_REPO not set — print a loud warning so an operator
+        # doesn't silently accept the staler meta.json provenance.
+        console.print(
+            "[yellow]Warning: JELLEO_ENGINE_REPO not set — "
+            "engine_sha for validate_authorization sourced from meta.json "
+            "(bundle-dir-resident, attacker-writable in shared-workspace "
+            "deployments). For hardened deploys, export "
+            "JELLEO_ENGINE_REPO=/path/to/engine/repo.[/yellow]"
+        )
 
     # THE HARD RULE — must pass before anything fires
     try:
@@ -566,6 +699,24 @@ def open_pr_cmd(
             f"  fix: re-run `audit-pipeline bundle review {finding_id}` "
             f"(operator must explicitly re-authorize)"
         ) from e
+
+    # Patch #3 round-3 fix (threat-modeler #6): post-validate patch_sha
+    # re-check. validate_authorization runs against patch.diff bytes at
+    # T0; the open-pr printout and any subsequent operator action read
+    # the file fresh at T1. An attacker who swaps patch.diff between T0
+    # and T1 delivers a malicious patch to the operator. Lock the post-
+    # validate patch.diff bytes against marker.patch_sha here.
+    from audit_pipeline.bundle.auth import file_sha256 as _fs256
+    post_validate_sha = _fs256(bpaths.patch_path(workspace, finding_id))
+    if post_validate_sha != marker.patch_sha:
+        raise click.ClickException(
+            f"REFUSED: patch.diff was modified between validate_authorization "
+            f"and open-pr.\n"
+            f"  authorized sha: {marker.patch_sha[:12]}\n"
+            f"  current sha:    {post_validate_sha[:12]}\n"
+            f"  fix: re-run `audit-pipeline bundle review {finding_id}` "
+            f"(this may be a race-attack — investigate before re-authorizing)"
+        )
 
     console.print(f"[green]authorization valid[/green] (authorized by {marker.authorizer} "
                    f"at {marker.authorized_at}, expires {marker.expires_at})")
@@ -726,10 +877,22 @@ def override_cmd(ctx: click.Context, finding_id: int, patch_file: Path) -> None:
     src = patch_file.read_text(encoding="utf-8")
     write_patch(workspace, finding_id, src)
     # Invalidate authz by removing the marker file (if any)
+    # Patch #3 round-4 fix (devils-advocate #3): also remove the .sig
+    # and .sig.status sidecars added in round-2/3. Otherwise a stale
+    # SIGNED .sig from before the patch override persists on disk, and
+    # the next write_authorization could leave the OLD .sig alongside
+    # a NEW UNSIGNED .sig.status (mismatch). Stale-key-rotation case
+    # was the specific bypass devils-advocate identified.
     auth_path = bpaths.authorization_path(workspace, finding_id)
-    if auth_path.is_file():
-        auth_path.unlink()
-        console.print("[yellow]existing authorization marker removed (patch_sha changed)[/yellow]")
+    sig_path = auth_path.with_suffix(auth_path.suffix + ".sig")
+    sig_status_path = auth_path.with_suffix(auth_path.suffix + ".sig.status")
+    removed_any = False
+    for p in (auth_path, sig_path, sig_status_path):
+        if p.is_file():
+            p.unlink()
+            removed_any = True
+    if removed_any:
+        console.print("[yellow]existing authorization marker + sidecars removed (patch_sha changed)[/yellow]")
 
     transition_status(workspace, finding_id, "drafted",
                        note=f"operator patch override from {patch_file}")
@@ -909,7 +1072,20 @@ def publish_archive_cmd(
     dst = archive_root / str(finding_id)
     dst.mkdir(parents=True, exist_ok=True)
 
-    EXCLUDE_PUBLIC = {"verification.json", "authorization.json", "hooks", "pr-body.md"}
+    # Patch #3 round-3 fix (code-reviewer #3): exclude the new sidecar
+    # files added in round-2. authorization.json itself is excluded;
+    # the .sig (Ed25519 signature over operator's authorization) and
+    # .sig.status (signing-infra state) describe an internal attestation
+    # artifact that has no purpose in the public archive and leaks the
+    # existence of Jelleo's signing key infrastructure when published.
+    EXCLUDE_PUBLIC = {
+        "verification.json",
+        "authorization.json",
+        "authorization.json.sig",
+        "authorization.json.sig.status",
+        "hooks",
+        "pr-body.md",
+    }
     n_copied = 0
     for item in src.iterdir():
         if public_only and item.name in EXCLUDE_PUBLIC:

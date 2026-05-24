@@ -44,13 +44,17 @@ class SignError(Exception):
 # verifying. Tags are NUL-terminated to prevent length-extension attacks at
 # the tag boundary. Schema version 2.
 SIGN_DOMAINS = {
-    "merkle":     b"jelleo-merkle/v2\x00",
-    "bundle":     b"jelleo-bundle/v2\x00",
-    "disclosure": b"jelleo-disclosure/v2\x00",
-    "report":     b"jelleo-report/v2\x00",
-    "heartbeat":  b"jelleo-heartbeat/v2\x00",
-    "customer":   b"jelleo-customer/v2\x00",
-    "raw":        b"",  # legacy v1 — pre-domain-separation, KEEP for verify
+    "merkle":         b"jelleo-merkle/v2\x00",
+    "bundle":         b"jelleo-bundle/v2\x00",
+    "disclosure":     b"jelleo-disclosure/v2\x00",
+    "report":         b"jelleo-report/v2\x00",
+    "heartbeat":      b"jelleo-heartbeat/v2\x00",
+    "customer":       b"jelleo-customer/v2\x00",
+    # Patch #3 round-1 (audit HIGH 2984f0e7): dedicated domain for
+    # bundle authorization.json sidecars so a forged bundle digest can't
+    # be re-presented as a valid authorization sig (and vice-versa).
+    "authorization":  b"jelleo-authorization/v2\x00",
+    "raw":            b"",  # legacy v1 — pre-domain-separation, KEEP for verify
 }
 
 
