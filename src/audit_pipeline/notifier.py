@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import smtplib
 import ssl
 from dataclasses import dataclass, field
@@ -123,6 +124,62 @@ class NotifierSettings:
 # ---------------------------------------------------------------------------
 
 
+# Patch #7 (audit HIGH 049a6969 + 153c13d + c3bc75b1): email header
+# injection + recipient validation. The previous implementation passed
+# attacker-controllable strings (finding title, bug_class, recipient
+# addresses from notifier.json) directly into MIME headers. A finding
+# title containing CR/LF would break out of the Subject: header and
+# inject arbitrary headers (Bcc, X-Custom-*, etc.). A recipient address
+# like "victim@evil.com>, attacker@evil.com\nBcc: spam@" would smuggle
+# additional recipients past the visible To: list.
+_EMAIL_ADDR_RE = re.compile(
+    r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"
+)
+
+
+def _sanitize_header_value(name: str, value: str) -> str:
+    """Strip CR/LF and any character that could break the header parser.
+
+    Returns the cleaned string. Raises NotifierError if the input
+    contains characters that suggest active injection (we don't
+    silently strip them — the operator should see the bad data)."""
+    if not isinstance(value, str):
+        raise NotifierError(f"header {name!r} must be a string, got {type(value)}")
+    if "\r" in value or "\n" in value or "\x00" in value:
+        raise NotifierError(
+            f"header {name!r} contains CR/LF/NUL — refusing to send "
+            f"(possible header-injection). Sanitize upstream before "
+            f"passing to send_email()."
+        )
+    return value
+
+
+def _validate_recipient_list(label: str, addrs: list[str]) -> list[str]:
+    """Each recipient must look like an RFC-822-shaped email address.
+
+    Reject any address that doesn't match a conservative regex — this
+    blocks both header injection (which contains CR/LF that the regex
+    would already reject) AND obvious garbage like "Bob <evil>" which
+    isn't a valid email at all. The audit finding called out
+    notifier.json being parsed without validation; this is the
+    centralised gate."""
+    cleaned: list[str] = []
+    for addr in addrs:
+        if not isinstance(addr, str):
+            raise NotifierError(
+                f"{label} recipient must be string, got {type(addr)}: {addr!r}"
+            )
+        addr_stripped = addr.strip()
+        if not _EMAIL_ADDR_RE.fullmatch(addr_stripped):
+            raise NotifierError(
+                f"{label} recipient {addr_stripped!r} doesn't look like a "
+                f"valid email address — refusing to send. Fix the "
+                f"recipient list (notifier.json or CLI args)."
+            )
+        cleaned.append(addr_stripped)
+    return cleaned
+
+
 def _build_message(
     *,
     sender: str,
@@ -133,6 +190,14 @@ def _build_message(
     body_html: str | None = None,
     attachments: list[Path] | None = None,
 ) -> EmailMessage:
+    # Patch #7: validate every header-bound field BEFORE constructing
+    # the EmailMessage. send_email() callers can pass attacker-
+    # controlled subject text (finding title) and recipient lists
+    # (notifier.json) — sanitization happens here at the choke point.
+    sender = _sanitize_header_value("From", sender)
+    to = _validate_recipient_list("To", to)
+    cc = _validate_recipient_list("Cc", cc)
+    subject = _sanitize_header_value("Subject", subject)
     msg = EmailMessage()
     msg["From"] = sender
     msg["To"] = ", ".join(to)
@@ -189,6 +254,32 @@ def _send(message: EmailMessage, smtp: SmtpConfig) -> None:
                 s.login(smtp.user, smtp.password or "")
             s.send_message(message)
     elif smtp.tls_mode == "none":
+        # Patch #7 (audit HIGH 2a9de64e + 3b2c43ae): plaintext SMTP with
+        # LOGIN sends the password in clear over the network. Refuse to
+        # log in unless an explicit opt-in env var is set, and refuse
+        # plaintext entirely unless tls=none is paired with the
+        # JELLEO_SMTP_ALLOW_PLAINTEXT=1 acknowledgement so the operator
+        # CAN'T enable it by accident.
+        if os.environ.get("JELLEO_SMTP_ALLOW_PLAINTEXT") != "1":
+            raise NotifierError(
+                "JELLEO_SMTP_TLS='none' requires JELLEO_SMTP_ALLOW_PLAINTEXT=1 "
+                "to acknowledge the security risk (passwords + message body "
+                "sent in clear over the network). Use 'starttls' or 'ssl' "
+                "instead for production deployments."
+            )
+        if smtp.user and smtp.password:
+            # An additional, separate opt-in for LOGIN-over-plaintext.
+            # Plaintext alone without auth is sometimes legitimate (an
+            # internal relay that accepts unauthenticated mail from
+            # specific source IPs); LOGIN-over-plaintext is almost never
+            # legitimate.
+            if os.environ.get("JELLEO_SMTP_ALLOW_PLAINTEXT_LOGIN") != "1":
+                raise NotifierError(
+                    "Refusing SMTP LOGIN over plaintext (password would be "
+                    "sent in clear). Set JELLEO_SMTP_ALLOW_PLAINTEXT_LOGIN=1 "
+                    "to bypass this guard ONLY for testing against a local "
+                    "relay where the risk is acceptable."
+                )
         with smtplib.SMTP(smtp.host, smtp.port, timeout=smtp.timeout_sec) as s:
             if smtp.user:
                 s.login(smtp.user, smtp.password or "")
