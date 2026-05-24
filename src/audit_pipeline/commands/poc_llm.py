@@ -711,8 +711,18 @@ def poc_llm_cmd(
     # hypothesis-ID markers (BUG_WITNESS, WITNESS) that wouldn't appear
     # in engine source. Skip the gate in Anchor mode — manual review
     # at L2.5 / spot-check catches hallucinations.
+    #
+    # Patch #12 (audit HIGH 7be6aca5): the previous call passed
+    # `engine_source=rust_content` — the LLM-AUTHORED PoC text — to
+    # the anchor detector. That meant the gate's "is this an Anchor
+    # workspace?" decision was based on the LLM's output rather than
+    # the actual engine source. An attacker who prompted the LLM to
+    # include `#[derive(Accounts)]` etc. in its output would convince
+    # the detector to SKIP the symbol_grep gate even for a non-Anchor
+    # target. Round-1: pass the REAL engine source (built earlier at
+    # line ~688) so the detection is grounded in the audited code.
     is_anchor_mode = _is_anchor_workspace(
-        engine_source=rust_content,
+        engine_source=engine_source,
         target_file=hyp.get("target_file", ""),
     )
 
