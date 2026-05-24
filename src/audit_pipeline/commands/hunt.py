@@ -1807,7 +1807,8 @@ def _hunt_run(
                         "weak_test_reason": _attempt_err,
                         "authoring_mode": f"adapter:{language}",
                     }
-                    continue
+                    # Patch #9 (audit HIGH 4236cfb4): dead code — the
+                    # second `continue` is unreachable. Removed.
                     continue
 
                 # Write test file then run it via the adapter
@@ -3975,13 +3976,29 @@ def _hunt_run(
             # above — when customer_id is set, the post-cycle QA reads
             # from the SHARED customer-eval DB, not a per-workspace one.
             _db = open_findings_db(db_workspace)
-            confirmed = [
+            # Patch #9 (audit HIGH bb8662e): rebinding `confirmed` here
+            # shadows the in-memory list built earlier (lines 3503/3526).
+            # Downstream lines (3888/3902/3907/3912/3927/3932/3935/3937)
+            # all read `confirmed` AFTER this block, expecting the same
+            # in-memory data that was logged through the cycle. With the
+            # shadow they unwittingly see DB rows instead — which differ
+            # when concurrent workers have transitioned rows or when
+            # in-memory and DB diverge on poc_fired (DB persists the
+            # confirmed transition via assert_transition; in-memory may
+            # carry a more-recent verdict that hasn't been committed
+            # yet). Use a new local name `db_confirmed` for the post-
+            # cycle QA so the original `confirmed` is preserved.
+            db_confirmed = [
                 f for f in _db.list_findings(limit=1000)
                 if f.get("cycle_id") == cycle_id and f.get("poc_fired")
             ]
+            # Post-cycle QA reads from the DB snapshot (transaction-
+            # committed source of truth); the rest of the function
+            # continues to use in-memory `confirmed` for display +
+            # downstream logging.
             post_report = check_post_cycle(
                 cycle_dir=cycle_dir,
-                confirmed_findings=confirmed,
+                confirmed_findings=db_confirmed,
                 engine_src_dir=engine_src,
                 wrapper_src_dir=wrapper_src,
             )
