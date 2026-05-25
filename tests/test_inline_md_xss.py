@@ -16,7 +16,12 @@ def test_javascript_uri_is_rendered_as_plain_text() -> None:
     """javascript: scheme must NOT produce an href — must render verbatim."""
     out = _inline_md("[click](javascript:alert(1))")
     assert "<a href=" not in out
-    assert "javascript:" not in out.lower() or "href=\"javascript:" not in out
+    # R5b — code-reviewer + goober: tautological `or` removed. The
+    # invariant we want is: the dangerous string never lands in any
+    # rendered href attribute. Since the no-link path renders verbatim,
+    # `javascript:` will appear as plain text — but it MUST NOT appear
+    # inside an href.
+    assert 'href="javascript:' not in out.lower()
 
 
 def test_data_uri_rejected() -> None:
@@ -73,3 +78,44 @@ def test_inline_code_still_works() -> None:
 def test_bold_still_works() -> None:
     out = _inline_md("this is **bold** text")
     assert "<strong>bold</strong>" in out
+
+
+# ─────────── R5b additions ───────────
+
+
+def test_protocol_relative_url_rejected() -> None:
+    """R5b (2026-05-24) — goober HIGH #1: `//evil.com` previously
+    passed via startswith('/'). On HTTPS delivery: open redirect.
+    On Windows file:// context: UNC path resolution leaks NTLM
+    credentials on click. Must NOT produce an href."""
+    out = _inline_md("[click](//attacker.com/capture)")
+    assert "<a href=" not in out
+    assert 'href="//' not in out
+
+def test_protocol_relative_url_in_heading_rejected() -> None:
+    """R5b: same defense via the H3 heading path of _render_md_text."""
+    from audit_pipeline.commands.report import _render_md_text
+    out = _render_md_text("### [Section](//attacker.com)")
+    assert "<a href=" not in out
+
+def test_legitimate_root_relative_path_still_allowed() -> None:
+    """R5b: regression-lock — single-slash root-relative paths must
+    still resolve. Only `//` (double slash) is the attack."""
+    out = _inline_md("[docs](/docs/index.html)")
+    assert '<a href="/docs/index.html">docs</a>' in out
+
+def test_uppercase_https_scheme_allowed() -> None:
+    """R5b — goober MEDIUM #3: scheme allowlist is now case-insensitive
+    so HTTPS://example.com / Https://example.com don't silently
+    disappear from operator-authored narratives."""
+    out = _inline_md("[RFC](HTTPS://datatracker.ietf.org/rfc/rfc7230)")
+    assert "<a href=" in out
+
+def test_uppercase_javascript_still_rejected() -> None:
+    """R5b: case-insensitive allowlist must NOT accidentally allow
+    case-variant attack schemes. JAVASCRIPT:alert(1) must still be
+    rejected (it's not in the allowed set)."""
+    out = _inline_md("[click](JAVASCRIPT:alert(1))")
+    assert "<a href=" not in out
+    assert 'href="JAVASCRIPT' not in out
+    assert 'href="javascript' not in out.lower()

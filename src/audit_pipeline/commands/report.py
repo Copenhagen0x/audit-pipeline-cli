@@ -1430,16 +1430,26 @@ def _inline_md(text: str) -> str:
         #   - # / / — same-page anchor + relative paths
         # Note: url has already been html.escape'd above (we're matching
         # against the escaped string), so quotes are &quot; etc.
+        # R5b (2026-05-24) — goober HIGH #1: protocol-relative URLs
+        # ("//evil.com") previously passed via startswith("/"). On HTTPS
+        # delivery they redirect to attacker host. On Windows file://
+        # context they resolve as UNC paths (\\\\evil.com\\share) and
+        # leak NTLM credentials on click. Explicit `not startswith("//")`
+        # blocks them; legitimate same-site root-relative paths ("/docs")
+        # still pass.
+        # R5b — goober MEDIUM #3: scheme allowlist made case-insensitive
+        # via url.lower() for the scheme prefix check, so HTTPS:// and
+        # Https:// also resolve.
+        _url_lc = url.lower()
         scheme_safe = (
-            url.startswith("https://")
-            or url.startswith("http://")
-            or url.startswith("mailto:")
+            (_url_lc.startswith("https://")
+             or _url_lc.startswith("http://")
+             or _url_lc.startswith("mailto:"))
             or url.startswith("#")
-            or url.startswith("/")
+            or (url.startswith("/") and not url.startswith("//"))
         )
-        # Reject javascript:, data:, vbscript:, file:, etc. — those
-        # are the XSS vectors the audit flagged. Also reject any
-        # control characters or whitespace in the URL.
+        # Reject javascript:, data:, vbscript:, file:, // (protocol-relative),
+        # control characters, and whitespace in the URL.
         if not scheme_safe or any(c in url for c in "\x00\n\r\t "):
             # Render as plain text: `[click](unsafe-url)` survives
             # verbatim, operator sees that the link wasn't trusted.
