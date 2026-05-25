@@ -80,6 +80,24 @@ def audit_runs_root() -> Path:
             f"working directory, which the LLM tool sandbox treats as "
             f"trusted — that's not safe."
         )
+    # P8 R0+R1 (goober + threat-modeler CRITICAL): also refuse
+    # filesystem root and depth-1 directories. The original CRITICAL
+    # 5ecc0355 was titled "empty audit_runs_root" but the actual
+    # vulnerability class is "insufficiently bounded sandbox root".
+    # `JELLEO_AUDIT_RUNS_ROOT=/` passes the empty/absolute checks but
+    # makes every absolute path on the system pass relative_to(root) —
+    # which is the exact failure mode the patch was supposed to close.
+    # Refuse anything shallower than `/<two-segments>/...` so root must
+    # be at least two levels deep (e.g. `/root/audit_runs`, never `/`
+    # or `/root`).
+    if len(p.parts) < 3:
+        raise RuntimeError(
+            f"JELLEO_AUDIT_RUNS_ROOT must be at least two directories "
+            f"deep; got {raw!r}. A shallow root (e.g. `/`, `/tmp`, "
+            f"`/root`) trusts too much of the filesystem — every path "
+            f"under it would be readable by the LLM tool sandbox. Use "
+            f"a dedicated subdirectory like `/root/audit_runs`."
+        )
     return p
 
 
