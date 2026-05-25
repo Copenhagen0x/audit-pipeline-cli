@@ -626,13 +626,13 @@ class PostgresFindingsDB:
         unbounded list including won't-fix patterns. Match SQLite
         behaviour exactly.
 
-        Note: status='confirmed' is the only initial filter on
-        Postgres (matches SQLite's logical intent — confirmed-but-not-
-        terminal). The terminal-status exclusion is moot for status=
-        'confirmed' (confirmed != REJECTED/CLOSED_NOT_PLANNED) but
-        added defensively for parity with the SQLite implementation
-        which uses status NOT IN (REJECTED, CLOSED_NOT_PLANNED) for
-        a broader filter set."""
+        Note (R5b 2026-05-24): the actual filter is `status NOT IN
+        (REJECTED, CLOSED_NOT_PLANNED)`, mirroring SQLite's db.py at
+        line 1048. The prior docstring lied about a `status='confirmed'`
+        constraint — neither backend uses it. Both backends return
+        findings in any non-terminal state matching bug_class. Callers
+        in propagate.py rely on this broader semantic (NEW/CONFIRMED/
+        DISCLOSED/FIXED/VERIFIED all included)."""
         # Mirror SQLite's terminal-status exclusion semantically. Import
         # locally to avoid circular: db_postgres → db → status enums.
         from audit_pipeline.lifecycle import Status as _S

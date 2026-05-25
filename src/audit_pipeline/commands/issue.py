@@ -21,7 +21,7 @@ from rich.console import Console
 
 from audit_pipeline.db import FindingsDB, open_findings_db
 from audit_pipeline.gates.repo_pin import check_repo_pin
-from audit_pipeline.lifecycle import Status
+from audit_pipeline.lifecycle import InvalidTransition, Status
 from audit_pipeline.severity import DEFINITIONS, Severity
 from audit_pipeline.severity import emoji as sev_emoji
 
@@ -165,7 +165,11 @@ def file_cmd(
             reason=f"GitHub issue filed: {issue_url}",
             actor="audit-pipeline issue file",
         )
-    except ValueError as _e_tx:
+    except (ValueError, InvalidTransition) as _e_tx:
+        # R5b (2026-05-24) — goober HIGH #1: transition_finding can raise
+        # ValueError (missing finding) OR InvalidTransition (illegal state
+        # machine move). Both must be caught — InvalidTransition was
+        # propagating as raw traceback pre-R5b.
         raise click.ClickException(
             f"GitHub issue WAS filed at {issue_url} but the local DB "
             f"transition failed: {_e_tx}. Manually transition finding "
@@ -263,6 +267,10 @@ def sync_cmd(
             # Patch #4 round-2 fix (devils-advocate #2 HIGH): catch
             # ValueError from missing-finding (Postgres now raises) so
             # one stale row doesn't abort the whole sync loop.
+            # R5b (2026-05-24) — goober HIGH #1 + MEDIUM #2: catch
+            # InvalidTransition too AND move the success-print INSIDE
+            # the try (was outside — fired even on skip, misleading
+            # operators that the transition succeeded).
             try:
                 db.transition_finding(
                     finding_id=f["id"],
@@ -271,11 +279,11 @@ def sync_cmd(
                     actor="audit-pipeline issue sync",
                 )
                 n_rejected += 1
-            except ValueError as _e_sync:
+                console.print(f"[yellow]closed-not-planned[/yellow] finding {f['id']} (#{issue_no})")
+            except (ValueError, InvalidTransition) as _e_sync:
                 console.print(
                     f"[yellow]skip[/yellow] finding {f['id']}: {_e_sync}"
                 )
-            console.print(f"[yellow]closed-not-planned[/yellow] finding {f['id']} (#{issue_no})")
 
     console.print(f"\nSynced {n_synced} finding(s); transitioned {n_rejected} to CLOSED_NOT_PLANNED.")
 

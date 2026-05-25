@@ -995,6 +995,12 @@ def record_pr_event_cmd(
             # ValueError so a missing finding partway through the
             # disclosed → fixed walk surfaces a clean error instead of
             # leaving the bundle half-walked with a traceback.
+            # R5b (2026-05-24) — goober HIGH #1: also catch
+            # InvalidTransition (illegal state move) in addition to
+            # ValueError (missing finding). Pre-R5b InvalidTransition
+            # propagated as raw traceback. Local import to avoid
+            # module-level circular risk.
+            from audit_pipeline.lifecycle import InvalidTransition as _IT
             try:
                 db.transition_finding(
                     finding_id=finding_id,
@@ -1003,7 +1009,7 @@ def record_pr_event_cmd(
                             f"(walked via bundle.record-pr-event)"),
                     actor="bundle.record-pr-event",
                 )
-            except ValueError as _e_walk:
+            except (ValueError, _IT) as _e_walk:
                 raise click.ClickException(
                     f"chain walk halted at {to_status.value}: {_e_walk}. "
                     f"Bundle may be in inconsistent state; investigate."
