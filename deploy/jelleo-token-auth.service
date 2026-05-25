@@ -8,8 +8,15 @@ OnFailure=jelleo-alert-failure@%n.service
 [Service]
 Type=simple
 User=root
-Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=JELLEO_PLATFORM_KEY_PATH=/root/audit_runs/percolator-live/keys/jelleo.ed25519
+# PYTHONNOUSERSITE=1 disables /root/.local/lib/pythonX.Y/site-packages, blocking
+# the Python-path hijack vector documented in audit finding R2-3: an attacker
+# with one-time root access (via supply-chain RCE) could otherwise install a
+# malicious cryptography shim that intercepts every sign() / HMAC verify call
+# on this sidecar — a backdoor that survives git revert. With NoUserSite, only
+# system site-packages are loaded.
+Environment=PYTHONNOUSERSITE=1
 ExecStart=/usr/bin/python3 /root/audit-pipeline-cli/deploy/jelleo-token-auth.py
 Restart=on-failure
 RestartSec=10s

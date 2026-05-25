@@ -226,7 +226,16 @@ def corpus_init(
             skipped += 1
             continue
 
-        clone_cmd = ["git", "clone"]
+        # Audit-001 R5b (2026-05-24): GIT_SAFE neutralizes malicious
+        # upstream `.git/hooks/*` and (critically here) blocks file://
+        # + ext:: submodule URLs that would let a compromised upstream
+        # exfiltrate /etc/* via `git submodule update --init`.
+        # R5b-2 (2026-05-24): protocol.ext.allow=never closes ext:: RCE
+        # (critical for submodule update --recursive on adversary repos).
+        GIT_SAFE = ["-c", "core.hooksPath=/dev/null",
+                    "-c", "protocol.file.allow=never",
+                    "-c", "protocol.ext.allow=never"]
+        clone_cmd = ["git", *GIT_SAFE, "clone"]
         if shallow:
             clone_cmd += ["--depth", "1"]
         clone_cmd += [entry["url"], str(target)]
@@ -243,7 +252,7 @@ def corpus_init(
 
             if entry.get("ref"):
                 subprocess.run(
-                    ["git", "checkout", entry["ref"]],
+                    ["git", *GIT_SAFE, "checkout", entry["ref"]],
                     cwd=str(target), capture_output=True, text=True,
                 )
             # Init submodules if any. Several Solana protocols carry their
@@ -254,7 +263,7 @@ def corpus_init(
             # 2026-05-07 during F7 regression cycle (B62 verdict UNKNOWN).
             try:
                 subprocess.run(
-                    ["git", "submodule", "update", "--init", "--recursive"],
+                    ["git", *GIT_SAFE, "submodule", "update", "--init", "--recursive"],
                     cwd=str(target), capture_output=True, text=True, timeout=300,
                 )
             except (subprocess.TimeoutExpired, OSError):
@@ -1203,7 +1212,15 @@ def add_target_cmd(name: str, github_url: str, corpus: Path, ref: str | None) ->
         return
 
     corpus.mkdir(parents=True, exist_ok=True)
-    cmd = ["git", "clone", "--depth", "1", github_url, str(target)]
+    # Audit-001 R5b (2026-05-24): GIT_SAFE neutralizes upstream hooks +
+    # blocks file:// / ext:: submodule URLs.
+    # R5b-3 (2026-05-24): goober caught that my replace_all for the
+    # ext:: addition only matched the first GIT_SAFE definition in
+    # this file (different indentation). Fixing the second site.
+    GIT_SAFE = ["-c", "core.hooksPath=/dev/null",
+                "-c", "protocol.file.allow=never",
+                "-c", "protocol.ext.allow=never"]
+    cmd = ["git", *GIT_SAFE, "clone", "--depth", "1", github_url, str(target)]
     console.print(f"[cyan]Cloning {name} from {github_url}...[/cyan]")
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if proc.returncode != 0:
@@ -1211,7 +1228,7 @@ def add_target_cmd(name: str, github_url: str, corpus: Path, ref: str | None) ->
 
     if ref:
         co_proc = subprocess.run(
-            ["git", "checkout", ref],
+            ["git", *GIT_SAFE, "checkout", ref],
             cwd=str(target), capture_output=True, text=True,
         )
         # FIX B-#6: surface checkout failure loudly. Was previously swallowed,
@@ -1226,7 +1243,7 @@ def add_target_cmd(name: str, github_url: str, corpus: Path, ref: str | None) ->
     # Init submodules if any (B7-style)
     try:
         subprocess.run(
-            ["git", "submodule", "update", "--init", "--recursive"],
+            ["git", *GIT_SAFE, "submodule", "update", "--init", "--recursive"],
             cwd=str(target), capture_output=True, text=True, timeout=300,
         )
     except (subprocess.TimeoutExpired, OSError):

@@ -74,3 +74,20 @@
     create 0640 root root
     su root root
 }
+
+# Round-6 fix (devils-advocate ROUND-5 MED #5): auto-update.log was the
+# only tick-driven log path NOT covered by rotation. At 5-min ticks with
+# any real commit velocity, this file grows unbounded — disk exhaustion
+# attack surface + when full prevents sentinel writes (silent gate failure).
+/root/audit_runs/percolator-live/auto-update.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    notifempty
+    missingok
+    copytruncate
+    nodateext
+    create 0640 root root
+    su root root
+}

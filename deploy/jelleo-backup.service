@@ -7,7 +7,21 @@ OnFailure=jelleo-alert-failure@%n.service
 [Service]
 Type=oneshot
 User=root
+# Round-3 systemic hardening: explicit PATH (no /root/.local/bin) closes
+# the binary-hijack vector. backup_findings_db.sh resolves cp/rsync/sqlite3
+# from $PATH; without this line, the default PATH would include user-writable
+# /root/.local/bin where an attacker who controls /root/.audit-env could
+# drop a malicious `cp` binary.
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Defense-in-depth: forbid user-site-packages even though this script doesn't
+# launch Python today. Future edits that add Python would inherit this guard.
+Environment=PYTHONNOUSERSITE=1
 WorkingDirectory=/root/audit_runs/percolator-live
+# Audit-001 follow-up (R5b-2026-05-24): real sandboxing (see
+# jelleo-shadow.service for the full rationale block).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 ExecStart=/bin/bash /root/audit-pipeline-cli/deploy/backup_findings_db.sh
 StandardOutput=journal
 StandardError=journal

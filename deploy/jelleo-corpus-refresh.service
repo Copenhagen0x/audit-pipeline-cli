@@ -9,8 +9,29 @@ OnFailure=jelleo-alert-failure@%n.service
 [Service]
 Type=oneshot
 User=root
+# Round-5 fix (devils-advocate ROUND-4 HIGH #4): this unit DELIBERATELY does
+# NOT load /root/.audit-env. refresh_corpus.sh reads ${CORPUS:-...} and
+# ${LOG:-...} which are write-path vars. If an EnvironmentFile= directive is
+# ever added here without ALSO adding `Environment=CORPUS=...` and
+# `Environment=LOG=...` shadows, an attacker who writes /root/.audit-env can
+# redirect both:
+#   - CORPUS=/tmp/attacker-repos  →  refresh pulls attacker-staged repos
+#   - LOG=/root/.ssh/authorized_keys  →  log writes inject SSH keys
+# RULE: if you add EnvironmentFile= to this unit, you MUST also add
+# Environment=CORPUS=/root/audit_runs/percolator-live/recon/propagate/corpus
+# Environment=LOG=/root/audit_runs/percolator-live/recon/propagate/refresh.log
+# (matching the script's `${CORPUS:-...}` / `${LOG:-...}` defaults).
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Round-3 systemic hardening: forbid user-site-packages even though
+# refresh_corpus.sh doesn't currently launch Python — defense-in-depth
+# in case a future edit adds a Python invocation. Inherited by any child
+# process of this unit.
+Environment=PYTHONNOUSERSITE=1
 WorkingDirectory=/root/audit-pipeline-cli
+# Audit-001 follow-up (R5b-2026-05-24): real sandboxing (see jelleo-shadow.service).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 ExecStart=/bin/bash /root/audit-pipeline-cli/deploy/refresh_corpus.sh
 StandardOutput=append:/root/audit_runs/percolator-live/recon/propagate/refresh.log
 StandardError=append:/root/audit_runs/percolator-live/recon/propagate/refresh.log

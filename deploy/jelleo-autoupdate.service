@@ -12,8 +12,111 @@ OnFailure=jelleo-alert-failure@%n.service
 Type=oneshot
 EnvironmentFile=-/root/.audit-env
 WorkingDirectory=/root/audit-pipeline-cli
+# Round-4 fix (devils-advocate ROUND-3 MED #4): ensure sentinel parent dir
+# exists BEFORE the script runs. Previously the script tried mkdir -p with
+# `|| true` swallowing errors — silent failure on hardened hosts where
+# /var/lib is read-only or differently-mounted. Now systemd creates it
+# explicitly. The `=-` prefix on the mkdir makes the unit tolerant of
+# already-existing dir (idempotent).
+ExecStartPre=-/bin/mkdir -p /var/lib/jelleo
 ExecStart=/usr/bin/env bash /root/audit-pipeline-cli/deploy/jelleo-autoupdate.sh
 TimeoutStartSec=600
 # Hardening — auto-update only needs the repo + write to its own log.
+# ProtectSystem=false is intentional: install_systemd.sh writes to /etc/systemd/system/.
+# A future refactor that moves install_systemd to a separate service should flip this to strict.
 ProtectSystem=false
 NoNewPrivileges=true
+# Block Python user-site path-hijack (audit finding R2-3) on this service too.
+Environment=PYTHONNOUSERSITE=1
+# Round-2 fix (devils-advocate CRITICAL #1): hardcode the bypass-gate env
+# var to 0 so any value injected via EnvironmentFile=-/root/.audit-env (e.g.
+# by an attacker who achieves write access to that file) is SHADOWED by
+# the systemd-level Environment= directive. Per systemd docs, later
+# Environment= entries override earlier ones AND override EnvironmentFile.
+# Operator who wants to legitimately bypass must edit THIS unit file
+# directly (privileged action), not the env file (broader attack surface).
+Environment=JELLEO_ALLOW_UNSIGNED=0
+# Round-3 fix (devils-advocate ROUND-2 CRITICAL #1 NEW): same shadow pattern
+# for the trust-root variable. Round-2 added `JELLEO_ALLOWED_SIGNERS` to the
+# script but did NOT shadow it. Attacker writes /root/.audit-env with
+# `JELLEO_ALLOWED_SIGNERS=/tmp/attacker-signers` → entire GPG gate redirected
+# to attacker-controlled signers file. Self-audit checklist
+# (vault/feedback/patch-checklist-supply-chain.md) would have caught this
+# before round-2 reviewers spent a round finding it again.
+Environment=JELLEO_ALLOWED_SIGNERS=/root/.ssh/jelleo-allowed-signers
+# Round-3 fix (devils-advocate ROUND-2 CRITICAL #2 NEW): same shadow pattern
+# for the sentinel path. Without shadow, attacker sets
+# `JELLEO_AUTOUPDATE_DIRTY=/dev/null` → sentinel writes silently succeed,
+# `[[ -f /dev/null ]]` is false, sentinel mechanism neutralized indefinitely.
+# Default path changed from /var/run (tmpfs, lost on reboot) to /var/lib
+# (persistent) — see checklist FILE-WRITE PATHS section.
+Environment=JELLEO_AUTOUPDATE_DIRTY=/var/lib/jelleo/autoupdate-DIRTY
+# Round-4 fix (devils-advocate ROUND-3 CRITICAL #2): JELLEO_REPO was wrongly
+# treated as cosmetic in the round-3 EXEMPT list. An attacker who writes
+# /root/.audit-env with `JELLEO_REPO=/tmp/attacker-repo` redirects the
+# entire install pipeline. Combined with a compromised signing key, this
+# yields silent root RCE via attacker-staged install_systemd.sh with NO
+# audit trail in the canonical repo. Shadow it.
+Environment=JELLEO_REPO=/root/audit-pipeline-cli
+# Round-4 fix (devils-advocate ROUND-3 CRITICAL #2 partial): same shadow
+# class for JELLEO_WORKSPACE — controls where logs/hunts dirs are read
+# from, attacker redirect = forensic-evidence redirect + control of the
+# hunt-emit event-stream consumers see.
+Environment=JELLEO_WORKSPACE=/root/audit_runs/percolator-live
+# Round-5 fix (devils-advocate ROUND-5 CRITICAL #1): JELLEO_AUTOUPDATE_LOG was
+# wrongly exempted as cosmetic. Attacker writes /root/.audit-env with
+# `JELLEO_AUTOUPDATE_LOG=/root/.ssh/authorized_keys` -> the script's log()
+# function (tee -a $LOG) writes attacker-crafted SSH key into authorized_keys
+# = persistent root login. Any env var that names a WRITE PATH is security-
+# critical, not just code paths. Shadow it.
+Environment=JELLEO_AUTOUPDATE_LOG=/root/audit_runs/percolator-live/auto-update.log
+# Round-4 fix (devils-advocate ROUND-3 MED #4): JELLEO_WWW_DIR is read by
+# install_systemd.sh which is invoked as a child of this service (autoupdate.sh
+# line 273). Without shadow, attacker writes /root/.audit-env with
+# `JELLEO_WWW_DIR=/etc/cron.d` → `mkdir -p /etc/cron.d/keys` + `install -m 0644
+# jelleo.ed25519.pub /etc/cron.d/keys/...` runs as root on every autoupdate
+# tick. The contents are public-key only (no direct RCE), but the primitive
+# of mkdir-p + install as root to an attacker-specified path is the wrong
+# shape after all the env-var shadowing work. Shadow it.
+Environment=JELLEO_WWW_DIR=/var/www/jelleo.com
+# Round-5 fix (devils-advocate ROUND-5 CRITICAL #2): explicit PATH WITHOUT
+# /root/.local/bin. Without this, the service inherits whatever systemd's
+# DefaultEnvironment provides — if operator habits or /etc/environment put
+# /root/.local/bin first, attacker can drop /root/.local/bin/git that lies
+# about verify-commit return code. Hardened PATH for root services excludes
+# user-bin dirs entirely.
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Round-6 fix (devils-advocate ROUND-5 HIGH #1): EXIT-CODE SEMANTICS
+# Three exit codes, with explicit alert vs no-alert split:
+#
+#   exit 0 = "no work / network blip" — silent, timer continues
+#   exit 3 = "expected blocked state, do NOT alert per tick":
+#            * signature verification failed (operator pushes signed = unblock)
+#            * dirty-state sentinel exists (operator hand-clears = unblock)
+#            Listed in SuccessExitStatus below so OnFailure does NOT fire.
+#   exit 4 = "extraordinary state, OPERATOR MUST SEE THIS":
+#            * LOCAL rev-parse failed (repo corruption)
+#            * Interrupt-rollback completed (systemctl stop / OOM mid-pull)
+#            * bash version too old (precondition failure)
+#            NOT in SuccessExitStatus — OnFailure=jelleo-alert-failure@%n.service
+#            fires, operator gets a Slack alert + journalctl tail.
+#
+# The split avoids alert fatigue (sig-fail spam) while ensuring corruption
+# and interrupt-rollback (single events) DO surface.
+SuccessExitStatus=3
+# NOTE: this unit deliberately has NO [Install] section. Activation is via
+# jelleo-autoupdate.timer (a separate unit installed by install_systemd.sh
+# with WantedBy=timers.target). `systemctl enable jelleo-autoupdate.service`
+# would warn "not enabled" — that's expected; enable the .timer instead.
+# Round-5 fix (devils-advocate ROUND-4 HIGH #2): explicit TimeoutStopSec.
+# systemd default is 90s — during a `git reset --hard` rollback on a large
+# repo, SIGKILL could arrive mid-rollback, leaving working tree at the
+# unsigned NEW_HEAD with no dirty sentinel written. The next tick sees
+# LOCAL==REMOTE and exits silently. 300s gives git plenty of time to
+# complete the reset on any reasonable repo size before SIGKILL.
+TimeoutStopSec=300
+# KillMode=mixed: systemd sends SIGTERM to the main process only (not
+# children), then waits TimeoutStopSec before SIGKILL of the cgroup.
+# This lets the trap handler run + its `git reset --hard` complete before
+# anything is forcibly killed.
+KillMode=mixed

@@ -13,7 +13,18 @@ OnFailure=jelleo-alert-failure@%n.service
 [Service]
 Type=simple
 User=root
-Environment=PATH=/root/.cargo/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Block Python user-site path-hijack (audit finding R2-3): prevents loading
+# malicious shims from /root/.local/lib/.../site-packages even if one was
+# installed via a prior supply-chain compromise.
+Environment=PYTHONNOUSERSITE=1
+# Audit-001 follow-up (R5b-2026-05-24): real sandboxing on the 9
+# root daemons (see jelleo-shadow.service comment for rationale).
+# Watch polls upstream every 300s — highest-frequency root daemon —
+# so sandboxing this is highest-priority.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 WorkingDirectory=/root/audit_runs/percolator-live
 ExecStartPre=/bin/mkdir -p /root/audit_runs/percolator-live/watch
 # Watch polls upstream every 5 min. On new commit, runs a CHEAP triage cycle

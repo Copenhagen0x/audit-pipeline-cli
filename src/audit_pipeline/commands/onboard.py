@@ -63,13 +63,23 @@ def onboard_cmd(
     repo_dir = target_dir / "repo"
 
     # 1. Clone (or pull if exists)
+    # Audit-001 follow-up (R5b-2026-05-24): GIT_SAFE flags neutralize
+    # malicious upstream `.git/hooks/*` scripts. Same class as
+    # freshness.py's round-5 fix — onboard.py was a missed Python
+    # sibling. github_url is operator-supplied (a third-party audit
+    # target), so this is exactly the upstream-compromise threat
+    # surface the audit C1 finding identified.
+    # R5b-2 (2026-05-24): protocol.ext.allow=never closes ext:: RCE.
+    GIT_SAFE = ["-c", "core.hooksPath=/dev/null",
+                "-c", "protocol.file.allow=never",
+                "-c", "protocol.ext.allow=never"]
     if repo_dir.exists() and (repo_dir / ".git").exists():
         console.print(f"[yellow]Repo already exists at {repo_dir}, pulling…[/yellow]")
-        subprocess.run(["git", "-C", str(repo_dir), "fetch", "--all"], check=True)
-        subprocess.run(["git", "-C", str(repo_dir), "pull", "--ff-only"], check=False)
+        subprocess.run(["git", *GIT_SAFE, "-C", str(repo_dir), "fetch", "--all"], check=True)
+        subprocess.run(["git", *GIT_SAFE, "-C", str(repo_dir), "pull", "--ff-only"], check=False)
     else:
         console.print(f"[bold]Cloning[/bold] {github_url} -> {repo_dir}")
-        subprocess.run(["git", "clone", github_url, str(repo_dir)], check=True)
+        subprocess.run(["git", *GIT_SAFE, "clone", github_url, str(repo_dir)], check=True)
 
     # 2. Pin to HEAD SHA
     sha = subprocess.run(

@@ -5,6 +5,13 @@ Documentation=https://jelleo.com
 
 [Service]
 Type=simple
+# Block Python user-site path-hijack (audit finding R2-3).
+Environment=PYTHONNOUSERSITE=1
+# Round-3 systemic hardening: explicit PATH (no /root/.local/bin) closes
+# the binary-hijack vector. The SSE service uses an absolute /usr/bin/python3
+# so PATH isn't load-bearing for startup, but downstream subprocess calls
+# (if any) would inherit the safe PATH.
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/usr/bin/python3 /root/jelleo-sse/jelleo-sse.py
 Restart=on-failure
 RestartSec=5

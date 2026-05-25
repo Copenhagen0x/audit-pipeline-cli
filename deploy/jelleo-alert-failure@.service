@@ -9,6 +9,23 @@ Documentation=https://github.com/Copenhagen0x/audit-pipeline-cli
 [Service]
 Type=oneshot
 EnvironmentFile=-/root/.audit-env
+# Round-3 systemic hardening: explicit PATH (no /root/.local/bin or other
+# user-writable dirs) closes the binary-hijack vector where an attacker
+# who controls /root/.audit-env can prepend a malicious path.
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Round-1 audit R2-3 hardening: forbid user-site-packages even on services
+# that don't currently launch Python — defense-in-depth in case a future
+# edit adds a Python invocation. PYTHONNOUSERSITE=1 makes pip + python
+# refuse to load from /root/.local/lib/python*/site-packages.
+Environment=PYTHONNOUSERSITE=1
+# Audit-001 R5b-2 (2026-05-24): goober flagged this as HIGH — the most-
+# invoked unit in the fleet (every OnFailure triggers it) was unsandboxed.
+# Just journalctl + curl, neither needs privilege escalation. Adding
+# baseline sandbox. /var is writable so curl can use any cache dir if
+# needed; journalctl reads from the systemd journal (not /etc/usr).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 ExecStart=/bin/bash -c '\
     UNIT="%i"; \
     BODY=$(journalctl -u "$UNIT" -n 40 --no-pager 2>&1 | tail -40); \

@@ -236,14 +236,28 @@ def watch_cmd(
             if auto_pull:
                 local_dir = workspace / config[component]["local"]
                 if (local_dir / ".git").exists():
+                    # Audit-001 follow-up (R5b-2026-05-24): GIT_SAFE flags
+                    # neutralize malicious upstream `.git/hooks/post-checkout`
+                    # or `post-merge` scripts. Same class as freshness.py's
+                    # round-5 fix — watch.py was a missed Python sibling.
+                    # jelleo-watch.service runs continuously as root and polls
+                    # every 300s, so an unhardened auto-pull is the highest-
+                    # frequency upstream-touching code path on the VPS.
+                    # R5b-2 (2026-05-24): goober found protocol.file.allow blocks
+                    # `file://` but not `ext::` which executes shell commands.
+                    # Add protocol.ext.allow=never to close the ext-protocol
+                    # remote-code-execution surface in submodule URLs etc.
+                    GIT_SAFE = ["-c", "core.hooksPath=/dev/null",
+                                "-c", "protocol.file.allow=never",
+                                "-c", "protocol.ext.allow=never"]
                     try:
                         subprocess.run(
-                            ["git", "fetch", "origin"],
+                            ["git", *GIT_SAFE, "fetch", "origin"],
                             cwd=str(local_dir), check=True,
                             capture_output=True, text=True, timeout=120,
                         )
                         subprocess.run(
-                            ["git", "checkout", latest_sha],
+                            ["git", *GIT_SAFE, "checkout", latest_sha],
                             cwd=str(local_dir), check=True,
                             capture_output=True, text=True, timeout=60,
                         )
