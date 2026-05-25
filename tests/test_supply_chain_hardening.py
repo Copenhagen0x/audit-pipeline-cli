@@ -399,6 +399,101 @@ class TestAllPythonServicesNoUserSite:
             f"repo can take >90s, the systemd default. Use ≥120 (round-5 fix used 300)."
         )
 
+    def test_autoupdate_unit_has_PrivateTmp(self):
+        """Audit-019 (Bucket L L9): autoupdate.service must set
+        ``PrivateTmp=true`` so a malicious upstream that drops files in
+        /tmp during the autoupdate window cannot influence other host
+        processes via shared /tmp. Pre-audit-019, autoupdate was the
+        ONLY .service in deploy/ missing this hardening (13 of 14 had
+        it). This test locks the audit-019 fix against accidental
+        removal — the broader ``TestR5bSandboxedServices`` class doesn't
+        include autoupdate (it's a oneshot, not a long-running daemon),
+        so the regression bar lives here.
+        """
+        src = (DEPLOY / "jelleo-autoupdate.service").read_text(encoding="utf-8")
+        assert "PrivateTmp=true" in src, (
+            "jelleo-autoupdate.service must set PrivateTmp=true "
+            "(Bucket L L9 / audit-019)."
+        )
+
+    def test_autoupdate_unit_shadows_TMPDIR(self):
+        """Audit-019 R1 (PG-R0 #2): ``TMPDIR`` is a write-path env var in
+        the same threat-model class as ``JELLEO_AUTOUPDATE_LOG`` etc.
+        ``PrivateTmp=true`` creates a private /tmp + /var/tmp mount
+        namespace but does NOT intercept the ``TMPDIR`` env var — an
+        attacker who writes ``/root/.audit-env`` with
+        ``TMPDIR=/root/.ssh`` would redirect git/pip transient writes
+        OUTSIDE the private namespace, neutralizing PrivateTmp. The
+        unit shadows TMPDIR via ``Environment=TMPDIR=/tmp`` (a path
+        inside the private namespace). This test locks the shadow.
+        """
+        src = (DEPLOY / "jelleo-autoupdate.service").read_text(encoding="utf-8")
+        assert "Environment=TMPDIR=" in src, (
+            "jelleo-autoupdate.service must shadow TMPDIR via "
+            "Environment=TMPDIR=<safe-path> so EnvironmentFile-injected "
+            "redirects can't escape PrivateTmp=true (audit-019 R1)."
+        )
+        # R2 (PG-R1 #1): use ``findall`` not ``search`` so a future edit
+        # that adds a SECOND ``Environment=TMPDIR=/attacker-path`` line
+        # below the safe one is caught. systemd uses the LAST value
+        # when there are duplicate ``Environment=KEY=`` lines; ``re.search``
+        # would only see the first (safe) one and pass green while the
+        # effective runtime value is whatever the later line sets.
+        import re as _re
+        matches = _re.findall(
+            r"^Environment=TMPDIR=(.*)$", src, _re.MULTILINE,
+        )
+        assert matches, "TMPDIR shadow not found via MULTILINE regex"
+        assert len(matches) == 1, (
+            f"Expected exactly ONE Environment=TMPDIR= line; found "
+            f"{len(matches)}: {matches!r}. Duplicates create a "
+            f"silent-override attack surface (systemd uses last value)."
+        )
+        # The single value must point INSIDE the PrivateTmp namespace.
+        shadow_value = matches[0].strip()
+        assert shadow_value in ("/tmp", "/var/tmp"), (
+            f"TMPDIR shadow points outside the PrivateTmp namespace: "
+            f"{shadow_value!r}. Must be /tmp or /var/tmp so writes are "
+            f"contained by the private mount namespace."
+        )
+
+    def test_autoupdate_unit_TMPDIR_shadow_after_envfile(self):
+        """Audit-019 R2 (CR-R1 #2): the TMPDIR shadow must appear AFTER
+        ``EnvironmentFile=-/root/.audit-env`` so systemd's order-of-
+        evaluation rules guarantee the shadow OVERRIDES any
+        attacker-injected TMPDIR from the env file. If a future edit
+        reorders the unit and places the shadow above the
+        EnvironmentFile=, the attacker's value wins. Locks the order
+        the same way ``TestRound2AutoupdateEnvShadow``,
+        ``TestRound4DirtySentinelShadowOrdering``,
+        ``TestRound6AutoupdateLogShadowed`` lock theirs.
+
+        R3 (PG-R2 #1): use MULTILINE-anchored regex search, not raw
+        ``str.find()``. A comment line like
+        ``# Environment=TMPDIR=/tmp is shadowed below`` would otherwise
+        match the substring and shift ``tmpdir_pos`` below the real
+        directive, producing a spurious test failure on a semantically
+        correct file.
+        """
+        import re as _re
+        src = (DEPLOY / "jelleo-autoupdate.service").read_text(encoding="utf-8")
+        env_file_match = _re.search(
+            r"^EnvironmentFile=-/root/\.audit-env", src, _re.MULTILINE,
+        )
+        tmpdir_match = _re.search(
+            r"^Environment=TMPDIR=", src, _re.MULTILINE,
+        )
+        assert env_file_match, "EnvironmentFile= directive missing"
+        assert tmpdir_match, "Environment=TMPDIR= shadow missing"
+        env_file_pos = env_file_match.start()
+        tmpdir_pos = tmpdir_match.start()
+        assert tmpdir_pos > env_file_pos, (
+            f"TMPDIR shadow at byte {tmpdir_pos} must come AFTER "
+            f"EnvironmentFile= at byte {env_file_pos} so systemd "
+            f"applies the shadow as an override (later Environment= "
+            f"directives win)."
+        )
+
     def test_autoupdate_script_requires_bash_4_4(self):
         """Round-7 regression check: bash version guard at top must check for
         4.4+ (closes round-5 MED #4 trap re-entry on bash 3.x / 4.0-4.3).
@@ -478,7 +573,16 @@ class TestRound2AutoupdateEnvShadow:
         """systemd processes directives in order; the Environment= line must
         appear AFTER EnvironmentFile= so it actually shadows the file value."""
         src = (DEPLOY / "jelleo-autoupdate.service").read_text(encoding="utf-8")
-        envfile_idx = src.find("EnvironmentFile=")
+        # R3 (CR-R3 pre-existing fragility sweep): use MULTILINE-anchored
+        # regex with the full value, not bare ``src.find("EnvironmentFile=")``.
+        # A comment line containing the substring would otherwise poison
+        # the byte-offset comparison. The unit file already has the
+        # substring inside a comment at line ~56; today that's harmless
+        # only because the real directive at line 13 comes first.
+        _envfile_match = re.search(
+            r"^EnvironmentFile=-/root/\.audit-env", src, re.MULTILINE,
+        )
+        envfile_idx = _envfile_match.start() if _envfile_match else -1
         shadow_idx = src.find("Environment=JELLEO_ALLOW_UNSIGNED=0")
         assert envfile_idx >= 0, "EnvironmentFile= directive missing"
         assert shadow_idx >= 0, "shadow directive missing"
@@ -829,7 +933,16 @@ class TestRound3AllowedSignersShadowed:
 
     def test_shadow_appears_after_envfile(self):
         src = (DEPLOY / "jelleo-autoupdate.service").read_text(encoding="utf-8")
-        envfile_idx = src.find("EnvironmentFile=")
+        # R3 (CR-R3 pre-existing fragility sweep): use MULTILINE-anchored
+        # regex with the full value, not bare ``src.find("EnvironmentFile=")``.
+        # A comment line containing the substring would otherwise poison
+        # the byte-offset comparison. The unit file already has the
+        # substring inside a comment at line ~56; today that's harmless
+        # only because the real directive at line 13 comes first.
+        _envfile_match = re.search(
+            r"^EnvironmentFile=-/root/\.audit-env", src, re.MULTILINE,
+        )
+        envfile_idx = _envfile_match.start() if _envfile_match else -1
         shadow_idx = src.find("Environment=JELLEO_ALLOWED_SIGNERS=")
         assert envfile_idx >= 0 and shadow_idx >= 0
         assert shadow_idx > envfile_idx, (
@@ -1163,7 +1276,16 @@ class TestRound4DirtySentinelShadowOrdering:
 
     def test_dirty_sentinel_shadow_after_envfile(self):
         src = (DEPLOY / "jelleo-autoupdate.service").read_text(encoding="utf-8")
-        envfile_idx = src.find("EnvironmentFile=")
+        # R3 (CR-R3 pre-existing fragility sweep): use MULTILINE-anchored
+        # regex with the full value, not bare ``src.find("EnvironmentFile=")``.
+        # A comment line containing the substring would otherwise poison
+        # the byte-offset comparison. The unit file already has the
+        # substring inside a comment at line ~56; today that's harmless
+        # only because the real directive at line 13 comes first.
+        _envfile_match = re.search(
+            r"^EnvironmentFile=-/root/\.audit-env", src, re.MULTILINE,
+        )
+        envfile_idx = _envfile_match.start() if _envfile_match else -1
         shadow_idx = src.find("Environment=JELLEO_AUTOUPDATE_DIRTY=")
         assert envfile_idx >= 0 and shadow_idx >= 0
         assert shadow_idx > envfile_idx, (
@@ -1173,14 +1295,32 @@ class TestRound4DirtySentinelShadowOrdering:
 
     def test_jelleo_repo_shadow_after_envfile(self):
         src = (DEPLOY / "jelleo-autoupdate.service").read_text(encoding="utf-8")
-        envfile_idx = src.find("EnvironmentFile=")
+        # R3 (CR-R3 pre-existing fragility sweep): use MULTILINE-anchored
+        # regex with the full value, not bare ``src.find("EnvironmentFile=")``.
+        # A comment line containing the substring would otherwise poison
+        # the byte-offset comparison. The unit file already has the
+        # substring inside a comment at line ~56; today that's harmless
+        # only because the real directive at line 13 comes first.
+        _envfile_match = re.search(
+            r"^EnvironmentFile=-/root/\.audit-env", src, re.MULTILINE,
+        )
+        envfile_idx = _envfile_match.start() if _envfile_match else -1
         shadow_idx = src.find("Environment=JELLEO_REPO=")
         assert envfile_idx >= 0 and shadow_idx >= 0
         assert shadow_idx > envfile_idx
 
     def test_jelleo_workspace_shadow_after_envfile(self):
         src = (DEPLOY / "jelleo-autoupdate.service").read_text(encoding="utf-8")
-        envfile_idx = src.find("EnvironmentFile=")
+        # R3 (CR-R3 pre-existing fragility sweep): use MULTILINE-anchored
+        # regex with the full value, not bare ``src.find("EnvironmentFile=")``.
+        # A comment line containing the substring would otherwise poison
+        # the byte-offset comparison. The unit file already has the
+        # substring inside a comment at line ~56; today that's harmless
+        # only because the real directive at line 13 comes first.
+        _envfile_match = re.search(
+            r"^EnvironmentFile=-/root/\.audit-env", src, re.MULTILINE,
+        )
+        envfile_idx = _envfile_match.start() if _envfile_match else -1
         shadow_idx = src.find("Environment=JELLEO_WORKSPACE=")
         assert envfile_idx >= 0 and shadow_idx >= 0
         assert shadow_idx > envfile_idx
@@ -1223,7 +1363,16 @@ class TestRound6AutoupdateLogShadowed:
 
     def test_log_shadow_after_envfile(self):
         src = (DEPLOY / "jelleo-autoupdate.service").read_text(encoding="utf-8")
-        envfile_idx = src.find("EnvironmentFile=")
+        # R3 (CR-R3 pre-existing fragility sweep): use MULTILINE-anchored
+        # regex with the full value, not bare ``src.find("EnvironmentFile=")``.
+        # A comment line containing the substring would otherwise poison
+        # the byte-offset comparison. The unit file already has the
+        # substring inside a comment at line ~56; today that's harmless
+        # only because the real directive at line 13 comes first.
+        _envfile_match = re.search(
+            r"^EnvironmentFile=-/root/\.audit-env", src, re.MULTILINE,
+        )
+        envfile_idx = _envfile_match.start() if _envfile_match else -1
         shadow_idx = src.find("Environment=JELLEO_AUTOUPDATE_LOG=")
         assert envfile_idx >= 0 and shadow_idx >= 0
         assert shadow_idx > envfile_idx

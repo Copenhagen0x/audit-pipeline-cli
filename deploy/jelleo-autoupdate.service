@@ -26,6 +26,30 @@ TimeoutStartSec=600
 # A future refactor that moves install_systemd to a separate service should flip this to strict.
 ProtectSystem=false
 NoNewPrivileges=true
+# Audit-019 (Bucket L sub-item L9): autoupdate.service was the only
+# .service in deploy/ missing PrivateTmp=true (13 of 14 had it).
+# PrivateTmp gives the unit a private /tmp + /var/tmp namespace so a
+# malicious upstream that drops a /tmp/foo file during the autoupdate
+# window cannot influence other host processes via shared /tmp.
+#
+# Sandbox-baseline caveat (audit-019 R1 PG-R0 #3): autoupdate
+# DELIBERATELY keeps ProtectSystem=false (line 27) because
+# install_systemd.sh needs to write /etc/systemd/system/. So this
+# unit's net sandbox is PrivateTmp + NoNewPrivileges + (full /etc
+# write). The other 13 services have ProtectSystem=full and a
+# stronger overall posture; do not assume PrivateTmp alone brings
+# autoupdate to fleet parity.
+PrivateTmp=true
+# Audit-019 R1 (PG-R0 #2): TMPDIR is a write-path env var in the same
+# threat-model class as JELLEO_AUTOUPDATE_LOG (see that variable's
+# shadow + comment block farther down in this unit file).
+# PrivateTmp=true creates a private /tmp + /var/tmp mount namespace
+# but does NOT intercept the TMPDIR env var — an attacker who writes
+# /root/.audit-env with TMPDIR=/root/.ssh redirects transient writes
+# (git pack temp, pip wheel build, etc.) OUTSIDE the private
+# namespace, defeating PrivateTmp. Shadow TMPDIR to a path inside the
+# private namespace so the redirect is neutralized.
+Environment=TMPDIR=/tmp
 # Block Python user-site path-hijack (audit finding R2-3) on this service too.
 Environment=PYTHONNOUSERSITE=1
 # Round-2 fix (devils-advocate CRITICAL #1): hardcode the bypass-gate env
