@@ -12,6 +12,7 @@ template-only `poc` command which always emits the same F7 scaffold).
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -23,6 +24,34 @@ from audit_pipeline.utils import complete, is_available
 from audit_pipeline.utils.code_extract import collect_grounded_code
 
 console = Console()
+
+
+# Audit-020 (Bucket L sub-item L7): cap on .rs file size read into the LLM
+# prompt. Unbounded ``read_text`` on engine source files is an OOM vector if
+# a malicious or merely-large file ever lands in ``rs_files`` (e.g. a 10GB
+# generated lib.rs from a build artifact that slipped past the corpus
+# filter). 1 MiB is well above any realistic hand-written Rust file and far
+# below any single-process OOM threshold. Override via env for unusual repos.
+_MAX_RS_FILE_BYTES: int = int(os.environ.get("JELLEO_POC_MAX_RS_BYTES", str(1 << 20)))
+
+
+def _read_capped(path: Path, *, cap: int = _MAX_RS_FILE_BYTES) -> str:
+    """Read at most ``cap`` bytes of UTF-8 text from ``path``.
+
+    If the file exceeds the cap, return the prefix plus a trailing marker
+    so the prompt-author can see the truncation happened (rather than
+    silently feeding the LLM half a function). ``errors="replace"``
+    matches the prior call-site behavior for stray non-UTF-8 bytes.
+    """
+    with path.open("rb") as fh:
+        raw = fh.read(cap + 1)
+    truncated = len(raw) > cap
+    if truncated:
+        raw = raw[:cap]
+    text = raw.decode("utf-8", errors="replace")
+    if truncated:
+        text += f"\n// [audit-020 L7] TRUNCATED: file exceeded {cap}-byte cap\n"
+    return text
 
 
 # Per-bug-class strategy hints. Tells the LLM which template idiom to follow
@@ -700,7 +729,7 @@ def poc_llm_cmd(
                 _resolved.relative_to(engine_root.resolve(strict=False))
                 chunks.append(
                     f"### FULL FILE `{rel}` (engine source)\n"
-                    f"```rust\n{f.read_text(encoding='utf-8', errors='replace')}\n```"
+                    f"```rust\n{_read_capped(f)}\n```"
                 )
             except (OSError, ValueError):
                 continue
@@ -712,7 +741,7 @@ def poc_llm_cmd(
             for f in rs_files:
                 if f.name == cand_name or str(f).endswith(cand):
                     try:
-                        contents = f.read_text(encoding="utf-8", errors="replace")
+                        contents = _read_capped(f)
                         full_file_block = (
                             f"### FULL FILE `{f.name}` (entire engine source for this hyp)\n"
                             f"```rust\n{contents}\n```"
@@ -727,7 +756,7 @@ def poc_llm_cmd(
     if not full_file_block and rs_files:
         try:
             f0 = rs_files[0]
-            contents = f0.read_text(encoding="utf-8", errors="replace")
+            contents = _read_capped(f0)
             full_file_block = (
                 f"### FULL FILE `{f0.name}` (engine source — fallback context)\n"
                 f"```rust\n{contents}\n```"

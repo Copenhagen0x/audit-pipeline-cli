@@ -2943,10 +2943,16 @@ def _hunt_run(
                         harness_body=body,
                     )
                     try:
+                        # Audit-020 (Bucket L L8): omit timeout_s so the
+                        # caller in ``run_kani_proof`` resolves it via
+                        # ``_default_kani_timeout_s()``, which honors the
+                        # ``JELLEO_KANI_TIMEOUT_S`` env var (defaulting to
+                        # 1800s). Pre-audit-020 this was a hardcoded
+                        # ``timeout_s=1800`` that silently overrode the env
+                        # var — defeating the env-override contract.
                         final_rc, final_log = _run_kani_proof(
                             sidecar_dir=sidecar_dir,
                             harness_name=f"proofs::{harness_name}",
-                            timeout_s=1800,
                         )
                     except Exception as e:  # noqa: BLE001
                         log("l3_anchor_run_error",
