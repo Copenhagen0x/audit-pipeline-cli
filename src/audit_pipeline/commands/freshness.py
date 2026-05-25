@@ -94,7 +94,17 @@ def freshness_cmd(
             latest_msg = latest["commit"]["message"].split("\n")[0]
             latest_date = latest["commit"]["author"]["date"]
 
-            if pinned.startswith(latest_sha[: len(pinned)]) or latest_sha.startswith(pinned):
+            # P11 R1+R2 (code-reviewer + goober HIGH): the gate
+            # (freshness_gate.py) requires exact 40-char SHA match.
+            # The display previously used a spoofable prefix-match.
+            # R2 also requires the pin be valid 40-char hex (not
+            # blank, not a tag/branch) — mirrors the gate so the
+            # display and gate cannot diverge.
+            from audit_pipeline.gates.freshness_gate import _RE_SHA1_40
+            _pin_norm = (pinned or "").lower().strip()
+            _latest_norm = (latest_sha or "").lower().strip()
+            if (_RE_SHA1_40.fullmatch(_pin_norm)
+                    and _pin_norm == _latest_norm):
                 behind = 0
                 commits: list[dict] = []
             else:

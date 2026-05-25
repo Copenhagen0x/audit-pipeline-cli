@@ -192,7 +192,47 @@ def check_post_cycle(
         test_name = f"test_{slug}"
         db_poc_path = f.get("poc_path") or ""
         if db_poc_path and Path(db_poc_path).is_absolute():
-            poc_path = Path(db_poc_path)
+            # Patch #11 (audit HIGH e971bf01): poc_path from a DB row
+            # is attacker-influenceable (any code path that calls
+            # record_finding with a crafted poc_path would land here).
+            # An absolute path like /etc/passwd was previously trusted
+            # and read by _check_one_poc, leaking its content into the
+            # QA report. Round-1: confine to WORKSPACE root (cycle_dir's
+            # grandparent — workspace/hunts/<cid> → workspace) so
+            # legitimate Aptos/Solidity PoC paths under
+            # workspace/tests/<lang>/ still resolve, but /etc/passwd
+            # is rejected and falls back to the canonical layout.
+            #
+            # P11 R1 (code-reviewer MEDIUM + goober MEDIUM): two fixes:
+            #   1. Depth-guard `cycle_dir.parent.parent` — if `cycle_dir`
+            #      is shallow (e.g. `/CYC123` depth-1), `.parent.parent`
+            #      collapses to `/` and `relative_to("/")` succeeds for
+            #      EVERY absolute path → no protection. Assert at least
+            #      3 path parts (workspace/hunts/cid) before computing.
+            #   2. Use the RESOLVED form for the downstream `poc_path`
+            #      assignment, not the original `db_poc_path`. The
+            #      resolved form follows symlinks consistently with the
+            #      check; the original form could re-resolve at read
+            #      time and land elsewhere (TOCTOU + dangling-symlink
+            #      windows-junction).
+            cycle_resolved = cycle_dir.resolve(strict=False)
+            if len(cycle_resolved.parts) < 4:
+                # depth(workspace) >= 1, +hunts +cid = at least 4 parts.
+                # Shallow cycle_dir → refuse to trust the gate and fall
+                # back to canonical layout (which is rooted at the
+                # caller-supplied cycle_dir, so it's safe).
+                poc_path = cycle_dir / "poc" / f"{test_name}.rs"
+            else:
+                workspace_root = cycle_resolved.parent.parent
+                try:
+                    _resolved = Path(db_poc_path).resolve(strict=False)
+                    _resolved.relative_to(workspace_root)
+                    poc_path = _resolved
+                except (ValueError, OSError):
+                    # Path escapes workspace — refuse, fall back to
+                    # canonical layout. The fallback path is also
+                    # under cycle_dir → workspace, so it's safe.
+                    poc_path = cycle_dir / "poc" / f"{test_name}.rs"
         else:
             # Fallback for legacy rows: assume Solana `.rs` layout.
             poc_path = cycle_dir / "poc" / f"{test_name}.rs"
