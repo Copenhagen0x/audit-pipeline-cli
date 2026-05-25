@@ -1807,7 +1807,8 @@ def _hunt_run(
                         "weak_test_reason": _attempt_err,
                         "authoring_mode": f"adapter:{language}",
                     }
-                    continue
+                    # Patch #9 (audit HIGH 4236cfb4): dead code — the
+                    # second `continue` is unreachable. Removed.
                     continue
 
                 # Write test file then run it via the adapter
@@ -3975,13 +3976,52 @@ def _hunt_run(
             # above — when customer_id is set, the post-cycle QA reads
             # from the SHARED customer-eval DB, not a per-workspace one.
             _db = open_findings_db(db_workspace)
-            confirmed = [
+            # Patch #9 (audit HIGH bb8662e): the original code rebound
+            # `confirmed` here to a DB-sourced list, then passed it to
+            # `check_post_cycle` on the next line. That was two bugs in
+            # one shadow:
+            #
+            #  1. SEMANTIC: the in-memory `confirmed` list built earlier
+            #     (lines 3503/3526) and the DB-sourced list have
+            #     genuinely different content — `upsert_finding(...,
+            #     poc_fired=True)` commits the DB row at confirmation
+            #     time, but in-memory carries any more-recent verdict
+            #     edits that haven't been committed yet. For a
+            #     transaction-committed gate like `check_post_cycle`,
+            #     the DB is the correct source.
+            #  2. SCHEMA: the in-memory `confirmed` dict is
+            #     `{hypothesis_id, verdict, confidence, poc:{...},
+            #     kani:{...}, litesvm:{...}}` (nested sub-dicts), while
+            #     `_db.list_findings()` returns flat DB rows with
+            #     `poc_path` at the top level. `check_post_cycle` reads
+            #     `f.get("poc_path")` and silently falls back to a
+            #     legacy Solana path when missing — so passing the
+            #     in-memory shape would cause false "PoC file missing"
+            #     blocks on every non-Solana finding. DB rows are the
+            #     contract that `check_post_cycle`'s docstring
+            #     specifies ("from db.list_findings").
+            #
+            # Reviewer P9 R0 (goober): the previous comment claimed
+            # downstream lines 3888-3937 read `confirmed` AFTER this
+            # block — that's WRONG. Those lines all execute BEFORE the
+            # `if auto_publish:` block; the only consumer of the
+            # original shadow was `check_post_cycle` on the line below.
+            # Renaming to `db_confirmed` preserves the semantic
+            # boundary explicitly even though no other consumers exist
+            # inside this block today.
+            #
+            # NOTE on `limit=1000` (goober R0 HIGH): `list_findings`
+            # silently caps at 1000 rows. Production cycles to date
+            # have <100 confirmed findings each; if you ever approach
+            # the cap, switch to `list_findings_by_cycle(cycle_id)`
+            # which has no limit (see merkle.py for the pattern).
+            db_confirmed = [
                 f for f in _db.list_findings(limit=1000)
                 if f.get("cycle_id") == cycle_id and f.get("poc_fired")
             ]
             post_report = check_post_cycle(
                 cycle_dir=cycle_dir,
-                confirmed_findings=confirmed,
+                confirmed_findings=db_confirmed,
                 engine_src_dir=engine_src,
                 wrapper_src_dir=wrapper_src,
             )
