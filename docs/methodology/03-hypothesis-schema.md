@@ -30,7 +30,7 @@ These three fields are what makes the library safe to grow at scale. They contro
 |--------------------|-----------------|----------|-------------|
 | `applies_to`       | list of strings | `['*']`  | Protocol names this hypothesis applies to. `['*']` = all protocols (back-compat). Examples: `[percolator]`, `[percolator, drift, mango]`, `[orca-whirlpools, kamino-liquidity]`. |
 | `scope_conditions` | list of strings | `[]`     | Predicates that must be true under target conditions (workspace.json `conditions:` mapping). E.g. `has_insurance_pool`, `uses_pyth_oracle`, `clob_orderbook`. |
-| `bug_class`        | string          | `null`   | Generalized class identifier for cross-protocol propagation. Stable across protocols. E.g. `insurance-counter-vault-divergence`, `oracle-staleness-bypass`. |
+| ~~`bug_class`~~    | ~~string~~      | ~~`null`~~ | **Promoted to REQUIRED as of Patch #14 (audit HIGH 19f45572).** No longer optional — use `unknown` as a fallback for genuinely novel claims; do NOT omit the field. Linter (`audit-pipeline lint-hypotheses`) errors on absence. The loader (`scoping.py:load_hypotheses`) remains permissive for backward-compat on workspace-local files that skip lint. |
 
 ### Anchor fields (agent prompt context)
 

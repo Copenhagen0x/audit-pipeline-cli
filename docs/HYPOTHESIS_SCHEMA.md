@@ -12,11 +12,12 @@ This is the canonical schema for entries in `hypotheses.yaml`. Every entry in th
 
 ### Required fields
 
-| Field      | Type   | Description                                                                                         |
-|------------|--------|-----------------------------------------------------------------------------------------------------|
-| `id`       | string | Unique short identifier. Stable across cycles. Used as the cross-DB key. Convention: `H<n>-<slug>`. |
-| `class`    | enum   | One of: `invariant_property`, `state_transition`, `authorization`, `arithmetic_overflow`, `implicit_invariant`. Determines Layer-2/3 dispatch path. |
-| `claim`    | string | The falsifiable claim in plain English. Phrased so a clean negative result strengthens the disclosure. |
+| Field       | Type   | Description                                                                                         |
+|-------------|--------|-----------------------------------------------------------------------------------------------------|
+| `id`        | string | Unique short identifier. Stable across cycles. Used as the cross-DB key. Convention: `H<n>-<slug>`. |
+| `class`     | enum   | One of: `invariant_property`, `state_transition`, `authorization`, `arithmetic_overflow`, `implicit_invariant`. Determines Layer-2/3 dispatch path. |
+| `claim`     | string | The falsifiable claim in plain English. Phrased so a clean negative result strengthens the disclosure. |
+| `bug_class` | string | **Required as of Patch #14 (audit HIGH 19f45572).** Generalized class identifier — drives cluster dedup, hint-template routing, and PoC strategy selection. See [§04 `bug_class` — propagation namespace](#bug_class--propagation-namespace) below for the starter set. Use `unknown` as a fallback for genuinely novel claims; do NOT omit the field. |
 
 ### Severity field
 
@@ -32,7 +33,7 @@ These three fields are the heart of the v1 schema. They control which hypotheses
 |--------------------|------------------|-------------|--------------------------------------------------------------------------------------------|
 | `applies_to`       | list of strings  | `['*']`     | Protocol names this hypothesis applies to. `['*']` = all protocols (back-compat default).  |
 | `scope_conditions` | list of strings  | `[]`        | Predicates that must be true under target conditions. E.g. `has_insurance_pool`, `uses_pyth_oracle`. |
-| `bug_class`        | string           | `null`      | Generalized class identifier for cross-protocol propagation. E.g. `insurance-counter-vault-divergence`. |
+| ~~`bug_class`~~    | ~~string~~       | ~~`null`~~  | **Promoted to required as of Patch #14.** See the [Required fields](#required-fields) table above. |
 
 ### Anchor fields
 
@@ -141,7 +142,7 @@ The schema validator (Sprint 2.2 implementation) enforces:
 3. `severity` (if present) is in the enumeration above.
 4. `applies_to` is a list of strings; each string is either `*` or a known protocol slug.
 5. `scope_conditions` is a list of strings; each string is in the predicate vocabulary above (warns, does not error, on unknown predicates — keeps the schema additive as new shapes onboard).
-6. `bug_class` (if present) matches `^[a-z][a-z0-9-]*$` and is at most 64 chars.
+6. `bug_class` is required (as of Patch #14) and must match `^[a-z][a-z0-9-]*$` and be at most 64 chars. Use `unknown` as a fallback for genuinely novel claims.
 7. `claim` is non-empty and at least 20 characters (catches accidentally-empty entries).
 
 Validation errors fail the hunt cycle with a non-zero exit code; warnings are logged but do not block.
@@ -175,11 +176,16 @@ Validation errors fail the hunt cycle with a non-zero exit code; warnings are lo
 
 ## Backward compatibility
 
-v0 hypotheses (no `applies_to`, no `scope_conditions`, no `bug_class`) load with permissive defaults:
+v0 hypotheses (no `applies_to`, no `scope_conditions`) load with permissive defaults:
 
 - `applies_to` defaults to `['*']` — hypothesis applies to every target.
 - `scope_conditions` defaults to `[]` — no predicate filtering.
-- `bug_class` defaults to `null` — propagation is not triggered on this hypothesis's confirmation.
+- `bug_class` was previously optional with default `null` — **but as of Patch
+  #14 (audit HIGH 19f45572) the linter requires it.** A truly v0 hypothesis
+  with no `bug_class` set should be backfilled to `unknown` (or to a real
+  class via `scripts/backfill_bug_class.py`) before `lint-hypotheses` will
+  accept it. The loader (`scoping.py:load_hypotheses`) remains permissive
+  for backward-compat on workspace-local files that skip linting.
 
 The migration path is incremental: each protocol's hypothesis library can be retroactively tagged at any time without breaking existing cycles.
 
@@ -191,7 +197,7 @@ The current `templates/hypotheses/percolator.yaml` has 12 hypotheses without sco
 
 1. Tag every Percolator hypothesis with `applies_to: [percolator]` (preserves current behavior — runs only against Percolator).
 2. Tag F-class hypotheses (those that produced F7's family) with `applies_to: [percolator, drift, mango, marginfi]` and the appropriate `scope_conditions` so propagation can fan out.
-3. Assign `bug_class` to every hypothesis. Hypotheses without an obvious class get `bug_class: null` initially; classes are added as findings confirm.
+3. Assign `bug_class` to every hypothesis. **As of Patch #14 `bug_class` is REQUIRED** — hypotheses without an obvious class must use `bug_class: unknown` (NOT `null`), so the field is always present in the YAML even when the class is undetermined. Real class names are added as findings confirm.
 4. Run a baseline cycle to verify zero regressions versus the unscoped library.
 
 The migration is non-destructive: the original library is preserved; the v1 fields are additive.

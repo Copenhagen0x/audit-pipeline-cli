@@ -54,19 +54,44 @@ hypotheses:
 
 
 def test_lint_duplicate_id_within_file(tmp_path: Path) -> None:
+    # P14 R1 (code-reviewer + goober LOW): fixture made schema-complete
+    # via bug_class so it exclusively tests duplicate-id detection,
+    # not also `bug_class`-missing errors.
     _yaml_file(tmp_path, "dup.yaml", """
 hypotheses:
   - id: H1
     class: implicit_invariant
     claim: First claim
+    bug_class: some-bug-class
   - id: H1
     class: implicit_invariant
     claim: Second claim with same id
+    bug_class: some-bug-class
 """)
     r = _invoke(tmp_path)
     assert r.exit_code != 0
     flat = " ".join(r.output.split())
     assert "duplicate" in flat.lower()
+
+
+def test_lint_missing_bug_class_exits_nonzero(tmp_path: Path) -> None:
+    """P14 R1 (goober LOW): dedicated test for the new required field.
+    Without this, reverting bug_class from _REQUIRED_FIELDS would not
+    be caught — `test_lint_missing_required_field_exits_nonzero`
+    drops `claim` and exits at the first missing-field error, so the
+    `bug_class`-specific code path is not exercised."""
+    _yaml_file(tmp_path, "miss_bug_class.yaml", """
+hypotheses:
+  - id: H1
+    class: implicit_invariant
+    claim: Valid claim with id and class
+""")
+    r = _invoke(tmp_path)
+    assert r.exit_code != 0
+    flat = " ".join(r.output.split())
+    assert "bug_class" in flat, (
+        f"expected `bug_class` in error output; got: {flat!r}"
+    )
 
 
 def test_lint_unknown_severity_is_warning(tmp_path: Path) -> None:

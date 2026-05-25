@@ -28,7 +28,7 @@ To add a hypothesis to an existing class library:
 
 1. Open the appropriate file under `src/audit_pipeline/templates/hypotheses/` (`perp_dex_class.yaml`, `amm_cp_class.yaml`, `clmm_class.yaml`, `lending_class.yaml`, `lst_class.yaml`)
 2. Append a new entry following the schema in [`docs/methodology/03-hypothesis-schema.md`](docs/methodology/03-hypothesis-schema.md)
-3. Required fields: `id`, `class`, `claim`. Recommended: `applies_to`, `scope_conditions`, `bug_class`, `target_file`, `severity`
+3. Required fields: `id`, `class`, `claim`, `bug_class`. Recommended: `applies_to`, `scope_conditions`, `target_file`, `severity`
 4. Run `pytest tests/test_class_libraries.py -v` to confirm the loader parses + validates the new entry
 
 To add a new class library entirely:
