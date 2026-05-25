@@ -1452,6 +1452,19 @@ def _hunt_run(
                 if _hyp_id not in _candidate_ids or not isinstance(_entry, dict):
                     continue
                 poc_results[_hyp_id] = dict(_entry)
+                # Patch #16 R4 (threat-modeler R3 LOW): the pre-resume
+                # summary is the THIRD resume path. Without normalization
+                # here, an entry that predates P16-R2 (no `outcome` field)
+                # would surface as `outcome=None` downstream. Apply the
+                # same is-None backward-compat fallback the JSONL paths
+                # use at lines ~1527 and ~1654 so all three resume paths
+                # produce consistent outcome strings.
+                if poc_results[_hyp_id].get("outcome") is None:
+                    poc_results[_hyp_id]["outcome"] = (
+                        "test_failed_bug_reproduced"
+                        if poc_results[_hyp_id].get("fired")
+                        else "test_passed_no_bug"
+                    )
                 poc_results[_hyp_id]["resumed"] = True
                 _loaded += 1
             if _loaded:
@@ -1509,16 +1522,33 @@ def _hunt_run(
                     continue
                 _slug = _slugify(_hyp_id)
                 _runlog = cycle_dir / "poc" / f"runlog_{_slug}.log"
+                # Patch #16 R2 (audit-016 F-1 fast-resume bypass): prefer
+                # the persisted `outcome` field from the `poc_adapter_done`
+                # event over re-deriving from the binary `fired` flag.
+                # Without this, `tainted_filter_rejected` (and other
+                # phase-tagged outcomes like `compile_error`) silently
+                # reclassify as `test_passed_no_bug` on `--resume-cycle`.
+                # Backward-compatible: pre-P16-R2 log events lack this
+                # field, fall back to the legacy binary derivation.
+                # R3 hardening (threat-modeler): the fallback fires ONLY
+                # when the field is MISSING (`is None`) — never on an
+                # empty string. An empty string is suspicious value
+                # (legitimate writers never produce it) and falling
+                # through would silently restore the false-negative
+                # bug discovery the patch closed.
+                _evt_outcome = _evt.get("outcome")
+                if _evt_outcome is None:
+                    _evt_outcome = (
+                        "test_failed_bug_reproduced"
+                        if _evt.get("fired")
+                        else "test_passed_no_bug"
+                    )
                 poc_results[_hyp_id] = {
                     "scaffold_path": _evt.get("scaffold_path"),
                     "scaffold_rc": 0,
                     "compile_test_rc": None,
                     "fired": bool(_evt.get("fired", False)),
-                    "outcome": (
-                        "test_failed_bug_reproduced"
-                        if _evt.get("fired")
-                        else "test_passed_no_bug"
-                    ),
+                    "outcome": _evt_outcome,
                     "cargo_log_path": str(_runlog) if _runlog.exists() else None,
                     "authoring_mode": f"adapter:{language}",
                     "framework": _evt.get("framework"),
@@ -1623,16 +1653,28 @@ def _hunt_run(
                                     workspace / "tests" / lang_dir
                                     / f"test_{finding_name}{ext}"
                                 )
+                        # Patch #16 R2 (audit-016 F-1 fast-resume bypass):
+                        # see the parallel resume reconstruction near
+                        # line 1517 for the rationale. Prefer the
+                        # `outcome` string from the prior log event so
+                        # `tainted_filter_rejected` survives resume.
+                        # R3 hardening: gate the fallback on `is None`
+                        # (field missing) NOT truthiness — an empty
+                        # string is suspicious and must not silently
+                        # restore the binary derivation.
+                        _prior_outcome = prior_event.get("outcome")
+                        if _prior_outcome is None:
+                            _prior_outcome = (
+                                "test_failed_bug_reproduced"
+                                if prior_event.get("fired")
+                                else "test_passed_no_bug"
+                            )
                         poc_results[hyp_id] = {
                             "scaffold_path": scaffold,
                             "scaffold_rc": 0,
                             "compile_test_rc": None,
                             "fired": bool(prior_event.get("fired", False)),
-                            "outcome": (
-                                "test_failed_bug_reproduced"
-                                if prior_event.get("fired")
-                                else "test_passed_no_bug"
-                            ),
+                            "outcome": _prior_outcome,
                             "cargo_log_path": str(_adapter_log_path),
                             "authoring_mode": f"adapter:{language}",
                             "framework": prior_event.get("framework"),
@@ -1858,7 +1900,15 @@ def _hunt_run(
                 while (
                     _run_retry < MAX_RUN_RETRIES
                     and not outcome_obj.fired
-                    and outcome_obj.metadata.get("phase") != "compile"
+                    and outcome_obj.metadata.get("phase") not in (
+                        "compile",
+                        # Patch #16 R1 (audit-016 threat F-2): tainted
+                        # filter_name rejections from poc_adapters.aptos
+                        # are non-retriable — re-prompting the LLM with
+                        # the same tainted source would echo back the
+                        # same rejected harness body. Burn no retries.
+                        "taint_refused",
+                    )
                 ):
                     _run_retry += 1
                     log("l2_passed_no_fire_retry",
@@ -1959,6 +2009,16 @@ def _hunt_run(
                         else (
                             "compile_error"
                             if outcome_obj.metadata.get("phase") == "compile"
+                            # Patch #16 R1 (audit-016 threat F-1):
+                            # distinguish a validator-refused outcome
+                            # (e.g., tainted filter_name in aptos
+                            # adapter) from a genuine clean test pass.
+                            # Without this branch, refused outcomes
+                            # silently classify as `test_passed_no_bug`
+                            # — re-introducing the false-negative bug
+                            # discovery the audit aimed to close.
+                            else "tainted_filter_rejected"
+                            if outcome_obj.metadata.get("phase") == "taint_refused"
                             else "test_passed_no_bug"
                         )
                     ),
@@ -1977,10 +2037,20 @@ def _hunt_run(
                 # finding set ("Finding 41 not found" cascade).
                 # Operator caught this on 2026-05-13 23:07 full-pipe
                 # fire — wasted ~$14 of compute time.
+                # Patch #16 R2 (audit-016 F-1 fast-resume bypass):
+                # log the full `outcome` string and `metadata.phase`
+                # so the fast-resume reconstructions at lines ~1517
+                # and ~1631 can preserve `tainted_filter_rejected` (and
+                # `compile_error`) across `--resume-cycle --skip-poc`.
+                # Without this, a refused PoC silently reclassifies as
+                # `test_passed_no_bug` on resume — re-introducing the
+                # false-negative bug discovery the audit aimed to close.
                 log("poc_adapter_done", hypothesis_id=hyp_id,
                     language=language, fired=outcome_obj.fired,
                     scaffold_path=str(test_path),
                     framework=outcome_obj.framework,
+                    outcome=poc_results[hyp_id]["outcome"],
+                    phase=outcome_obj.metadata.get("phase"),
                     reason=outcome_obj.reason[:160])
                 continue
             # ----- Solana legacy cargo path (unchanged below) -----
@@ -2357,6 +2427,16 @@ def _hunt_run(
         except (OSError, json.JSONDecodeError):
             _prior = {}
         if isinstance(_prior, dict):
+            # Patch #16 R5 (paranoid-goober): `poc` is INTENTIONALLY
+            # absent from this loader. The `skip_poc` path above
+            # (~line 1441) owns poc_results restoration AND applies
+            # the is-None outcome normalization to keep all three
+            # resume paths consistent. Do NOT add `_prior.get("poc")`
+            # here without first replicating the normalization at
+            # line ~1462 — otherwise pre-P16-R2 entries would surface
+            # as `outcome=None` downstream and re-introduce the
+            # false-negative `test_passed_no_bug` reclassification
+            # (audit-016 / 4f30bcd3).
             _prior_kani = _prior.get("kani") or {}
             _prior_lite = _prior.get("litesvm") or {}
             _prior_narr = _prior.get("narrative") or {}

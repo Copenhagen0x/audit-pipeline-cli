@@ -824,14 +824,96 @@ non-fire — it doesn't count as a passed test. Don't use it lightly.
         # preferring names that start with "test_" (per Move's
         # convention) and use that as the filter so we're matching
         # what the LLM actually wrote.
-        fn_matches = re.findall(r"fun\s+(test_\w+)\s*\(", body)
+        #
+        # Patch #16 R1 (audit HIGH 4f30bcd3, comment-injection
+        # threat E): strip Move line comments (`// ...`) before
+        # extraction so a body like:
+        #     // fun test_decoy()    <-- comment, no real function
+        #     #[test]
+        #     fun test_real_bug()    <-- the real test
+        # doesn't have `test_decoy` picked as filter_name (which
+        # would run zero tests against the real bug → false-negative
+        # bug discovery). Move only has `//` line comments and `/* */`
+        # block comments; strip both.
+        #
+        # Patch #16 R3 (audit-016 nested-block-comment bypass):
+        # Move's block comments CAN nest (`/* outer /* inner */ */`),
+        # but Python's `re` engine can't parse nested constructs.
+        # A naive non-greedy `/\*.*?\*/` would match `/* outer /*
+        # inner */` and leave ` */ fun test_decoy()` visible. To
+        # correctly strip nested blocks we iterate an "innermost-
+        # only" pattern (which excludes `/*` and `*/` inside) until
+        # no more matches — each pass removes the deepest layer.
+        body_stripped = re.sub(r"//[^\n]*", "", body)
+        _prev = None
+        # Inner pattern: `/* ... */` containing NO `/*` and NO `*/`
+        # inside. After this match is consumed, the next outer
+        # layer becomes the new innermost. Fixed-point iteration
+        # correctly handles arbitrary nesting depth.
+        _inner_block_re = re.compile(
+            r"/\*(?:[^/*]|\*(?!/)|/(?!\*))*\*/",
+            flags=re.DOTALL,
+        )
+        while body_stripped != _prev:
+            _prev = body_stripped
+            body_stripped = _inner_block_re.sub("", body_stripped)
+        fn_matches = re.findall(r"fun\s+(test_\w+)\s*\(", body_stripped)
         if fn_matches:
             filter_name = fn_matches[0]
         else:
             # Fallback: any fun, prefer ones containing 'test'
-            all_funs = re.findall(r"fun\s+(\w+)\s*\(", body)
+            all_funs = re.findall(r"fun\s+(\w+)\s*\(", body_stripped)
             test_funs = [f for f in all_funs if "test" in f.lower()]
             filter_name = (test_funs or all_funs or [f"test_{test_name}"])[0]
+
+        # Patch #16 (audit HIGH 4f30bcd3): the regex above captures
+        # values from LLM-authored harness body — an attacker
+        # influencing the harness could smuggle a value with embedded
+        # whitespace, newlines, or shell metacharacters that lands in
+        # subprocess argv as `--filter <attacker-controlled-string>`.
+        # `subprocess.run([...])` with a list does NOT invoke a shell,
+        # so classic shell-injection is already blocked, but a value
+        # like `"test_x\n"` or `"  "` would either match zero tests
+        # (silent pass) or behave unpredictably. Enforce the Move test-
+        # name convention regex via fullmatch so newline / whitespace
+        # / shell-meta values are rejected before they reach argv.
+        #
+        # R1 length floor (paranoid-goober threat #4): a single-char
+        # identifier like `a` or `_` is a valid Move identifier but
+        # `aptos move test --filter a` is a substring match against
+        # every test name in the package. Combined with the unfiltered
+        # fallback path at line ~932 (which kicks in when fail_lines
+        # and pass_lines are both empty but all_fail/all_pass are not),
+        # a 1-char filter can produce false-positive bug reproductions.
+        # Require at least 4 chars (shortest Move test convention is
+        # `test_X` = 6 chars; floor at 4 to also reject empties + 1-3).
+        # `\w` is Unicode-aware in Python 3 — the ASCII-only
+        # `[A-Za-z0-9_]` below intentionally narrows that per the
+        # Move identifier spec (ASCII-only).
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", filter_name) or len(filter_name) < 4:
+            deployed_test.unlink(missing_ok=True)
+            return PocOutcome(
+                fired=False,
+                test_path=test_path,
+                stdout="",
+                stderr=f"filter_name {filter_name!r} doesn't match "
+                       f"^[A-Za-z_][A-Za-z0-9_]*$ (min 4 chars) — "
+                       f"refusing to run `aptos move test` with "
+                       f"potentially-tainted argv",
+                returncode=-9,
+                duration_s=0.0,
+                framework=self.framework,
+                reason=f"refused tainted filter_name {filter_name!r}",
+                # R1 (threat-modeler F-1): mark as infra_error=True
+                # AND tag the phase so the hunt.py outcome classifier
+                # (line ~1955) and retry guard (line ~1857) both
+                # distinguish a refused-by-validator outcome from a
+                # genuine clean test pass. Without these, a refused
+                # PoC is silently classified as "test_passed_no_bug"
+                # — re-introducing the false-negative bug discovery
+                # the audit finding aimed to close.
+                metadata={"infra_error": True, "phase": "taint_refused"},
+            )
 
         t0 = time.time()
         try:
