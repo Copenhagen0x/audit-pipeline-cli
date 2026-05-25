@@ -23,13 +23,11 @@ WORKSPACE="${JELLEO_WORKSPACE:-/root/audit_runs/percolator-live}"
 LOG="${JELLEO_AUTOUPDATE_LOG:-$WORKSPACE/auto-update.log}"
 LOCK="/var/lock/jelleo-autoupdate.lock"
 
-# Daemons that need a restart when code lands. Timers self-fire from
-# new code on next tick; they don't need restart.
-RESTART_UNITS=(
-    "jelleo-watch.service"
-    "jelleo-shadow.service"
-    "jelleo-sse.service"
-)
+# Patch #13 R1: `RESTART_UNITS` array removed. Restarts of shadow/
+# watch are now delegated to install_systemd.sh's idempotent helper
+# (`_maybe_restart`); jelleo-sse.service has its own conditional
+# block below since it's installed via a separate path. This
+# eliminates the previous double-restart on every code-only push.
 
 mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
 
@@ -105,18 +103,46 @@ else
     log "  WARN: install_systemd.sh non-zero (continuing)"
 fi
 
-# Restart long-running daemons so they pick up the new code.
-for unit in "${RESTART_UNITS[@]}"; do
-    if systemctl is-active --quiet "$unit"; then
-        if systemctl restart "$unit" >>"$LOG" 2>&1; then
-            log "  restarted $unit"
+# Patch #13 R1 (3 reviewers HIGH): the previous loop unconditionally
+# restarted shadow/watch/sse on every autoupdate cycle, defeating the
+# idempotency guarantee install_systemd.sh now provides. Restarts are
+# now delegated entirely to install_systemd.sh's `_maybe_restart`
+# helper which only fires when (a) unit content changed OR (b) the
+# service isn't active. Code-only pushes (the common case) no longer
+# kill running daemons.
+#
+# Exception: jelleo-sse.service is NOT installed by install_systemd.sh
+# (it lives in a separate deploy path), so it needs its own conditional
+# restart here.
+if [[ -f "/etc/systemd/system/jelleo-sse.service" ]]; then
+    SSE_SRC="$REPO/deploy/jelleo-sse.service"
+    SSE_DST="/etc/systemd/system/jelleo-sse.service"
+    SSE_CHANGED=false
+    if [[ -f "$SSE_SRC" ]] && ! cmp -s "$SSE_SRC" "$SSE_DST" 2>/dev/null; then
+        SSE_CHANGED=true
+    fi
+    if $SSE_CHANGED; then
+        # P13 R2 (code-reviewer MEDIUM): R1 detected the change but
+        # NEVER copied the new file or reloaded the daemon — restart
+        # picked up the stale on-disk unit. Update the file + reload
+        # before the restart fires.
+        if cp "$SSE_SRC" "$SSE_DST" 2>>"$LOG"; then
+            systemctl daemon-reload >>"$LOG" 2>&1 || true
+            log "  installed updated jelleo-sse.service + daemon-reload"
         else
-            log "  WARN: restart $unit failed"
+            log "  WARN: cp jelleo-sse.service failed; restart will use stale unit"
+        fi
+    fi
+    if $SSE_CHANGED || ! systemctl is-active --quiet jelleo-sse.service; then
+        if systemctl restart jelleo-sse.service >>"$LOG" 2>&1; then
+            log "  restarted jelleo-sse.service"
+        else
+            log "  WARN: restart jelleo-sse.service failed"
         fi
     else
-        log "  $unit not active — leaving alone"
+        log "  jelleo-sse.service unchanged + active — skipped restart"
     fi
-done
+fi
 
 log "===== auto-update complete: $NEW_HEAD ====="
 

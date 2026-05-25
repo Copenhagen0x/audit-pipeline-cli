@@ -8,6 +8,17 @@
 
 set -euo pipefail
 
+# P13 R2 (all 3 reviewers): explicit bash 4+ requirement. `declare -A`
+# below is bash 4+ only; bash 3.x (macOS system default, ancient CentOS)
+# would crash with a cryptic "declare: -A: invalid option" mid-script.
+# Production VPS is Ubuntu 22.04 (bash 5.1) so this is a clarity guard,
+# not a functional fix — but the explicit error helps any operator who
+# tries to dry-run on a dev box.
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: install_systemd.sh requires bash 4+ (got $BASH_VERSION)" >&2
+    exit 1
+fi
+
 UNIT_DIR=/etc/systemd/system
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -31,6 +42,38 @@ if ! command -v audit-pipeline >/dev/null 2>&1; then
 fi
 
 echo "=== Installing systemd units ==="
+# Patch #13 R1 (all 3 reviewers CRITICAL): capture pre-cp hashes of
+# all destination unit files BEFORE the cp block so the
+# `_changed_or_inactive` check below can compare against the OLD
+# content (pre-overwrite). The R0 patch did `cmp -s "$src" "$dst"`
+# AFTER cp, which always returned identical (cp had just overwritten
+# $dst with $src) — the change-detection branch was dead code and
+# the function reduced to `! is-active`. A real unit-file change
+# would NEVER trigger a restart of an active service.
+declare -A _PRE_CP_HASH
+_snapshot_pre_cp_hash() {
+    local unit="$1"
+    local dst="$UNIT_DIR/$unit"
+    if [[ -f "$dst" ]]; then
+        _PRE_CP_HASH["$unit"]=$(sha256sum "$dst" 2>/dev/null | awk '{print $1}')
+    else
+        _PRE_CP_HASH["$unit"]=""  # absent → treat as "changed" later
+    fi
+}
+for _u in jelleo-shadow.service jelleo-watch.service \
+          jelleo-alert-failure@.service jelleo-token-auth.service \
+          jelleo-health.service jelleo-health.timer \
+          jelleo-backup.service jelleo-backup.timer \
+          jelleo-scheduler-24h.service jelleo-scheduler-24h.timer \
+          jelleo-scheduler-weekly.service jelleo-scheduler-weekly.timer \
+          jelleo-scheduler-monthly.service jelleo-scheduler-monthly.timer \
+          jelleo-snapshot.service jelleo-snapshot.timer \
+          jelleo-heartbeat.service jelleo-heartbeat.timer \
+          jelleo-corpus-refresh.service jelleo-corpus-refresh.timer \
+          jelleo-autoupdate.service jelleo-autoupdate.timer; do
+    _snapshot_pre_cp_hash "$_u"
+done
+
 # Core daemons (shadow + watch)
 cp "$DEPLOY_DIR/jelleo-shadow.service" "$UNIT_DIR/"
 cp "$DEPLOY_DIR/jelleo-watch.service"  "$UNIT_DIR/"
@@ -110,65 +153,76 @@ tmux kill-session -t jelleo-watch 2>/dev/null  && echo "  killed jelleo-watch tm
 # Patch #13 (audit HIGH 46ca2392): idempotency-safe restart. The
 # previous unconditional `systemctl restart` interrupted running
 # daemons every install — even when the unit file hadn't changed.
-# Helper: only restart when the deployed unit differs from the
-# source, OR when the service isn't currently active. Reduces
-# midnight cron-driven outages where install_systemd.sh re-runs as
-# part of an autoupdate cycle and momentarily kills working units.
+# Helper: restart only when the unit content ACTUALLY changed (vs
+# the pre-cp snapshot captured at the top of this script), OR when
+# the service isn't currently active. Reduces midnight cron-driven
+# outages where install_systemd.sh re-runs as part of an autoupdate
+# cycle and momentarily kills working units.
+#
+# R1 (all 3 reviewers CRITICAL): R0 compared $src to $dst AFTER cp
+# had already overwritten $dst with $src — the cmp was tautologically
+# identical. Restart-on-change branch was dead code. R1 uses the
+# pre-cp hash snapshot.
 _changed_or_inactive() {
     local unit="$1"
-    local src="$DEPLOY_DIR/$unit"
     local dst="$UNIT_DIR/$unit"
-    # Always restart if the destination file changed (cp above already
-    # happened, so cmp it against the source). cmp -s returns 0 if
-    # files are identical; we restart on NON-zero (changed or absent).
-    if [[ -f "$src" && -f "$dst" ]] && cmp -s "$src" "$dst"; then
-        # File unchanged. Restart only if the service isn't active.
-        if systemctl is-active --quiet "$unit"; then
-            return 1  # do not restart
-        fi
+    local pre_hash="${_PRE_CP_HASH[$unit]:-}"
+    local post_hash=""
+    if [[ -f "$dst" ]]; then
+        post_hash=$(sha256sum "$dst" 2>/dev/null | awk '{print $1}')
     fi
-    return 0  # do restart
+    # Content changed (pre != post, including absent → present) →
+    # restart. Otherwise check active state.
+    if [[ "$pre_hash" != "$post_hash" ]]; then
+        return 0  # do restart
+    fi
+    if systemctl is-active --quiet "$unit"; then
+        return 1  # unchanged + active → skip
+    fi
+    return 0  # unchanged but inactive → restart (recovery)
+}
+
+# Wrapper applied uniformly to all unit restarts so the
+# idempotency guarantee is consistent across shadow, watch,
+# token-auth, and every timer (R1 — goober + threat-modeler HIGH).
+_maybe_restart() {
+    local unit="$1"
+    if _changed_or_inactive "$unit"; then
+        systemctl restart "$unit"
+        echo "  restarted $unit"
+    else
+        echo "  $unit unchanged + active — skipped restart"
+    fi
 }
 
 echo "=== Enabling + (re)starting units ==="
 systemctl daemon-reload
 systemctl enable jelleo-shadow.service
 systemctl enable jelleo-watch.service
-if _changed_or_inactive jelleo-shadow.service; then
-    systemctl restart jelleo-shadow.service
-    echo "  restarted jelleo-shadow.service"
-else
-    echo "  jelleo-shadow.service unchanged + active — skipped restart"
-fi
-if _changed_or_inactive jelleo-watch.service; then
-    systemctl restart jelleo-watch.service
-    echo "  restarted jelleo-watch.service"
-else
-    echo "  jelleo-watch.service unchanged + active — skipped restart"
-fi
+_maybe_restart jelleo-shadow.service
+_maybe_restart jelleo-watch.service
 # HMAC token-auth sidecar (loopback :8766). Listens for nginx auth_request
 # subrequests. Safe to enable always — does nothing until nginx is wired
 # via deploy/nginx-customer-auth-snippet.conf.
 if [[ -f "$UNIT_DIR/jelleo-token-auth.service" ]]; then
     systemctl enable jelleo-token-auth.service
-    systemctl restart jelleo-token-auth.service
+    _maybe_restart jelleo-token-auth.service
 fi
 
 if [[ -f "$UNIT_DIR/jelleo-health.timer" ]]; then
     systemctl enable jelleo-health.timer
-    systemctl restart jelleo-health.timer
+    _maybe_restart jelleo-health.timer
 fi
 if [[ -f "$UNIT_DIR/jelleo-backup.timer" ]]; then
     systemctl enable jelleo-backup.timer
-    systemctl restart jelleo-backup.timer
+    _maybe_restart jelleo-backup.timer
 fi
 
 # Sprint 3 + Tier 5 + P2 + auto-update timers
 for t in jelleo-scheduler-24h jelleo-scheduler-weekly jelleo-scheduler-monthly jelleo-snapshot jelleo-heartbeat jelleo-corpus-refresh jelleo-autoupdate; do
     if [[ -f "$UNIT_DIR/${t}.timer" ]]; then
         systemctl enable "${t}.timer"
-        systemctl restart "${t}.timer"
-        echo "  enabled ${t}.timer"
+        _maybe_restart "${t}.timer"
     fi
 done
 
