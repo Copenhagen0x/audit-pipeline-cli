@@ -58,8 +58,16 @@ SIGN_DOMAINS = {
 # var on every sign_file call broke multi-call flows (HTML+PDF in one
 # process, rebuild-all over N cycles). Cache the bytes module-level on
 # first read, pop from environ ONCE to close subprocess inheritance.
+# R5b (2026-05-24): added threading.Lock guard around check-then-pop —
+# goober found concurrent first-call race could let two threads both
+# observe LOADED=False, both pop (second pop returns None), and end up
+# with cache=None even when password was set. CPython GIL makes
+# individual bytecode ops atomic but the check-then-act sequence is
+# not. Lock closes the window.
+import threading as _threading
 _SIGNING_PASSWORD_CACHE: bytes | None = None
 _SIGNING_PASSWORD_LOADED: bool = False
+_SIGNING_PASSWORD_LOCK = _threading.Lock()
 
 
 def _cache_signing_password() -> bytes | None:
@@ -68,15 +76,25 @@ def _cache_signing_password() -> bytes | None:
     cached bytes on subsequent calls (no env re-read).
 
     Returns None if the env var was never set (unencrypted-key flow).
+
+    Thread-safe via _SIGNING_PASSWORD_LOCK — concurrent first-call by N
+    threads pops the env var exactly once.
     """
     global _SIGNING_PASSWORD_CACHE, _SIGNING_PASSWORD_LOADED
+    # Fast path: already loaded, no lock needed (read of a bool is atomic
+    # under CPython GIL, no torn read).
     if _SIGNING_PASSWORD_LOADED:
         return _SIGNING_PASSWORD_CACHE
-    _pw_env = os.environ.pop("JELLEO_SIGNING_KEY_PASSWORD", None)
-    if _pw_env:
-        _SIGNING_PASSWORD_CACHE = _pw_env.encode("utf-8")
-    _SIGNING_PASSWORD_LOADED = True
-    return _SIGNING_PASSWORD_CACHE
+    with _SIGNING_PASSWORD_LOCK:
+        # Re-check inside the lock — another thread may have populated
+        # while we were waiting.
+        if _SIGNING_PASSWORD_LOADED:
+            return _SIGNING_PASSWORD_CACHE
+        _pw_env = os.environ.pop("JELLEO_SIGNING_KEY_PASSWORD", None)
+        if _pw_env:
+            _SIGNING_PASSWORD_CACHE = _pw_env.encode("utf-8")
+        _SIGNING_PASSWORD_LOADED = True
+        return _SIGNING_PASSWORD_CACHE
 
 
 def _infer_domain(file_path: Path) -> str:
@@ -138,7 +156,9 @@ def sign_file(
     sig-rebinding attacks (claim sig is for X when it's actually on Y).
 
     This is the non-CLI helper used by `audit_pipeline.commands.report`,
-    `audit_pipeline.commands.disclose`, and `audit_pipeline.commands.merkle`.
+    `audit_pipeline.commands.merkle`, `audit_pipeline.commands.heartbeat`,
+    and `audit_pipeline.bundle.assembly`. (R5b: removed stale `disclose`
+    reference — grep confirms disclose.py does not call sign_file.)
     """
     try:
         from cryptography.hazmat.primitives import serialization
@@ -198,6 +218,26 @@ def sign_file(
                 f"(`ssh-keygen -p -f {key_path}`) or unset the env var."
             ) from e
         raise SignError(f"Failed to load private key: {msg}") from e
+    except ValueError as e:
+        # R5b (2026-05-24): goober finding HIGH #4. cryptography raises
+        # ValueError (NOT TypeError) when the password is provided but
+        # WRONG ("Bad decrypt. Incorrect password?"). Pre-R5b this
+        # propagated as an uncaught ValueError through every caller
+        # (silent digest fallback in assembly.py; crash in
+        # heartbeat.py/report.py click paths). Catch and translate to
+        # actionable SignError. Stale-cache + key-rotation scenarios
+        # (operator swaps key B with pw_B, but cache still has pw_A
+        # from key A) land here too.
+        msg = str(e)
+        if _key_pw_bytes is not None:
+            raise SignError(
+                f"Private key at {key_path} could not be decrypted with the "
+                f"cached JELLEO_SIGNING_KEY_PASSWORD (wrong password, key "
+                f"rotated mid-process, or key corrupted). Restart the process "
+                f"to re-cache from environment, or `ssh-keygen -p -f {key_path}` "
+                f"to change the on-disk password. Underlying error: {msg}"
+            ) from e
+        raise SignError(f"Failed to parse private key: {msg}") from e
     finally:
         # Drop reference — CPython can't zero immutable bytes. Module-level
         # cache still retains the bytes for the next sign_file call.
@@ -329,10 +369,13 @@ def keygen_cmd(ctx: click.Context, key_dir: Path | None, force: bool) -> None:
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None,
               help="Signature output path (default: <file_path>.sig)")
 @click.option("--domain", "domain", default=None,
-              type=click.Choice(sorted(SIGN_DOMAINS)),
+              type=click.Choice([d for d in sorted(SIGN_DOMAINS) if d != "raw"]),
               help="Signing domain tag (default: inferred from filename; "
                    "REQUIRED for filenames that don't match the inference rules "
-                   "since round-2 hardening removed the 'raw' fallback).")
+                   "since round-2 hardening removed the 'raw' fallback). "
+                   "R5b: 'raw' is excluded from CLI choices — it's the legacy "
+                   "v1 no-domain-separation tag, available only for VERIFY of "
+                   "old sigs (read-only). Closing the explicit-pass back-door.")
 @click.pass_context
 def sign_file_cmd(
     ctx: click.Context, file_path: Path, key: Path | None, customer_id: str | None,

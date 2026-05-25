@@ -352,8 +352,16 @@ def draft_cmd(
     console.print("[green]wrote writeup skeleton[/green]")
 
     # Sign the bundle digest
+    # R5b (2026-05-24) — goober pre-existing typo HIGH #3: was
+    # `jelleo.ed25519.priv` but keygen writes `jelleo.ed25519` (no
+    # `.priv` extension — see sign.py:306 + default_key_path). This
+    # call ALWAYS failed silently pre-R5b (bare `except: pass` in
+    # sign_bundle returned None, `if sig:` was False, nothing printed
+    # — the operator never knew). R5b's sentinel made the failure
+    # visible (sentinel path returns truthy), but the underlying
+    # typo was the real bug. Fixed.
     sig = sign_bundle(workspace, finding_id,
-                       signing_key=workspace / "keys" / "jelleo.ed25519.priv")
+                       signing_key=workspace / "keys" / "jelleo.ed25519")
     if sig:
         console.print(f"[green]signed[/green] {sig.relative_to(workspace)}")
 

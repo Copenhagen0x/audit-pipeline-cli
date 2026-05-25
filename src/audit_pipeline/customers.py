@@ -487,9 +487,23 @@ def derive_customer_seed(platform_priv_bytes: bytes, customer_id: str, salt: byt
 
 
 def load_platform_priv_seed(platform_priv_path: Path) -> bytes:
-    """Load the platform private key (PEM-encoded PKCS8) and return its 32-byte seed."""
+    """Load the platform private key (PEM-encoded PKCS8) and return its 32-byte seed.
+
+    R5b (2026-05-24) — code-reviewer HIGH #1: this function loads the SAME
+    physical key file that `sign.keygen` optionally encrypts at rest. Before
+    R5b, password=None was hardcoded — so the moment the operator enables
+    JELLEO_SIGNING_KEY_PASSWORD and runs `keygen --force`, every customer
+    command (which calls this function via derive_and_persist_customer_keypair)
+    crashed with a raw TypeError from cryptography.
+
+    Fix: route through sign._cache_signing_password() (same module-level cache
+    sign_file uses, so the env var is popped exactly once across the whole
+    process). Translate TypeError + ValueError to CustomerError with the
+    same actionable messages sign_file uses.
+    """
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from audit_pipeline.commands.sign import _cache_signing_password
 
     if not platform_priv_path.exists():
         raise CustomerError(
@@ -497,7 +511,35 @@ def load_platform_priv_seed(platform_priv_path: Path) -> bytes:
             "run `audit-pipeline sign keygen` first"
         )
 
-    priv = serialization.load_pem_private_key(platform_priv_path.read_bytes(), password=None)
+    _key_pw_bytes = _cache_signing_password()
+    try:
+        priv = serialization.load_pem_private_key(
+            platform_priv_path.read_bytes(), password=_key_pw_bytes,
+        )
+    except TypeError as e:
+        msg = str(e)
+        if "encrypted" in msg.lower() and _key_pw_bytes is None:
+            raise CustomerError(
+                f"platform private key at {platform_priv_path} is encrypted "
+                f"but JELLEO_SIGNING_KEY_PASSWORD is not set. Export the "
+                f"password in the environment and retry."
+            ) from e
+        if "not encrypted" in msg.lower() and _key_pw_bytes is not None:
+            raise CustomerError(
+                f"platform private key at {platform_priv_path} is NOT "
+                f"encrypted but JELLEO_SIGNING_KEY_PASSWORD is set. Either "
+                f"encrypt the key (`ssh-keygen -p -f {platform_priv_path}`) "
+                f"or unset the env var."
+            ) from e
+        raise CustomerError(f"failed to load platform key: {msg}") from e
+    except ValueError as e:
+        # Wrong password — cryptography raises ValueError, not TypeError.
+        raise CustomerError(
+            f"platform private key at {platform_priv_path} could not be "
+            f"decrypted with the cached JELLEO_SIGNING_KEY_PASSWORD. Restart "
+            f"the process to re-cache, or rotate the on-disk password with "
+            f"`ssh-keygen -p -f {platform_priv_path}`. Underlying error: {e}"
+        ) from e
     if not isinstance(priv, Ed25519PrivateKey):
         raise CustomerError(
             f"key at {platform_priv_path} is not Ed25519 (got {type(priv).__name__})"

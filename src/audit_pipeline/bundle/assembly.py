@@ -298,10 +298,28 @@ def sign_bundle(workspace: Path, finding_id: int, signing_key: Path) -> Path | N
         digest_file = out.with_suffix(".digest")
         digest_file.write_text(digest, encoding="utf-8")
         return sign_file(digest_file, signing_key, domain="bundle")
-    except Exception:
-        # Fall back to digest-only attestation (operator can sign manually)
+    except Exception as e:
+        # R5b (2026-05-24) — goober HIGH #2 + code-reviewer MEDIUM #2:
+        # bare `except Exception: pass` silently swallowed every error
+        # including the new SignError class (encrypted-key/wrong-password)
+        # introduced by P2. Consumers who treat the existence of
+        # signature_path() as proof of signing accepted unsigned bundles
+        # with no signal. Fix: log loudly to stderr + a sentinel header
+        # in the digest file so the consumer can distinguish 'signed' from
+        # 'signing-failed fallback'. The fallback is preserved (operator
+        # can sign manually) but the FAILURE is unambiguous.
+        import sys as _sys
+        print(
+            f"[sign_bundle WARNING] signing failed for finding {finding_id}: "
+            f"{type(e).__name__}: {e}. Writing digest-only fallback to "
+            f"{out} (NOT a valid signature — operator must sign manually "
+            f"or fix the signing key).",
+            file=_sys.stderr,
+        )
         out.write_text(
-            f"# bundle digest (unsigned — signing key unavailable)\n"
+            f"# bundle digest (UNSIGNED — signing FAILED: {type(e).__name__})\n"
+            f"# Original error: {str(e)[:200]}\n"
+            f"# This file is NOT a signature. Verify rejection MUST fail.\n"
             f"sha256:{digest}\n",
             encoding="utf-8",
         )
