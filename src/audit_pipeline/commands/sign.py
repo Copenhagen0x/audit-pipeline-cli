@@ -68,7 +68,8 @@ SIGN_DOMAINS = {
 # with cache=None even when password was set. CPython GIL makes
 # individual bytecode ops atomic but the check-then-act sequence is
 # not. Lock closes the window.
-import threading as _threading
+import threading as _threading  # noqa: E402  (deferred import — see comment block above)
+
 _SIGNING_PASSWORD_CACHE: bytes | None = None
 _SIGNING_PASSWORD_LOADED: bool = False
 _SIGNING_PASSWORD_LOCK = _threading.Lock()
@@ -536,7 +537,8 @@ def verify_cmd(
         # OSError subclasses but a future RuntimeError or non-IO exception
         # would escape.
         signed_message = file_path.read_bytes()
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
         try:
             _audit_log = os.environ.get(
                 "JELLEO_V1_VERIFY_AUDIT", "/var/log/jelleo/v1-verify-audit.log"

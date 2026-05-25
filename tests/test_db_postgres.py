@@ -163,6 +163,7 @@ def test_stats_postgres_includes_by_status_and_by_severity() -> None:
     by_status + by_severity aggregations that the SQLite backend
     returned. Dashboard + health check both broke on Postgres."""
     import inspect as _ins
+
     from audit_pipeline.db_postgres import PostgresFindingsDB
     src = _ins.getsource(PostgresFindingsDB.stats)
     assert "by_status" in src, "stats() must include by_status aggregation"
@@ -177,6 +178,7 @@ def test_transition_finding_postgres_raises_on_missing() -> None:
     silently returned on missing finding; SQLite raises ValueError.
     Mirror SQLite behaviour."""
     import inspect as _ins
+
     from audit_pipeline.db_postgres import PostgresFindingsDB
     src = _ins.getsource(PostgresFindingsDB.transition_finding)
     # Must raise ValueError when finding not found (no silent return)

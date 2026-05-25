@@ -423,8 +423,12 @@ def test_write_authorization_rejects_ttl_bool() -> None:
     must be rejected explicitly. Previously `ttl_hours=True` silently
     authorized for 1 hour."""
     import tempfile
+
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path
     with tempfile.TemporaryDirectory() as td:
@@ -446,7 +450,9 @@ def test_write_authorization_sidecar_status_signed_or_unsigned(tmp_path: Path) -
     SIGNED / UNSIGNED / FAILED / REFUSED. On a workspace with no key
     file, status must be UNSIGNED — not silently 'good'."""
     from audit_pipeline.bundle.auth import (
-        expected_phrase, file_sha256, write_authorization,
+        expected_phrase,
+        file_sha256,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import authorization_path, patch_path
     fid = 2060
@@ -469,6 +475,7 @@ def test_kani_gate_double_unapply_fix_pattern_present() -> None:
     the timed_out + crashed_err flag pattern, not the bare except-then-
     finally-double-unapply pattern."""
     import inspect
+
     from audit_pipeline.bundle import verifier
     src = inspect.getsource(verifier._gate_kani_proof_holds)
     # The new pattern uses these structured flags
@@ -488,6 +495,7 @@ def test_kani_gate_double_unapply_fix_pattern_present() -> None:
 def test_litesvm_gate_double_unapply_fix_pattern_present() -> None:
     """Same as above for the LiteSVM gate."""
     import inspect
+
     from audit_pipeline.bundle import verifier
     src = inspect.getsource(verifier._gate_litesvm_exploit_neutralized)
     assert "timed_out = False" in src
@@ -601,7 +609,10 @@ def test_patch_well_formed_rejects_windows_drive_letter_path(tmp_path: Path) -> 
 def test_write_authorization_rejects_ttl_above_cap(tmp_path: Path) -> None:
     """Patch #3 round-1 (audit MED 540763a6): TTL > 168h (1 week) rejected."""
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path
     fid = 2001
@@ -617,7 +628,10 @@ def test_write_authorization_rejects_ttl_above_cap(tmp_path: Path) -> None:
 
 def test_write_authorization_rejects_ttl_zero(tmp_path: Path) -> None:
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path
     fid = 2002
@@ -635,7 +649,9 @@ def test_write_authorization_atomic_no_partial_on_disk(tmp_path: Path) -> None:
     """Patch #3 round-1 (audit MED f8fe4ebf): write goes through tmp+rename
     so a crash mid-write doesn't leave a corrupt authorization.json."""
     from audit_pipeline.bundle.auth import (
-        expected_phrase, file_sha256, write_authorization,
+        expected_phrase,
+        file_sha256,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import authorization_path, patch_path
     fid = 2010
@@ -702,8 +718,11 @@ def test_validate_authorization_rechecks_all_passed(tmp_path: Path) -> None:
     if verification_digest matches the marker (file unchanged since
     auth), the gate semantics must still hold."""
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256,
-        validate_authorization, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        validate_authorization,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path, verification_path
     fid = 2030
@@ -741,7 +760,10 @@ def test_write_authorization_blocks_when_only_skip_code_invalid(tmp_path: Path) 
     slipped past write_authorization() but failed all_passed() (UI path
     only). Now both paths reject."""
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path, verification_path
     fid = 2040
@@ -774,9 +796,10 @@ def test_anchor_overlap_slack_is_symmetric_and_tight() -> None:
     claimed anchor must be REJECTED (claim_hi = start + count + 1,
     actual at start+2 → actual_lo=start+1 > claim_hi means no overlap),
     but a drift of 1 should still be accepted within slack."""
-    from audit_pipeline.bundle.verifier import _verify_anchors_post_apply
     import subprocess
     import tempfile
+
+    from audit_pipeline.bundle.verifier import _verify_anchors_post_apply
     with tempfile.TemporaryDirectory() as td_str:
         td = Path(td_str)
         subprocess.run(["git", "init"], cwd=td, capture_output=True, check=True)
@@ -811,9 +834,10 @@ def test_anchor_overlap_slack_is_symmetric_and_tight() -> None:
 def test_apply_patch_refuses_when_no_b_headers_returns_specific_msg() -> None:
     """Patch #3 round-3: ensure the specific error message change from
     round-1 is preserved (no `src/percolator.rs` fallback string)."""
-    from audit_pipeline.bundle.verifier import _apply_patch
-    import tempfile
     import subprocess
+    import tempfile
+
+    from audit_pipeline.bundle.verifier import _apply_patch
     with tempfile.TemporaryDirectory() as td:
         td_p = Path(td)
         subprocess.run(["git", "init"], cwd=td_p, capture_output=True, check=True)
@@ -829,6 +853,7 @@ def test_c_target_tests_pass_post_patch_emits_skip_code() -> None:
     tests_pass_post_patch gate skip for C targets MUST carry
     skip_reason_code='not_applicable_c' so all_passed() doesn't BLOCK."""
     import inspect
+
     from audit_pipeline.bundle import verifier
     src = inspect.getsource(verifier._gate_tests_pass_post_patch)
     # The C branch must include the structured code
@@ -860,6 +885,7 @@ def test_c_target_kani_proof_holds_emits_skip_code() -> None:
     """Patch #3 round-3 (devils-advocate #7): C target's kani gate must
     emit the not_applicable_c code so it doesn't block."""
     import inspect
+
     from audit_pipeline.bundle import verifier
     src = inspect.getsource(verifier._gate_kani_proof_holds)
     # The C branch must include the structured code
@@ -871,6 +897,7 @@ def test_rust_poc_passes_double_unapply_fix_pattern_present() -> None:
     Rust poc_passes_post_patch path must also use the timed_out flag
     pattern. Single _unapply_patch in finally only."""
     import inspect
+
     from audit_pipeline.bundle import verifier
     src = inspect.getsource(verifier._gate_poc_passes_post_patch)
     assert "timed_out = False" in src
@@ -891,6 +918,7 @@ def test_rust_poc_passes_double_unapply_fix_pattern_present() -> None:
 def test_tests_pass_double_unapply_fix_pattern_present() -> None:
     """Same for tests_pass_post_patch."""
     import inspect
+
     from audit_pipeline.bundle import verifier
     src = inspect.getsource(verifier._gate_tests_pass_post_patch)
     assert "timed_out = False" in src
@@ -903,8 +931,11 @@ def test_sidecar_status_reject_FAILED_in_validate(tmp_path: Path) -> None:
     threat-modeler #1): if .sig.status reports FAILED, validate_authorization
     must REJECT regardless of all other checks passing."""
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256,
-        validate_authorization, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        validate_authorization,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import authorization_path, patch_path
     fid = 3001
@@ -928,8 +959,11 @@ def test_sidecar_status_reject_FAILED_in_validate(tmp_path: Path) -> None:
 
 def test_sidecar_status_reject_REFUSED_in_validate(tmp_path: Path) -> None:
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256,
-        validate_authorization, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        validate_authorization,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import authorization_path, patch_path
     fid = 3002
@@ -957,8 +991,11 @@ def test_sidecar_status_unsigned_rejected_by_default(tmp_path: Path, monkeypatch
     monkeypatch.delenv("JELLEO_AUTHZ_ALLOW_UNSIGNED", raising=False)
     monkeypatch.delenv("JELLEO_AUTHZ_REQUIRE_SIGNED", raising=False)
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256,
-        validate_authorization, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        validate_authorization,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path
     fid = 3003
@@ -981,7 +1018,10 @@ def test_sidecar_status_unsigned_accepted_in_legacy_mode(tmp_path: Path, monkeyp
     into the old behavior via JELLEO_AUTHZ_ALLOW_UNSIGNED=1."""
     monkeypatch.setenv("JELLEO_AUTHZ_ALLOW_UNSIGNED", "1")
     from audit_pipeline.bundle.auth import (
-        expected_phrase, file_sha256, validate_authorization, write_authorization,
+        expected_phrase,
+        file_sha256,
+        validate_authorization,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path
     fid = 3004
@@ -1006,8 +1046,11 @@ def test_sidecar_status_unsigned_blocked_legacy_test_kept_for_history(tmp_path: 
     monkeypatch.delenv("JELLEO_AUTHZ_ALLOW_UNSIGNED", raising=False)
     monkeypatch.setenv("JELLEO_AUTHZ_REQUIRE_SIGNED", "1")  # ignored by R5b
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256,
-        validate_authorization, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        validate_authorization,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path
     fid = 3005
@@ -1026,6 +1069,7 @@ def test_exclude_public_covers_authorization_sig_sidecars() -> None:
     """Patch #3 round-3 (code-reviewer #3): publish-archive must exclude
     the .sig and .sig.status sidecars introduced in round-2."""
     import inspect
+
     from audit_pipeline.commands import bundle as bundle_cmd_mod
     # publish_archive_cmd defines EXCLUDE_PUBLIC inline; inspect source.
     src = inspect.getsource(bundle_cmd_mod)
@@ -1047,8 +1091,12 @@ def test_sigfile_parser_extracts_bare_base64_payload(tmp_path) -> None:
     cryptography = pytest.importorskip("cryptography")
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     from audit_pipeline.bundle.auth import (
-        expected_phrase, file_sha256, validate_authorization, write_authorization,
+        expected_phrase,
+        file_sha256,
+        validate_authorization,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path
     fid = 4001
@@ -1096,8 +1144,11 @@ def test_validate_authorization_refuses_signed_when_pubkey_absent(tmp_path) -> N
     must REFUSE — otherwise an attacker who deletes the pub key bypasses
     cryptographic verification by silent fallback."""
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256,
-        validate_authorization, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        validate_authorization,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import authorization_path, patch_path
     fid = 4002
@@ -1128,9 +1179,13 @@ def test_validate_authorization_rejects_tampered_signature(tmp_path) -> None:
     cryptography = pytest.importorskip("cryptography")
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256,
-        validate_authorization, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        validate_authorization,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import authorization_path, patch_path
     fid = 4003
@@ -1313,9 +1368,13 @@ def test_validate_authorization_refuses_pub_key_symlink_escape(tmp_path) -> None
     cryptography = pytest.importorskip("cryptography")
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256,
-        validate_authorization, write_authorization,
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        validate_authorization,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import authorization_path, patch_path
     fid = 5001
@@ -1369,9 +1428,10 @@ def test_kani_harness_rejects_trailing_newline() -> None:
     matches before terminal newline. Must use re.fullmatch so a value
     like 'kani_harness\\n' is rejected. Behavioral test — call the
     fullmatch via the regex pattern used in the gate."""
-    import re
     # Confirm the function source contains re.fullmatch on the harness pattern
     import inspect
+    import re
+
     from audit_pipeline.bundle import verifier
     src = inspect.getsource(verifier._gate_kani_proof_holds)
     assert "re.fullmatch" in src
@@ -1385,8 +1445,9 @@ def test_litesvm_test_name_rejects_trailing_newline() -> None:
     """Same as above for litesvm_test_name. The newline-bypass made
     cargo treat the value as a filter matching zero tests, causing
     'test result: ok' (0 tests ran) → gate falsely reported True."""
-    import re
     import inspect
+    import re
+
     from audit_pipeline.bundle import verifier
     src = inspect.getsource(verifier._gate_litesvm_exploit_neutralized)
     assert "re.fullmatch" in src
@@ -1400,10 +1461,13 @@ def test_write_authorization_rejects_crafted_no_kani_null_field_meta_has_one(tmp
     the field to null/absent in forged verification.json. Round-8 adds
     a meta.json fallback: if EITHER source claims a harness, the
     no_kani_harness_registered skip is rejected."""
-    from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256, write_authorization,
-    )
     from audit_pipeline.bundle.assembly import write_meta
+    from audit_pipeline.bundle.auth import (
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        write_authorization,
+    )
     from audit_pipeline.bundle.paths import patch_path, verification_path
     fid = 8001
     _seed_bundle(tmp_path, fid)
@@ -1447,10 +1511,13 @@ def test_write_authorization_rejects_crafted_no_kani_harness_when_meta_has_one(t
     forges verification.json with `no_kani_harness_registered` on a
     bug class that ACTUALLY has a registered harness must be blocked.
     write_authorization cross-checks the skip code against meta.json."""
-    from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256, write_authorization,
-    )
     from audit_pipeline.bundle.assembly import write_meta
+    from audit_pipeline.bundle.auth import (
+        AuthorizationInvalid,
+        expected_phrase,
+        file_sha256,
+        write_authorization,
+    )
     from audit_pipeline.bundle.paths import patch_path, verification_path
     fid = 6001
     _seed_bundle(tmp_path, fid)
@@ -1496,7 +1563,9 @@ def test_atomic_write_uses_random_tmp_name(tmp_path) -> None:
     name is generated by tempfile.mkstemp so it can't be pre-created
     as a symlink. Assert no fixed-name tmp lingers after writes."""
     from audit_pipeline.bundle.auth import (
-        expected_phrase, file_sha256, write_authorization,
+        expected_phrase,
+        file_sha256,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import authorization_path, patch_path
     fid = 6002
@@ -1524,7 +1593,9 @@ def test_broken_symlink_key_emits_REFUSED_not_UNSIGNED(tmp_path) -> None:
     if sys.platform == "win32":
         pytest.skip("symlink creation requires admin on Windows")
     from audit_pipeline.bundle.auth import (
-        expected_phrase, file_sha256, write_authorization,
+        expected_phrase,
+        file_sha256,
+        write_authorization,
     )
     from audit_pipeline.bundle.paths import authorization_path, patch_path
     fid = 4020
@@ -1615,8 +1686,9 @@ def test_c_pre_patch_fire_marker_matches_canonical_asan(tmp_path: Path) -> None:
 def test_apply_patch_refuses_when_no_b_headers() -> None:
     """Patch #3 round-1 (audit HIGH 5524ccc2): no more `src/percolator.rs`
     fallback. A patch with no `+++ b/` headers must be rejected outright."""
-    from audit_pipeline.bundle.verifier import _apply_patch
     import tempfile
+
+    from audit_pipeline.bundle.verifier import _apply_patch
     with tempfile.TemporaryDirectory() as td:
         td_p = Path(td)
         import subprocess

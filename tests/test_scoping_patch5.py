@@ -14,8 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from audit_pipeline.scoping import filter_hypotheses, load_class_library
-
+from audit_pipeline.scoping import filter_hypotheses
 
 # ─────────────── CRITICAL 5587d02c — unknown predicate raises ───────────────
 
@@ -76,6 +75,7 @@ def test_near_dup_dedup_source_drops_all_key_guard() -> None:
     appears in the explanatory comment, so we look for the SQL-ish
     `and all(key):` form which only appears in the buggy code line.)"""
     import inspect
+
     from audit_pipeline import scoping
     src = inspect.getsource(scoping.load_class_library)
     # The buggy form was: `if key in seen_class_target_claim and all(key):`
@@ -92,6 +92,7 @@ def test_filter_hypotheses_unknown_predicate_source_check() -> None:
     """Source-level: must use `in cond` membership check, not the
     `cond.get(p, False)` form that silently absorbed typos."""
     import inspect
+
     from audit_pipeline import scoping
     src = inspect.getsource(scoping.filter_hypotheses)
     # Behavior: the buggy `cond.get(p, False)` form must be gone from
@@ -111,7 +112,7 @@ def test_filter_hypotheses_none_bypasses_scope_filtering():
     unmet.append → still scoped-out silently (opposite of 'bypass').
     Correct semantics: target_conditions=None means BYPASS — every
     hypothesis ends up in applicable regardless of scope_conditions."""
-    from audit_pipeline.scoping import filter_hypotheses, KNOWN_PREDICATES
+    from audit_pipeline.scoping import KNOWN_PREDICATES, filter_hypotheses
     kp = sorted(KNOWN_PREDICATES)[0]  # any KNOWN_PREDICATE
     hyps = [
         {"id": "H1", "claim": "x" * 30, "applies_to": ["*"],

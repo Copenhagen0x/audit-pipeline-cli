@@ -10,8 +10,6 @@ Closes audit CRITICAL findings:
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -20,7 +18,6 @@ from click.testing import CliRunner
 
 from audit_pipeline.utils import vps_paths
 from audit_pipeline.utils.llm_tools import _normalize_path
-
 
 # ─────────────── audit_runs_root validation ───────────────
 
@@ -187,10 +184,14 @@ def test_normalize_path_accepts_workspace_path(monkeypatch, tmp_path) -> None:
 # function/marker tuple. The previous test-file shim risked drift
 # (e.g. if production added a 15th marker but the shim wasn't
 # updated, algorithm tests would silently pass against stale code).
-from audit_pipeline.commands.recon import (
-    _sanitize_hyp_field as _PROD_SANITIZE,
+from audit_pipeline.commands.recon import (  # noqa: E402  (production-shim — see comment block above)
     _UNTRUSTED_MARKERS as _PROD_MARKERS,
+)
+from audit_pipeline.commands.recon import (  # noqa: E402
     _build_challenge_prompt,
+)
+from audit_pipeline.commands.recon import (  # noqa: E402,N812  (uppercase alias marks the production shim)
+    _sanitize_hyp_field as _PROD_SANITIZE,
 )
 
 

@@ -966,7 +966,7 @@ class TestRound3AllEnvVarsShadowed:
         Round-6 EXEMPT is empty — all env vars in the script are now
         shadowed. Future additions to EXEMPT require PR justification +
         update to vault/feedback/patch-checklist-supply-chain.md."""
-        assert self.EXEMPT == frozenset(), (
+        assert frozenset() == self.EXEMPT, (
             f"EXEMPT must be empty. Round-5 pattern-class: write-path vars "
             f"are SECURITY-CRITICAL not cosmetic. Got: {sorted(self.EXEMPT)}"
         )
@@ -1379,7 +1379,6 @@ class TestR5bPythonGitSafe:
         """Patch subprocess.run inside the target module to capture call args.
         Returns a list that gets appended-to each time subprocess.run is invoked.
         """
-        import subprocess as _sp
         captured = []
         def fake_run(*args, **kwargs):
             captured.append(list(args[0]) if args else kwargs.get("args"))

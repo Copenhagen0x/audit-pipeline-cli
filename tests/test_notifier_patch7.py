@@ -23,7 +23,6 @@ from audit_pipeline.notifier import (
     validate_webhook_url,
 )
 
-
 # ─────────────── Header injection / CR-LF guard ───────────────
 
 
@@ -630,6 +629,7 @@ def test_fire_bundle_notification_blocks_unallowed_webhook(tmp_path, capsys) -> 
     """assembly.py must refuse to POST to a non-allow-listed URL even
     if the operator put it in notifier.json."""
     import json as _json
+
     from audit_pipeline.bundle.assembly import _fire_bundle_notification
 
     (tmp_path / "notifier.json").write_text(
@@ -656,6 +656,7 @@ def test_fire_bundle_notification_blocks_unallowed_webhook(tmp_path, capsys) -> 
 def test_fire_bundle_notification_truncates_huge_note(tmp_path) -> None:
     """Unbounded note field must be truncated before serialisation."""
     import json as _json
+
     from audit_pipeline.bundle.assembly import _fire_bundle_notification
 
     (tmp_path / "notifier.json").write_text(
@@ -691,6 +692,7 @@ def test_fire_bundle_notification_caps_response_read(tmp_path) -> None:
     with no cap — a slow-drip adversary could stream GB into memory.
     Lock in `.read(<small N>)`."""
     import json as _json
+
     from audit_pipeline.bundle.assembly import _fire_bundle_notification
 
     (tmp_path / "notifier.json").write_text(
@@ -727,6 +729,7 @@ def test_fire_bundle_notification_blocks_redirects(tmp_path) -> None:
     installed and that it raises rather than following."""
     import json as _json
     from urllib.error import HTTPError
+
     from audit_pipeline.bundle.assembly import _fire_bundle_notification
 
     (tmp_path / "notifier.json").write_text(

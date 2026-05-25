@@ -274,7 +274,7 @@ def _capture_aptos_filter_argv(
     finding: str,
     body: str,
     monkeypatch: pytest.MonkeyPatch,
-) -> tuple[list[str] | None, "PocOutcome"]:
+) -> tuple[list[str] | None, PocOutcome]:
     """Run the aptos adapter with subprocess.run captured.
 
     Returns (captured_argv_list_or_None, outcome). If the validation
@@ -287,8 +287,8 @@ def _capture_aptos_filter_argv(
     This helper mocks subprocess.run to actually capture the argv so
     we can verify the comment-stripping fix executes.
     """
-    from audit_pipeline.poc_adapters import get_adapter, PocOutcome
     from audit_pipeline.poc_adapters import aptos as aptos_mod
+    from audit_pipeline.poc_adapters import get_adapter
 
     captured: dict[str, list[str] | None] = {"argv": None}
 

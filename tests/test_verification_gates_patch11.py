@@ -17,10 +17,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
-
-import pytest
-
 
 # ─────────────── freshness_gate.py SHA exact-match ───────────────
 
@@ -552,6 +548,7 @@ def test_freshness_display_uses_exact_match_too(tmp_path, monkeypatch) -> None:
     gate cannot diverge — operator can't see 'up-to-date' on a
     spoofed 7-char pin while the gate blocks correctly."""
     import inspect
+
     from audit_pipeline.commands import freshness as freshness_cmd
     src = inspect.getsource(freshness_cmd)
     # Must NOT contain the old spoofable check

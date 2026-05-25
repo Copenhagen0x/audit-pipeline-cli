@@ -133,12 +133,12 @@ def test_hunt_outcome_classifier_includes_tainted_filter_branch() -> None:
     assert idx > 0, "live-run poc_results outcome ternary not found"
     chunk = src[idx:idx + 1500]
     assert '"tainted_filter_rejected"' in chunk, (
-        "hunt.py outcome ternary must produce 'tainted_filter_rejected' "
-        "in the live-run poc_results assignment block; got: %r" % chunk
+        f"hunt.py outcome ternary must produce 'tainted_filter_rejected' "
+        f"in the live-run poc_results assignment block; got: {chunk!r}"
     )
     assert '"taint_refused"' in chunk, (
-        "hunt.py outcome ternary must check metadata.get('phase') == "
-        "'taint_refused' in the same block; got: %r" % chunk
+        f"hunt.py outcome ternary must check metadata.get('phase') == "
+        f"'taint_refused' in the same block; got: {chunk!r}"
     )
 
 
@@ -154,8 +154,8 @@ def test_hunt_retry_guard_skips_taint_refused() -> None:
     assert idx > 0, "retry guard sentinel not found in hunt.py"
     chunk = src[idx:idx + 1500]
     assert '"compile"' in chunk and '"taint_refused"' in chunk, (
-        "retry guard at hunt.py must skip BOTH 'compile' and "
-        "'taint_refused' phases; got chunk: %r" % chunk
+        f"retry guard at hunt.py must skip BOTH 'compile' and "
+        f"'taint_refused' phases; got chunk: {chunk!r}"
     )
 
 
@@ -231,8 +231,8 @@ def test_hunt_pre_resume_summary_normalizes_missing_outcome() -> None:
     assert idx > 0, "pre-resume loader sentinel not found in hunt.py"
     chunk = src[idx:idx + 800]
     assert "poc_results[_hyp_id].get(\"outcome\") is None" in chunk, (
-        "pre-resume loader must normalize missing outcome via is-None "
-        "guard; chunk: %r" % chunk
+        f"pre-resume loader must normalize missing outcome via is-None "
+        f"guard; chunk: {chunk!r}"
     )
     # Negative: don't accidentally use truthy guard here either.
     # Patch #16 R5 (paranoid-goober): catch both bare-dict and

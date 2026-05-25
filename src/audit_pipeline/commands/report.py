@@ -1427,7 +1427,7 @@ def _inline_md(text: str) -> str:
     """
     s = html.escape(text)
 
-    def _safe_link(m: "re.Match[str]") -> str:
+    def _safe_link(m: re.Match[str]) -> str:
         link_text = m.group(1)
         url = m.group(2).strip()
         # Allowed schemes:

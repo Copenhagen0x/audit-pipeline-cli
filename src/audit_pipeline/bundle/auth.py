@@ -60,7 +60,6 @@ from audit_pipeline.bundle.paths import (
     verification_path,
 )
 
-
 # Patch #3 round-1 fix (audit MED 540763a6): cap operator-supplied TTL.
 # Previously ttl_hours was unbounded so an operator could authorize for
 # years and never re-review. Cap at one week (168h). Lower bound is a
@@ -746,15 +745,15 @@ def validate_authorization(
             # collect any non-empty line where `:` is NOT present — that
             # is the bare base64 payload.
             try:
-                from cryptography.hazmat.primitives import serialization
                 from cryptography.exceptions import InvalidSignature
+                from cryptography.hazmat.primitives import serialization
             except ImportError as _e_imp:
                 # cryptography missing — fatal regardless of hardened mode
                 # because SIGNED was claimed and we can't verify.
                 raise AuthorizationInvalid(
-                    f"authorization sidecar claims SIGNED but the "
-                    f"`cryptography` package is not installed. "
-                    f"Install cryptography or re-authorize unsigned."
+                    "authorization sidecar claims SIGNED but the "
+                    "`cryptography` package is not installed. "
+                    "Install cryptography or re-authorize unsigned."
                 ) from _e_imp
 
             try:
@@ -788,8 +787,8 @@ def validate_authorization(
                 sig_b64_parts.append(stripped)
             if not sig_b64_parts:
                 raise AuthorizationInvalid(
-                    f"authorization.json.sig has no base64 payload "
-                    f"inside the JELLEO SIGNATURE block. Malformed."
+                    "authorization.json.sig has no base64 payload "
+                    "inside the JELLEO SIGNATURE block. Malformed."
                 )
             sig_b64 = "".join(sig_b64_parts)
             try:

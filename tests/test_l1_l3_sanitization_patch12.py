@@ -13,10 +13,7 @@ Plus R1 expansions caught by reviewer audit:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from audit_pipeline.commands.poc_llm import _is_anchor_workspace
-
 
 # ─────────────── R0: engine_source signal is authoritative ───────────────
 
@@ -185,6 +182,7 @@ def test_wildcard_glob_restricted_to_source_extensions() -> None:
     Source-grep verify the production code includes the allow-list
     and rejects bracket char-class globs."""
     import inspect
+
     from audit_pipeline.commands import poc_llm
     src = inspect.getsource(poc_llm)
     # The safe extensions tuple must be present

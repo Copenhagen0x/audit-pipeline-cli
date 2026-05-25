@@ -503,6 +503,7 @@ def load_platform_priv_seed(platform_priv_path: Path) -> bytes:
     """
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     from audit_pipeline.commands.sign import _cache_signing_password
 
     if not platform_priv_path.exists():

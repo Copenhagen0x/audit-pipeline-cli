@@ -43,7 +43,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 # Windows reparse-point flag (file attribute bit). True for symlinks,
 # NTFS junctions, mount points, AND OneDrive / Dropbox / generic cloud
 # "Files On-Demand" placeholders. `Path.is_symlink()` does NOT return
