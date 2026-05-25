@@ -282,6 +282,327 @@ fn {finding_name}_fires() {{
 """
 
 
+def _build_percolator_v16_poc_prompt(
+    *,
+    hyp: dict,
+    engine_source: str,
+    finding_name: str,
+    strategy: str,
+) -> str:
+    """Build a Layer-2 PoC authoring prompt for the v16 Percolator engine.
+
+    The v16 engine replaces the v15 RiskEngine + RiskParams API with
+    MarketGroupV16 + V16Config + PortfolioAccountV16. This prompt steers
+    the LLM to use only the v16 API surface so the authored PoC actually
+    compiles against the bounty-5 engine pin.
+    """
+    claim = hyp.get("claim", "(no claim)")
+    bug_class = hyp.get("bug_class", "unknown")
+    engine_function = hyp.get("engine_function", "(see relevant_instructions)")
+    target_file = hyp.get("target_file", "src/v16.rs")
+    relevant_instructions = hyp.get("relevant_instructions", "(none)")
+    relevant_constants = hyp.get("relevant_constants", "(none)")
+    hyp_id = hyp.get("id", "unknown")
+
+    strategy_guidance = {
+        "invariant_before_after": (
+            "Use the BEFORE/AFTER invariant-comparison idiom. Compute a "
+            "conservation quantity (e.g. vault, insurance, c_tot, "
+            "pnl_pos_tot, or a domain budget) BEFORE the call, invoke the "
+            "engine function, recompute AFTER, then assert_eq! (or check "
+            "an exact delta). If the bug is real, the assertion FAILS."
+        ),
+        "should_panic": (
+            "Use `#[should_panic]`. Construct witness state that drives the "
+            "v16 function into the overflow/panic path, then call it. If "
+            "the bug is real the test panics (passes)."
+        ),
+        "expect_err": (
+            "Use the explicit Result check idiom. Set up an unauthorized "
+            "caller / invalid input; call the function; assert that the "
+            "result is the appropriate V16Error variant (Unauthorized, "
+            "LockActive, InvalidConfig, etc.). If the bug is real "
+            "(missing check), the call returns Ok and the assertion fires."
+        ),
+    }[strategy]
+
+    return f"""You are authoring a Layer-2 Proof-of-Concept Rust test for the Jelleo audit engine, targeting Percolator v16.
+
+The target crate is `percolator` (engine library, NOT the Anchor wrapper). Tests compile with `cargo test --features test`, which enables `runtime-vec-api` exposing `MarketGroupV16`, `V16Config`, and `PortfolioAccountV16` as runtime-Vec types (not zero-copy views).
+
+# Hypothesis under test
+
+ID:                {hyp_id}
+Bug class:         {bug_class}
+Engine function:   {engine_function}
+Target file:       {target_file}
+
+## Claim
+
+{claim}
+
+## Constants relevant to this hypothesis
+
+{relevant_constants}
+
+## Functions / instructions relevant to this hypothesis
+
+{relevant_instructions}
+
+# Source code grounding (actual bytes from the v16 engine source)
+
+{engine_source}
+
+# Test strategy
+
+{strategy_guidance}
+
+# v16 API cheat-sheet (use ONLY these constructors / types)
+
+```rust
+// Construct a market group (engine state) — REQUIRES `--features test`:
+let market_group_id: [u8; 32] = [0u8; 32];
+let config = V16Config::public_user_fund(
+    /* max_portfolio_assets: u16 */ 4,
+    /* h_min: u64 */ 0,
+    /* h_max: u64 */ 100,
+);
+let mut group: MarketGroupV16 = MarketGroupV16::new(market_group_id, config)
+    .expect("MarketGroupV16::new");
+
+// Construct a portfolio account:
+let owner: [u8; 32] = [1u8; 32];
+let account_id: [u8; 32] = [2u8; 32];
+let provenance = ProvenanceHeaderV16::new(market_group_id, account_id, owner);
+let mut account = PortfolioAccountV16::empty(provenance);
+
+// Engine state fields (writable for witness setup):
+//   group.vault, group.insurance, group.c_tot
+//   group.insurance_domain_budget[d], group.insurance_domain_spent[d]
+//   group.assets[i].lifecycle, .effective_price, .loss_weight_sum_long, etc.
+//   account.capital, account.pnl, account.fee_credits
+
+// PUBLIC `MarketGroupV16` methods (verified `pub fn` on the runtime-vec
+// `impl MarketGroupV16` block in bounty-5 / af8cf46; line cites refer to
+// the runtime-vec block at v16.rs:11572+, NOT the parallel view-mut
+// block at v16.rs:4713+ which has matching names but different argument
+// types — see DUAL-OVERLOAD note below):
+//
+//   pub fn deposit_not_atomic(
+//       &mut self, account: &mut PortfolioAccountV16, amount: u128,
+//   ) -> V16Result<()>                                       v16.rs:12057
+//
+//   pub fn withdraw_not_atomic(
+//       &mut self,
+//       account: &mut PortfolioAccountV16,
+//       amount: u128,
+//       effective_prices: &[u64],
+//   ) -> V16Result<()>                                       v16.rs:12744
+//
+//   pub fn execute_trade_with_fee_not_atomic(
+//       &mut self,
+//       long_account: &mut PortfolioAccountV16,
+//       short_account: &mut PortfolioAccountV16,
+//       request: TradeRequestV16,
+//       effective_prices: &[u64],
+//   ) -> V16Result<TradeOutcomeV16>                          v16.rs:14443
+//   NOTE: gated `#[cfg(not(target_os = "solana"))]` — available under
+//   `cargo test --features test` (the default host target), NOT under
+//   `cargo build-sbf`. Both PoC test profiles are host-target so this
+//   is fine; just don't reach for it inside a `#[cfg(target_os = ...)]`
+//   block.
+//
+//   pub fn execute_trade_with_fee_in_place_not_atomic(
+//       &mut self,
+//       long_account: &mut PortfolioAccountV16,
+//       short_account: &mut PortfolioAccountV16,
+//       request: TradeRequestV16,
+//       effective_prices: &[u64],
+//   ) -> V16Result<TradeOutcomeV16>                          v16.rs:14465
+//   No `#[cfg]` gate — always available. The `_in_place` variant mutates
+//   the account/group state directly; the non-`in_place` variant
+//   stages a clone and commits on success. For race / partial-update
+//   PoCs the staged variant matters; for ordinary witness setup either
+//   is fine.
+//
+//   pub fn permissionless_crank_not_atomic(
+//       &mut self,
+//       account: &mut PortfolioAccountV16,
+//       request: PermissionlessCrankRequestV16,
+//       effective_prices: &[u64],
+//   ) -> V16Result<PermissionlessProgressOutcomeV16>         v16.rs:15021
+//   Returns an ENUM (not a struct):
+//       pub enum PermissionlessProgressOutcomeV16 {{
+//           AccountCurrent,
+//           AccountBChunk(AccountBSettlementChunkV16),
+//           ResidualBooked(BResidualBookingOutcomeV16),
+//           RecoveryDeclared(PermissionlessRecoveryReasonV16),
+//       }}  // v16.rs:19401 — FOUR variants total
+//   Pattern-match on it (exhaustively if you need fall-through coverage);
+//   do NOT use struct-init syntax.
+//
+//   pub fn accrue_asset_to_not_atomic(
+//       &mut self,
+//       asset_index: usize,
+//       now_slot: u64,
+//       effective_price: u64,
+//       funding_rate_e9: i128,
+//       protective_progress_committed: bool,
+//   ) -> V16Result<AccrueAssetOutcomeV16>                    v16.rs:14305
+//   THE canonical way to advance engine time + inject a price for the
+//   target asset. Use this for any oracle-staleness / funding-rate /
+//   mark-EWMA PoC instead of writing `group.assets[i].effective_price`
+//   directly (direct field writes bypass slot/epoch validation).
+//
+//   pub fn full_account_refresh(
+//       &mut self,
+//       account: &mut PortfolioAccountV16,
+//       effective_prices: &[u64],
+//   ) -> V16Result<HealthCertV16>                            v16.rs:13776
+//
+//   pub fn liquidate_account_not_atomic(
+//       &mut self,
+//       account: &mut PortfolioAccountV16,
+//       request: LiquidationRequestV16,
+//       effective_prices: &[u64],
+//   ) -> V16Result<LiquidationOutcomeV16>                    v16.rs:14660
+//
+//   pub fn book_bankruptcy_residual_chunk_for_account(
+//       &mut self,
+//       account: &mut PortfolioAccountV16,
+//       asset_index: usize,
+//       bankrupt_side: SideV16,
+//       residual_remaining: u128,
+//   ) -> V16Result<BResidualBookingOutcomeV16>               v16.rs:15407
+//
+//   pub fn convert_released_pnl_to_capital_not_atomic(
+//       &mut self, account: &mut PortfolioAccountV16,
+//   ) -> V16Result<u128>                                     v16.rs:12629
+//   Returns the converted amount (u128). For PnL-leak / haircut-direction
+//   PoCs, capture and assert on the returned amount, not just `Ok(())`.
+//
+//   pub fn resolve_market_not_atomic(
+//       &mut self, resolved_slot: u64,
+//   ) -> V16Result<()>                                       v16.rs:15078
+//   Transitions the market group into Resolved mode for a given slot.
+//
+//   pub fn close_resolved_account_not_atomic(
+//       &mut self,
+//       account: &mut PortfolioAccountV16,
+//       fee_rate_per_slot: u128,
+//   ) -> V16Result<ResolvedCloseOutcomeV16>                  v16.rs:15092
+//   Required for account-close / account-gc-state-leak PoCs after a
+//   prior `resolve_market_not_atomic` call. Takes a `fee_rate_per_slot`
+//   second parameter — do NOT call with only `(account)`.
+//
+// `effective_prices: &[u64]` MUST have length `config.max_market_slots`.
+//
+// DUAL-OVERLOAD CAUTION — these names appear on BOTH `impl MarketGroupV16`
+// (runtime-vec, what you want) and `impl<'a, T> MarketGroupV16ViewMut<'a, T>`
+// (zero-copy view at v16.rs:4713; takes `PortfolioV16ViewMut<'_>` instead
+// of `PortfolioAccountV16` and has a slightly different signature). If
+// rustc complains that an arg type doesn't match `&mut PortfolioAccountV16`,
+// you accidentally hit the view-mut overload. Both blocks contain:
+//   * `deposit_not_atomic` (ViewMut at v16.rs:10719 vs runtime-vec :12057)
+//   * `withdraw_not_atomic` (ViewMut at v16.rs:10473 vs :12744)
+//   * `accrue_asset_to_not_atomic` (ViewMut :7343 vs :14305)
+//   * `convert_released_pnl_to_capital_not_atomic` (ViewMut :10183 vs :12629)
+//   * `liquidate_account_not_atomic` (ViewMut :9255 vs :14660)
+//   * `permissionless_crank_not_atomic` (ViewMut :7487 vs :15021)
+//   * `resolve_market_not_atomic` (ViewMut :10533 vs :15078)
+//   * `close_resolved_account_not_atomic` (ViewMut :10623 vs :15092)
+// Always pass `&mut PortfolioAccountV16` (the type returned by
+// `PortfolioAccountV16::empty(...)`) — Rust will resolve to the
+// runtime-vec overload.
+//
+// ARITY DIFFERENCE: the ViewMut overloads of `withdraw_not_atomic`,
+// `liquidate_account_not_atomic`, and `permissionless_crank_not_atomic`
+// take ONE LESS argument than the runtime-vec versions (no
+// `effective_prices` param). If rustc reports `expected N args, found
+// N+1`, you accidentally resolved to ViewMut.
+//
+// PRIVATE / not-on-MarketGroupV16 methods (do NOT call from `#[test]`):
+//   * `liquidate_account_core_not_atomic` (v16.rs:14671) — `fn` (private),
+//     internal helper called by `liquidate_account_not_atomic` above.
+//   * `consume_domain_insurance_for_negative_pnl` — `fn` (private). Two
+//     copies: one inside `impl<'a, T> MarketGroupV16ViewMut<'a, T>` at
+//     v16.rs:5849, the other inside `impl MarketGroupV16` (runtime-vec)
+//     at v16.rs:18670. Reachable indirectly via the public liquidate /
+//     permissionless-crank wrappers above.
+//   * `full_account_refresh_not_atomic` (v16.rs:6864) — defined on
+//     `impl<'a, T> MarketGroupV16ViewMut<'a, T>` (zero-copy view), NOT
+//     on the runtime `MarketGroupV16`. Use `full_account_refresh`
+//     (v16.rs:13776) instead — same job, runtime-vec friendly.
+//   To drive any of these, set up state and call the public wrappers.
+//   They internally exercise the private code paths.
+```
+
+# Required structure of the Rust file you must produce
+
+```rust
+//! Layer-2 PoC for {hyp_id}: <one-line summary of the bug>.
+//!
+//! Strategy: {strategy}.
+
+#![cfg(feature = "test")]
+
+use percolator::*;
+
+fn config_for_{finding_name}() -> V16Config {{
+    // Start from V16Config::public_user_fund (passes validate_public_user_fund),
+    // override only fields needed for the witness. ALL overrides must keep
+    // config.validate_public_user_fund() == Ok(()) — otherwise MarketGroupV16::new
+    // panics before your assertion runs.
+    let mut cfg = V16Config::public_user_fund(
+        /* max_portfolio_assets */ 4,
+        /* h_min */ 0,
+        /* h_max */ 100,
+    );
+    // Per-witness overrides (uncomment / edit as needed):
+    // cfg.maintenance_margin_bps = 500;
+    // cfg.initial_margin_bps = 500;  // bounty 5 sets im == mm
+    // cfg.max_price_move_bps_per_slot = 24;
+    // cfg.max_accrual_dt_slots = 20;
+    cfg
+}}
+
+#[test]
+fn {finding_name}_fires() {{
+    // 1. Construct engine state via V16Config + MarketGroupV16::new.
+    let market_group_id = [0u8; 32];
+    let mut group = MarketGroupV16::new(market_group_id, config_for_{finding_name}())
+        .expect("MarketGroupV16::new must succeed for valid config");
+
+    // 2. Seed witness state — manipulate group.*, group.insurance_domain_budget[d],
+    //    group.assets[i].* as needed. Construct account(s) via
+    //    PortfolioAccountV16::empty(ProvenanceHeaderV16::new(...)).
+
+    // 3. Snapshot the invariant BEFORE the call.
+    //    let before_insurance = group.insurance;
+    //    let before_vault = group.vault;
+
+    // 4. Invoke the engine function under test (use signature from source grounding).
+    //    let _ = group.<function>(<args>).expect(...);  // or .expect_err(...)
+
+    // 5. Assert the bug-witness condition.
+    //    For invariant_before_after: assert_eq!(before, after) — FAILS if bug.
+    //    For should_panic: just call the function — panics if bug.
+    //    For expect_err: assert!(result.is_err()) — FAILS if no auth check.
+    todo!("replace with concrete assertion against the grounded source");
+}}
+```
+
+# Rules
+
+1. Use `use percolator::*;` — bounty 5 IS the Percolator engine.
+2. Prefer v16 types — these are confirmed-public on the bounty-5 engine: `MarketGroupV16`, `V16Config`, `PortfolioAccountV16`, `ProvenanceHeaderV16`, `V16Error`, `V16Result`, `SideV16`, `AssetStateV16`, `BackingBucketV16`, `SourceCreditStateV16`, `InsuranceCreditReservationV16`, `HealthCertV16`, `LiquidationRequestV16`, `LiquidationOutcomeV16`, `PermissionlessCrankRequestV16`, `PermissionlessCrankActionV16`, `PermissionlessProgressOutcomeV16`, `PermissionlessRecoveryReasonV16`, `TradeRequestV16`, `TradeOutcomeV16`, `MarketModeV16`, `AssetLifecycleV16`, `RiskScoreV16`, `BResidualBookingOutcomeV16` (v16.rs:3006), `ResolvedCloseOutcomeV16` (v16.rs:3040 enum), `AccountBSettlementChunkV16` (v16.rs:19377), `AccrueAssetOutcomeV16`. If a test needs a different v16 type, use it ONLY if it is explicitly named in the source grounding above. NEVER use `RiskParams` or `RiskEngine` — those are the deleted v15 API and will not compile.
+3. Output ONLY the Rust file content. No prose, no markdown fences.
+4. The test fn MUST be named `test_{finding_name}_fires` OR `{finding_name}_fires` (filter-discoverable).
+5. The assertion MUST fire when the bug is present and pass when patched.
+6. If — and only if — you genuinely cannot construct a witness from the grounded source provided, output `// CANNOT_TEST: <one-sentence reason citing a specific missing API or invariant from the source>`. Do NOT fabricate engine methods that aren't in the grounded source.
+"""
+
+
 def build_poc_authoring_prompt(
     *,
     hyp: dict,
@@ -297,12 +618,6 @@ def build_poc_authoring_prompt(
 
     # Anchor-workspace detection: if `engine_source` mentions
     # `anchor_lang` / `#[program]`, use the Anchor-aware prompt.
-    # P12 R1: the secondary path-based signal (`target_file under
-    # programs/*/src/lib.rs`) requires `engine_root` for filesystem
-    # verification — this call doesn't have it in scope, so only the
-    # source-content signal fires here. Fail-safe: if no Anchor
-    # markers in the real engine source, fall through to the
-    # Percolator-shaped legacy prompt.
     if _is_anchor_workspace(engine_source, target_file):
         return _build_anchor_poc_prompt(
             hyp=hyp,
@@ -310,6 +625,28 @@ def build_poc_authoring_prompt(
             finding_name=finding_name,
             strategy=strategy,
         )
+
+    # V16-engine detection (percolator v16 / bounty 5+): route to v16 API
+    # prompt when the grounded source actually DEFINES the v16 types (not
+    # merely mentions them in a comment or `use` re-export).
+    # Bare-substring match is too loose — wrapper code, README excerpts, and
+    # v15 deprecation comments would all false-trigger. Require a Rust
+    # declaration token (`struct MarketGroupV16`, `impl MarketGroupV16`,
+    # or `pub fn` returning `V16Result`) so we only switch when the
+    # grounded source is the v16 engine library itself.
+    if (
+        ("struct MarketGroupV16" in engine_source)
+        or ("impl MarketGroupV16" in engine_source)
+        or ("impl<" in engine_source and "MarketGroupV16" in engine_source)
+        or ("V16Result<" in engine_source and "pub fn" in engine_source)
+    ):
+        return _build_percolator_v16_poc_prompt(
+            hyp=hyp,
+            engine_source=engine_source,
+            finding_name=finding_name,
+            strategy=strategy,
+        )
+
     relevant_instructions = hyp.get("relevant_instructions", "(none)")
     relevant_constants = hyp.get("relevant_constants", "(none)")
     hyp_id = hyp.get("id", "unknown")
