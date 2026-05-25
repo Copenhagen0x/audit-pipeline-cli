@@ -4,7 +4,7 @@
   "title": "Jelleo hypothesis library entry",
   "description": "Schema for entries under the top-level 'hypotheses:' list in a hypotheses.yaml file. See docs/HYPOTHESIS_SCHEMA.md and https://jelleo.com/methodology.html#scoping for prose documentation.",
   "type": "object",
-  "required": ["id", "class", "claim"],
+  "required": ["id", "class", "claim", "bug_class"],
   "additionalProperties": true,
   "properties": {
     "id": {

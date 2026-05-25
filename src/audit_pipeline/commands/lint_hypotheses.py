@@ -43,7 +43,13 @@ _KNOWN_DISCLOSURE_DECISIONS = {
     "merged", "fixed", "resolved", "patched",
     "pending", "superseded", "deferred",
 }
-_REQUIRED_FIELDS = ("id", "class", "claim")
+# Patch #14 (audit HIGH 19f45572): bug_class was missing from
+# _REQUIRED_FIELDS even though it drives cluster dedup, hint-template
+# routing, and PoC strategy selection (BUG_CLASS_TO_STRATEGY in
+# poc_llm.py). Hypotheses without it slipped through lint, then
+# downstream code fell back to "unknown" — silently degrading
+# verification quality. Add the missing required field.
+_REQUIRED_FIELDS = ("id", "class", "claim", "bug_class")
 
 
 def _claim_canon(s: str | None) -> str:
