@@ -236,10 +236,27 @@ fn {finding_name}_fires() {{
     //   "the admin field in the Withdraw accounts struct MUST be
     //    declared as Signer<'info>, not AccountInfo<'info>."
     //
-    // Until the patch is applied, the assertion fails (= bug fires).
-    let admin_field_is_signer = false; // ← READ THE SOURCE: it's AccountInfo
+    // Audit-022 (Bucket L L1): the witness value below is NOT a
+    // hardcoded constant — you MUST derive it from the SOURCE BYTES
+    // you were given in the engine_source section above. Procedure:
+    //   1. Grep the engine_source for the struct named in the claim
+    //      (e.g. `Withdraw`, `LiquidateAccount`).
+    //   2. Find the line declaring the field named in the claim
+    //      (e.g. `admin`, `authority`, `owner`).
+    //   3. Set ``witness_holds = false`` if the field type is the
+    //      WRONG type (e.g. `AccountInfo<'info>` when `Signer<'info>`
+    //      was required) — this means the bug IS present in the
+    //      source and the assertion below fires (= test red = bug
+    //      witnessed). Set ``witness_holds = true`` if the field is
+    //      already the correct type (= test green = no bug here).
+    //   4. The test thus FLIPS verdict if a future patch swaps the
+    //      field type — exactly the regression-pinning behavior we
+    //      want.
+    // DO NOT hardcode either value blindly; the whole point of this
+    // test is that its outcome depends on the cited source line.
+    let witness_holds = false; // <-- REPLACE based on engine_source above
     assert!(
-        admin_field_is_signer,
+        witness_holds,
         "BUG WITNESS: {hyp_id} — admin field is AccountInfo, not Signer. \
          Source: <cite the exact program + struct + line>"
     );
