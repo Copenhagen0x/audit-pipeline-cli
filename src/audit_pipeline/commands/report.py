@@ -1415,9 +1415,54 @@ def _render_md_text(md: str) -> str:
 
 
 def _inline_md(text: str) -> str:
-    """Inline markdown → HTML. Handles `code`, **bold**, [text](url)."""
+    """Inline markdown → HTML. Handles `code`, **bold**, [text](url).
+
+    Patch #6 (audit CRITICAL 4eebb073): the previous regex substitution
+    inserted the captured URL directly into an href attribute without
+    scheme validation. An LLM-authored narrative link of the form
+    `[click](javascript:alert(1))` produced live XSS in the signed
+    HTML report. Defense: scheme allowlist (https/http/mailto/anchor).
+    Reject URLs whose scheme isn't in the allowlist by rendering as
+    plain text instead of a hyperlink.
+    """
     s = html.escape(text)
-    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', s)
+
+    def _safe_link(m: "re.Match[str]") -> str:
+        link_text = m.group(1)
+        url = m.group(2).strip()
+        # Allowed schemes:
+        #   - https:// + http:// — operator-cited references
+        #   - mailto: — disclosure routing
+        #   - # / / — same-page anchor + relative paths
+        # Note: url has already been html.escape'd above (we're matching
+        # against the escaped string), so quotes are &quot; etc.
+        # R5b (2026-05-24) — goober HIGH #1: protocol-relative URLs
+        # ("//evil.com") previously passed via startswith("/"). On HTTPS
+        # delivery they redirect to attacker host. On Windows file://
+        # context they resolve as UNC paths (\\\\evil.com\\share) and
+        # leak NTLM credentials on click. Explicit `not startswith("//")`
+        # blocks them; legitimate same-site root-relative paths ("/docs")
+        # still pass.
+        # R5b — goober MEDIUM #3: scheme allowlist made case-insensitive
+        # via url.lower() for the scheme prefix check, so HTTPS:// and
+        # Https:// also resolve.
+        _url_lc = url.lower()
+        scheme_safe = (
+            (_url_lc.startswith("https://")
+             or _url_lc.startswith("http://")
+             or _url_lc.startswith("mailto:"))
+            or url.startswith("#")
+            or (url.startswith("/") and not url.startswith("//"))
+        )
+        # Reject javascript:, data:, vbscript:, file:, // (protocol-relative),
+        # control characters, and whitespace in the URL.
+        if not scheme_safe or any(c in url for c in "\x00\n\r\t "):
+            # Render as plain text: `[click](unsafe-url)` survives
+            # verbatim, operator sees that the link wasn't trusted.
+            return f"[{link_text}]({url})"
+        return f'<a href="{url}">{link_text}</a>'
+
+    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _safe_link, s)
     s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
     return re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
 
