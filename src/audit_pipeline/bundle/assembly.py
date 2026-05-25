@@ -121,12 +121,36 @@ def transition_status(
         while log_path.exists():
             n += 1
             log_path = hd / f"transition-{ts_micro}-{n}.log"
+        # Reviewer MEDIUM (P7 R5c): hook-log write was unbounded — a
+        # 10 MB `note` produced a 10 MB log file per invocation, easy
+        # disk-exhaustion DoS for an operator with CLI access. Cap
+        # consistent with the meta.json history entry (500 chars).
+        # Goober LOW (P7 R5c): truncate BEFORE repr() so a 10 MB
+        # `bytes` value isn't fully materialised in memory just to be
+        # sliced. `repr(note[:500])` slices the underlying bytes/str
+        # first; for arbitrary objects without `__getitem__`, fall
+        # back to `repr(note)[:500]` (the original slow path).
+        if note is None:
+            log_note = None
+        elif isinstance(note, str):
+            log_note = note[:500]
+        else:
+            try:
+                log_note = repr(note[:500])  # type: ignore[index]
+            except (TypeError, KeyError):
+                # Object doesn't support integer slicing — `int` raises
+                # TypeError, `dict` raises KeyError (it treats the slice
+                # as a key lookup). Fall back to repr-then-truncate,
+                # accepting the unbounded repr() cost (rare; not
+                # reachable from any current caller per the
+                # `note: str | None` type annotation).
+                log_note = repr(note)[:500]
         log_path.write_text(
             json.dumps({
                 "at":          now,
                 "from_status": prev_status,
                 "to_status":   new_status,
-                "note":        note,
+                "note":        log_note,
             }, indent=2),
             encoding="utf-8",
         )
@@ -172,23 +196,70 @@ def _fire_bundle_notification(
     if not webhook:
         return
 
+    # Reviewer CRITICAL (P7 R5b): this dispatch previously called
+    # urlopen() on whatever URL the operator put in notifier.json with
+    # zero validation — a classic SSRF sink (POST to 169.254.169.254 for
+    # cloud-metadata, or http:// to leak the payload in clear). Gate
+    # through the same allow-list as hunt.py and health.py.
+    from audit_pipeline.notifier import validate_webhook_url
+    allowed, reason = validate_webhook_url(webhook)
+    if not allowed:
+        import sys
+        print(
+            f"bundle_webhook_blocked: {reason} (url={str(webhook)[:80]})",
+            file=sys.stderr,
+        )
+        return
+
+    # Reviewer MEDIUM (P7 R5b): unbounded `note` can balloon the JSON
+    # payload and trip downstream webhook size limits / log-injection.
+    # Truncate defensively before serialising.
+    safe_note: str | None
+    if note is None:
+        safe_note = None
+    elif not isinstance(note, str):
+        safe_note = repr(note)[:2000]
+    else:
+        safe_note = note if len(note) <= 2000 else note[:2000] + "…[truncated]"
+
     payload = {
         "kind":         "bundle_transition",
         "finding_id":   finding_id,
         "from_status":  prev_status,
         "to_status":    new_status,
-        "note":         note,
+        "note":         safe_note,
         "at":           datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     try:
         import urllib.request
+        from urllib.error import HTTPError
+
+        # Threat-modeler HIGH (P7 R5c): default urllib follows 3xx
+        # redirects. An allow-listed webhook host (e.g. webhook.site,
+        # or even a compromised Slack-shaped endpoint) could 301 us to
+        # http://169.254.169.254/ — bypassing validate_webhook_url
+        # because the validator only sees the *initial* URL, not the
+        # post-redirect target. Install a no-op redirect handler that
+        # raises HTTPError on any 3xx, killing the redirect chain.
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                raise HTTPError(
+                    req.full_url, code,
+                    f"refusing webhook redirect to {newurl[:80]}",
+                    headers, fp,
+                )
+
+        opener = urllib.request.build_opener(_NoRedirect)
         req = urllib.request.Request(
             webhook,
             data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=5).read()
+        # Threat-modeler HIGH (P7 R5c): unbounded .read() lets a slow
+        # adversary stream gigabytes into process memory; cap at 8 KB
+        # since we discard the body anyway.
+        opener.open(req, timeout=5).read(8192)
     except Exception:
         pass
 
