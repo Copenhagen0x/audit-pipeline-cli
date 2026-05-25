@@ -76,28 +76,64 @@ def strategy_for(bug_class: str | None) -> str:
     return BUG_CLASS_TO_STRATEGY.get(bug_class, "invariant_before_after")
 
 
-def _is_anchor_workspace(engine_source: str, target_file: str) -> bool:
+def _is_anchor_workspace(
+    engine_source: str,
+    target_file: str,
+    engine_root: Path | None = None,
+) -> bool:
     """Detect Anchor-workspace shape from L2 prompt inputs.
 
-    Two signals (any one is enough):
-      * target_file matches `programs/*/src/lib.rs` (Anchor convention)
-      * engine_source contains an `#[program]` attribute or
+    Signals (in order):
+      * engine_source (REAL audited source bytes from the target repo)
+        contains an `#[program]` attribute or
         `use anchor_lang::prelude::*;` import
+      * target_file matches `programs/<name>/src/lib.rs` AND the file
+        actually exists under engine_root (filesystem-verified)
 
     Without this branch the L2 author was given an Anchor codebase but
     a Percolator-shaped prompt (`use percolator::*;`, RiskParams
     constructor, `cargo test --features test`). Result: every PoC for
     OSec solana-small came back as `// CANNOT_TEST` because the LLM
     correctly noted the percolator crate doesn't expose Anchor types.
+
+    Patch #12 R1 (goober + threat-modeler CRITICAL): the previous
+    target_file substring check (`"programs/" in tf and tf.endswith(
+    "lib.rs")`) was YAML-controlled and bypassable. Any hypothesis
+    YAML could set `target_file: "src/programs/x/lib.rs"` to force
+    Anchor-mode and skip the symbol_grep gate, even on a non-Anchor
+    target. Now:
+      - Primary signal: real engine source (operator-controlled disk
+        files from the audited repo) — substring match for Anchor
+        idioms.
+      - Secondary signal: target_file matches the Anchor path pattern
+        AND filesystem-verified to exist under engine_root. If
+        engine_root is not provided (backwards-compat callers), the
+        path signal is dropped entirely — fail-safe to "not Anchor"
+        which runs the symbol_grep gate.
     """
-    tf = (target_file or "").lower()
-    if "programs/" in tf and tf.endswith("lib.rs"):
-        return True
     if engine_source:
         if "use anchor_lang::prelude::*" in engine_source:
             return True
         if "#[program]" in engine_source:
             return True
+    # Secondary path-based signal: require filesystem verification so a
+    # YAML-controlled `target_file` cannot bypass the gate. Anchor
+    # convention is `programs/<name>/src/lib.rs`; require the exact
+    # shape AND the file's presence under engine_root.
+    if engine_root is not None:
+        tf = (target_file or "").lower()
+        if (tf.startswith("programs/") and tf.endswith("/src/lib.rs")
+                and ".." not in tf and "*" not in tf and "?" not in tf
+                and "[" not in tf):
+            try:
+                full = (engine_root / target_file).resolve(strict=False)
+                # Ensure path stays under engine_root (no traversal
+                # via case-folding or symlink games)
+                full.relative_to(engine_root.resolve(strict=False))
+                if full.is_file():
+                    return True
+            except (ValueError, OSError):
+                pass
     return False
 
 
@@ -259,10 +295,14 @@ def build_poc_authoring_prompt(
     engine_function = hyp.get("engine_function", "absorb_protocol_loss")
     target_file = hyp.get("target_file", "src/percolator.rs")
 
-    # Anchor-workspace detection: if the engine looks like an Anchor
-    # repo (target_file under programs/*/src/lib.rs OR engine_source
-    # mentions anchor_lang / #[program]), use the Anchor-aware prompt.
-    # Otherwise fall through to the Percolator-shaped legacy prompt.
+    # Anchor-workspace detection: if `engine_source` mentions
+    # `anchor_lang` / `#[program]`, use the Anchor-aware prompt.
+    # P12 R1: the secondary path-based signal (`target_file under
+    # programs/*/src/lib.rs`) requires `engine_root` for filesystem
+    # verification — this call doesn't have it in scope, so only the
+    # source-content signal fires here. Fail-safe: if no Anchor
+    # markers in the real engine source, fall through to the
+    # Percolator-shaped legacy prompt.
     if _is_anchor_workspace(engine_source, target_file):
         return _build_anchor_poc_prompt(
             hyp=hyp,
@@ -629,19 +669,40 @@ def poc_llm_cmd(
     # workspaces) — glob the engine root and dump every match. Single
     # `lib.rs` matching only the first program leaves the L2 author
     # without context for hyps that target other programs.
-    if "*" in target_file or "?" in target_file:
-        matches = sorted(engine_root.glob(target_file))
+    #
+    # P12 R1 (threat-modeler MEDIUM): the glob trusted the YAML
+    # `target_file` verbatim. A pattern like `**/*.env` would recursively
+    # match every `.env` file under engine_root and inline them into
+    # the LLM prompt — secret exfiltration. Restrict to known-safe
+    # source-code extensions AND reject bracket char-class globs.
+    _SAFE_GLOB_EXTS = (".rs", ".move", ".sol", ".c", ".h", ".cpp", ".hpp", ".cc")
+    if ("*" in target_file or "?" in target_file or "[" in target_file):
+        # Reject bracket char-class globs entirely — too easy to use
+        # for unintended file inclusion. Operator should use explicit
+        # `*` if they need wildcards.
+        if "[" in target_file:
+            matches = []
+        else:
+            matches = sorted(engine_root.glob(target_file))
         chunks = []
         for f in matches:
             if not f.is_file():
                 continue
+            # Restrict to known source-code extensions — closes the
+            # `.env` / `.toml` / `.json` exfiltration vector.
+            if f.suffix.lower() not in _SAFE_GLOB_EXTS:
+                continue
             try:
                 rel = f.relative_to(engine_root)
+                # Extra belt-and-suspenders: confirm the resolved
+                # path is under engine_root (catches symlink-escape).
+                _resolved = f.resolve(strict=False)
+                _resolved.relative_to(engine_root.resolve(strict=False))
                 chunks.append(
                     f"### FULL FILE `{rel}` (engine source)\n"
                     f"```rust\n{f.read_text(encoding='utf-8', errors='replace')}\n```"
                 )
-            except OSError:
+            except (OSError, ValueError):
                 continue
         if chunks:
             full_file_block = "\n\n".join(chunks)
@@ -724,6 +785,11 @@ def poc_llm_cmd(
     is_anchor_mode = _is_anchor_workspace(
         engine_source=engine_source,
         target_file=hyp.get("target_file", ""),
+        # P12 R1: pass engine_root so the path-based signal
+        # filesystem-verifies the target_file. Without this, a YAML
+        # `target_file: "programs/x/src/lib.rs"` would force Anchor
+        # mode without any disk check.
+        engine_root=engine_root,
     )
 
     # Gate L2.symbol_grep — verify the authored PoC only cites symbols that
