@@ -515,7 +515,14 @@ def _debate_body(
         LANGUAGE_CONTEXT=_challenger_language_context(language),
     )
 
-    out_path = output / f"{hypothesis_id}_challenger.md"
+    # Audit-021 (Bucket L L6): hypothesis_id flows directly into a path
+    # component; without sanitization a malicious / typo-introduced value
+    # like ``../../etc/passwd`` would let the write escape ``output``.
+    # ``safe_hyp_slug`` strips path separators (POSIX + Windows),
+    # reserved chars, and refuses dots-only names.
+    from audit_pipeline.utils.safe_slug import safe_hyp_slug
+    _hyp_slug = safe_hyp_slug(hypothesis_id)
+    out_path = output / f"{_hyp_slug}_challenger.md"
     out_path.write_text(rendered, encoding="utf-8")
 
     if not auto:
@@ -555,7 +562,9 @@ def _debate_body(
     except LLMUnavailable as e:
         raise click.ClickException(str(e))
 
-    response_path = output / f"{hypothesis_id}_challenger_response.md"
+    # Audit-021 L6: reuse the sanitized slug computed earlier (line 521)
+    # so the response file lands in the same safe location as the prompt.
+    response_path = output / f"{_hyp_slug}_challenger_response.md"
     response_path.write_text(response.text, encoding="utf-8")
 
     # Multi-layer dashboard wiring (cycle 20260514-151541): emit a
