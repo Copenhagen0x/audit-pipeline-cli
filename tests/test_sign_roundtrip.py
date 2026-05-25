@@ -148,5 +148,9 @@ def test_sign_domains_includes_all_required_tiers():
     """Schema-stability assertion: every domain a producer might use
     must exist in SIGN_DOMAINS. A removal breaks verification of
     historical .sig files; catch it at test time."""
-    required = {"merkle", "bundle", "disclosure", "report", "heartbeat", "customer", "raw"}
+    # R5b (2026-05-24) code-reviewer LOW: added "authorization" — auth.py
+    # imports SIGN_DOMAINS["authorization"] at validate-time; removing it
+    # would break every bundle authorization verify silently.
+    required = {"merkle", "bundle", "disclosure", "report", "heartbeat",
+                "customer", "raw", "authorization"}
     assert required.issubset(set(sign_mod.SIGN_DOMAINS.keys()))

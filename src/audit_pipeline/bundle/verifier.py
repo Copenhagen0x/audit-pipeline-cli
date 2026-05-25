@@ -75,6 +75,21 @@ from audit_pipeline.bundle.paths import (
 )
 
 
+# Patch #3 round-1 fix (audit CRITICAL 41b26e30 / 7c0e4683 / 29db45bd):
+# all_passed() previously did SUBSTRING matching on the free-text `reason`
+# field to decide whether a skipped gate counted as N/A vs FAIL. A crafted
+# verification.json could embed any of the allowlisted phrases in its
+# reason and bypass the gate (`"skipped — no kani_harness registered for
+# hypothesis-41"` matches `"no kani_harness registered"`). The defense is
+# a STRUCTURED `skip_reason_code` enum field on GateResult: each call site
+# emits a specific code, and all_passed() only accepts codes from a fixed
+# allowlist. Free-text reasons are no longer security-relevant.
+#
+# The valid skip codes are listed in `_NA_SKIP_CODES` below. Every other
+# skip — including ones with NO code at all (legacy verification.json from
+# before this patch) — counts as a FAIL. That forces re-verify on legacy
+# bundles, which is the correct behaviour: we can't trust an output that
+# predates the structured-code guard.
 @dataclass
 class GateResult:
     passed: bool | None       # True / False / None (skipped)
@@ -87,6 +102,11 @@ class GateResult:
     # callers passed `details=`, raising TypeError on the SUCCESS path of
     # the pre/post-patch gates — silently disabling them on real cargo runs.
     details: dict | None = None
+    # Patch #3 (audit CRITICAL 41b26e30 etc): structured skip code that
+    # `all_passed()` checks. Only required when `passed is None`. Allowed
+    # values are enumerated in `_NA_SKIP_CODES`; any other code OR no code
+    # at all is treated as BLOCK by `all_passed()`.
+    skip_reason_code: str | None = None
 
     def to_json(self) -> dict:
         out = {
@@ -96,7 +116,120 @@ class GateResult:
         }
         if self.details is not None:
             out["details"] = self.details
+        if self.skip_reason_code is not None:
+            out["skip_reason_code"] = self.skip_reason_code
         return out
+
+
+# Patch #3 round-1 (audit CRITICAL 41b26e30): allowlist of structured skip
+# codes that count as N/A (do NOT block authorization). Every other code,
+# or a skip with NO code, BLOCKS. Update this set deliberately — adding a
+# code here widens the bypass surface.
+#
+# Patch #3 round-2 (devils-advocate #7): removed "not_applicable_solana".
+# Solana targets resolve to lang="rust" via _detect_engine_language()
+# (they have Cargo.toml, no foundry.toml), so no gate ever emits this
+# code. Dead allowlist entry — creates a phantom bypass channel for
+# attackers crafting verification.json by hand, fixes nothing legitimate.
+_NA_SKIP_CODES = frozenset({
+    "no_kani_harness_registered",
+    "no_litesvm_test_name_registered",
+    "not_applicable_solidity",
+    "not_applicable_c",
+    "not_applicable_move",
+})
+
+# Patch #3 round-2 (threat-modeler #5): cross-gate validation table.
+# Each skip code is only valid on a specific subset of gate names. An
+# attacker who writes verification.json could otherwise apply
+# "not_applicable_solidity" to a kani gate on a Rust target and bypass
+# the kani check entirely. _gate_name_accepts_skip_code() enforces that
+# (a) the code is in _NA_SKIP_CODES at all, AND (b) the code is one of
+# the codes the gate's legitimate skip paths could ever emit.
+_GATE_SKIP_CODE_ALLOWLIST: dict[str, frozenset[str]] = {
+    "kani_proof_holds": frozenset({
+        "no_kani_harness_registered",
+        "not_applicable_solidity",
+        "not_applicable_c",
+        "not_applicable_move",
+    }),
+    "litesvm_exploit_neutralized": frozenset({
+        "no_litesvm_test_name_registered",
+        "not_applicable_solidity",
+        "not_applicable_c",
+        "not_applicable_move",
+    }),
+    # Patch #3 round-3 fix (devils-advocate #1 + threat-modeler #4):
+    # tests_pass_post_patch DOES have a legitimate N/A skip for C
+    # targets (no engine-level test runner; regression coverage
+    # delegated to poc_passes_post_patch). Round-2's allowlist had
+    # no entry for it, so the C skip — emitted with code
+    # "not_applicable_c" — was rejected and every C-target bundle
+    # blocked. Add the entry.
+    "tests_pass_post_patch": frozenset({
+        "not_applicable_c",
+    }),
+    # The remaining REQUIRED_GATES (patch_well_formed,
+    # poc_fails_pre_patch, poc_passes_post_patch,
+    # patch_unchanged_during_verify) have NO legitimate N/A skip —
+    # they either pass or fail.
+}
+
+
+def _gate_name_accepts_skip_code(
+    gate_name: str,
+    code: str | None,
+    engine_lang: str | None = None,
+) -> bool:
+    """True iff `code` is a legitimate N/A skip for the named gate.
+
+    Defence against threat-model finding #5: a crafted verification.json
+    that puts a Solidity-specific N/A code on a Rust-specific gate
+    (or vice-versa) must not bypass authorization.
+
+    Patch #3 round-4 fix (devils-advocate #2 + threat-modeler #4):
+    when `engine_lang` is supplied (from verification.json's top-level
+    `engine_lang` field), reject `not_applicable_<other_lang>` codes on
+    a workspace whose detected lang is different. An attacker who
+    crafts verification.json with `not_applicable_c` on tests_pass
+    for a Rust target would otherwise bypass the regression gate.
+    """
+    if not isinstance(code, str) or code not in _NA_SKIP_CODES:
+        return False
+    allowed = _GATE_SKIP_CODE_ALLOWLIST.get(gate_name)
+    if allowed is None:
+        # Gate has no documented N/A allowlist — any skip code is invalid.
+        return False
+    if code not in allowed:
+        return False
+    # Language-binding cross-check (round-4): if the code names a
+    # specific language and the verification.json recorded a different
+    # language, REJECT. Codes that don't name a language (e.g.
+    # no_kani_harness_registered) bypass this check.
+    #
+    # Patch #3 round-5 fix (devils-advocate #2 + threat-modeler #1):
+    # the round-4 check exempted engine_lang IN ("unknown", None, "")
+    # — these allowed ALL lang-specific codes through. An attacker
+    # who forges verification.json need only set engine_lang="unknown"
+    # (or omit it) and the lang guard evaporates. Worse: run_all_gates
+    # legitimately writes "unknown" when engine_repo is None (CI
+    # without JELLEO_ENGINE_REPO), so this attack pattern isn't even
+    # suspicious. Round-5: lang-specific codes ONLY accepted when
+    # engine_lang is a KNOWN matching string. Unknown/None/"" all
+    # REJECT lang-specific codes (toolchain-absence codes like
+    # no_kani_harness_registered remain accepted unconditionally).
+    lang_specific_codes = {
+        "not_applicable_solidity": "solidity",
+        "not_applicable_c":        "c",
+        "not_applicable_move":     "move",
+    }
+    required_lang = lang_specific_codes.get(code)
+    if required_lang is not None:
+        # Lang-specific code — only accept when engine_lang explicitly
+        # matches the required language. Unknown/None/"" → REJECT.
+        if not isinstance(engine_lang, str) or engine_lang != required_lang:
+            return False
+    return True
 
 
 def _workspace_has_test_feature(engine_repo: Path) -> bool:
@@ -353,19 +486,28 @@ def _gate_patch_well_formed(workspace: Path, finding_id: int) -> GateResult:
     # engine repo (path traversal via `+++ b/../../etc/passwd` or absolute
     # paths). git apply IS mostly safe, but defense-in-depth: reject any
     # `..` segments, absolute paths, or paths containing dangerous tokens.
-    target = touched[0]
-    if (
-        target.startswith("/")
-        or target.startswith("\\")
-        or ".." in target.replace("\\", "/").split("/")
-        or "\x00" in target
-    ):
-        return GateResult(
-            False,
-            f"patch target {target!r} contains path-traversal or absolute "
-            f"path segments — refusing to apply",
-            time.time() - t0,
-        )
+    #
+    # Patch #3 round-1 fix (audit CRITICAL 089f83c7 + HIGH 7dfddb64 / 4c1014cd):
+    # the previous version only validated touched[0] — files [1..N] in a
+    # multi-file patch (up to MAX_FILES_PER_BUNDLE=5) were never checked.
+    # An LLM-authored patch with `+++ b/programs/foo/lib.rs` first and
+    # `+++ b/../../etc/passwd` second would slip past. Now iterates ALL.
+    for target in touched:
+        if (
+            target.startswith("/")
+            or target.startswith("\\")
+            or ".." in target.replace("\\", "/").split("/")
+            or "\x00" in target
+            # Drive-letter absolute paths on Windows (e.g. `C:/...`) —
+            # `startswith("/")` doesn't catch them.
+            or (len(target) >= 2 and target[1] == ":")
+        ):
+            return GateResult(
+                False,
+                f"patch target {target!r} contains path-traversal or absolute "
+                f"path segments — refusing to apply",
+                time.time() - t0,
+            )
     # Reject diffs that include binary patch markers, symlink-mode changes,
     # rename ops, or new-file modes (LLM should only modify existing files).
     forbidden_markers = [
@@ -450,6 +592,50 @@ def _gate_poc_fails_pre_patch_solidity(
     )
 
 
+# Patch #3 round-2 fix (code-reviewer #8): module-level fire-marker
+# regex shared between the C pre-patch (_gate_poc_fails_pre_patch_c)
+# and C post-patch (_gate_poc_passes_post_patch_c) gates. Without
+# sharing, the pre-patch path was line-anchored (round-1 fix) but
+# post-patch kept the old loose `"FIRE:" in run_log` substring check —
+# benign mentions of FIRE in compile output would false-positive the
+# post-patch gate as "still fires", failing legitimate bundles.
+_C_FIRE_MARKERS_RE = re.compile(
+    r"(?m)^"  # multiline, anchor at start-of-line
+    r"(?:"
+    r"FIRE:\s"                                       # explicit FIRE: marker
+    r"|==\d+==ERROR:\s*AddressSanitizer"             # ASan canonical prefix
+    r"|==\d+==ERROR:\s*LeakSanitizer"                # LSan
+    r"|==\d+==ERROR:\s*UndefinedBehaviorSanitizer"   # UBSan canonical
+    r"|.+:\s*runtime error:"                         # UBSan inline ("file.c:42: runtime error:")
+    r"|runtime error:"                               # bare UBSan (older clang fallback per devils-advocate #8)
+    r"|.+:\d+: Assertion .+ failed"                  # glibc assert canonical
+    r")",
+)
+
+# Compile-error detection: line-anchored `file.c:42:5: error: ...` or
+# the canonical `compile error` phrase. Replaces the loose `"error:" in
+# log_text` check that fired on every clang warning containing "error".
+_C_COMPILE_ERR_RE = re.compile(
+    r"(?m)^"
+    r"(?:compile error"
+    r"|.+:\d+:\d+:\s*error:\s)",
+)
+
+
+def _c_log_fired_canonical(log_text: str) -> str | None:
+    """Return the matched fire-marker line if `log_text` contains a
+    canonical fire marker, else None. Used by both C pre-patch and
+    C post-patch gates for symmetric detection (code-reviewer #8)."""
+    m = _C_FIRE_MARKERS_RE.search(log_text)
+    if not m:
+        return None
+    line_start = log_text.rfind("\n", 0, m.start()) + 1
+    line_end = log_text.find("\n", m.start())
+    if line_end < 0:
+        line_end = len(log_text)
+    return log_text[line_start:line_end][:180]
+
+
 def _gate_poc_fails_pre_patch_c(
     workspace: Path,
     finding_id: int,
@@ -483,27 +669,22 @@ def _gate_poc_fails_pre_patch_c(
     # C fire markers: explicit FIRE:, ASan ERROR, UBSan runtime error,
     # or a stderr assertion-failed line. Any of these indicates the
     # PoC reached the bug site on the unpatched engine.
-    fired = (
-        "FIRE:" in log_text
-        or "AddressSanitizer:" in log_text
-        or "runtime error:" in log_text
-        or "Assertion " in log_text and "failed" in log_text
-    )
-    if fired:
-        first = next(
-            (ln for ln in log_text.splitlines()
-             if ("FIRE:" in ln or "AddressSanitizer:" in ln
-                 or "runtime error:" in ln
-                 or ("Assertion " in ln and "failed" in ln))),
-            "",
-        )[:180]
+    #
+    # Patch #3 round-1 fix (audit HIGH 877ec65c + MED 5cf6f6da + MED
+    # b611d646 + MED 6ca3534c): the previous substring checks were
+    # over-eager. New approach: line-anchored regex matches that require
+    # the marker to be at the START of a line (or after a known sanitizer
+    # prefix). Round-2: extracted to module-level _C_FIRE_MARKERS_RE so
+    # the C post-patch gate shares the same detector (code-reviewer #8).
+    first = _c_log_fired_canonical(log_text)
+    if first is not None:
         return GateResult(
             True,
             f"PoC fired at L2 (clang+ASan/UBSan runlog): {first}",
             time.time() - t0,
             details={"outcome": "fired", "mode": "clang-l2-runlog"},
         )
-    if "compile error" in log_text.lower() or "error:" in log_text:
+    if _C_COMPILE_ERR_RE.search(log_text):
         return GateResult(
             False,
             "PoC at L2 had compile error — bundle cannot be authorized "
@@ -545,7 +726,9 @@ def _gate_poc_fails_pre_patch(
     # Without this, an empty / whitespace / wildcard value would expand
     # `cargo test --test <X>` into running ALL tests, any failure of which
     # would falsely confirm the PoC.
-    if not re.match(r"^test_[A-Za-z0-9_]+$", poc_test_name):
+    # Patch #3 round-8 (threat-modeler round-7 #1 — sweep): use fullmatch
+    # so trailing-newline bypass on $ is closed for this guard too.
+    if not re.fullmatch(r"test_[A-Za-z0-9_]+", poc_test_name):
         return GateResult(
             None,
             f"skipped — poc_test_name {poc_test_name!r} doesn't match "
@@ -674,7 +857,19 @@ def _apply_patch(engine_repo: Path, patch_text: str) -> tuple[bool, str]:
     # this apply. P3+P4 audit Defect 02 cont.: this used to hardcode
     # `src/percolator.rs`; now reads `files_touched(patch)` so the reset
     # works for any engine layout.
-    files = files_touched(patch_text) or ["src/percolator.rs"]
+    #
+    # Patch #3 round-1 fix (audit HIGH 5524ccc2): the `or ["src/percolator.rs"]`
+    # fallback was a left-over from the Percolator-only days. If a malformed
+    # patch with no `+++ b/` headers reached this point, we'd reset
+    # src/percolator.rs (a path that may not even exist on the target repo)
+    # and then `git apply --check` would fail anyway. Worse: on a repo that
+    # DOES have src/percolator.rs, we'd silently revert a user's edits there.
+    # Refuse the apply outright instead.
+    files = files_touched(patch_text)
+    if not files:
+        return (False,
+                "patch has no `+++ b/` headers — refusing to apply "
+                "(malformed unified diff or empty patch)")
     for f in files:
         try:
             subprocess.run(
@@ -757,14 +952,33 @@ def _verify_anchors_post_apply(
     Runs ``git diff --unified=0 -- <file>`` per touched file and parses
     the post-image hunks. For each claim ``(file, start, count)``,
     require the claim's range to overlap at least one actual modified
-    range. Tolerates ±10 lines slack to absorb whitespace fixups.
+    range. Tolerates ±SLACK lines on BOTH sides to absorb whitespace
+    fixups while bounding how far git's `--recount` may have re-anchored
+    the patch.
+
+    Patch #3 round-1 fix (audit CRITICAL 9f4321f5 + HIGH b8dad640 +
+    MED a7e70994 + MED 7f87a63): the original SLACK=10 was a 20-line
+    one-sided window (claim_lo=start with no slack, claim_hi=start+
+    count+SLACK; actual_hi=a_start+a_count+SLACK). An attacker who
+    crafted a patch whose `--recount` anchor drifted 10+ lines from
+    the claimed location still passed. New version: SLACK=3 (≈ one
+    whitespace fixup), symmetric on both bounds, and check claim_lo
+    properly so upward drift is detected.
     """
     if not claimed_hunks:
         return (True, "no hunk anchors to verify")
     import re as _re
     by_file: dict[str, list[tuple[int, int]]] = {}
     files = sorted({f for f, _, _ in claimed_hunks})
-    SLACK = 10
+    # Patch #3 round-2 fix (devils-advocate #9 + threat-modeler #10):
+    # SLACK is per-side. The previous round-1 SLACK=3 became an effective
+    # ±6 line total window after the symmetric interval-overlap check
+    # (claim_lo = start - SLACK, actual_hi = a_start + a_count + SLACK,
+    # so a 5-line drift still overlapped). Tightened to SLACK=1 — at most
+    # ±2 total drift, enough to absorb whitespace-fixup off-by-one but
+    # too tight for a real re-anchor attack to hide in.
+    _SLACK_PER_SIDE = 1
+    SLACK = _SLACK_PER_SIDE
     for f in files:
         try:
             proc = subprocess.run(
@@ -786,16 +1000,31 @@ def _verify_anchors_post_apply(
         by_file[f] = ranges
     for f, start, count in claimed_hunks:
         actual_ranges = by_file.get(f, [])
-        claim_lo, claim_hi = start, start + count + SLACK
-        overlapping = any(
-            (a_start <= claim_hi and a_start + a_count + SLACK >= claim_lo)
-            for a_start, a_count in actual_ranges
-        )
+        # Symmetric SLACK on both bounds (audit MED 7f87a63 + HIGH
+        # b8dad640). claim_lo previously used `start` with no slack
+        # which over-rejected downward drift; the upper bound only
+        # had SLACK on one side so a patch anchored well below
+        # claim_lo passed because actual_hi+SLACK still cleared
+        # claim_lo. New rule: classic interval overlap on both
+        # sides, ±SLACK on each.
+        claim_lo = start - SLACK
+        claim_hi = start + max(count, 1) + SLACK
+        overlapping = False
+        for a_start, a_count in actual_ranges:
+            actual_lo = a_start - SLACK
+            actual_hi = a_start + max(a_count, 1) + SLACK
+            # Two intervals [lo1, hi1] and [lo2, hi2] overlap iff
+            # lo1 <= hi2 AND lo2 <= hi1.
+            if claim_lo <= actual_hi and actual_lo <= claim_hi:
+                overlapping = True
+                break
         if not overlapping:
             return (False,
                     f"file {f}: claimed @@ +{start},{count} @@ doesn't "
-                    f"overlap any actual modification (ranges: {actual_ranges})")
-    return (True, f"all {len(claimed_hunks)} hunk anchors verified")
+                    f"overlap any actual modification within SLACK={SLACK} "
+                    f"lines (ranges: {actual_ranges})")
+    return (True, f"all {len(claimed_hunks)} hunk anchors verified "
+                  f"(SLACK={SLACK})")
 
 
 def _unapply_patch(engine_repo: Path, patch_text: str) -> bool:
@@ -886,21 +1115,47 @@ def _gate_poc_passes_post_patch_solidity(
         return GateResult(False, f"could not deploy L2 test: {e}",
                           time.time() - t0)
 
+    # Patch #3 round-1 fix (audit HIGH ffd4043e): the previous code had
+    # `_unapply_patch(...)` in BOTH the `except TimeoutExpired:` clause
+    # AND the `finally:` clause. On timeout, _unapply_patch fired twice;
+    # the second invocation runs `git apply -R` against an already-reverted
+    # tree (returns 1 with "patch does not apply") and our defensive code
+    # then probes `git status --porcelain` and (depending on what else is
+    # dirty) may misclassify the result. The fix is the standard pattern:
+    # cleanup ONLY in the finally clause; the except clause just stores
+    # the failure reason and re-raises into the finally path.
+    # Patch #3 round-2 fix (code-reviewer #2): the inner except previously
+    # only caught TimeoutExpired. If forge raised OSError/FileNotFoundError
+    # (binary disappeared mid-PATH, or any other exec failure), it leaked
+    # out of the try-finally and crashed run_all_gates instead of producing
+    # a structured gate failure. Catch broadly inside; flag the failure
+    # mode out to the post-block.
+    timed_out = False
+    crashed_err: str | None = None
+    proc = None
     try:
-        proc = subprocess.run(
-            ["forge", "test", "--match-path",
-             str(deployed.relative_to(engine_repo)), "--json"],
-            cwd=str(engine_repo),
-            capture_output=True, text=True, timeout=600,
-        )
-    except subprocess.TimeoutExpired:
-        deployed.unlink(missing_ok=True)
-        _unapply_patch(engine_repo, patch_text)
-        return GateResult(False, "forge test timed out post-patch (>600s)",
-                          time.time() - t0)
+        try:
+            proc = subprocess.run(
+                ["forge", "test", "--match-path",
+                 str(deployed.relative_to(engine_repo)), "--json"],
+                cwd=str(engine_repo),
+                capture_output=True, text=True, timeout=600,
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        except (OSError, FileNotFoundError) as _e_fg:
+            crashed_err = f"forge subprocess crashed: {_e_fg}"
     finally:
         deployed.unlink(missing_ok=True)
         _unapply_patch(engine_repo, patch_text)
+    if timed_out:
+        return GateResult(False, "forge test timed out post-patch (>600s)",
+                          time.time() - t0)
+    if crashed_err:
+        return GateResult(False, crashed_err, time.time() - t0)
+    if proc is None:
+        return GateResult(False, "forge test produced no result (subprocess never ran)",
+                          time.time() - t0)
 
     # The L2 PoC used to FAIL pre-patch (= bug). Post-patch, it must
     # PASS (no test_results with status=Failure).
@@ -1017,20 +1272,15 @@ def _gate_poc_passes_post_patch_c(
             return GateResult(False, "post-patch PoC run timed out (>90s)",
                               time.time() - t0)
         run_log = (rp.stderr or "") + (rp.stdout or "")
-        fired = (
-            "FIRE:" in run_log
-            or "AddressSanitizer:" in run_log
-            or "runtime error:" in run_log
-            or ("Assertion " in run_log and "failed" in run_log)
-        )
-        if fired:
-            first = next(
-                (ln for ln in run_log.splitlines()
-                 if ("FIRE:" in ln or "AddressSanitizer:" in ln
-                     or "runtime error:" in ln
-                     or ("Assertion " in ln and "failed" in ln))),
-                "",
-            )[:180]
+        # Patch #3 round-2 fix (code-reviewer #8): use the SAME line-anchored
+        # marker regex as the pre-patch gate so a benign mention of "FIRE:"
+        # in compile output doesn't falsely conclude the bug still fires.
+        # Without this symmetry, a legitimate patch that fixes the bug
+        # could fail the gate because some unrelated text triggers the
+        # substring match. _c_log_fired_canonical handles both stdout and
+        # stderr (we concat above).
+        first = _c_log_fired_canonical(run_log)
+        if first is not None:
             return GateResult(
                 False,
                 f"PoC STILL FIRES post-patch — patch does not fix the bug: {first}",
@@ -1109,18 +1359,37 @@ def _gate_poc_passes_post_patch(
     if not ok:
         return GateResult(False, f"could not apply patch: {err}", time.time() - t0)
 
+    # Patch #3 round-3 fix (code-reviewer #1 + devils-advocate #4): apply
+    # the same nested-try + timed_out/crashed_err flag pattern that
+    # round-2 applied to kani/litesvm/Solidity. Previously the Rust path
+    # had _unapply_patch in BOTH the except clause AND finally — the
+    # second invocation runs against an already-reverted tree and
+    # depending on prior dirty state may misclassify. Also catch OSError
+    # so cargo-missing-mid-run returns a structured failure not a crash.
+    timed_out = False
+    crashed_err: str | None = None
+    proc = None
     try:
-        proc = subprocess.run(
-            _cargo_test_argv(engine_repo, "--test", poc_test_name),
-            cwd=str(engine_repo),
-            capture_output=True, text=True, timeout=600,
-        )
-    except subprocess.TimeoutExpired:
-        _unapply_patch(engine_repo, patch_text)
-        return GateResult(False, "cargo test timed out post-patch (>600s)", time.time() - t0)
+        try:
+            proc = subprocess.run(
+                _cargo_test_argv(engine_repo, "--test", poc_test_name),
+                cwd=str(engine_repo),
+                capture_output=True, text=True, timeout=600,
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        except (OSError, FileNotFoundError) as _e_rs:
+            crashed_err = f"cargo subprocess crashed: {_e_rs}"
     finally:
-        # Always roll back to keep the working tree clean
         _unapply_patch(engine_repo, patch_text)
+
+    if timed_out:
+        return GateResult(False, "cargo test timed out post-patch (>600s)", time.time() - t0)
+    if crashed_err:
+        return GateResult(False, crashed_err, time.time() - t0)
+    if proc is None:
+        return GateResult(False, "cargo test produced no result (subprocess never ran)",
+                          time.time() - t0)
 
     # Phase B 12-audit P3 Defect 01 (post-patch half): this gate used to
     # accept ANY rc=0 as PASS with no failure detection. If the patch broke
@@ -1167,10 +1436,16 @@ def _gate_poc_passes_post_patch(
             "longer compiles it in). This is NOT 'bug fixed'.",
             time.time() - t0,
         )
-    # indeterminate
+    # Patch #3 round-3 fix (threat-modeler #5): indeterminate path now
+    # returns passed=False (not None). passed=None with no code BLOCKS
+    # via all_passed(), but the error operator sees was "failing gates"
+    # which masks "outcome parser variance" — a toolchain-version issue
+    # rather than an actual fix failure. Explicit False makes it clear.
     return GateResult(
-        None,
-        f"could not determine post-patch outcome of {poc_test_name}.",
+        False,
+        f"could not determine post-patch outcome of {poc_test_name} — "
+        f"cargo output didn't match any recognised pattern. Likely "
+        f"toolchain-version variance; please re-verify after inspection.",
         time.time() - t0,
     )
 
@@ -1195,12 +1470,19 @@ def _gate_tests_pass_post_patch(
         # authoritative correctness signal, already exercised by the
         # poc_passes_post_patch gate. Skip this gate cleanly so it
         # doesn't fail with cargo exit 101 ("no Cargo.toml").
+        #
+        # Patch #3 round-3 fix (devils-advocate #1 + threat-modeler #4):
+        # this skip was previously emitted WITHOUT a skip_reason_code,
+        # which made all_passed() block (no code → BLOCK). Result: every
+        # C-target bundle was permanently un-authorizable, a hard DoS
+        # on C-language audits. Add the code so the allowlist accepts.
         return GateResult(
             None,
             "skipped — C target has no engine-level test suite; "
             "regression coverage delegated to poc_passes_post_patch "
             "(clang+ASan rebuild of the L2 PoC against patched src)",
             time.time() - t0,
+            skip_reason_code="not_applicable_c",
         )
     else:
         if not _have_cargo():
@@ -1216,17 +1498,34 @@ def _gate_tests_pass_post_patch(
         return GateResult(False, f"could not apply patch: {err}", time.time() - t0)
 
     argv = _engine_test_argv(engine_repo)
+    # Patch #3 round-3 fix (code-reviewer #1 + devils-advocate #4): same
+    # nested-try + flag pattern as kani/litesvm/Rust poc_passes. Avoids
+    # the double-unapply on timeout and catches OSError from missing
+    # cargo/forge mid-run.
+    timed_out = False
+    crashed_err: str | None = None
+    proc = None
     try:
-        proc = subprocess.run(
-            argv,
-            cwd=str(engine_repo),
-            capture_output=True, text=True, timeout=1800,
-        )
-    except subprocess.TimeoutExpired:
-        _unapply_patch(engine_repo, patch_text)
-        return GateResult(False, f"full {argv[0]} test timed out (>1800s)", time.time() - t0)
+        try:
+            proc = subprocess.run(
+                argv,
+                cwd=str(engine_repo),
+                capture_output=True, text=True, timeout=1800,
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        except (OSError, FileNotFoundError) as _e_ts:
+            crashed_err = f"{argv[0]} subprocess crashed: {_e_ts}"
     finally:
         _unapply_patch(engine_repo, patch_text)
+
+    if timed_out:
+        return GateResult(False, f"full {argv[0]} test timed out (>1800s)", time.time() - t0)
+    if crashed_err:
+        return GateResult(False, crashed_err, time.time() - t0)
+    if proc is None:
+        return GateResult(False, f"{argv[0]} produced no result (subprocess never ran)",
+                          time.time() - t0)
 
     if proc.returncode != 0:
         # Truncate stderr so it fits in verification.json
@@ -1268,12 +1567,51 @@ def _gate_kani_proof_holds(
     _lang = _detect_engine_language(engine_repo)
     if _lang == "solidity":
         return GateResult(None, "not applicable — Halmos is the Solidity L3 (verdict shown in Layer 3 section)",
-                          time.time() - t0)
+                          time.time() - t0,
+                          skip_reason_code="not_applicable_solidity")
+    # Patch #3 round-3 fix (devils-advocate #7): C targets don't use
+    # Kani — the L3 prover is the clang+ASan/UBSan PoC re-run. Without
+    # this explicit branch, C engines would either skip with
+    # "no cargo-kani in PATH" (no code → BLOCK by all_passed) or skip
+    # with "no kani_harness registered" (legitimate code but operator
+    # confusion). Emit a language-aware N/A with the correct code.
+    if _lang == "c":
+        return GateResult(None, "not applicable — clang+ASan/UBSan PoC re-run is the C L3 (verdict shown in Layer 3 section)",
+                          time.time() - t0,
+                          skip_reason_code="not_applicable_c")
+    if _lang == "move":
+        return GateResult(None, "not applicable — Move Prover is the L3 for Move targets",
+                          time.time() - t0,
+                          skip_reason_code="not_applicable_move")
     if not _have_kani():
+        # Toolchain absence → no code → all_passed() will BLOCK. That's
+        # correct: we can't claim the proof holds when the prover never ran.
         return GateResult(None, "skipped — cargo-kani not in PATH", time.time() - t0)
     if not kani_harness:
         return GateResult(None, "skipped — no kani_harness registered for this bug class",
-                          time.time() - t0)
+                          time.time() - t0,
+                          skip_reason_code="no_kani_harness_registered")
+    # Patch #3 round-7 fix (threat-modeler round-6 #2): validate harness
+    # name shape so a value like "  " (spaces) — which is truthy in
+    # Python and passes the `not kani_harness` check — can't reach the
+    # subprocess argv where it would either silently match no harness
+    # OR run an attacker-chosen one. Same regex constraint applied to
+    # poc_test_name at line ~729 (FIX B-#12).
+    #
+    # Patch #3 round-8 fix (threat-modeler round-7 #1): use re.fullmatch
+    # instead of re.match. Python's `$` in non-MULTILINE mode matches
+    # BEFORE a trailing `\n` as well as at true end-of-string, so
+    # `re.match(r"^test_[A-Za-z0-9_]+$", "test_x\n")` returns a Match
+    # despite the embedded newline. The newline-bearing value would
+    # then reach the subprocess argv. fullmatch requires the WHOLE
+    # string to match — no trailing-newline bypass.
+    if not re.fullmatch(r"[A-Za-z0-9_:]+", kani_harness):
+        return GateResult(
+            False,
+            f"kani_harness {kani_harness!r} doesn't match "
+            f"^[A-Za-z0-9_:]+$ — refusing to run",
+            time.time() - t0,
+        )
 
     p = patch_path(workspace, finding_id)
     if not p.is_file():
@@ -1284,19 +1622,39 @@ def _gate_kani_proof_holds(
     if not ok:
         return GateResult(False, f"could not apply patch: {err}", time.time() - t0)
 
+    # Patch #3 round-2 fix (code-reviewer #1 + devils-advocate #1):
+    # apply the same double-unapply fix that round-1 applied only to the
+    # Solidity post-patch gate. Previously the `except TimeoutExpired:`
+    # arm called _unapply_patch then `return` — but a `finally:` runs
+    # BEFORE the return takes effect, so _unapply_patch fired twice and
+    # the second invocation ran `git apply -R` on an already-reverted
+    # tree (returns 1, leaving the gate's caller with a misleading
+    # "patch state unclear" signal). Round-2: cleanup ONLY in finally.
+    # Also catch OSError/FileNotFoundError (cargo crashed, kani went
+    # missing) so the gate returns a structured failure rather than
+    # propagating an unhandled exception out of run_all_gates.
+    timed_out = False
+    crashed_err: str | None = None
+    proc = None
     try:
-        proc = subprocess.run(
-            ["cargo", "kani", "--harness", kani_harness],
-            cwd=str(engine_repo),
-            capture_output=True, text=True, timeout=1800,
-        )
-    except subprocess.TimeoutExpired:
-        _unapply_patch(engine_repo, patch_text)
-        return GateResult(False, "kani timed out (>1800s)", time.time() - t0)
+        try:
+            proc = subprocess.run(
+                ["cargo", "kani", "--harness", kani_harness],
+                cwd=str(engine_repo),
+                capture_output=True, text=True, timeout=1800,
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        except (OSError, FileNotFoundError) as _e_kani:
+            crashed_err = f"kani subprocess crashed: {_e_kani}"
     finally:
         _unapply_patch(engine_repo, patch_text)
 
-    if proc.returncode != 0:
+    if timed_out:
+        return GateResult(False, "kani timed out (>1800s)", time.time() - t0)
+    if crashed_err:
+        return GateResult(False, crashed_err, time.time() - t0)
+    if proc is None or proc.returncode != 0:
         return GateResult(False, f"kani harness {kani_harness} did not verify post-patch",
                           time.time() - t0)
     return GateResult(True, f"kani harness {kani_harness} verified post-patch",
@@ -1325,10 +1683,38 @@ def _gate_litesvm_exploit_neutralized(
     _lang = _detect_engine_language(engine_repo)
     if _lang == "solidity":
         return GateResult(None, "not applicable — forge fuzz / invariant is the Solidity L4 (verdict shown in Layer 4 section)",
-                          time.time() - t0)
+                          time.time() - t0,
+                          skip_reason_code="not_applicable_solidity")
+    if _lang == "c":
+        return GateResult(None, "not applicable — AFL is the C L4 (verdict shown in Layer 4 section)",
+                          time.time() - t0,
+                          skip_reason_code="not_applicable_c")
+    if _lang == "move":
+        return GateResult(None, "not applicable — Move Prover is the L3 for Move targets",
+                          time.time() - t0,
+                          skip_reason_code="not_applicable_move")
     if not litesvm_test_name:
         return GateResult(None, "skipped — no litesvm_test_name registered for this bug class",
-                          time.time() - t0)
+                          time.time() - t0,
+                          skip_reason_code="no_litesvm_test_name_registered")
+    # Patch #3 round-7 fix (threat-modeler round-6 #1): validate test
+    # name shape. Without this, a whitespace-only litesvm_test_name
+    # would land in cargo's argv as a meaningless filter that matches
+    # zero tests; cargo exits 0 with "test result: ok" (zero tests
+    # ran); the gate accepts it as "exploit neutralized." Same FIX
+    # B-#12 regex constraint applied to poc_test_name elsewhere.
+    #
+    # Patch #3 round-8 fix (threat-modeler round-7 #1): re.fullmatch
+    # not re.match — closes the trailing-newline bypass where
+    # `re.match(r"^test_[A-Za-z0-9_]+$", "test_x\n")` returns a Match
+    # because $ matches before terminal \n in non-MULTILINE mode.
+    if not re.fullmatch(r"test_[A-Za-z0-9_]+", litesvm_test_name):
+        return GateResult(
+            False,
+            f"litesvm_test_name {litesvm_test_name!r} doesn't match "
+            f"^test_[A-Za-z0-9_]+$ — refusing to run",
+            time.time() - t0,
+        )
 
     p = patch_path(workspace, finding_id)
     if not p.is_file():
@@ -1339,18 +1725,32 @@ def _gate_litesvm_exploit_neutralized(
     if not ok:
         return GateResult(False, f"could not apply patch: {err}", time.time() - t0)
 
+    # Patch #3 round-2 fix (code-reviewer #1 + devils-advocate #1):
+    # same double-unapply pattern as kani (above) and Solidity post-patch.
+    timed_out = False
+    crashed_err: str | None = None
+    proc = None
     try:
-        proc = subprocess.run(
-            ["cargo", "test", litesvm_test_name, "--", "--nocapture", "--test-threads=1"],
-            cwd=str(engine_repo),
-            capture_output=True, text=True, timeout=600,
-        )
-    except subprocess.TimeoutExpired:
-        _unapply_patch(engine_repo, patch_text)
-        return GateResult(False, "litesvm test timed out (>600s)", time.time() - t0)
+        try:
+            proc = subprocess.run(
+                ["cargo", "test", litesvm_test_name, "--", "--nocapture", "--test-threads=1"],
+                cwd=str(engine_repo),
+                capture_output=True, text=True, timeout=600,
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        except (OSError, FileNotFoundError) as _e_lt:
+            crashed_err = f"litesvm subprocess crashed: {_e_lt}"
     finally:
         _unapply_patch(engine_repo, patch_text)
 
+    if timed_out:
+        return GateResult(False, "litesvm test timed out (>600s)", time.time() - t0)
+    if crashed_err:
+        return GateResult(False, crashed_err, time.time() - t0)
+    if proc is None:
+        return GateResult(False, "litesvm test produced no result (subprocess never ran)",
+                          time.time() - t0)
     combined = (proc.stdout or "") + (proc.stderr or "")
     if "test result: ok" in combined:
         return GateResult(True, f"litesvm test {litesvm_test_name} passes post-patch (exploit neutralized)",
@@ -1376,6 +1776,17 @@ def run_all_gates(
     bdir = bundle_dir(workspace, finding_id)
     bdir.mkdir(parents=True, exist_ok=True)
 
+    # Patch #3 round-1 fix (audit HIGH 9bec7244): capture patch_sha BEFORE
+    # any gate runs and re-check it AFTER all gates complete. Previously
+    # the patch_sha line below ran AFTER the long-running gates (forge /
+    # cargo / kani — minutes to half an hour), giving an attacker a wide
+    # window to mutate patch.diff after the gates approved the OLD bytes
+    # but BEFORE the new sha was bound into verification.json + the
+    # operator's authorization phrase. With the lock + recheck, any
+    # mutation during the gate run aborts the verification.
+    p_path = patch_path(workspace, finding_id)
+    patch_sha_locked = file_sha256(p_path)
+
     gates: dict[str, GateResult] = {}
     gates["patch_well_formed"] = _gate_patch_well_formed(workspace, finding_id)
 
@@ -1391,12 +1802,36 @@ def run_all_gates(
         gates["litesvm_exploit_neutralized"] = _gate_litesvm_exploit_neutralized(
             workspace, finding_id, engine_repo, litesvm_test_name)
     else:
-        # Skip downstream gates if the patch is malformed
+        # Skip downstream gates if the patch is malformed.
+        # NB: no skip_reason_code — patch_well_formed=False causes these
+        # to be FAIL-blocking via all_passed() (passed=None + no code
+        # = block). That's the intended semantic.
         for gate_name in ("poc_fails_pre_patch", "poc_passes_post_patch",
                            "tests_pass_post_patch", "kani_proof_holds",
                            "litesvm_exploit_neutralized"):
             gates[gate_name] = GateResult(
                 None, "skipped — patch_well_formed failed", 0.0)
+
+    # Race-recheck: if patch.diff changed during the gate run, refuse to
+    # persist a verification result. The bytes we attested were not the
+    # bytes that exist on disk now.
+    patch_sha_post = file_sha256(p_path)
+    if patch_sha_post != patch_sha_locked:
+        # Inject a synthetic failing gate so all_passed() and the operator
+        # UI both see this as a hard fail.
+        gates["patch_unchanged_during_verify"] = GateResult(
+            False,
+            f"patch.diff was mutated during gate run: "
+            f"start_sha={patch_sha_locked[:12]} end_sha={patch_sha_post[:12]}. "
+            f"Verification aborted — re-run `bundle verify`.",
+            0.0,
+        )
+    else:
+        gates["patch_unchanged_during_verify"] = GateResult(
+            True,
+            f"patch.diff sha unchanged across gate run ({patch_sha_locked[:12]})",
+            0.0,
+        )
 
     # FIX B-#18: derive engine_sha from `git rev-parse HEAD` inside the engine
     # repo as the AUTHORITATIVE provenance value, not from a free-form arg
@@ -1415,18 +1850,66 @@ def run_all_gates(
         except (subprocess.TimeoutExpired, OSError):
             pass  # fall back to caller-supplied
 
+    # Patch #3 round-4 fix (devils-advocate #2 + threat-modeler #4):
+    # record the engine's detected language alongside the gates output
+    # so all_passed() can cross-check that any `not_applicable_<lang>`
+    # skip codes are consistent with the language the gates ran for.
+    # Without this, an attacker who controls verification.json could
+    # apply `not_applicable_c` on tests_pass_post_patch for a Rust
+    # target and bypass the regression gate.
+    detected_lang = "unknown"
+    if engine_repo is not None and engine_repo.is_dir():
+        try:
+            detected_lang = _detect_engine_language(engine_repo)
+        except Exception:
+            detected_lang = "unknown"
+
     out = {
         "finding_id": finding_id,
         "engine_sha": actual_engine_sha,
         "engine_sha_claimed": engine_sha if engine_sha != actual_engine_sha else None,
-        "patch_sha":  file_sha256(patch_path(workspace, finding_id)),
+        # Use the LOCKED sha (= the bytes the gates ran on), not a re-read
+        # at the bottom which could pick up a mid-write tampering.
+        "patch_sha":  patch_sha_locked,
         "ran_at":     datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "engine_lang": detected_lang,
+        # Patch #3 round-7 fix (threat-modeler round-6 #2): persist the
+        # `effective_*` toolchain identifiers INTO verification.json. The
+        # round-6 cross-check in write_authorization reads kani_harness
+        # from meta.json — but meta.json can be mutated between verify
+        # and review. By snapshotting the effective values into
+        # verification.json (which the digest binds), the cross-check
+        # becomes immune to post-verify meta.json mutation.
+        "effective_kani_harness":      kani_harness,
+        "effective_litesvm_test_name": litesvm_test_name,
         "gates":      {k: v.to_json() for k, v in gates.items()},
     }
 
-    verification_path(workspace, finding_id).write_text(
-        json.dumps(out, indent=2, sort_keys=True), encoding="utf-8",
+    # Patch #3 round-1 fix (audit MED f8fe4ebf): atomic write. Previously
+    # `write_text` could leave a half-written verification.json on crash
+    # — operator review would see corrupt JSON and either error or worse,
+    # an attacker could race a `write_text` mid-write tamper.
+    #
+    # Patch #3 round-6 fix (threat-modeler round-5 #2): use tempfile so
+    # the tmp name is unpredictable — defeats pre-create-symlink-to-
+    # exfiltrate attacks on the bundle dir.
+    import os as _os_atomic
+    import tempfile as _tempfile_verif
+    v_path = verification_path(workspace, finding_id)
+    v_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_name = _tempfile_verif.mkstemp(
+        prefix=v_path.name + ".", suffix=".tmp", dir=str(v_path.parent),
     )
+    try:
+        with _os_atomic.fdopen(tmp_fd, "w", encoding="utf-8") as _vfh:
+            _vfh.write(json.dumps(out, indent=2, sort_keys=True))
+        _os_atomic.replace(tmp_name, str(v_path))
+    except Exception:
+        try:
+            _os_atomic.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
     return out
 
 
@@ -1436,27 +1919,43 @@ def all_passed(verification: dict) -> bool:
     A gate with passed=True counts as pass.
     A gate with passed=False counts as FAIL (blocks the bundle).
     A gate with passed=None is a SKIP — it counts as N/A (does NOT block)
-    when the reason is "no harness/test registered for this bug class",
-    because that's a configuration absence rather than a verification
-    failure. Other SKIPs (e.g. "cargo not in PATH", "no engine_repo
-    provided") DO block — the gate couldn't actually run, so we don't
-    know whether it would pass.
+    when its `skip_reason_code` field is in `_NA_SKIP_CODES`. Any other
+    skip — including ones with NO code (legacy verification.json from
+    before Patch #3 round-1) — BLOCKS authorization.
+
+    Patch #3 round-1 fix (audit CRITICAL 41b26e30 / 7c0e4683 / 29db45bd):
+    previously this matched the free-text `reason` field with `in`-substring
+    against allowlisted phrases. A crafted verification.json could include
+    any of those phrases verbatim (`"skipped — no kani_harness registered
+    for hypothesis 41"` matches `"no kani_harness registered"`) and bypass
+    the gate. The fix is structured codes only — reasons are now untrusted
+    text used purely for operator UI.
     """
-    for g in (verification.get("gates") or {}).values():
+    # Patch #3 round-2 fix (threat-modeler #5): iterate over (name, gate)
+    # pairs and use the cross-gate code-allowlist check so an attacker
+    # can't apply a Solidity N/A code to a Rust kani gate.
+    #
+    # Patch #3 round-4 fix (devils-advocate #2 + threat-modeler #4):
+    # also pull `engine_lang` from the top-level verification.json so
+    # the allowlist check rejects mismatched language codes. An attacker
+    # who forges verification.json could otherwise apply
+    # "not_applicable_c" on tests_pass_post_patch for a Rust target
+    # and bypass the regression gate. With this, the lang field in
+    # verification.json is cross-checked against the code.
+    engine_lang = verification.get("engine_lang")
+    for name, g in (verification.get("gates") or {}).items():
         passed = g.get("passed")
         if passed is True:
             continue
         if passed is False:
             return False
-        # passed is None — inspect reason
-        reason = (g.get("reason") or "").lower()
-        # N/A reasons that don't block:
-        #   - config absence ("no harness registered ...")
-        #   - language-mismatch ("not applicable to solidity ...")
-        if "no kani_harness registered" in reason \
-                or "no litesvm_test_name registered" in reason \
-                or "not applicable to solidity" in reason \
-                or "not applicable to solana" in reason:
+        # passed is None — require a structured skip_reason_code that is
+        # (a) in _NA_SKIP_CODES at all, AND (b) legitimately emittable by
+        # this specific gate, AND (c) consistent with the recorded engine
+        # language. No code, wrong code, cross-gate code, or wrong-lang
+        # code → BLOCK.
+        code = g.get("skip_reason_code")
+        if _gate_name_accepts_skip_code(name, code, engine_lang=engine_lang):
             continue  # N/A — config or language, not a verification failure
-        return False  # any other skip (e.g. cargo missing) blocks
+        return False  # any other skip (or no code, or wrong gate) blocks
     return True
