@@ -38,9 +38,58 @@ in BUG_CLASS_SIGNATURES still use regex via the existing scanner.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+# Windows reparse-point flag (file attribute bit). True for symlinks,
+# NTFS junctions, mount points, AND OneDrive / Dropbox / generic cloud
+# "Files On-Demand" placeholders. `Path.is_symlink()` does NOT return
+# True for NTFS junctions on ANY Python version (the 3.12 change applied
+# to directory symlinks created via `mklink /D`, not to junctions created
+# via `mklink /J`). The lstat-based branch below is the PRIMARY guard
+# for junctions on all platforms; do not remove it as "legacy".
+# Guard regressions are pinned by these tests in
+# `tests/test_propagate_ast.py`:
+#   - `test_is_link_or_junction_true_for_ntfs_junction` (live Windows)
+#   - `test_is_link_or_junction_true_for_mocked_reparse_point` (all OS)
+#   - `test_scan_skips_ntfs_junction_at_repo_dir_level` (integration)
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+
+
+def _is_link_or_junction(p: Path) -> bool:
+    """Return True for POSIX symlinks OR Windows reparse points (symlinks,
+    junctions, mount points, cloud-only placeholders).
+
+    Patch #15 R2: the original fix used `Path.is_symlink()`, which on
+    Windows returns False for NTFS junctions and mount points. A malicious
+    corpus entry created as `mklink /J corpus\\evil C:\\Windows` (no admin
+    needed for junctions, no developer mode either) would survive
+    `is_symlink()` and the resolved target would defeat the containment
+    check (because the resolved path *is* the junction target). We refuse
+    to follow any reparse point.
+
+    Side effect: corpus files that live in a OneDrive / Dropbox / iCloud
+    folder with "Files On-Demand" enabled and are NOT locally synced
+    appear as reparse-point placeholders and will be silently skipped.
+    This is the intentional conservative tradeoff — silent scan
+    incompleteness on cloud-stub files is preferable to host-secret
+    exfiltration. Operators should fully-sync their corpus before audit.
+    """
+    try:
+        if p.is_symlink():
+            return True
+    except OSError:
+        # On a broken/unreadable entry, treat as link to be safe.
+        return True
+    try:
+        st = os.lstat(p)
+    except OSError:
+        return True
+    flags = getattr(st, "st_file_attributes", 0)
+    return bool(flags & _FILE_ATTRIBUTE_REPARSE_POINT)
 
 
 @dataclass
@@ -279,6 +328,7 @@ def scan_corpus_for_ast_patterns(
         return out
 
     skip_dirs = {"target", "node_modules", ".git", "build"}
+    corpus_path_resolved = corpus_path.resolve(strict=False)
     for repo_dir in sorted(p for p in corpus_path.iterdir() if p.is_dir()):
         # Patch #15 (audit HIGH ffd663b2): rglob followed symlinks
         # blindly. A malicious corpus member could include a
@@ -286,12 +336,52 @@ def scan_corpus_for_ast_patterns(
         # rglob would walk into and read_text would happily ingest;
         # the file content would then land in AST scan output.
         # FIX B-#4 from propagate.py (the sibling module) closed
-        # the same gap there. Round-1: skip symlinks AND validate
-        # resolved path stays inside repo_dir (catches parent-
-        # symlink + symlinked-subdir escapes).
-        repo_dir_resolved = repo_dir.resolve(strict=False)
+        # the same gap there.
+        #
+        # Round-2 (R1+R2) hardenings after review:
+        # 1. Guard the OUTER loop too — `corpus/evil → /root/` would
+        #    otherwise survive (`p.is_dir()` follows symlinks) and the
+        #    containment check would be tautological because
+        #    `repo_dir_resolved` would already point at the attacker
+        #    target.
+        # 2. Use `_is_link_or_junction` which catches NTFS junctions
+        #    (`mklink /J`) on Windows — `Path.is_symlink()` returns
+        #    False for junctions on ALL Python versions.
+        # 3. Confirm `repo_dir_resolved` itself sits under `corpus_path`
+        #    (defense-in-depth against a parent that resolves elsewhere).
+        #    Exception attribution under the single try:
+        #      - `ValueError` is raised by `relative_to()` when the
+        #        resolved path is not under `corpus_path_resolved`.
+        #      - `OSError` is the defensive catch. In practice
+        #        `resolve(strict=False)` swallows the common errors:
+        #          * POSIX `posixpath.realpath`: EACCES/ENOENT from
+        #            `lstat()`/`readlink()` are caught by its
+        #            `ignored_error = OSError` handler; ELOOP never
+        #            surfaces because the loop-detection branch
+        #            entries (`elif maxlinks is not None:` and
+        #            `elif newpath in seen:`) gate their `raise
+        #            OSError(errno.ELOOP, …)` inside `if strict:`,
+        #            so with `strict=False` the raise is never
+        #            executed.
+        #          * Windows `ntpath._getfinalpathname_nonstrict`:
+        #            winerrors 5 (ERROR_ACCESS_DENIED) and 1921
+        #            (ERROR_CANT_RESOLVE_FILENAME — CPython's
+        #            comment: "implies unfollowable symlink";
+        #            covers dangling links, malformed reparse
+        #            points, and loops) are both in its
+        #            `allowed_winerror` suppression tuple.
+        #        We keep the catch for unanticipated I/O failures
+        #        (disk errors, network path drops, future CPython
+        #        behavior changes) to fail closed rather than crash.
+        if _is_link_or_junction(repo_dir):
+            continue
+        try:
+            repo_dir_resolved = repo_dir.resolve(strict=False)
+            repo_dir_resolved.relative_to(corpus_path_resolved)
+        except (ValueError, OSError):
+            continue
         for src_path in repo_dir.rglob("*.rs"):
-            if src_path.is_symlink():
+            if _is_link_or_junction(src_path):
                 continue
             if not src_path.is_file():
                 continue
