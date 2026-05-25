@@ -153,11 +153,20 @@ def build_anchor_program(
             env=env,
         )
     except subprocess.TimeoutExpired as _e_to:
-        # Persist whatever partial output we have for debugging
-        timeout_stdout = (_e_to.stdout or b"").decode("utf-8", errors="replace") \
-            if isinstance(_e_to.stdout, bytes) else (_e_to.stdout or "")
-        timeout_stderr = (_e_to.stderr or b"").decode("utf-8", errors="replace") \
-            if isinstance(_e_to.stderr, bytes) else (_e_to.stderr or "")
+        # Persist whatever partial output we have for debugging.
+        # P10 R1 (goober LOW): with `text=True` above, Python guarantees
+        # `_e_to.stdout` / `_e_to.stderr` are `str` or `None` — never
+        # `bytes`. The previous version had a bytes-decode branch that
+        # only fired on the dead `b""` fallback. Simplify to the
+        # invariant `text=True` actually provides.
+        def _as_str(v: object) -> str:
+            if v is None:
+                return ""
+            if isinstance(v, bytes):
+                return v.decode("utf-8", errors="replace")
+            return str(v)
+        timeout_stdout = _as_str(_e_to.stdout)
+        timeout_stderr = _as_str(_e_to.stderr)
         log_path.write_text(
             timeout_stdout
             + "\n--- STDERR ---\n" + timeout_stderr

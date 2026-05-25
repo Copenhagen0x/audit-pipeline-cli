@@ -148,10 +148,17 @@ def run_kani_proof(
             env=env,
         )
     except subprocess.TimeoutExpired as _e_to:
-        to_stdout = (_e_to.stdout or b"").decode("utf-8", errors="replace") \
-            if isinstance(_e_to.stdout, bytes) else (_e_to.stdout or "")
-        to_stderr = (_e_to.stderr or b"").decode("utf-8", errors="replace") \
-            if isinstance(_e_to.stderr, bytes) else (_e_to.stderr or "")
+        # P10 R1 (goober LOW): same simplification as anchor_builder —
+        # `text=True` above guarantees str|None, never bytes. The old
+        # bytes-decode branch only fired on the dead `b""` fallback.
+        def _as_str(v: object) -> str:
+            if v is None:
+                return ""
+            if isinstance(v, bytes):
+                return v.decode("utf-8", errors="replace")
+            return str(v)
+        to_stdout = _as_str(_e_to.stdout)
+        to_stderr = _as_str(_e_to.stderr)
         combined = (
             to_stdout + "\n--- STDERR ---\n" + to_stderr
             + f"\n--- TIMEOUT after {timeout_s}s ---\n"
@@ -173,7 +180,38 @@ def run_kani_proof(
 # so we capture both legacy and modern Kani output formats.
 _KANI_SUCCESS_RE = re.compile(r"VERIFICATION:- SUCCESSFUL", re.MULTILINE | re.IGNORECASE)
 _KANI_FAILED_RE = re.compile(r"VERIFICATION:- FAILED", re.MULTILINE | re.IGNORECASE)
-_KANI_COUNTER_RE = re.compile(r"Failed Checks:\s+(.+)", re.MULTILINE)
+# P10 R1 (goober MEDIUM): _KANI_COUNTER_RE was left case-sensitive when
+# the success/failed regexes were given IGNORECASE — older kani versions
+# emit `failed checks:` mixed-case. If we miss the counterexample reason
+# match, the reason falls back to a generic string and the operator
+# loses the diagnostic. Same flag for parity.
+_KANI_COUNTER_RE = re.compile(r"Failed Checks:\s+(.+)", re.MULTILINE | re.IGNORECASE)
+# P10 R1 (code-reviewer LOW + goober HIGH): substring-style
+# "VERIFICATION:" guards in this module and adjacent consumers were
+# left case-sensitive while the new IGNORECASE regexes were added.
+# Result: on legacy `Verification:- ...` output, the guards
+# misclassify a successful proof. Use a single compiled IGNORECASE
+# pattern instead of bare `in log` checks.
+# P10 R2 (goober MEDIUM): include the literal `:-` dash that
+# cargo-kani actually emits — without it, the pattern false-matches a
+# Rust module path like `verification::check` in rustc error output,
+# which would prematurely break the compile-iterate loop and burn
+# fix-up attempts. All observed cargo-kani output (modern + legacy)
+# uses `VERIFICATION:- ...` (colon then dash then space).
+#
+# Known divergence (goober R2): `rust_compile._parse_kani_verdict`
+# uses a broader `r"VERIFICATION:?-?\s*SUCCESSFUL"` pattern that
+# accepts dashless output too — likely inherited from CBMC's
+# pattern. We deliberately do NOT mirror that here because (a) no
+# cargo-kani version we ship against emits dashless, (b) the dashless
+# form would land in the `parse_kani_outcome` fallback as
+# INCONCLUSIVE (not a false PASS or false FAIL — safe failure mode),
+# and (c) test
+# `test_parse_kani_outcome_dashless_verdict_falls_through_as_inconclusive`
+# explicitly locks the dashless-INCONCLUSIVE behavior, so any future
+# Kani version that emits dashless will surface as INCONCLUSIVE in
+# logs (operator can then update the regex if needed).
+_KANI_VERDICT_LINE_RE = re.compile(r"VERIFICATION:-", re.IGNORECASE)
 
 
 def parse_kani_outcome(log: str) -> tuple[bool, bool, str]:
@@ -183,7 +221,7 @@ def parse_kani_outcome(log: str) -> tuple[bool, bool, str]:
     """
     if re.search(r"^error: could not compile", log, re.MULTILINE):
         return False, False, "kani harness failed to compile"
-    if re.search(r"^error\[E\d+\]", log, re.MULTILINE) and "VERIFICATION:" not in log:
+    if re.search(r"^error\[E\d+\]", log, re.MULTILINE) and not _KANI_VERDICT_LINE_RE.search(log):
         return False, False, "rustc error in harness before verification"
     if _KANI_SUCCESS_RE.search(log):
         return True, False, "Kani proved the post-patch invariant"

@@ -2552,9 +2552,16 @@ def _findings_writeup(
             if kani_log is not None:
                 try:
                     kt = kani_log.read_text(encoding="utf-8", errors="replace")
-                    if "Verification:- FAILED" in kt or "VERIFICATION:- FAILED" in kt:
+                    # P10 R1 (goober HIGH): the manual two-case
+                    # pattern (`"Verification:..." or "VERIFICATION:..."`)
+                    # missed a third case `verification:- ...` (all-
+                    # lowercase, emitted by some forks). Use case-
+                    # insensitive match for full parity with the
+                    # IGNORECASE classifier in anchor_kani_runner.
+                    kt_upper = kt.upper()
+                    if "VERIFICATION:- FAILED" in kt_upper:
                         l3_status = "✓ Counterexample found (bug confirmed by symbolic execution)"
-                    elif "Verification:- SUCCESSFUL" in kt or "VERIFICATION:- SUCCESSFUL" in kt:
+                    elif "VERIFICATION:- SUCCESSFUL" in kt_upper:
                         l3_status = (
                             "Kani's bounded check did not find a counterexample. "
                             "This means the bug requires inputs outside the model's "

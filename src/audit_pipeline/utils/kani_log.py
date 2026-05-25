@@ -48,17 +48,23 @@ def _parse_one_block(block: str) -> HarnessResult | None:
     name = block[:first_line_end].rstrip(".").strip()
 
     # Verdict
-    if "VERIFICATION:- SUCCESSFUL" in block:
+    # P10 R1 (goober HIGH): case-sensitive substring match missed
+    # legacy cargo-kani output `Verification:- SUCCESSFUL`
+    # (mixed case) — disclosure report would show "0 harnesses
+    # proven" for old cycles or mixed-version environments.
+    # Normalise once via `.upper()` for the verdict comparison.
+    block_upper = block.upper()
+    if "VERIFICATION:- SUCCESSFUL" in block_upper:
         verdict = "PASS"
-    elif "VERIFICATION:- FAILED" in block:
+    elif "VERIFICATION:- FAILED" in block_upper:
         verdict = "FAIL"
-    elif "TIMEOUT" in block.upper():
+    elif "TIMEOUT" in block_upper:
         verdict = "TIMEOUT"
     else:
         verdict = "UNKNOWN"
 
     # Time
-    time_match = re.search(r"Verification Time:\s*([\d.]+)s", block)
+    time_match = re.search(r"Verification Time:\s*([\d.]+)s", block, re.IGNORECASE)
     time_seconds = float(time_match.group(1)) if time_match else None
 
     # Failure category
