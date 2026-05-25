@@ -103,8 +103,16 @@ def main() -> int:
                 summary_json_path=d.get("summary_json_path"),
             )
             if d.get("finished_at"):
+                # Patch #4 round-2 fix (devils-advocate #1 CRITICAL):
+                # previously this call omitted n_dispatched — and the
+                # round-1 Postgres signature defaulted it to 0 — so every
+                # migrated cycle had n_dispatched zeroed despite the
+                # source SQLite value. With round-2's required-positional
+                # signature this would have raised TypeError; we fix it
+                # by passing the SQLite value through.
                 dest.finish_cycle(
                     cycle_id=d["cycle_id"],
+                    n_dispatched=int(d.get("n_dispatched") or 0),
                     n_confirmed=int(d.get("n_confirmed") or 0),
                     total_cost_usd=float(d.get("total_cost_usd") or 0),
                 )

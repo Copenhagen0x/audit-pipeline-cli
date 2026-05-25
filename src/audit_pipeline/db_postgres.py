@@ -316,17 +316,28 @@ class PostgresFindingsDB:
     def finish_cycle(
         self,
         cycle_id: str,
-        n_confirmed: int = 0,
-        total_cost_usd: float = 0.0,
+        n_dispatched: int,
+        n_confirmed: int,
+        total_cost_usd: float,
     ) -> None:
+        """Patch #4 (audit CRITICAL 016169998 + HIGH 49163294): the SQLite
+        `finish_cycle` takes `n_dispatched` as a required positional, but the
+        Postgres signature omitted it entirely — every Postgres-backed
+        cycle silently lost the dispatched count (column stayed at default).
+        Callers using positional args (e.g. `db.finish_cycle(cycle_id, 42,
+        7, 1.23)`) would crash on Postgres because the third positional
+        landed in n_confirmed and the fourth in total_cost_usd as a float.
+        Match SQLite signature so the Postgres backend is a drop-in
+        replacement."""
         with self._conn() as c:
             c.cursor().execute(
                 """
                 UPDATE cycles
-                   SET finished_at = %s, n_confirmed = %s, total_cost_usd = %s
+                   SET finished_at = %s, n_dispatched = %s, n_confirmed = %s,
+                       total_cost_usd = %s
                  WHERE cycle_id = %s
                 """,
-                (_now(), n_confirmed, total_cost_usd, cycle_id),
+                (_now(), n_dispatched, n_confirmed, total_cost_usd, cycle_id),
             )
 
     def mark_cycle_finished(
@@ -483,12 +494,17 @@ class PostgresFindingsDB:
         actor: str = "system",
         run_hooks: bool = True,
     ) -> None:
+        """Patch #4 (audit HIGH 502b1994 + ef694ed6): SQLite raises
+        ValueError on missing finding; the Postgres path silently
+        returned, masking bugs in calling code (e.g. a wrong finding_id
+        produced no DB write but no exception, so the caller thought
+        the transition succeeded). Mirror SQLite — raise ValueError."""
         with self._conn() as c:
             cur = c.cursor()
             cur.execute("SELECT status FROM findings WHERE id = %s", (finding_id,))
             row = cur.fetchone()
             if not row:
-                return
+                raise ValueError(f"finding {finding_id} not found")
             current = Status(row["status"])
             assert_transition(current, to_status)
             now = _now()
@@ -540,22 +556,42 @@ class PostgresFindingsDB:
     def list_findings(
         self,
         target_id: int | None = None,
-        status: str | None = None,
-        limit: int = 100,
+        status: Status | None = None,
+        severity: Severity | None = None,
+        bug_class: str | None = None,
+        limit: int = 200,
     ) -> list[dict]:
+        """Patch #4 (audit HIGH aad6075f): SQLite list_findings accepts
+        `severity` and `bug_class` filters and defaults limit=200; the
+        Postgres signature dropped both filters and defaulted limit=100.
+        Callers passing `severity=Severity.CRITICAL` got TypeError on
+        Postgres. Match SQLite's full signature including the limit
+        default.
+
+        Patch #4 round-2 fix (devils-advocate #3): tightened the status
+        param to `Status | None` (was `Status | str | None`). Accepting
+        raw strings let a wrong-casing typo (e.g. ``"Disclosed"``) pass
+        silently and produce an empty result — SQLite enforces enum at
+        the type level, so Postgres must too for true parity."""
         with self._conn() as c:
             cur = c.cursor()
             clauses, params = [], []
             if target_id is not None:
                 clauses.append("target_id = %s")
                 params.append(target_id)
-            if status:
+            if status is not None:
                 clauses.append("status = %s")
-                params.append(status)
-            where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+                params.append(status.value)
+            if severity is not None:
+                clauses.append("severity = %s")
+                params.append(severity.value)
+            if bug_class is not None:
+                clauses.append("bug_class = %s")
+                params.append(bug_class)
+            where = ("WHERE " + " AND ".join(clauses) + " ") if clauses else ""
             params.append(limit)
             cur.execute(
-                f"SELECT * FROM findings {where} ORDER BY updated_at DESC LIMIT %s",
+                f"SELECT * FROM findings {where}ORDER BY updated_at DESC LIMIT %s",
                 tuple(params),
             )
             return [dict(r) for r in cur.fetchall()]
@@ -575,13 +611,44 @@ class PostgresFindingsDB:
             )
             return [dict(r) for r in cur.fetchall()]
 
-    def list_confirmed_findings_by_bug_class(self, bug_class: str) -> list[dict]:
+    def list_confirmed_findings_by_bug_class(
+        self,
+        bug_class: str,
+        exclude_target_id: int | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Patch #4 (audit CRITICAL ee63b539 + HIGH 014059d0): SQLite
+        accepts exclude_target_id + limit and additionally filters out
+        terminal-rejection states (REJECTED, CLOSED_NOT_PLANNED) so
+        propagation doesn't fan out to won't-fix patterns. The Postgres
+        signature dropped both params entirely AND missed the terminal-
+        state filter, meaning Postgres-backed propagation produced an
+        unbounded list including won't-fix patterns. Match SQLite
+        behaviour exactly.
+
+        Note (R5b 2026-05-24): the actual filter is `status NOT IN
+        (REJECTED, CLOSED_NOT_PLANNED)`, mirroring SQLite's db.py at
+        line 1048. The prior docstring lied about a `status='confirmed'`
+        constraint — neither backend uses it. Both backends return
+        findings in any non-terminal state matching bug_class. Callers
+        in propagate.py rely on this broader semantic (NEW/CONFIRMED/
+        DISCLOSED/FIXED/VERIFIED all included)."""
+        # Mirror SQLite's terminal-status exclusion semantically. Import
+        # locally to avoid circular: db_postgres → db → status enums.
+        from audit_pipeline.lifecycle import Status as _S
+        terminal_excluded = (_S.REJECTED.value, _S.CLOSED_NOT_PLANNED.value)
+        params: list[object] = [bug_class, *terminal_excluded]
+        clause = "bug_class = %s AND status NOT IN (%s, %s)"
+        if exclude_target_id is not None:
+            clause += " AND target_id != %s"
+            params.append(exclude_target_id)
+        params.append(limit)
         with self._conn() as c:
             cur = c.cursor()
             cur.execute(
-                "SELECT * FROM findings WHERE status='confirmed' AND bug_class=%s "
-                "ORDER BY updated_at DESC",
-                (bug_class,),
+                f"SELECT * FROM findings WHERE {clause} "
+                f"ORDER BY updated_at DESC LIMIT %s",
+                tuple(params),
             )
             return [dict(r) for r in cur.fetchall()]
 
@@ -595,6 +662,13 @@ class PostgresFindingsDB:
             return [dict(r) for r in cur.fetchall()]
 
     def stats(self) -> dict:
+        """Patch #4 (audit CRITICAL 7fc92b22 + HIGH c211e6e9): SQLite
+        stats() returns a dict with `by_status` and `by_severity` aggregations
+        in addition to the counts. The Postgres backend returned only the
+        counts — dashboard.py and the health check both KeyError on
+        `by_status`/`by_severity` access against a Postgres-backed
+        workspace. Mirror the SQLite shape exactly so the Postgres
+        backend is a drop-in replacement."""
         with self._conn() as c:
             cur = c.cursor()
             cur.execute("SELECT COUNT(*) AS n FROM targets")
@@ -603,7 +677,21 @@ class PostgresFindingsDB:
             n_cycles = int(cur.fetchone()["n"] or 0)
             cur.execute("SELECT COUNT(*) AS n FROM findings")
             n_findings = int(cur.fetchone()["n"] or 0)
-        return {"n_targets": n_targets, "n_cycles": n_cycles, "n_findings": n_findings}
+            cur.execute(
+                "SELECT status, COUNT(*) AS n FROM findings GROUP BY status"
+            )
+            by_status = {r["status"]: int(r["n"]) for r in cur.fetchall()}
+            cur.execute(
+                "SELECT severity, COUNT(*) AS n FROM findings GROUP BY severity"
+            )
+            by_severity = {r["severity"]: int(r["n"]) for r in cur.fetchall()}
+        return {
+            "n_findings": n_findings,
+            "n_targets":  n_targets,
+            "n_cycles":   n_cycles,
+            "by_status":  by_status,
+            "by_severity": by_severity,
+        }
 
     # ---------- poc cache ----------
 

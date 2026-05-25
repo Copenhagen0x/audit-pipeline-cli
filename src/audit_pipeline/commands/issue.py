@@ -21,7 +21,7 @@ from rich.console import Console
 
 from audit_pipeline.db import FindingsDB, open_findings_db
 from audit_pipeline.gates.repo_pin import check_repo_pin
-from audit_pipeline.lifecycle import Status
+from audit_pipeline.lifecycle import InvalidTransition, Status
 from audit_pipeline.severity import DEFINITIONS, Severity
 from audit_pipeline.severity import emoji as sev_emoji
 
@@ -152,12 +152,29 @@ def file_cmd(
 
     issue_url = result.stdout.strip()
     console.print(f"[green]✓[/green] Opened: {issue_url}")
-    db.transition_finding(
-        finding_id=finding_id,
-        to_status=Status.DISCLOSED,
-        reason=f"GitHub issue filed: {issue_url}",
-        actor="audit-pipeline issue file",
-    )
+    # Patch #4 round-2 fix (devils-advocate #2 HIGH): transition_finding
+    # now raises ValueError on missing finding (was silent return on
+    # Postgres). Without this guard, a stale finding_id would leave a
+    # filed GitHub issue with no DB transition + a traceback on stderr.
+    # Catch and surface as a clean Click error so operator knows the
+    # issue was filed but DB state didn't update — they can reconcile.
+    try:
+        db.transition_finding(
+            finding_id=finding_id,
+            to_status=Status.DISCLOSED,
+            reason=f"GitHub issue filed: {issue_url}",
+            actor="audit-pipeline issue file",
+        )
+    except (ValueError, InvalidTransition) as _e_tx:
+        # R5b (2026-05-24) — goober HIGH #1: transition_finding can raise
+        # ValueError (missing finding) OR InvalidTransition (illegal state
+        # machine move). Both must be caught — InvalidTransition was
+        # propagating as raw traceback pre-R5b.
+        raise click.ClickException(
+            f"GitHub issue WAS filed at {issue_url} but the local DB "
+            f"transition failed: {_e_tx}. Manually transition finding "
+            f"{finding_id} to 'disclosed' to reconcile."
+        ) from _e_tx
 
 
 @issue_cmd.command(name="sync")
@@ -247,14 +264,26 @@ def sync_cmd(
             # CLOSED_NOT_PLANNED state — we got the path right, the
             # maintainer chose not to address it. Distinct signal for
             # renewal conversations + dashboards.
-            db.transition_finding(
-                finding_id=f["id"],
-                to_status=Status.CLOSED_NOT_PLANNED,
-                reason=f"upstream closed-not-planned: {url}",
-                actor="audit-pipeline issue sync",
-            )
-            n_rejected += 1
-            console.print(f"[yellow]closed-not-planned[/yellow] finding {f['id']} (#{issue_no})")
+            # Patch #4 round-2 fix (devils-advocate #2 HIGH): catch
+            # ValueError from missing-finding (Postgres now raises) so
+            # one stale row doesn't abort the whole sync loop.
+            # R5b (2026-05-24) — goober HIGH #1 + MEDIUM #2: catch
+            # InvalidTransition too AND move the success-print INSIDE
+            # the try (was outside — fired even on skip, misleading
+            # operators that the transition succeeded).
+            try:
+                db.transition_finding(
+                    finding_id=f["id"],
+                    to_status=Status.CLOSED_NOT_PLANNED,
+                    reason=f"upstream closed-not-planned: {url}",
+                    actor="audit-pipeline issue sync",
+                )
+                n_rejected += 1
+                console.print(f"[yellow]closed-not-planned[/yellow] finding {f['id']} (#{issue_no})")
+            except (ValueError, InvalidTransition) as _e_sync:
+                console.print(
+                    f"[yellow]skip[/yellow] finding {f['id']}: {_e_sync}"
+                )
 
     console.print(f"\nSynced {n_synced} finding(s); transitioned {n_rejected} to CLOSED_NOT_PLANNED.")
 
