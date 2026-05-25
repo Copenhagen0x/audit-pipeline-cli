@@ -618,12 +618,22 @@ def validate_authorization(
     # threat-modeler #1): wire the .sig.status sidecar that
     # write_authorization() produces into the validate path. Without
     # this, the entire round-2 signing block was theater — sidecar
-    # written but never consulted. Now hardened deploys can set
-    # JELLEO_AUTHZ_REQUIRE_SIGNED=1 to make UNSIGNED markers a hard
-    # reject; FAILED/REFUSED are always hard rejects regardless.
+    # written but never consulted.
+    # R5b (2026-05-24): signed markers are now the DEFAULT. Operators
+    # opt OUT via JELLEO_AUTHZ_ALLOW_UNSIGNED=1 (legacy migration only).
+    # FAILED/REFUSED sidecar statuses are always hard rejects regardless.
     auth_path = authorization_path(workspace, finding_id)
     sidecar_status_path = auth_path.with_suffix(auth_path.suffix + ".sig.status")
-    require_signed = os.environ.get("JELLEO_AUTHZ_REQUIRE_SIGNED") == "1"
+    # R5b (2026-05-24) — goober HIGH #3: previously JELLEO_AUTHZ_REQUIRE_
+    # SIGNED defaulted OFF, so the entire "operator typed phrase"
+    # defense had zero cryptographic enforcement by default — any
+    # process with workspace write access could forge an UNSIGNED
+    # authorization.json with the correct phrase (computable from
+    # patch.diff SHA) and the gate accepted it. Inverted: signing is
+    # REQUIRED by default; explicit opt-out via JELLEO_AUTHZ_ALLOW_
+    # UNSIGNED=1 for legacy migration only (emits a loud warning).
+    _allow_unsigned = os.environ.get("JELLEO_AUTHZ_ALLOW_UNSIGNED") == "1"
+    require_signed = not _allow_unsigned
     if sidecar_status_path.is_file():
         try:
             sidecar = json.loads(sidecar_status_path.read_text(encoding="utf-8"))
@@ -648,13 +658,19 @@ def validate_authorization(
                 f"recognised (expected one of: SIGNED, UNSIGNED, "
                 f"FAILED, REFUSED). Tampered sidecar?"
             )
-        # UNSIGNED is rejected only if the operator opted into hardened mode.
+        # R5b: signed is the DEFAULT — UNSIGNED is rejected unless the
+        # operator explicitly opted into legacy mode via JELLEO_AUTHZ_
+        # ALLOW_UNSIGNED=1.
         if status == "UNSIGNED" and require_signed:
             raise AuthorizationInvalid(
-                "authorization sidecar status is UNSIGNED but "
-                "JELLEO_AUTHZ_REQUIRE_SIGNED=1 demands a signed marker. "
-                "Generate a signing key with `audit-pipeline sign keygen` "
-                "and re-authorize."
+                "authorization sidecar status is UNSIGNED. R5b (2026-05-24) "
+                "made signed markers the DEFAULT — previously UNSIGNED was "
+                "accepted silently which defeated the entire 'operator typed "
+                "phrase' defense (any process with workspace write access "
+                "could forge a marker). Fix: generate a signing key with "
+                "`audit-pipeline sign keygen` and re-authorize. Or opt into "
+                "legacy mode with JELLEO_AUTHZ_ALLOW_UNSIGNED=1 (NOT "
+                "recommended)."
             )
         # If status==SIGNED, verify the .sig file actually exists and
         # matches the authorization.json bytes. The sidecar status alone
@@ -784,9 +800,14 @@ def validate_authorization(
                     f"decode: {_e_b64}. Sig file may have been tampered."
                 ) from _e_b64
 
-            # Domain tag for "authorization" (must match
-            # write_authorization → sign_file).
-            domain_tag = b"jelleo-authorization/v2\x00"
+            # Domain tag for "authorization" — single source of truth.
+            # R5b (2026-05-24): goober HIGH #1 — previously hardcoded
+            # b"jelleo-authorization/v2\x00". If sign.py's SIGN_DOMAINS
+            # ever bumped the tag version (e.g. /v2 → /v3), every
+            # validate_authorization call would silently fail with
+            # InvalidSignature. Now imported — drift impossible.
+            from audit_pipeline.commands.sign import SIGN_DOMAINS as _SD
+            domain_tag = _SD["authorization"]
             signed_message = (
                 domain_tag
                 + auth_path.name.encode("utf-8")
@@ -802,27 +823,26 @@ def validate_authorization(
                     f"tampered."
                 ) from ie
     elif require_signed:
-        # No sidecar AND hardened mode → hard reject (legacy markers
-        # don't get a free pass in hardened deployments).
+        # R5b (2026-05-24): default mode requires signed markers (no env
+        # var needed). Hard reject legacy markers that lack a sidecar.
         raise AuthorizationInvalid(
-            "JELLEO_AUTHZ_REQUIRE_SIGNED=1 demands a signed marker, "
+            "Signed authorization marker required by default (R5b 2026-05-24) "
             "but no authorization.json.sig.status sidecar exists. "
-            "Re-authorize with the signing key present."
+            "Generate a signing key with `audit-pipeline sign keygen` and "
+            "re-authorize. To accept legacy unsigned markers, set "
+            "JELLEO_AUTHZ_ALLOW_UNSIGNED=1 (NOT recommended for production)."
         )
     else:
-        # Patch #3 round-5 fix (threat-modeler #4): default-mode accepts
-        # a missing sidecar (legacy markers, or attacker-deleted sidecar)
-        # but at least leave an audit trail — a silent accept here would
-        # let an attacker who can write the workspace delete the sidecar
-        # to escape any future hardened-mode rollout. Stderr-warning is
-        # the minimum: operators in CI logs see it without runtime cost.
+        # Legacy mode (JELLEO_AUTHZ_ALLOW_UNSIGNED=1): accept missing
+        # sidecar as legacy unsigned. Leave a stderr audit trail.
         try:
             import sys as _sys3
             _sys3.stderr.write(
                 f"[validate_authorization WARNING] no .sig.status "
                 f"sidecar at {sidecar_status_path}; accepting marker "
-                f"as legacy unsigned. (Set JELLEO_AUTHZ_REQUIRE_SIGNED=1 "
-                f"for hardened deploys.)\n"
+                f"as legacy unsigned because JELLEO_AUTHZ_ALLOW_UNSIGNED=1 "
+                f"is set. To re-enable hardened mode: unset that env var "
+                f"(default behavior since R5b 2026-05-24).\n"
             )
         except Exception:
             pass

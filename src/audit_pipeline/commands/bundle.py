@@ -36,7 +36,8 @@ Engine NEVER auto-opens upstream PRs. The five-gate chain enforced here:
   1. Machine verification (verify) must show all gates passed
   2. Claude assessment must accompany the diff at review time
   3. Operator must read the diff
-  4. Operator must type `yes-authorize-finding-<id>-<patch-sha[:12]>` literally
+  4. Operator must type `yes-authorize-finding-<id>-<full-patch-sha256>` literally
+     (R5b: doc was stale — said sha[:12], B-#17 fix bound the FULL 64-char SHA)
   5. (finding_id, engine_sha, patch_sha) tuple must still match at open-pr time
 
 Any change to patch.diff, verification.json, or the engine_sha after
@@ -569,11 +570,30 @@ def review_cmd(
                 # write_authorization() will reject if it's malformed.
                 pass
     else:
+        # R5b-2 (2026-05-24) — threat-modeler #3 fix: previously
+        # review_cmd was warning-only on missing JELLEO_ENGINE_REPO,
+        # which let an attacker-controlled verification.json bind the
+        # authorization marker to a forged engine_sha. Now mirror the
+        # open_pr_cmd hard-refuse: dedicated env var
+        # JELLEO_ENGINE_REPO_LEGACY_FALLBACK=1 is the only opt-out.
+        import os as _os_rv
+        _allow_engine_legacy_rv = _os_rv.environ.get(
+            "JELLEO_ENGINE_REPO_LEGACY_FALLBACK") == "1"
+        if not _allow_engine_legacy_rv:
+            raise click.ClickException(
+                "REFUSED: JELLEO_ENGINE_REPO not set at review time. "
+                "Authorization marker would bind to the verification.json "
+                "engine_sha which is bundle-dir-resident and attacker-"
+                "writable in shared-workspace deployments. Fix: export "
+                "JELLEO_ENGINE_REPO=/absolute/path/to/engine/repo. Or "
+                "opt into engine-repo legacy fallback with "
+                "JELLEO_ENGINE_REPO_LEGACY_FALLBACK=1 (separate from the "
+                "signature opt-out — NOT recommended for production)."
+            )
         console.print(
-            "[yellow]Warning: JELLEO_ENGINE_REPO not set — engine_sha "
-            "drift check skipped. Authorization will bind to the stale "
-            "verification.json value. For hardened deploys, export "
-            "JELLEO_ENGINE_REPO=/path/to/engine/repo.[/yellow]"
+            "[yellow]Warning: JELLEO_ENGINE_REPO_LEGACY_FALLBACK=1 — "
+            "engine_sha drift check skipped at review time. Authorization "
+            "will bind to the verification.json value.[/yellow]"
         )
 
     try:
@@ -679,14 +699,37 @@ def open_pr_cmd(
                     f"to meta.json.[/yellow]"
                 )
     else:
-        # JELLEO_ENGINE_REPO not set — print a loud warning so an operator
-        # doesn't silently accept the staler meta.json provenance.
+        # R5b-2 (2026-05-24) — threat-modeler #1 fix: PREVIOUSLY this
+        # bypass shared JELLEO_AUTHZ_ALLOW_UNSIGNED with the signature
+        # opt-out, so an operator hitting the engine-repo failure in
+        # CI would set ONE env var and unknowingly disable BOTH
+        # security controls atomically. Now split: a dedicated
+        # JELLEO_ENGINE_REPO_LEGACY_FALLBACK=1 opts out of ONLY this
+        # check. JELLEO_AUTHZ_ALLOW_UNSIGNED stays focused on the
+        # signature gate. Two separate escape hatches for two
+        # independent security controls.
+        _allow_engine_legacy = _os_pr.environ.get(
+            "JELLEO_ENGINE_REPO_LEGACY_FALLBACK") == "1"
+        if not _allow_engine_legacy:
+            raise click.ClickException(
+                "REFUSED: JELLEO_ENGINE_REPO is not set. The engine_sha "
+                "provenance chain at open-pr time MUST come from live git "
+                "(`git rev-parse HEAD` against the engine repo), not from "
+                "meta.json which is bundle-dir-resident and attacker-"
+                "writable in shared-workspace deployments. Fix: export "
+                "JELLEO_ENGINE_REPO=/absolute/path/to/engine/repo and retry. "
+                "Or opt into engine-repo legacy fallback (ONLY) with "
+                "JELLEO_ENGINE_REPO_LEGACY_FALLBACK=1 — note this is "
+                "SEPARATE from the signature opt-out, you should NOT "
+                "set both. NOT recommended for production."
+            )
+        # Legacy engine-repo mode — warn loudly and fall through to meta.json.
         console.print(
-            "[yellow]Warning: JELLEO_ENGINE_REPO not set — "
+            "[yellow]Warning: JELLEO_ENGINE_REPO_LEGACY_FALLBACK=1 — "
             "engine_sha for validate_authorization sourced from meta.json "
             "(bundle-dir-resident, attacker-writable in shared-workspace "
-            "deployments). For hardened deploys, export "
-            "JELLEO_ENGINE_REPO=/path/to/engine/repo.[/yellow]"
+            "deployments). Engine-repo legacy fallback active. Signature "
+            "enforcement is UNAFFECTED by this flag.[/yellow]"
         )
 
     # THE HARD RULE — must pass before anything fires

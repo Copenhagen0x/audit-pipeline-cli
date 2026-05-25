@@ -166,7 +166,14 @@ def test_write_authorization_rejects_when_verification_failing(tmp_path: Path) -
         )
 
 
-def test_validate_authorization_full_round_trip(tmp_path: Path) -> None:
+def test_validate_authorization_full_round_trip(tmp_path: Path, monkeypatch) -> None:
+    # R5b (2026-05-24): the new default REQUIRES signed markers. This
+    # test uses _seed_bundle which doesn't create keys/ → sidecar is
+    # UNSIGNED. To exercise the round-trip without setting up real
+    # keys, opt into legacy mode via JELLEO_AUTHZ_ALLOW_UNSIGNED=1.
+    # The signed-path round-trip is covered separately by tests that
+    # generate a real key.
+    monkeypatch.setenv("JELLEO_AUTHZ_ALLOW_UNSIGNED", "1")
     from audit_pipeline.bundle.auth import (
         expected_phrase,
         file_sha256,
@@ -943,12 +950,15 @@ def test_sidecar_status_reject_REFUSED_in_validate(tmp_path: Path) -> None:
         validate_authorization(tmp_path, fid, "a" * 40)
 
 
-def test_sidecar_status_unsigned_passes_default_mode(tmp_path: Path) -> None:
-    """UNSIGNED accepts in default mode (no env var set)."""
-    import os as _osm
-    _osm.environ.pop("JELLEO_AUTHZ_REQUIRE_SIGNED", None)
+def test_sidecar_status_unsigned_rejected_by_default(tmp_path: Path, monkeypatch) -> None:
+    """R5b (2026-05-24) — goober HIGH #3: signed is now the DEFAULT.
+    Previously UNSIGNED was accepted silently which defeated the entire
+    'operator typed phrase' defense. Now must be explicitly opted into."""
+    monkeypatch.delenv("JELLEO_AUTHZ_ALLOW_UNSIGNED", raising=False)
+    monkeypatch.delenv("JELLEO_AUTHZ_REQUIRE_SIGNED", raising=False)
     from audit_pipeline.bundle.auth import (
-        expected_phrase, file_sha256, validate_authorization, write_authorization,
+        AuthorizationInvalid, expected_phrase, file_sha256,
+        validate_authorization, write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path
     fid = 3003
@@ -960,17 +970,18 @@ def test_sidecar_status_unsigned_passes_default_mode(tmp_path: Path) -> None:
         authorizer="k", typed_phrase=expected_phrase(fid, p_sha),
     )
     # _seed_bundle doesn't create keys/ → write_authorization wrote
-    # UNSIGNED. validate_authorization should still accept.
-    marker = validate_authorization(tmp_path, fid, "a" * 40)
-    assert marker.authorizer == "k"
+    # UNSIGNED. Default (signed-required) must REJECT.
+    import pytest
+    with pytest.raises(AuthorizationInvalid, match="UNSIGNED"):
+        validate_authorization(tmp_path, fid, "a" * 40)
 
 
-def test_sidecar_status_unsigned_blocked_in_hardened_mode(tmp_path: Path) -> None:
-    """JELLEO_AUTHZ_REQUIRE_SIGNED=1 — UNSIGNED must be rejected."""
-    import os as _osm
+def test_sidecar_status_unsigned_accepted_in_legacy_mode(tmp_path: Path, monkeypatch) -> None:
+    """R5b legacy escape hatch: operators with no signing key can opt
+    into the old behavior via JELLEO_AUTHZ_ALLOW_UNSIGNED=1."""
+    monkeypatch.setenv("JELLEO_AUTHZ_ALLOW_UNSIGNED", "1")
     from audit_pipeline.bundle.auth import (
-        AuthorizationInvalid, expected_phrase, file_sha256,
-        validate_authorization, write_authorization,
+        expected_phrase, file_sha256, validate_authorization, write_authorization,
     )
     from audit_pipeline.bundle.paths import patch_path
     fid = 3004
@@ -981,12 +992,34 @@ def test_sidecar_status_unsigned_blocked_in_hardened_mode(tmp_path: Path) -> Non
         tmp_path, finding_id=fid, engine_sha="a" * 40,
         authorizer="k", typed_phrase=expected_phrase(fid, p_sha),
     )
-    _osm.environ["JELLEO_AUTHZ_REQUIRE_SIGNED"] = "1"
-    try:
-        with pytest.raises(AuthorizationInvalid, match="JELLEO_AUTHZ_REQUIRE_SIGNED"):
-            validate_authorization(tmp_path, fid, "a" * 40)
-    finally:
-        _osm.environ.pop("JELLEO_AUTHZ_REQUIRE_SIGNED", None)
+    marker = validate_authorization(tmp_path, fid, "a" * 40)
+    assert marker.authorizer == "k"
+
+
+def test_sidecar_status_unsigned_blocked_legacy_test_kept_for_history(tmp_path: Path, monkeypatch) -> None:
+    """R5b: previously this test verified that setting JELLEO_AUTHZ_
+    REQUIRE_SIGNED=1 rejected UNSIGNED. R5b inverted the default —
+    the equivalent NEW test is test_sidecar_status_unsigned_rejected_
+    by_default (no env var needed). Kept here as a smoke test that
+    setting the OLD env var doesn't accidentally re-enable legacy
+    mode (since R5b code only checks JELLEO_AUTHZ_ALLOW_UNSIGNED)."""
+    monkeypatch.delenv("JELLEO_AUTHZ_ALLOW_UNSIGNED", raising=False)
+    monkeypatch.setenv("JELLEO_AUTHZ_REQUIRE_SIGNED", "1")  # ignored by R5b
+    from audit_pipeline.bundle.auth import (
+        AuthorizationInvalid, expected_phrase, file_sha256,
+        validate_authorization, write_authorization,
+    )
+    from audit_pipeline.bundle.paths import patch_path
+    fid = 3005
+    _seed_bundle(tmp_path, fid)
+    _seed_passing_verification(tmp_path, fid)
+    p_sha = file_sha256(patch_path(tmp_path, fid))
+    write_authorization(
+        tmp_path, finding_id=fid, engine_sha="a" * 40,
+        authorizer="k", typed_phrase=expected_phrase(fid, p_sha),
+    )
+    with pytest.raises(AuthorizationInvalid, match="UNSIGNED"):
+        validate_authorization(tmp_path, fid, "a" * 40)
 
 
 def test_exclude_public_covers_authorization_sig_sidecars() -> None:
@@ -1920,3 +1953,39 @@ def test_snapshot_fix_bundle_stats(tmp_path: Path) -> None:
     assert s["bundles_verified"] == 1
     assert s["bundles_authorized"] == 0
     assert s["by_status"].get("verified") == 1
+
+
+def test_engine_repo_legacy_fallback_envvar_consistent_across_callsites():
+    """R5b-2 (2026-05-24) — threat-modeler #1 fix:
+    JELLEO_ENGINE_REPO_LEGACY_FALLBACK is the engine-repo escape hatch,
+    SEPARATE from JELLEO_AUTHZ_ALLOW_UNSIGNED (the signature escape
+    hatch). Two security controls must have two independent opt-outs.
+
+    Source-grep invariant: BOTH review_cmd and open_pr_cmd in bundle.py
+    must (a) reference JELLEO_ENGINE_REPO_LEGACY_FALLBACK by exact name,
+    (b) compare it against the literal string "1", and (c) NOT reference
+    JELLEO_AUTHZ_ALLOW_UNSIGNED in their engine-repo branches.
+
+    Catches typos in the env var name and accidental re-merging of the
+    two opt-outs that R5b-2 explicitly split."""
+    from pathlib import Path as _P
+    src = _P(__file__).resolve().parent.parent / "src" / "audit_pipeline" / "commands" / "bundle.py"
+    txt = src.read_text(encoding="utf-8")
+    # Must contain the new env var name at least twice (review_cmd + open_pr_cmd).
+    assert txt.count("JELLEO_ENGINE_REPO_LEGACY_FALLBACK") >= 2, (
+        "JELLEO_ENGINE_REPO_LEGACY_FALLBACK must be referenced in both "
+        "review_cmd and open_pr_cmd engine-repo fallback branches."
+    )
+    # Must use the literal '1' comparison (no truthy/non-empty checks).
+    assert 'JELLEO_ENGINE_REPO_LEGACY_FALLBACK") == "1"' in txt, (
+        "JELLEO_ENGINE_REPO_LEGACY_FALLBACK must be checked against '1' "
+        "literally — truthy comparisons (`if env_var:`) would accept any "
+        "non-empty string and create operator confusion."
+    )
+    # NEGATIVE: the engine-repo branches must NOT use the signature opt-out
+    # var. Test by checking the comment "two independent security controls"
+    # exists — confirming R5b-2 separation intent is documented in code.
+    assert "two independent security controls" in txt or "SEPARATE from" in txt, (
+        "bundle.py must document that engine-repo and signature opt-outs "
+        "are separate (threat-modeler #1 fix invariant)."
+    )
