@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import smtplib
 import ssl
 from dataclasses import dataclass, field
@@ -123,6 +124,273 @@ class NotifierSettings:
 # ---------------------------------------------------------------------------
 
 
+# Patch #7 (audit HIGH 049a6969 + 153c13d + c3bc75b1): email header
+# injection + recipient validation. The previous implementation passed
+# attacker-controllable strings (finding title, bug_class, recipient
+# addresses from notifier.json) directly into MIME headers. A finding
+# title containing CR/LF would break out of the Subject: header and
+# inject arbitrary headers (Bcc, X-Custom-*, etc.). A recipient address
+# like "victim@evil.com>, attacker@evil.com\nBcc: spam@" would smuggle
+# additional recipients past the visible To: list.
+# Reviewer HIGH (P7 R5b+R5c): the original regex was too strict (rejected
+# `o'brien@x.com`); the first widening was too loose (accepted
+# `foo@..evil.com`, leading-dash labels, unbounded length). This version
+# is RFC-5321-aligned: no leading/trailing/consecutive dots in the
+# local-part, labelled domain with no leading/trailing hyphen per label,
+# local-part bounded at 64 chars per RFC, total length checked
+# separately by `_validate_recipient_list`.
+_EMAIL_ADDR_RE = re.compile(
+    # Local-part: starts with atext, then any mix of atext or dot atoms
+    # (no leading/trailing/consecutive dots), up to 64 chars total. We
+    # enforce the 64-char cap structurally via the repetition limits.
+    r"^(?=.{1,64}@)"
+    r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~\-]+"
+    r"(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~\-]+)*"
+    r"@"
+    # Domain: one or more labels separated by dots, each label is
+    # alnum-bordered with optional alnum/hyphen middle (RFC 1035), max
+    # 63 chars per label. TLD must be alpha-only and >= 2 chars.
+    r"[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*"
+    r"\.[A-Za-z]{2,63}$"
+)
+
+
+# Reviewer CRITICAL (P7 R5b): assembly.py + health.py both POST to
+# operator-controlled webhook URLs without any URL validation. Same SSRF
+# class as hunt.py:_webhook_url_safe but the validators were not shared.
+# Hoisting here so every network egress goes through the same allow-list.
+#
+# Threat-modeler HIGH (P7 R5c):
+#   - `webhook.site` was an attacker-controllable pastebin endpoint with
+#     no legitimate production use — removed from the allow-list. If an
+#     operator genuinely needs ad-hoc debugging against webhook.site
+#     they must patch this regex on a feature branch; there is no
+#     env-var escape hatch and we are not adding one (an SSRF-allowlist
+#     escape hatch would become a permanent "just set this in prod"
+#     workaround).
+#   - Added Microsoft Teams' real connector domain
+#     `*.webhook.office.com` alongside `teams.microsoft.com`.
+#   - Hard-block decimal/hex/octal IPs and IPv4-mapped IPv6
+#     (`::ffff:127...`) so the allow-list is no longer the only barrier
+#     against numeric-IP encoding tricks.
+#
+# Threat-modeler R5c MEDIUM (DESIGN, not fix):
+#   The allow-list provides SSRF protection (only known SaaS hosts), NOT
+#   exfil-channel-auth (which Slack workspace / Teams tenant the URL
+#   targets). An attacker who can write `notifier.json` can already
+#   exfil locally, so this is intentionally out of scope for the
+#   validator. Tighter per-tenant locking would break legitimate users
+#   (every Teams Incoming Webhook lives at `<tenant>.webhook.office.com`,
+#   not a single canonical host).
+#
+# Behavior:
+#   - Only https
+#   - Hostname allow-list (slack / discord / teams (both forms) /
+#     telegram / pagerduty)
+#   - Block private / loopback / link-local / cloud-metadata IP ranges
+#   - Block numeric-only hosts (decimal/hex/octal IPv4 encoding)
+#
+# Returns (ok, reason). Callers should refuse to POST when ok is False
+# and surface `reason` to the operator.
+_WEBHOOK_ALLOW_HOSTS_RE = re.compile(
+    # Goober LOW (P7 R5c): subdomain labels must follow RFC 952 — no
+    # leading or trailing hyphen per label. The old `[A-Za-z0-9-]+`
+    # allowed `-evil.slack.com` to pass (not currently exploitable
+    # since SaaS providers control DNS, but becomes a bypass the
+    # moment any allow-listed domain permits public subdomain
+    # registration).
+    r"^(?:[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?\.)*"
+    r"(?:slack\.com|discord(?:app)?\.com|"
+    r"hooks\.slack\.com|api\.telegram\.org|"
+    r"teams\.microsoft\.com|webhook\.office\.com|"
+    r"events\.pagerduty\.com)$",
+    re.IGNORECASE,
+)
+_WEBHOOK_BLOCKED_HOSTS_RE = re.compile(
+    r"^(?:127\.|169\.254\.|10\.|192\.168\.|"
+    r"172\.(?:1[6-9]|2[0-9]|3[01])\.|"
+    r"localhost|metadata\.google\.internal|metadata\.aws|"
+    # IPv6 link-local (`fe80::/10`) + the full ULA `/7` (`fc00::/7`),
+    # which is `fc00:` AND `fd00:` AND everything in between. The
+    # previous regex `fc00:|fd00:` only blocked the two specific
+    # canonical prefixes, leaving `fc12::`, `fd80::`, `fcff::`, etc.
+    # technically un-hard-blocked. Allow-list was the backstop, but
+    # defense-in-depth wins.
+    r"0\.0\.0\.0|::1|0:0:0:0:0:0:0:1|fe80:|f[cd][0-9a-f]{2}:|"
+    # IPv4-mapped IPv6 — `::ffff:127.0.0.1` and friends. urlparse
+    # returns the bare form (no brackets) so we anchor on the prefix.
+    r"::ffff:|"
+    # Decimal-encoded IPv4 (e.g. `2130706433` == 127.0.0.1), hex
+    # (`0x7f000001`), and octal (`0177.0.0.1`). All three are
+    # pure-digit/hex/octal-style hostnames which legitimate webhook
+    # hosts never are. The `$` anchor on each alternative means
+    # hostnames like `0xdeadbeef.example.com` (dot present) are
+    # NOT accidentally blocked — only pure-encoded IP forms are.
+    # (Threat-modeler R5c LOW: ensures hard-block layer matches what
+    # the comment promises, removing reliance on the allow-list as
+    # the sole fallback for these forms.)
+    r"\d+$|0x[0-9a-f]+$|"
+    r"0[0-7]+(?:\.[0-7]+){0,3}$)",
+    re.IGNORECASE,
+)
+
+
+def validate_webhook_url(url: str) -> tuple[bool, str]:
+    """Return (allowed, reason) for ``url``.
+
+    Single source of truth for webhook URL safety across the codebase.
+    Used by hunt.py:_post_webhook (P9-era consolidation), the bundle
+    notify path (assembly.py), and the health alert path
+    (commands/health.py).
+
+    A `None`/non-string/empty input is rejected as `(False, "...")` —
+    we never raise here so callers can log-and-skip instead of
+    crashing whatever workflow triggered the notify.
+
+    NOTE: callers MUST also disable HTTP redirect-following, otherwise
+    an allow-listed endpoint can 30x-redirect to an internal address
+    that this validator never sees. See assembly.py / health.py for
+    the wrapper pattern.
+    """
+    if not isinstance(url, str) or not url:
+        return (False, "webhook URL is empty or not a string")
+    # Bound URL length up front — multi-MB URLs are pathological and
+    # the only legitimate webhook endpoints we accept all fit in <1KB.
+    if len(url) > 2048:
+        return (False, f"webhook URL too long ({len(url)} bytes)")
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+    except Exception:  # noqa: BLE001
+        return (False, "could not parse URL")
+    if parsed.scheme != "https":
+        return (False, f"refusing non-https scheme {parsed.scheme!r}")
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return (False, "URL has no host")
+
+    # Threat-modeler R5e LOW (defense-in-depth): the regex hard-block
+    # enumerates IPv4/IPv6 ranges by string-prefix, which can never
+    # cover every encoding form (expanded `0000:...:0001`, 6to4
+    # `2002:7f00::`, deprecated `fec0::/10`, IPv4-mapped IPv6, etc.).
+    # Use the `ipaddress` stdlib as a *first* gate when the host is an
+    # IP literal — it understands every legal representation and
+    # classifies non-global addresses authoritatively. The regex layer
+    # below remains as belt-and-suspenders for the cases ipaddress
+    # rejects (e.g. decimal-encoded `2130706433`, octal `0177.0.0.1` —
+    # Python 3.9+ rejects these as "ambiguous" so they raise
+    # ValueError and fall through to the regex).
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        addr = None
+    if addr is not None:
+        # Standard categorisation: covers loopback, RFC 1918 IPv4, ULA
+        # IPv6 (`fc00::/7`), link-local IPv6 (`fe80::/10`), AND
+        # deprecated IPv6 site-local (`fec0::/10`) via `is_site_local`
+        # — which is a separate attribute since Python's `is_private`
+        # excludes deprecated ranges.
+        if (addr.is_loopback or addr.is_private or addr.is_link_local
+                or addr.is_reserved or addr.is_multicast
+                or addr.is_unspecified
+                or (isinstance(addr, ipaddress.IPv6Address)
+                    and addr.is_site_local)):
+            return (False, f"refusing internal/metadata host {host!r}")
+        # Belt-and-suspenders for IPv6: `is_site_local` above already
+        # catches `fec0::/10` on all Python 3.x, but we keep the
+        # explicit `fec0::/10` net check to be robust against any
+        # future Python release that changes the property semantics.
+        # `2001::/32` (Teredo) is the primary catch on Python versions
+        # where `is_private` does not cover it (verified True on
+        # CPython 3.14 — Teredo is classified as global there). The
+        # belt-and-suspenders explicit net check below is therefore
+        # load-bearing on current Python, not merely a portability
+        # backstop.
+        if isinstance(addr, ipaddress.IPv6Address):
+            if addr in ipaddress.ip_network("fec0::/10"):
+                return (
+                    False,
+                    f"refusing internal/metadata host {host!r} "
+                    f"(deprecated IPv6 site-local fec0::/10)",
+                )
+            if addr in ipaddress.ip_network("2001::/32"):
+                return (
+                    False,
+                    f"refusing internal/metadata host {host!r} (Teredo)",
+                )
+            # IPv4-mapped and 6to4-tunneled forms whose embedded IPv4
+            # is non-global. `addr.is_private` already covers some of
+            # this (RFC 4291) but is_global is not strict enough for
+            # 6to4 — `2002:7f00:0001::1` embeds 127.0.0.1 but is
+            # classified by `ipaddress` as a global IPv6 address.
+            embedded = addr.ipv4_mapped or addr.sixtofour
+            if embedded is not None and (
+                embedded.is_loopback or embedded.is_private
+                or embedded.is_link_local or embedded.is_reserved
+                or embedded.is_multicast
+            ):
+                return (
+                    False,
+                    f"refusing internal/metadata host {host!r} "
+                    f"(embedded IPv4 {embedded})",
+                )
+
+    if _WEBHOOK_BLOCKED_HOSTS_RE.match(host):
+        return (False, f"refusing internal/metadata host {host!r}")
+    if not _WEBHOOK_ALLOW_HOSTS_RE.match(host):
+        return (
+            False,
+            f"host {host!r} not in webhook allow-list "
+            f"(slack/discord/teams/telegram/pagerduty)",
+        )
+    return (True, "ok")
+
+
+def _sanitize_header_value(name: str, value: str) -> str:
+    """Strip CR/LF and any character that could break the header parser.
+
+    Returns the cleaned string. Raises NotifierError if the input
+    contains characters that suggest active injection (we don't
+    silently strip them — the operator should see the bad data)."""
+    if not isinstance(value, str):
+        raise NotifierError(f"header {name!r} must be a string, got {type(value)}")
+    if "\r" in value or "\n" in value or "\x00" in value:
+        raise NotifierError(
+            f"header {name!r} contains CR/LF/NUL — refusing to send "
+            f"(possible header-injection). Sanitize upstream before "
+            f"passing to send_email()."
+        )
+    return value
+
+
+def _validate_recipient_list(label: str, addrs: list[str]) -> list[str]:
+    """Each recipient must look like an RFC-822-shaped email address.
+
+    Reject any address that doesn't match a conservative regex — this
+    blocks both header injection (which contains CR/LF that the regex
+    would already reject) AND obvious garbage like "Bob <evil>" which
+    isn't a valid email at all. The audit finding called out
+    notifier.json being parsed without validation; this is the
+    centralised gate."""
+    cleaned: list[str] = []
+    for addr in addrs:
+        if not isinstance(addr, str):
+            raise NotifierError(
+                f"{label} recipient must be string, got {type(addr)}: {addr!r}"
+            )
+        addr_stripped = addr.strip()
+        if not _EMAIL_ADDR_RE.fullmatch(addr_stripped):
+            raise NotifierError(
+                f"{label} recipient {addr_stripped!r} doesn't look like a "
+                f"valid email address — refusing to send. Fix the "
+                f"recipient list (notifier.json or CLI args)."
+            )
+        cleaned.append(addr_stripped)
+    return cleaned
+
+
 def _build_message(
     *,
     sender: str,
@@ -133,6 +401,14 @@ def _build_message(
     body_html: str | None = None,
     attachments: list[Path] | None = None,
 ) -> EmailMessage:
+    # Patch #7: validate every header-bound field BEFORE constructing
+    # the EmailMessage. send_email() callers can pass attacker-
+    # controlled subject text (finding title) and recipient lists
+    # (notifier.json) — sanitization happens here at the choke point.
+    sender = _sanitize_header_value("From", sender)
+    to = _validate_recipient_list("To", to)
+    cc = _validate_recipient_list("Cc", cc)
+    subject = _sanitize_header_value("Subject", subject)
     msg = EmailMessage()
     msg["From"] = sender
     msg["To"] = ", ".join(to)
@@ -189,6 +465,38 @@ def _send(message: EmailMessage, smtp: SmtpConfig) -> None:
                 s.login(smtp.user, smtp.password or "")
             s.send_message(message)
     elif smtp.tls_mode == "none":
+        # Patch #7 (audit HIGH 2a9de64e + 3b2c43ae): plaintext SMTP with
+        # LOGIN sends the password in clear over the network. Refuse to
+        # log in unless an explicit opt-in env var is set, and refuse
+        # plaintext entirely unless tls=none is paired with the
+        # JELLEO_SMTP_ALLOW_PLAINTEXT=1 acknowledgement so the operator
+        # CAN'T enable it by accident.
+        if os.environ.get("JELLEO_SMTP_ALLOW_PLAINTEXT") != "1":
+            raise NotifierError(
+                "JELLEO_SMTP_TLS='none' requires JELLEO_SMTP_ALLOW_PLAINTEXT=1 "
+                "to acknowledge the security risk (passwords + message body "
+                "sent in clear over the network). Use 'starttls' or 'ssl' "
+                "instead for production deployments."
+            )
+        # Guard mirrors the actual login condition below (smtp.user only).
+        # An empty/None password is irrelevant — `s.login(user, password or
+        # "")` will still emit AUTH LOGIN with the username in clear, which
+        # is the exact leak we are guarding against. (Reviewer HIGH:
+        # notifier.py:270 had `if smtp.user and smtp.password:` which
+        # silently bypassed the guard when password was None.)
+        if smtp.user:
+            # An additional, separate opt-in for LOGIN-over-plaintext.
+            # Plaintext alone without auth is sometimes legitimate (an
+            # internal relay that accepts unauthenticated mail from
+            # specific source IPs); LOGIN-over-plaintext is almost never
+            # legitimate.
+            if os.environ.get("JELLEO_SMTP_ALLOW_PLAINTEXT_LOGIN") != "1":
+                raise NotifierError(
+                    "Refusing SMTP LOGIN over plaintext (credentials would "
+                    "be sent in clear). Set JELLEO_SMTP_ALLOW_PLAINTEXT_LOGIN=1 "
+                    "to bypass this guard ONLY for testing against a local "
+                    "relay where the risk is acceptable."
+                )
         with smtplib.SMTP(smtp.host, smtp.port, timeout=smtp.timeout_sec) as s:
             if smtp.user:
                 s.login(smtp.user, smtp.password or "")

@@ -147,12 +147,33 @@ def health_cmd(
         console.print(table)
 
     if failed and webhook_url:
-        try:
-            requests.post(webhook_url, json={
-                "text": _format_alert(failed, warns, workspace, now),
-            }, timeout=15)
-        except Exception as e:  # noqa: BLE001
-            console.print(f"[red]webhook post failed:[/red] {e}")
+        # Reviewer CRITICAL (P7 R5b): previously this POSTed to whatever
+        # URL the operator put in --webhook-url with zero validation —
+        # SSRF + plaintext-credential-leak class. Same allow-list as
+        # bundle/assembly.py:_fire_bundle_notification.
+        from audit_pipeline.notifier import validate_webhook_url
+        allowed, reason = validate_webhook_url(webhook_url)
+        if not allowed:
+            console.print(
+                f"[yellow]health webhook blocked:[/yellow] {reason} "
+                f"(url={str(webhook_url)[:80]})"
+            )
+        else:
+            try:
+                # Threat-modeler HIGH (P7 R5c): default `requests.post`
+                # follows 3xx redirects. An allow-listed webhook could
+                # 301 to http://169.254.169.254/ and bypass the
+                # validator (which only sees the initial URL).
+                # `allow_redirects=False` keeps the validator's
+                # decision authoritative.
+                requests.post(
+                    webhook_url,
+                    json={"text": _format_alert(failed, warns, workspace, now)},
+                    timeout=15,
+                    allow_redirects=False,
+                )
+            except Exception as e:  # noqa: BLE001
+                console.print(f"[red]webhook post failed:[/red] {e}")
 
     sys.exit(2 if failed else 0)
 
