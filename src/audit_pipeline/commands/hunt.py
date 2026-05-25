@@ -2877,13 +2877,26 @@ def _hunt_run(
                     (sidecar_dir / f"{harness_name}.attempt{attempt}.log").write_text(
                         final_log, encoding="utf-8",
                     )
-                    if "VERIFICATION:" in final_log:
+                    # P10 R1 (goober HIGH): legacy cargo-kani emits
+                    # `Verification:- SUCCESSFUL` (mixed case). The
+                    # bare `"VERIFICATION:" in final_log` substring
+                    # check missed those reports → the loop continued
+                    # past a real verdict and burned up to 2 extra
+                    # 1800s kani runs per finding. Use case-
+                    # insensitive regex search for parity with
+                    # `parse_kani_outcome`'s now-IGNORECASE regexes.
+                    # P10 R2 (goober MEDIUM): include the `:-` dash so
+                    # the pattern can't false-match a Rust module path
+                    # like `verification::check` in rustc error output
+                    # — would prematurely break the loop and waste
+                    # fix-up attempts.
+                    if re.search(r"VERIFICATION:-", final_log, re.IGNORECASE):
                         break
                     is_compile_fail = (
                         "error: could not compile" in final_log
                         or (
                             re.search(r"^error\[E\d+\]", final_log, re.MULTILINE)
-                            and "VERIFICATION:" not in final_log
+                            and not re.search(r"VERIFICATION:-", final_log, re.IGNORECASE)
                         )
                     )
                     if not is_compile_fail or attempt == MAX_ATTEMPTS:

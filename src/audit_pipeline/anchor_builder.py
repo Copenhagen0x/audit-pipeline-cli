@@ -137,14 +137,50 @@ def build_anchor_program(
     env = os.environ.copy()
     env["PATH"] = _solana_augmented_path()
     cargo_bin = shutil.which("cargo", path=env["PATH"]) or "cargo"
-    proc = subprocess.run(
-        [cargo_bin, "build-sbf", "--", "-p", program_name],
-        cwd=str(build_root),
-        capture_output=True,
-        text=True,
-        timeout=timeout_s,
-        env=env,
-    )
+    # Patch #10 (audit HIGH c94ef463): subprocess.TimeoutExpired was
+    # never caught — a hung `cargo build-sbf` (slow network on
+    # transitive crate fetches, hung linker) would kill the whole
+    # cycle with an unhandled exception. Catch + record as a clean
+    # failure result with returncode=124 (timeout convention) so the
+    # caller sees a structured outcome instead of a traceback.
+    try:
+        proc = subprocess.run(
+            [cargo_bin, "build-sbf", "--", "-p", program_name],
+            cwd=str(build_root),
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as _e_to:
+        # Persist whatever partial output we have for debugging.
+        # P10 R1 (goober LOW): with `text=True` above, Python guarantees
+        # `_e_to.stdout` / `_e_to.stderr` are `str` or `None` — never
+        # `bytes`. The previous version had a bytes-decode branch that
+        # only fired on the dead `b""` fallback. Simplify to the
+        # invariant `text=True` actually provides.
+        def _as_str(v: object) -> str:
+            if v is None:
+                return ""
+            if isinstance(v, bytes):
+                return v.decode("utf-8", errors="replace")
+            return str(v)
+        timeout_stdout = _as_str(_e_to.stdout)
+        timeout_stderr = _as_str(_e_to.stderr)
+        log_path.write_text(
+            timeout_stdout
+            + "\n--- STDERR ---\n" + timeout_stderr
+            + f"\n--- TIMEOUT after {timeout_s}s ---\n",
+            encoding="utf-8",
+        )
+        return AnchorBuildResult(
+            program_name=program_name,
+            so_path=None,
+            build_dir=dest_program,
+            build_log_path=log_path,
+            returncode=124,
+            error=f"cargo build-sbf timed out after {timeout_s}s",
+        )
     combined = (proc.stdout or "") + "\n--- STDERR ---\n" + (proc.stderr or "")
     log_path.write_text(combined, encoding="utf-8")
 
