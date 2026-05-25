@@ -69,6 +69,22 @@ def _workspace_engine_roots(workspace: Path) -> list[Path]:
     return out
 
 
+def _is_inside(child: Path, parent: Path) -> bool:
+    """Return True iff ``child`` is the same as or nested under ``parent``.
+
+    Both paths should already be `.resolve()`'d by the caller so that
+    symlinks have been followed before the boundary check. Uses
+    `relative_to()` so byte-prefix collisions (`/tmp/x_evil` vs
+    `/tmp/x`) are correctly rejected — the bug the P8 R1 fix closes
+    in both `_normalize_path` (security boundary) and `tool_grep`
+    (correctness dedup)."""
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 def _normalize_path(workspace: Path, path: str) -> Path | None:
     """Resolve a tool-supplied path, refusing escapes outside workspace.
 
@@ -126,13 +142,21 @@ def _normalize_path(workspace: Path, path: str) -> Path | None:
     # Pick the first candidate that EXISTS and is under a trusted root.
     # Falling back to first candidate (existence-unchecked) if nothing
     # exists — caller's .is_file() check will emit the right error.
+    #
+    # P8 R0 (code-reviewer + threat-modeler HIGH): the previous version
+    # used `p_str.startswith(str(ws))` and `p_str.startswith(str(r))`
+    # which both reintroduce the sibling-prefix collision the patch
+    # claims to close — `/root/audit_runs/eval01_evil/secret` would
+    # pass `startswith("/root/audit_runs/eval01")`. Use the
+    # module-level `_is_inside` helper (relative_to-based) for parity
+    # with `vps_paths.is_under_trusted_root` and with `tool_grep` dedup.
+    engine_roots = list(_workspace_engine_roots(workspace))
     fallback: Path | None = None
     for p in candidates:
-        p_str = str(p)
         trusted = (
-            p_str.startswith(str(ws))
+            _is_inside(p, ws)
             or is_under_trusted_root(p)
-            or any(p_str.startswith(str(r)) for r in _workspace_engine_roots(workspace))
+            or any(_is_inside(p, r) for r in engine_roots)
         )
         if not trusted:
             continue
@@ -201,8 +225,15 @@ def tool_grep(workspace: Path, pattern: str, path: str = ".", max_matches: int =
             except OSError:
                 er_resolved = engine_root
             # Only add if engine_root isn't already under p_resolved
-            # (avoid double-scanning when workspace is the engine root)
-            if str(er_resolved).startswith(str(p_resolved)):
+            # (avoid double-scanning when workspace is the engine root).
+            # P8 R1 (3 reviewers): use the same `_is_inside` helper as
+            # `_normalize_path` for consistency — string-prefix
+            # comparison falsely deduped `/root/audit_runs/eval01_evil`
+            # against `/root/audit_runs/eval01`, skipping a legitimate
+            # sibling root from grep results. This is a CORRECTNESS
+            # fix (no security boundary here, just dedup) but parity
+            # with the rest of the file prevents future confusion.
+            if _is_inside(er_resolved, p_resolved):
                 continue
             # Iterate ALL files matching ext directly via os.walk
             # (handles symlinked targets reliably across Python versions).
