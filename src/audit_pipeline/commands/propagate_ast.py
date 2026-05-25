@@ -91,6 +91,73 @@ def _is_link_or_junction(p: Path) -> bool:
     return bool(flags & _FILE_ATTRIBUTE_REPARSE_POINT)
 
 
+def _normalize_for_compare(p: Path) -> Path:
+    """Strip the Windows extended-path UNC prefix (``\\\\?\\``).
+
+    On Windows, ``Path.resolve()`` can return the extended-path form
+    (``\\\\?\\C:\\...`` or ``\\\\?\\UNC\\server\\share``) for paths
+    exceeding ``MAX_PATH`` (260 chars). If one side of a
+    ``relative_to`` comparison was resolved with the prefix and the
+    other without, the check raises ``ValueError`` even when one is
+    truly under the other — and the AST scan would silently drop
+    every ``.rs`` file in the affected repo (PG-R2 #4).
+
+    Normalize both sides through this helper before comparing. No-op
+    on POSIX where the prefix never appears.
+
+    Scope (R4):
+      * Handles ``\\\\?\\C:\\...`` and ``\\\\?\\UNC\\server\\share\\...``.
+      * Does NOT handle ``\\\\.\\`` device paths (``\\\\.\\COM1``,
+        ``\\\\.\\PhysicalDrive0``). ``Path.resolve()`` never produces
+        them for corpus files; if such a path reaches the containment
+        check it should fail (CR-R3 #3 + PG-R3 #4).
+      * If ``os.fspath(p)`` returns ``bytes`` (rare: a ``PathLike``
+        whose ``__fspath__`` returns bytes), decode via
+        ``os.fsdecode`` rather than crash with ``TypeError`` on
+        ``.startswith`` against a str (CR-R3 #4 + PG-R3 #2).
+        ``os.fsdecode`` is the canonical bytes→str path converter
+        and uses the filesystem encoding.
+      * The empty extended-path ``\\\\?\\`` (prefix with no content)
+        is passed through as ``Path(s)`` (preserving the prefix
+        literally) rather than collapsing to ``Path("")`` which
+        Python normalizes to ``Path(".")`` and could falsely pass
+        containment against CWD-relative parents (PG-R3 #3).
+
+    Keep this duplicate in sync with ``propagate.py``'s copy.
+    """
+    s = os.fspath(p)
+    if isinstance(s, bytes):
+        s = os.fsdecode(s)
+    if s.startswith("\\\\?\\"):
+        rest = s[len("\\\\?\\"):]
+        if not rest:
+            return Path(s)
+        # \\?\UNC\server\share\... → \\server\share\...
+        if rest.startswith("UNC\\"):
+            return Path("\\\\" + rest[len("UNC\\"):])
+        return Path(rest)
+    return Path(s)
+
+
+def _rglob_no_follow(root: Path, pattern: str):
+    """``Path.rglob`` that does not recurse into symlinked subdirectories.
+
+    Python 3.13 introduced ``recurse_symlinks=False`` as an explicit
+    kwarg (changing the default). On 3.10-3.12 ``rglob`` DOES follow
+    symlinks during recursion. We probe for the kwarg and fall back to
+    the legacy call. The per-yielded-path containment check elsewhere
+    is the actual security boundary, but using the kwarg avoids the
+    perf / DoS cost of churning through symlinked system directories
+    when a corpus contains a directory symlink (PG-R2 #3).
+
+    Keep this duplicate in sync with ``propagate.py``'s copy.
+    """
+    try:
+        return root.rglob(pattern, recurse_symlinks=False)
+    except TypeError:
+        return root.rglob(pattern)
+
+
 @dataclass
 class AstMatch:
     """A single tree-sitter match: structural location of the pattern."""
@@ -327,8 +394,21 @@ def scan_corpus_for_ast_patterns(
         return out
 
     skip_dirs = {"target", "node_modules", ".git", "build"}
-    corpus_path_resolved = corpus_path.resolve(strict=False)
-    for repo_dir in sorted(p for p in corpus_path.iterdir() if p.is_dir()):
+    # R3: wrap ``resolve`` + ``iterdir`` in OSError guards so an
+    # unreadable corpus (PermissionError, broken FUSE mount, etc.)
+    # returns an empty list rather than propagating a raw traceback
+    # to the caller (PG-R2 #2 in the propagate.py sibling).
+    try:
+        corpus_path_resolved = _normalize_for_compare(
+            corpus_path.resolve(strict=False)
+        )
+    except OSError:
+        return out
+    try:
+        children = sorted(p for p in corpus_path.iterdir() if p.is_dir())
+    except OSError:
+        return out
+    for repo_dir in children:
         # Patch #15 (audit HIGH ffd663b2): rglob followed symlinks
         # blindly. A malicious corpus member could include a
         # `programs/x.rs → /root/.ssh/id_ed25519` symlink that
@@ -375,22 +455,54 @@ def scan_corpus_for_ast_patterns(
         if _is_link_or_junction(repo_dir):
             continue
         try:
-            repo_dir_resolved = repo_dir.resolve(strict=False)
+            # R3: normalize via ``_normalize_for_compare`` so a
+            # ``\\?\``-prefixed long-path form does not falsely fail
+            # containment on Windows (PG-R2 #4).
+            repo_dir_resolved = _normalize_for_compare(
+                repo_dir.resolve(strict=False)
+            )
             repo_dir_resolved.relative_to(corpus_path_resolved)
         except (ValueError, OSError):
             continue
-        for src_path in repo_dir.rglob("*.rs"):
+        # R3: ``_rglob_no_follow`` avoids descending into symlinked
+        # subdirectories on Python <3.13 (PG-R2 #3). The per-file
+        # containment check below is still the security boundary, but
+        # this avoids a DoS where rglob churns through symlinked
+        # system directories.
+        for src_path in _rglob_no_follow(repo_dir, "*.rs"):
             if _is_link_or_junction(src_path):
                 continue
-            if not src_path.is_file():
+            # R3: guard ``is_file()`` against OSError — broken FUSE
+            # mounts, mid-deletion races, NFS stale handles can raise
+            # here. Without the guard the entire AST scan aborts via
+            # the outer ``except Exception: return []`` (CR-R2 #2 +
+            # PG-R2 #5), matching propagate.py's defensive pattern.
+            try:
+                if not src_path.is_file():
+                    continue
+            except OSError:
                 continue
-            if any(part in skip_dirs for part in src_path.parts):
+            # P18 R2 audit-paired fix: check ``skip_dirs`` against parts
+            # RELATIVE TO ``repo_dir``, not the absolute path. Otherwise a
+            # corpus mounted under a parent named e.g. ``C:\Users\...\build\
+            # corpus\...`` would silently skip every file because ``"build"``
+            # appears in the absolute ``src_path.parts``. Mirrors the
+            # corresponding fix in ``propagate.py:_walk_source_files``.
+            try:
+                rel_parts = src_path.relative_to(repo_dir).parts
+            except ValueError:
+                continue
+            if any(part in skip_dirs for part in rel_parts):
                 continue
             # Defense-in-depth: even non-symlink entries can sit
             # under a symlinked parent directory. Verify the
-            # resolved path remains under repo_dir.
+            # resolved path remains under repo_dir. Normalize so a
+            # ``\\?\``-prefixed long-path does not falsely fail
+            # containment (PG-R2 #4).
             try:
-                src_resolved = src_path.resolve(strict=False)
+                src_resolved = _normalize_for_compare(
+                    src_path.resolve(strict=False)
+                )
                 src_resolved.relative_to(repo_dir_resolved)
             except (ValueError, OSError):
                 continue

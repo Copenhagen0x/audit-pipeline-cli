@@ -449,9 +449,13 @@ def test_propagate_run_for_finding_includes_ast_summary(tmp_path: Path) -> None:
         bug_class="insurance-counter-vault-divergence",
     )
 
-    # Empty corpus dir to keep the scan fast
+    # Corpus with one empty repo subdir (post-audit-018-R3, an entirely
+    # empty corpus returns ok=False with reason=corpus_all_repos_filtered).
+    # A single empty repo subdir gives safe_repos=[1] so the scan
+    # proceeds normally and we exercise the ast-summary code path.
     corpus_dir = tmp_path / "corpus"
     corpus_dir.mkdir()
+    (corpus_dir / "empty_repo").mkdir()
     out_dir = tmp_path / "report"
     result = run_for_finding(db, fid, corpus_dir, out_dir)
 
