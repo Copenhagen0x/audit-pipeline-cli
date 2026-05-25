@@ -102,3 +102,48 @@ def test_filter_hypotheses_unknown_predicate_source_check() -> None:
     # The new error message words split across two f-string lines —
     # check both halves are present.
     assert "unknown" in src and "scope_condition predicate" in src
+
+
+def test_filter_hypotheses_none_bypasses_scope_filtering():
+    """R5b (2026-05-24) — goober CRITICAL: docstring contract
+    'Pass None for no scope filtering' was broken. P5's raise loop
+    raised on every KNOWN_PREDICATE. First R5b fix replaced raise with
+    unmet.append → still scoped-out silently (opposite of 'bypass').
+    Correct semantics: target_conditions=None means BYPASS — every
+    hypothesis ends up in applicable regardless of scope_conditions."""
+    from audit_pipeline.scoping import filter_hypotheses, KNOWN_PREDICATES
+    kp = sorted(KNOWN_PREDICATES)[0]  # any KNOWN_PREDICATE
+    hyps = [
+        {"id": "H1", "claim": "x" * 30, "applies_to": ["*"],
+         "scope_conditions": [kp]},
+        {"id": "H2", "claim": "y" * 30, "applies_to": ["*"],
+         "scope_conditions": ["amm_constant_product"]},  # another KP
+        {"id": "H3", "claim": "z" * 30, "applies_to": ["*"]},  # no scope
+    ]
+    r = filter_hypotheses(hyps, "anyproto", target_conditions=None)
+    assert len(r.applicable) == 3, (
+        f"target_conditions=None must bypass scope filtering. Got "
+        f"applicable={len(r.applicable)}, skipped={len(r.skipped)} "
+        f"(skipped reasons: {[s.detail for s in r.skipped]})"
+    )
+    assert len(r.skipped) == 0
+    # R5b-2 — goober + code-reviewer LOW: bypass path must NOT emit
+    # "treating as False" warnings (warning is for the active-filter
+    # case, not the bypass case).
+    assert r.warnings == [], f"bypass path should not emit warnings, got: {r.warnings}"
+
+
+def test_filter_hypotheses_none_does_not_raise_on_unknown_predicate():
+    """Companion to the bypass test: even an UNKNOWN predicate must not
+    raise when target_conditions=None — the bypass short-circuits the
+    entire conditions loop including the raise check."""
+    from audit_pipeline.scoping import filter_hypotheses
+    hyps = [
+        {"id": "H1", "claim": "x" * 30, "applies_to": ["*"],
+         "scope_conditions": ["totally-made-up-predicate"]},
+    ]
+    # Must NOT raise.
+    r = filter_hypotheses(hyps, "anyproto", target_conditions=None)
+    assert len(r.applicable) == 1
+    # R5b-2: bypass also suppresses the misleading "treating as False" warning.
+    assert r.warnings == []

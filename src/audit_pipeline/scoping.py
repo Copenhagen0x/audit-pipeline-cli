@@ -414,16 +414,23 @@ def filter_hypotheses(
     target_lc = target_name.lower()
     cond = target_conditions or {}
 
-    # Surface warnings on unknown predicates referenced in the library
-    for h in hyps:
-        for p in h.get("scope_conditions") or []:
-            if p not in KNOWN_PREDICATES and p not in cond:
-                msg = (
-                    f"hypothesis {h['id']} uses unknown predicate {p!r} "
-                    f"(treating as False — define it in workspace.json conditions or extend KNOWN_PREDICATES)"
-                )
-                if msg not in result.warnings:
-                    result.warnings.append(msg)
+    # Surface warnings on unknown predicates referenced in the library.
+    # R5b-2 (2026-05-24) — goober + code-reviewer LOW: this pre-loop
+    # was firing BEFORE the bypass guard, emitting misleading
+    # "treating as False" warnings when target_conditions=None (which
+    # actually bypasses ALL filtering, opposite of "treating as
+    # False"). Gate it on the same `is not None` predicate as the
+    # main loop for end-to-end bypass-semantic consistency.
+    if target_conditions is not None:
+        for h in hyps:
+            for p in h.get("scope_conditions") or []:
+                if p not in KNOWN_PREDICATES and p not in cond:
+                    msg = (
+                        f"hypothesis {h['id']} uses unknown predicate {p!r} "
+                        f"(treating as False — define it in workspace.json conditions or extend KNOWN_PREDICATES)"
+                    )
+                    if msg not in result.warnings:
+                        result.warnings.append(msg)
 
     for h in hyps:
         # 1. applies_to filter
@@ -440,23 +447,37 @@ def filter_hypotheses(
         # 2. scope_conditions filter
         # Patch #5 (audit CRITICAL 5587d02c): `cond.get(p, False)` made
         # any UNKNOWN predicate name evaluate as False — a typo in a
-        # customer YAML (e.g. "is-solana" vs "is_solana") silently
-        # dropped every affected hypothesis with no operator alert. The
-        # operator believed they had run N hypotheses; in reality only
-        # M ran and the rest were silently scoped out. Now: an unknown
-        # predicate raises ValueError so the operator sees it loudly at
-        # load time.
+        # customer YAML silently dropped every affected hypothesis with
+        # no operator alert. Unknown predicates now raise ValueError.
+        #
+        # R5b (2026-05-24) — goober CRITICAL: P5 broke the docstring
+        # contract "Pass None for no scope filtering" in TWO ways:
+        # (a) raise on every KNOWN_PREDICATE when target_conditions=None
+        # (b) my first fix replaced raise with unmet.append → still
+        #     scoped-out (silent skip, opposite of "no filtering").
+        # Correct semantics: target_conditions=None means BYPASS scope
+        # filtering entirely (every hypothesis is applicable on the
+        # condition front). Implemented by short-circuiting the whole
+        # condition loop when target_conditions is None.
         unmet = []
-        for p in h.get("scope_conditions") or []:
-            if p not in cond:
-                raise ValueError(
-                    f"hypothesis {h.get('id')!r} references unknown "
-                    f"scope_condition predicate {p!r}. Known predicates: "
-                    f"{sorted(cond.keys())}. Fix the YAML or extend the "
-                    f"predicate set before re-running."
-                )
-            if not cond[p]:
-                unmet.append(p)
+        if target_conditions is not None:
+            for p in h.get("scope_conditions") or []:
+                if p not in cond:
+                    if p in KNOWN_PREDICATES:
+                        # Predicate defined in standard vocabulary but
+                        # not configured for this target → treat as
+                        # unmet (operator chose not to opt in).
+                        unmet.append(p)
+                        continue
+                    raise ValueError(
+                        f"hypothesis {h.get('id')!r} references unknown "
+                        f"scope_condition predicate {p!r}. Known predicates: "
+                        f"{sorted(set(cond.keys()) | KNOWN_PREDICATES)}. "
+                        f"Fix the YAML or extend KNOWN_PREDICATES / workspace.json "
+                        f"conditions before re-running."
+                    )
+                if not cond[p]:
+                    unmet.append(p)
         if unmet:
             result.skipped.append(SkippedHypothesis(
                 hypothesis_id=h["id"],
