@@ -159,7 +159,13 @@ def _auto_sign(workspace: Path, report_path: Path, sign_enabled: bool) -> None:
         )
         return
     try:
-        sig_path = sign_file(report_path, key_path)
+        # Patch #2 round-2 fix (audit Patch #2 round-1 HIGH #2): pass
+        # domain="report" EXPLICITLY. Filename inference for weekly reports
+        # like `solana_weekly_20260524.html` doesn't match "report" substring
+        # → would raise SignError → silently skipped via the except below.
+        # Explicit domain= ensures every report path gets signed regardless
+        # of filename convention.
+        sig_path = sign_file(report_path, key_path, domain="report")
     except SignError as e:
         console.print(f"[yellow]auto-sign failed:[/yellow] {e}")
         return

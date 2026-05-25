@@ -187,7 +187,11 @@ def compute_cmd(ctx: click.Context, cycle_id: str, out: Path | None, sign: bool)
             from audit_pipeline.commands.sign import default_key_path, sign_file
             key = default_key_path(workspace)
             if key.is_file():
-                sig_path = sign_file(out, key)
+                # Patch #2 round-2 fix: explicit domain="merkle" so any
+                # operator-supplied --out filename (not just merkle.json) gets
+                # signed under the merkle domain instead of silently failing
+                # via SignError from _infer_domain.
+                sig_path = sign_file(out, key, domain="merkle")
                 console.print(f"[green]signed[/green] {sig_path}")
             else:
                 console.print(f"[dim]signing skipped — no key at {key}[/dim]")
@@ -305,9 +309,17 @@ def rebuild_all_cmd(ctx: click.Context, sign: bool) -> None:
                 from audit_pipeline.commands.sign import default_key_path, sign_file
                 key = default_key_path(workspace)
                 if key.is_file():
-                    sign_file(sidecar, key)
-            except Exception:
-                pass
+                    # Patch #2 round-2 fix: domain="merkle" explicit (same as
+                    # build_cmd above).
+                    sign_file(sidecar, key, domain="merkle")
+            except Exception as _e:
+                # Patch #2 round-3 fix (all 3 reviewers HIGH r2): SURFACE the
+                # failure. Previously bare `except Exception: pass` silently
+                # produced unsigned sidecars during bulk rebuild — operator
+                # saw "built N merkle root(s)" with no hint signing failed.
+                # Now print yellow warning per failed sidecar so the rebuild
+                # summary line is accurate.
+                console.print(f"[yellow]signing failed for {sidecar}:[/yellow] {_e}")
         n_built += 1
     console.print(f"[green]built[/green] {n_built} merkle root(s); skipped {n_skipped} existing; "
                    f"schema {SCHEMA_VERSION}")

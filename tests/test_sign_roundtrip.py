@@ -109,10 +109,29 @@ def test_infer_domain_recognizes_customer_manifest(tmp_path):
     assert sign_mod._infer_domain(tmp_path / "manifest.json") == "customer"
 
 
-def test_infer_domain_unknown_falls_back_to_raw(tmp_path):
-    """Unknown filename → raw (legacy v1 compat path). New code should
-    pass `domain=` explicitly instead of relying on inference."""
-    assert sign_mod._infer_domain(tmp_path / "random.txt") == "raw"
+@pytest.fixture(autouse=True)
+def _reset_signing_password_cache():
+    """Patch #2 round-3 fix (devils-advocate r3 HIGH #1): module-level
+    `_SIGNING_PASSWORD_CACHE` and `_SIGNING_PASSWORD_LOADED` flags persist
+    across tests in the same pytest session. Without a teardown, any test
+    that runs before this one and triggers `_cache_signing_password()` would
+    leak state into subsequent tests. Autouse + function-scoped resets both
+    module globals back to their import-time defaults after each test.
+    """
+    yield
+    # teardown
+    sign_mod._SIGNING_PASSWORD_CACHE = None
+    sign_mod._SIGNING_PASSWORD_LOADED = False
+
+
+def test_infer_domain_unknown_raises(tmp_path):
+    """Patch #2 round-1 (audit HIGH src/audit_pipeline/commands/sign.py:57):
+    unknown filename now RAISES SignError instead of falling back to 'raw'
+    (the legacy no-domain-separation tag). Closes the attacker-controlled-
+    filename → wrong-domain bypass. Callers must pass `domain=` explicitly."""
+    import pytest
+    with pytest.raises(sign_mod.SignError, match="cannot infer signing domain"):
+        sign_mod._infer_domain(tmp_path / "random.txt")
 
 
 def test_unknown_domain_explicitly_raises(tmp_path, fresh_keypair):

@@ -245,11 +245,32 @@ def bundle_digest(workspace: Path, finding_id: int) -> str:
             h.update(p.read_bytes())
     pdir = poc_dir(workspace, finding_id)
     if pdir.is_dir():
+        # Patch #2 round-1 fix (audit HIGH assembly.py:247): pdir.glob("*")
+        # also returns SYMLINKS. A symlink in poc/ pointing at /root/.ssh/
+        # jelleo-signing or any large file would expand bundle_digest to
+        # include attacker-chosen content (signing-key bytes leaking into the
+        # signed digest, or DoS via huge file). Two guards:
+        #   1. is_file() short-circuits on symlinks pointing to dirs (good)
+        #      but does NOT exclude symlinks pointing to regular files.
+        #      Explicit `is_symlink()` check before is_file() handles this.
+        #   2. p.resolve() must stay INSIDE pdir.resolve() — closes the
+        #      "symlink that resolves to /root/.ssh/key" exfil vector.
+        pdir_resolved = pdir.resolve()
         for p in sorted(pdir.glob("*")):
-            if p.is_file():
-                h.update((f"poc/{p.name}").encode())
-                h.update(b"\x00")
-                h.update(p.read_bytes())
+            if p.is_symlink():
+                continue  # refuse symlinks entirely in poc/
+            if not p.is_file():
+                continue
+            try:
+                p_resolved = p.resolve()
+                p_resolved.relative_to(pdir_resolved)
+            except (ValueError, OSError):
+                # path escapes pdir (shouldn't happen w/o symlinks but
+                # defense-in-depth) — skip.
+                continue
+            h.update((f"poc/{p.name}").encode())
+            h.update(b"\x00")
+            h.update(p.read_bytes())
     return h.hexdigest()
 
 
@@ -264,14 +285,41 @@ def sign_bundle(workspace: Path, finding_id: int, signing_key: Path) -> Path | N
     out.parent.mkdir(parents=True, exist_ok=True)
     try:
         from audit_pipeline.commands.sign import sign_file
-        # sign_file signs a file path; write the digest to a temp file first
+        # sign_file signs a file path; write the digest to a temp file first.
+        # Patch #2 round-1 CRITICAL fix (audit assembly.py:266-270): pass
+        # `domain="bundle"` EXPLICITLY. Previously sign_file's _infer_domain()
+        # fell through to 'raw' on the unrecognised filename `bundle.sig.digest`
+        # — same key as legitimate bundles but no domain separation, allowing
+        # an attacker who controlled the digest content to produce a signature
+        # accepted as a valid bundle. The round-1 fix to _infer_domain() now
+        # RAISES on unknown filenames (closes the silent-fallthrough), but
+        # passing domain= explicitly here is the correct guard at THIS call
+        # site regardless of upstream behaviour.
         digest_file = out.with_suffix(".digest")
         digest_file.write_text(digest, encoding="utf-8")
-        return sign_file(digest_file, signing_key)
-    except Exception:
-        # Fall back to digest-only attestation (operator can sign manually)
+        return sign_file(digest_file, signing_key, domain="bundle")
+    except Exception as e:
+        # R5b (2026-05-24) — goober HIGH #2 + code-reviewer MEDIUM #2:
+        # bare `except Exception: pass` silently swallowed every error
+        # including the new SignError class (encrypted-key/wrong-password)
+        # introduced by P2. Consumers who treat the existence of
+        # signature_path() as proof of signing accepted unsigned bundles
+        # with no signal. Fix: log loudly to stderr + a sentinel header
+        # in the digest file so the consumer can distinguish 'signed' from
+        # 'signing-failed fallback'. The fallback is preserved (operator
+        # can sign manually) but the FAILURE is unambiguous.
+        import sys as _sys
+        print(
+            f"[sign_bundle WARNING] signing failed for finding {finding_id}: "
+            f"{type(e).__name__}: {e}. Writing digest-only fallback to "
+            f"{out} (NOT a valid signature — operator must sign manually "
+            f"or fix the signing key).",
+            file=_sys.stderr,
+        )
         out.write_text(
-            f"# bundle digest (unsigned — signing key unavailable)\n"
+            f"# bundle digest (UNSIGNED — signing FAILED: {type(e).__name__})\n"
+            f"# Original error: {str(e)[:200]}\n"
+            f"# This file is NOT a signature. Verify rejection MUST fail.\n"
             f"sha256:{digest}\n",
             encoding="utf-8",
         )
