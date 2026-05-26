@@ -29,7 +29,6 @@ import pytest
 
 from audit_pipeline.commands import propagate
 
-
 # --- _is_link_or_junction ---------------------------------------------------
 
 
@@ -75,11 +74,13 @@ def test_is_link_or_junction_true_for_mocked_reparse_point(tmp_path: Path) -> No
     # Replacing the whole module masks every other attribute the helper
     # (or any callee it touches) might need, which paranoid-goober R1 #10
     # flagged as a brittle, over-broad mock.
-    with patch.object(propagate.os, "lstat", return_value=_MockStat()):
-        # Path.is_symlink is the first check; force it to return False so
-        # we exercise the lstat branch.
-        with patch.object(Path, "is_symlink", return_value=False):
-            assert propagate._is_link_or_junction(f) is True
+    # Path.is_symlink is the first check; force it to return False so we
+    # exercise the lstat branch.
+    with (
+        patch.object(propagate.os, "lstat", return_value=_MockStat()),
+        patch.object(Path, "is_symlink", return_value=False),
+    ):
+        assert propagate._is_link_or_junction(f) is True
 
 
 def test_is_link_or_junction_true_when_lstat_raises_oserror(tmp_path: Path) -> None:
@@ -87,9 +88,11 @@ def test_is_link_or_junction_true_when_lstat_raises_oserror(tmp_path: Path) -> N
     the entry as a link to be safe (fail-closed)."""
     f = tmp_path / "unreadable"
     f.write_text("x", encoding="utf-8")
-    with patch.object(Path, "is_symlink", return_value=False):
-        with patch.object(propagate.os, "lstat", side_effect=OSError("EACCES")):
-            assert propagate._is_link_or_junction(f) is True
+    with (
+        patch.object(Path, "is_symlink", return_value=False),
+        patch.object(propagate.os, "lstat", side_effect=OSError("EACCES")),
+    ):
+        assert propagate._is_link_or_junction(f) is True
 
 
 def test_is_link_or_junction_true_when_is_symlink_raises_oserror(tmp_path: Path) -> None:
@@ -780,11 +783,11 @@ def test_permanent_failure_reasons_constant_is_module_level() -> None:
         f"expected frozenset for immutability; got "
         f"{type(PERMANENT_FAILURE_REASONS).__name__}"
     )
-    assert PERMANENT_FAILURE_REASONS == frozenset({
+    assert frozenset({
         "finding_not_found",
         "no_bug_class",
         "no_signatures_registered",
-    }), (
+    }) == PERMANENT_FAILURE_REASONS, (
         f"unexpected membership: {PERMANENT_FAILURE_REASONS}. Reclassifying "
         f"any of these as transient (or adding a new permanent reason) "
         f"must update this test and the marker-write contract."
