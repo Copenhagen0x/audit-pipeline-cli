@@ -17,6 +17,7 @@ protocol with multi-instruction settlement. The corpus is how we find them.
 """
 
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
+from rich.markup import escape as _rich_escape
 from rich.table import Table
 
 if TYPE_CHECKING:
@@ -36,8 +38,229 @@ console = Console()
 # File extensions worth searching across the corpus
 SEARCH_EXTENSIONS = (".rs",)
 
+# Windows reparse-point flag (file attribute bit). True for symlinks,
+# NTFS junctions, mount points, AND OneDrive / Dropbox / generic cloud
+# "Files On-Demand" placeholders. `Path.is_symlink()` does NOT return
+# True for NTFS junctions on ANY Python version (the 3.12 change applied
+# to directory symlinks created via `mklink /D`, not to junctions created
+# via `mklink /J`). The lstat-based branch below is the PRIMARY guard
+# for junctions on all platforms; do not remove it as "legacy".
+#
+# Patch #18 (audit-018-walk-source-files) — sibling hardening to P15:
+# `propagate_ast.py` got the symlink-skip + NTFS-junction guard +
+# resolve-jail treatment via P15 (`fix/audit-015-tree-sitter`, commit
+# 204ee92). This file (`propagate.py`) has a parallel traversal in
+# `_walk_source_files` and was queued as a spawned-task chip. Both files
+# now share the same canonical guard. Keep this duplicate in sync with
+# the copy in `propagate_ast.py:_is_link_or_junction`; if you change one,
+# change both, or extract to a shared helper module.
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+
+
+def _is_link_or_junction(p: Path) -> bool:
+    """Return True for POSIX symlinks OR Windows reparse points (symlinks,
+    junctions, mount points, cloud-only placeholders).
+
+    A malicious corpus entry created as ``mklink /J corpus\\evil C:\\Windows``
+    (no admin needed for junctions, no developer mode either) would survive
+    ``Path.is_symlink()`` and the resolved target would defeat any containment
+    check (because the resolved path *is* the junction target). We refuse
+    to follow any reparse point.
+
+    Side effect: corpus files that live in a OneDrive / Dropbox / iCloud
+    folder with "Files On-Demand" enabled and are NOT locally synced
+    appear as reparse-point placeholders and will be silently skipped.
+    This is the intentional conservative tradeoff — silent scan
+    incompleteness on cloud-stub files is preferable to host-secret
+    exfiltration. Operators should fully-sync their corpus before audit.
+    """
+    try:
+        if p.is_symlink():
+            return True
+    except OSError:
+        # On a broken/unreadable entry, treat as link to be safe.
+        return True
+    try:
+        st = os.lstat(p)
+    except OSError:
+        return True
+    flags = getattr(st, "st_file_attributes", 0)
+    return bool(flags & _FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def _normalize_for_compare(p: Path) -> Path:
+    """Strip the Windows extended-path UNC prefix (``\\\\?\\``).
+
+    On Windows, ``Path.resolve()`` can return the extended-path form
+    (``\\\\?\\C:\\...`` or ``\\\\?\\UNC\\server\\share``) for paths
+    exceeding ``MAX_PATH`` (260 chars). If one side of a
+    ``relative_to`` comparison was resolved with the prefix and the
+    other without, the check raises ``ValueError`` even when one is
+    truly under the other — and ``_walk_source_files`` would silently
+    drop every ``.rs`` file in the affected repo (PG-R2 #4).
+
+    Normalize both sides through this helper before comparing. No-op
+    on POSIX where the prefix never appears.
+
+    Scope (R4):
+      * Handles ``\\\\?\\C:\\...`` and ``\\\\?\\UNC\\server\\share\\...``.
+      * Does NOT handle ``\\\\.\\`` device paths (``\\\\.\\COM1``,
+        ``\\\\.\\PhysicalDrive0``). ``Path.resolve()`` never produces
+        them for corpus files; if such a path reaches the containment
+        check it should fail (CR-R3 #3 + PG-R3 #4).
+      * If ``os.fspath(p)`` returns ``bytes`` (rare: a ``PathLike``
+        whose ``__fspath__`` returns bytes), decode via
+        ``os.fsdecode`` rather than crash with ``TypeError`` on
+        ``.startswith`` against a str (CR-R3 #4 + PG-R3 #2).
+        ``os.fsdecode`` is the canonical bytes→str path converter
+        and uses the filesystem encoding.
+      * The empty extended-path ``\\\\?\\`` (prefix with no content)
+        is passed through as ``Path(s)`` (preserving the prefix
+        literally) rather than collapsing to ``Path("")`` which
+        Python normalizes to ``Path(".")`` and could falsely pass
+        containment against CWD-relative parents (PG-R3 #3).
+
+    Keep this duplicate in sync with ``propagate_ast.py``'s copy.
+    """
+    s = os.fspath(p)
+    if isinstance(s, bytes):
+        s = os.fsdecode(s)
+    if s.startswith("\\\\?\\"):
+        rest = s[len("\\\\?\\"):]
+        if not rest:
+            return Path(s)
+        # \\?\UNC\server\share\... → \\server\share\...
+        if rest.startswith("UNC\\"):
+            return Path("\\\\" + rest[len("UNC\\"):])
+        return Path(rest)
+    return Path(s)
+
+
+def _rglob_no_follow(root: Path, pattern: str):
+    """``Path.rglob`` that does not recurse into symlinked subdirectories.
+
+    Python 3.13 introduced ``recurse_symlinks=False`` as an explicit
+    kwarg (changing the default). On 3.10-3.12 ``rglob`` DOES follow
+    symlinks during recursion. We probe for the kwarg and fall back to
+    the legacy call. The per-yielded-path containment check elsewhere
+    is the actual security boundary, but using the kwarg avoids the
+    perf / DoS cost of churning through symlinked system directories
+    when a corpus contains a directory symlink (PG-R2 #3).
+
+    Keep this duplicate in sync with ``propagate_ast.py``'s copy.
+    """
+    try:
+        return root.rglob(pattern, recurse_symlinks=False)
+    except TypeError:
+        return root.rglob(pattern)
+
+
+def _iter_corpus_repos(corpus: Path):
+    """Yield safe ``(repo_dir, repo_resolved)`` pairs from ``corpus``.
+
+    Patch #18 R1: the original P18 R0 delegated all containment to
+    ``_walk_source_files`` and left the corpus-level outer guard absent at
+    the callsites (``propagate_search``, ``run_for_finding``), losing the
+    defense-in-depth that ``propagate_ast.py`` has at its caller
+    (lines 330, 375-381). This helper now owns the corpus-traversal
+    invariants for both callers in one place, matching P15's pattern.
+
+    R2: callers pass ``repo_resolved`` back into ``_walk_source_files`` so
+    the per-file containment anchor is the SAME resolved path used for
+    the corpus jail. This closes the TOCTOU window where a junction could
+    be planted between ``_iter_corpus_repos``'s resolve and a second
+    resolve inside ``_walk_source_files``.
+
+    Skips:
+      - any ``repo_dir`` that is a symlink / NTFS junction / reparse point
+      - any ``repo_dir`` whose resolved path escapes ``corpus`` (defense-
+        in-depth against a repo that resolves outside the corpus root, e.g.
+        a deeper junction-as-parent created mid-walk).
+      - any entry where ``corpus.resolve`` or ``repo_dir.resolve`` raises
+        ``OSError`` (unresolvable / unreadable parent).
+
+    Skipped repos are silently dropped; callers count what we yield. If
+    ALL repos are skipped (e.g. an all-junctions corpus), callers should
+    treat ``safe_repos == []`` as an error case — there is no
+    distinguishing signal between "no subdirectories in corpus" and "all
+    subdirectories were filtered as unsafe" at this layer; the operator-
+    visible error message is the caller's responsibility.
+    """
+    try:
+        corpus_resolved = _normalize_for_compare(corpus.resolve(strict=False))
+    except OSError:
+        return
+    # R3: ``corpus.iterdir()`` can raise ``OSError`` (PermissionError on
+    # mode-000 dirs, EIO on broken FUSE mounts, etc.). Without this
+    # guard the exception escapes the generator as a raw traceback —
+    # ``propagate_search`` would show the operator a Python crash
+    # instead of a ClickException, and ``run_for_finding``'s caller
+    # (the async lifecycle hook) would silently swallow it with no
+    # retry signal (PG-R2 #2). Treat unreadable corpus as empty so
+    # callers go through the same "no safe subdirs" path.
+    try:
+        children = sorted(p for p in corpus.iterdir() if p.is_dir())
+    except OSError:
+        return
+    for repo_dir in children:
+        if _is_link_or_junction(repo_dir):
+            continue
+        try:
+            repo_resolved = _normalize_for_compare(repo_dir.resolve(strict=False))
+            # Default no-walk-up behavior of ``relative_to`` is what we
+            # want — walk_up=True (Python 3.12+) would allow ``..``
+            # escape. We do NOT pass walk_up=False explicitly because
+            # the kwarg does not exist on Python 3.10/3.11 (would raise
+            # TypeError); the default already gives the safe semantics.
+            repo_resolved.relative_to(corpus_resolved)
+        except (ValueError, OSError):
+            continue
+        yield repo_dir, repo_resolved
+
+
 # Minimum match score to surface in the report
 MIN_SCORE_TO_REPORT = 1
+
+
+# R5 (PG-R4 invariant): module-level allow-list of ``run_for_finding``
+# return reasons that are PERMANENT failures — bad finding-level
+# metadata that won't change without operator intervention. The
+# lifecycle hook (``propagate_from_finding_async``) writes the fired-
+# marker for these so the hook doesn't waste cycles re-trying.
+#
+# Transient failures (NOT in this set) — ``corpus_missing`` and
+# ``corpus_all_repos_filtered`` — leave the marker absent so the hook
+# can retry on the next status flip-flop once the operator repairs
+# the corpus (R4 fix for PG-R3 #5).
+#
+# Operator runbook caveat (PG-R4 #1): if you ADD a new bug-class
+# entry to ``BUG_CLASS_SIGNATURES`` after a finding has already
+# tripped ``no_signatures_registered`` and gotten its marker written,
+# the hook will NOT retry until you manually delete the marker:
+#   rm <workspace>/recon/propagate/markers/<finding_id>.fired
+# Same applies to a finding whose ``bug_class`` you correct after it
+# tripped ``no_bug_class``. ``finding_not_found`` is the only truly
+# unrecoverable case (the finding row was deleted from the DB).
+# ``propagate status <finding_id>`` surfaces the marker's ``ok=`` and
+# ``reason=`` lines so operators can identify markers that need
+# manual removal.
+#
+# Rate-limit interaction (PG-R5 #1): the per-hour rate limit
+# (``_check_rate_limit``, default 50/hr) is incremented BEFORE the
+# marker decision in ``propagate_from_finding_async``, so transient
+# failures DO consume a rate-limit slot for the current UTC hour.
+# Trade-off: this preserves the rate limiter's anti-runaway
+# guarantee (a misconfigured corpus that triggers transient
+# failures across 50 findings could otherwise keep firing the hook
+# without any throttle). The cost is that an operator who fixes the
+# corpus mid-hour after exhausting the budget must wait for the
+# hour boundary before retries can re-fire. The trade-off favors
+# safety over operator convenience.
+PERMANENT_FAILURE_REASONS: frozenset[str] = frozenset({
+    "finding_not_found",
+    "no_bug_class",
+    "no_signatures_registered",
+})
 
 
 @dataclass
@@ -362,19 +585,32 @@ def propagate_search(
         f"{len(signature)} signature(s)..."
     )
 
-    compiled_sigs = [(s, re.compile(s)) for s in signature]
+    # Walk the corpus. R1 (audit-018): use ``_iter_corpus_repos`` so the
+    # corpus-level junction / containment guard runs BEFORE per-repo
+    # traversal, matching the canonical P15 pattern in
+    # ``propagate_ast.py:scan_corpus_for_ast_patterns``. R2: materialize
+    # once, then check empty AFTER filtering — this distinguishes "corpus
+    # has no subdirs" from "all subdirs were filtered as junctions" in
+    # the same error path, and removes the double ``iterdir()`` pass.
+    # R4: check empty BEFORE ``re.compile`` so a bad regex doesn't
+    # mask the user-facing ClickException with a Python traceback when
+    # the corpus is already-known-empty (CR-R3 #2 + PG-R3 #6).
+    safe_repos = list(_iter_corpus_repos(corpus))
+    if not safe_repos:
+        raise click.ClickException(
+            f"No safe subdirectories found in corpus {corpus} "
+            f"(either empty, or every repo was filtered as a symlink / "
+            f"junction / outside the corpus root)"
+        )
 
-    # Walk the corpus
-    repos = sorted(p for p in corpus.iterdir() if p.is_dir())
-    if not repos:
-        raise click.ClickException(f"No subdirectories found in corpus {corpus}")
+    compiled_sigs = [(s, re.compile(s)) for s in signature]
 
     matches_by_file: dict[str, CorpusMatch] = {}
     files_scanned = 0
 
-    for repo_dir in repos:
+    for repo_dir, repo_resolved in safe_repos:
         repo_name = repo_dir.name
-        for src_path in _walk_source_files(repo_dir):
+        for src_path in _walk_source_files(repo_dir, repo_resolved):
             files_scanned += 1
             try:
                 content = src_path.read_text(encoding="utf-8", errors="replace")
@@ -406,36 +642,104 @@ def propagate_search(
 
     ranked = sorted(matches_by_file.values(), key=lambda m: -m.score)
 
-    _print_report(ranked, files_scanned, len(repos), len(signature))
-    _write_report(ranked, output / f"{report_name}.md", signature, files_scanned, len(repos))
+    _print_report(ranked, files_scanned, len(safe_repos), len(signature))
+    _write_report(ranked, output / f"{report_name}.md", signature, files_scanned, len(safe_repos))
 
 
-def _walk_source_files(repo: Path):
-    """Yield every .rs file under `repo`, skipping target/ and similar.
+def _walk_source_files(repo: Path, repo_resolved: Path | None = None):
+    """Yield every .rs file under ``repo``, skipping target/ and similar.
 
     FIX B-#4: Skip symlinks entirely. A malicious corpus repo could include
-    a symlink like `payload.rs -> /root/.audit-env` which the regex scanner
+    a symlink like ``payload.rs -> /root/.audit-env`` which the regex scanner
     would happily slurp, exfiltrating secrets into the next propagation
     report. We refuse to follow symlinks (file OR directory) — if a real
     audit needs a symlinked target, the corpus maintainer materializes it.
+
+    Patch #18 (audit-018) — match P15's three-layer hardening from
+    ``propagate_ast.py``:
+      1. Outer-loop guard: if the ``repo`` argument itself is a symlink
+         or reparse point (e.g. ``corpus/evil_repo`` → ``/root/``), the
+         containment check on resolved children becomes tautological
+         because ``repo.resolve()`` already points at the attacker target.
+         Refuse to descend.
+      2. ``_is_link_or_junction()`` instead of ``Path.is_symlink()``:
+         catches NTFS junctions (``mklink /J``) which survive
+         ``is_symlink()`` on all Python versions, plus OneDrive/Dropbox/
+         iCloud reparse-point placeholders.
+      3. ``resolve(strict=False).relative_to(repo_resolved)`` instead of
+         ``str(path.resolve()).startswith(str(repo_resolved))``: the
+         string-prefix check could be defeated by sibling-prefix tricks
+         (``/root_attacker`` starts with ``/root``); ``relative_to`` uses
+         the Path API and raises ``ValueError`` on any escape attempt.
+         ``strict=False`` swallows the common platform-specific
+         "unfollowable symlink" errors (POSIX EACCES/ENOENT/ELOOP via
+         ``ignored_error``, Windows ERROR_ACCESS_DENIED / 1921 via
+         ``allowed_winerror``); the outer ``OSError`` catch handles
+         unanticipated I/O failures.
     """
     skip_dirs = {"target", "node_modules", ".git", "build"}
-    repo_resolved = repo.resolve()
-    for path in repo.rglob("*"):
+    if _is_link_or_junction(repo):
+        return
+    # R2: when called via ``_iter_corpus_repos`` the caller already has a
+    # resolved path; pass it through to avoid a second ``resolve()`` and
+    # close the TOCTOU window between the corpus-level guard and the per-
+    # file containment anchor. Standalone callers (none today, but
+    # defensive) can omit and we resolve here.
+    if repo_resolved is None:
         try:
-            if path.is_symlink():
-                continue
-            # Also refuse paths that resolve outside the repo (defense-
-            # in-depth against root-level symlinks higher in the chain).
-            if not str(path.resolve()).startswith(str(repo_resolved)):
+            repo_resolved = _normalize_for_compare(repo.resolve(strict=False))
+        except OSError:
+            return
+    else:
+        # R3: callers in ``_iter_corpus_repos`` already normalize, but
+        # defensive standalone callers may pass a raw ``resolve()`` —
+        # normalize defensively so the per-file ``relative_to`` is
+        # always against a UNC-stripped anchor on Windows long-paths
+        # (PG-R2 #4).
+        repo_resolved = _normalize_for_compare(repo_resolved)
+    # R1: filter at the rglob level to ``*.rs`` instead of ``*`` + suffix
+    # post-filter. Matches the canonical P15 pattern in
+    # ``propagate_ast.py:382``; reduces per-entry syscall overhead and
+    # shrinks the TOCTOU window vs. _is_link_or_junction on directory
+    # entries we never read anyway.
+    # R3: use ``_rglob_no_follow`` so rglob does not descend into
+    # symlinked subdirectories on Python <3.13 (PG-R2 #3). The
+    # per-file containment check below is still the security boundary,
+    # but skipping symlinked descent avoids a DoS vector where rglob
+    # churns through ``/etc/ssl/*.rs``-style attacker-renamed system
+    # files before the containment check catches them.
+    for path in _rglob_no_follow(repo, "*.rs"):
+        if _is_link_or_junction(path):
+            continue
+        try:
+            if not path.is_file():
                 continue
         except OSError:
             continue
-        if not path.is_file():
+        # R1: check ``skip_dirs`` against the path components *relative to*
+        # ``repo``, not the absolute path. Otherwise a corpus mounted under
+        # a parent named e.g. ``C:\Users\...\build\corpus\...`` would
+        # silently skip every file because ``"build"`` appears in
+        # ``path.parts``. Match the canonical P15 pattern.
+        try:
+            rel_parts = path.relative_to(repo).parts
+        except ValueError:
             continue
-        if path.suffix not in SEARCH_EXTENSIONS:
+        if any(part in skip_dirs for part in rel_parts):
             continue
-        if any(part in skip_dirs for part in path.parts):
+        # Defense-in-depth: even non-symlink entries can sit under a
+        # symlinked parent directory created mid-walk. Verify the
+        # resolved path remains under ``repo_resolved``. We rely on
+        # ``relative_to``'s default no-walk-up behavior (the
+        # walk_up=False kwarg only exists on Python 3.12+, but the
+        # default matches the safe semantics on all supported versions).
+        # Normalize the resolved path so a ``\\?\``-prefixed long-path
+        # form does not falsely fail containment (PG-R2 #4).
+        try:
+            _normalize_for_compare(
+                path.resolve(strict=False)
+            ).relative_to(repo_resolved)
+        except (ValueError, OSError):
             continue
         yield path
 
@@ -819,14 +1123,28 @@ def propagate_from_finding_async(workspace: Path, finding_id: int) -> None:
         if result.get("ok") and result.get("top_candidates"):
             _enqueue_layer1_dispatches(workspace, finding_id, result)
 
-        # F23: write fired marker so we don't re-propagate on flip-flop
-        marker.write_text(
-            f"{datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
-            f"finding_id={finding_id}\n"
-            f"ok={result.get('ok')}\n"
-            f"reason={result.get('reason', '')}\n",
-            encoding="utf-8",
+        # F23: write fired marker so we don't re-propagate on flip-flop.
+        # R4 (PG-R3 #5): only mark for genuine completions (ok=True) OR
+        # for PERMANENT failures (bad finding metadata that won't change
+        # on retry). Transient failures (corpus_missing,
+        # corpus_all_repos_filtered) leave the marker absent so the next
+        # hook invocation can retry once the operator repairs the
+        # corpus. Without this gate, a single transient failure would
+        # permanently idle the propagation hook for the finding until
+        # manual ``rm`` of the marker file. ``PERMANENT_FAILURE_REASONS``
+        # is the module-level allow-list (see docstring there).
+        _should_mark = (
+            result.get("ok") is True
+            or result.get("reason") in PERMANENT_FAILURE_REASONS
         )
+        if _should_mark:
+            marker.write_text(
+                f"{datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+                f"finding_id={finding_id}\n"
+                f"ok={result.get('ok')}\n"
+                f"reason={result.get('reason', '')}\n",
+                encoding="utf-8",
+            )
     except Exception:
         return
 
@@ -957,12 +1275,41 @@ def run_for_finding(
             "hint": "Run `audit-pipeline propagate init-corpus -c <path>` first",
         }
 
+    # R1 (audit-018): use ``_iter_corpus_repos`` for the corpus-level
+    # junction / containment guard, matching the canonical P15 pattern.
+    # R2: pass repo_resolved through so ``_walk_source_files`` uses the
+    # same resolved anchor (closes TOCTOU between corpus-guard and per-
+    # file containment).
+    # R3: parity with ``propagate_search``'s ClickException — distinguish
+    # 'corpus has no subdirs' / 'every subdir filtered as junction' from
+    # a real success. Without this guard, ``run_for_finding`` would
+    # return ``{"ok": True, "files_scanned": 0, ...}`` and the lifecycle
+    # hook at ``propagate_from_finding_async`` would write the fired-
+    # marker, permanently suppressing retry (CR-R2 #1 + PG-R2 #1).
+    # R4: this check runs BEFORE ``re.compile`` so a malformed regex
+    # in ``BUG_CLASS_SIGNATURES`` (unlikely but possible on a future
+    # bug-class addition) doesn't propagate as an unhandled ``re.error``
+    # while the corpus is already-known-empty (CR-R3 #2 + PG-R3 #6).
+    safe_repos = list(_iter_corpus_repos(corpus_path))
+    if not safe_repos:
+        return {
+            "ok": False,
+            "reason": "corpus_all_repos_filtered",
+            "finding_id": finding_id,
+            "corpus_path": str(corpus_path),
+            "hint": (
+                "Every subdirectory of the corpus was filtered as a "
+                "symlink / junction / outside-the-corpus-root, or the "
+                "corpus has no subdirectories. Run `audit-pipeline "
+                "propagate init-corpus -c <path>` to populate it."
+            ),
+        }
+
     compiled_sigs = [(s, re.compile(s)) for s in sigs]
-    repos = sorted(p for p in corpus_path.iterdir() if p.is_dir())
     matches_by_file: dict[str, CorpusMatch] = {}
     files_scanned = 0
-    for repo_dir in repos:
-        for src_path in _walk_source_files(repo_dir):
+    for repo_dir, repo_resolved in safe_repos:
+        for src_path in _walk_source_files(repo_dir, repo_resolved):
             files_scanned += 1
             try:
                 content = src_path.read_text(encoding="utf-8", errors="replace")
@@ -992,7 +1339,7 @@ def run_for_finding(
     output_dir.mkdir(parents=True, exist_ok=True)
     report_name = f"propagation_finding_{finding_id}_{bug_class}"
     report_path = output_dir / f"{report_name}.md"
-    _write_report(ranked, report_path, tuple(sigs), files_scanned, len(repos))
+    _write_report(ranked, report_path, tuple(sigs), files_scanned, len(safe_repos))
 
     # Wave 8a — AST scanner runs alongside regex when tree-sitter is available
     # and the bug_class has registered AST patterns. Results are appended to
@@ -1039,7 +1386,7 @@ def run_for_finding(
         "bug_class": bug_class,
         "n_signatures": len(sigs),
         "files_scanned": files_scanned,
-        "repos_scanned": len(repos),
+        "repos_scanned": len(safe_repos),
         "n_candidates": len(ranked),
         "top_candidates": [
             {"repo": m.repo, "file": m.file, "line": m.line, "score": m.score}
@@ -1307,6 +1654,66 @@ def status_cmd(ctx: click.Context, finding_id: int) -> None:
     console.print(f"\n  Idempotency marker:     {'FIRED' if fired else 'not fired'}")
     if marker and fired:
         console.print(f"    {marker}")
+        # R5 (PG-R4 #4): surface the marker contents so operators can
+        # distinguish a real success (``ok=True``) from a permanent
+        # failure that wrote the marker (e.g.
+        # ``ok=False reason=no_signatures_registered`` — the finding
+        # is silently skipped until the marker is manually deleted).
+        # See ``PERMANENT_FAILURE_REASONS`` for the runbook.
+        #
+        # R7 (PG-R6 #1, #2): hardening against pathological marker
+        # content. ``errors="replace"`` swallows ``UnicodeDecodeError``
+        # (a ``ValueError`` subclass, NOT caught by ``except OSError``)
+        # for markers written by a third-party process with a
+        # different encoding. ``_rich_escape`` escapes Rich markup
+        # tokens (``[red]``, ``[/dim]``) so a marker line containing
+        # an unmatched closing tag does not crash with
+        # ``rich.errors.MarkupError`` — also not an ``OSError``.
+        try:
+            # ``errors="replace"`` is the load-bearing choice here —
+            # it deterministically produces U+FFFD for every invalid
+            # byte, which the R8 substitution below collapses to
+            # ASCII ``?``. DO NOT change to ``errors="surrogateescape"``
+            # without also updating the substitution: surrogateescape
+            # produces lone surrogates like ``\\udc90`` (NOT U+FFFD)
+            # which the substitution would miss, re-opening the
+            # CP1252 ``UnicodeEncodeError`` crash on Windows
+            # terminals. The drift is caught by
+            # ``test_status_cmd_does_not_crash_on_non_utf8_marker``'s
+            # assertion ``"reason=bad_byte_?_here" in result.output``
+            # — but only if tests are run before shipping (PG-R8 #1).
+            marker_text = marker.read_text(
+                encoding="utf-8", errors="replace",
+            ).strip()
+        except OSError:
+            marker_text = ""
+        for line in marker_text.splitlines():
+            line = line.strip()
+            if line.startswith(("ok=", "reason=")):
+                # R8 (CR-R7 #1): replace U+FFFD with ASCII ``?`` before
+                # ``console.print``. ``errors="replace"`` above produces
+                # U+FFFD for undecodable bytes; on a CP1252 Windows
+                # terminal U+FFFD is not in the target codec and Rich's
+                # underlying ``self.file.write`` raises
+                # ``UnicodeEncodeError`` (NOT caught by anything in
+                # this function or by Click's runner — operator sees a
+                # raw traceback). Substituting to ``?`` here keeps the
+                # output legible on every platform.
+                #
+                # Threat-model scope (PG-R8 #2): this guard covers
+                # MACHINE-WRITTEN markers — the marker writer at
+                # ``propagate_from_finding_async`` only emits ASCII
+                # field values (``ok={True,False,None}`` and
+                # ``reason`` from ``PERMANENT_FAILURE_REASONS`` /
+                # ``run_for_finding`` return literals, all ASCII).
+                # If an operator MANUALLY edits a marker to add a
+                # ``reason=`` containing non-ASCII / non-CP1252 chars
+                # (Cyrillic, CJK, emoji), the CP1252 console crash
+                # surface re-opens for that operator on that terminal.
+                # Acceptable residual: the runbook does not encourage
+                # text edits — only ``rm``.
+                line = line.replace("�", "?")
+                console.print(f"    [dim]{_rich_escape(line)}[/dim]")
     console.print(f"\n  Queued Layer-1 hunts:   {len(queued)} item(s)")
     for q in queued:
         console.print(f"    {q}")
