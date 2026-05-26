@@ -13,11 +13,9 @@ no env override. Fix: `_default_kani_timeout_s()` reads
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
-
 
 # --- L7: _read_capped --------------------------------------------------------
 
@@ -175,6 +173,7 @@ def test_hunt_l3_omits_timeout_so_env_takes_effect() -> None:
     ``run_kani_proof`` is dead code (PG-R0 #1).
     """
     import re as _re
+
     import audit_pipeline.commands.hunt as hunt_mod
 
     src = Path(hunt_mod.__file__).read_text(encoding="utf-8")

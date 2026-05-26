@@ -25,9 +25,6 @@ from __future__ import annotations
 import re
 import time
 
-import pytest
-
-
 # Structural-pattern heuristics for ReDoS-prone shapes. None of these
 # is a perfect detector; the timing test below is the backstop.
 _NESTED_QUANT = re.compile(r"\([^)]*[+*]\)[+*?]")
@@ -71,7 +68,7 @@ def test_no_bug_class_signature_has_redos_shape() -> None:
                 bad.append((cls, sig, flags))
 
     assert not bad, (
-        f"ReDoS-prone signature shape(s) detected (audit-023 L2 regression):\n"
+        "ReDoS-prone signature shape(s) detected (audit-023 L2 regression):\n"
         + "\n".join(f"  {cls}: {sig!r} -> {flags}" for cls, sig, flags in bad)
     )
 
@@ -96,7 +93,7 @@ def test_no_ast_match_predicate_has_redos_shape() -> None:
                     bad.append((cls, name, regex_str, flags))
 
     assert not bad, (
-        f"ReDoS-prone regex in AST #match? predicate (audit-023 L2):\n"
+        "ReDoS-prone regex in AST #match? predicate (audit-023 L2):\n"
         + "\n".join(
             f"  {cls} :: {name}: {regex!r} -> {flags}"
             for cls, name, regex, flags in bad

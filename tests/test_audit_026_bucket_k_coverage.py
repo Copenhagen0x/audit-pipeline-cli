@@ -24,9 +24,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-
 # --- K2: all_passed() gate-bypass --------------------------------------------
 
 

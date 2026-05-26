@@ -20,9 +20,6 @@ pass). If a future refactor lets raw HTML through, the test fails.
 
 from __future__ import annotations
 
-import pytest
-
-
 _XSS_PAYLOADS = [
     # Raw script tag — classic
     "<script>alert(1)</script>",

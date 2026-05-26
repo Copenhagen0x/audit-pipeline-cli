@@ -24,9 +24,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
-
 _CLI_FILES_WITH_DRY_RUN = (
     "src/audit_pipeline/commands/bundle.py",
     "src/audit_pipeline/commands/issue.py",
@@ -80,8 +77,8 @@ def test_every_if_dry_run_block_has_control_flow_exit() -> None:
                 bad.append((rel, line_no, block[:200]))
 
     assert not bad, (
-        f"--dry-run block(s) missing a control-flow exit (audit-024 L5 "
-        f"regression): execution falls through to state-mutating code.\n"
+        "--dry-run block(s) missing a control-flow exit (audit-024 L5 "
+        "regression): execution falls through to state-mutating code.\n"
         + "\n".join(
             f"  {rel}:{lineno} block-preview:\n    {preview!r}"
             for rel, lineno, preview in bad
@@ -128,7 +125,7 @@ def test_issue_dry_run_blocks_db_transition() -> None:
     assert dry_run_pos != -1, "sync block missing dry_run check"
     assert transition_pos != -1, "sync block missing transition_finding call"
     assert dry_run_pos < transition_pos, (
-        f"issue.py sync block dry_run check must come BEFORE the DB "
-        f"transition (with a `continue` in between). Otherwise dry-run "
-        f"would commit state changes."
+        "issue.py sync block dry_run check must come BEFORE the DB "
+        "transition (with a `continue` in between). Otherwise dry-run "
+        "would commit state changes."
     )
