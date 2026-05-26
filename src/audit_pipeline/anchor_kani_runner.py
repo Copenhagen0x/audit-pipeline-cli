@@ -119,17 +119,43 @@ def write_kani_sidecar(
     return proofs_path
 
 
+def _default_kani_timeout_s() -> int:
+    """Audit-020 (Bucket L sub-item L8): make the Kani per-harness timeout
+    env-overridable. The hardcoded 1800s default is too aggressive for
+    some bug classes (k-product overflow proofs can exceed 30m on slow
+    hosts) and overkill for trivial structural assertions. Operators
+    can now set ``JELLEO_KANI_TIMEOUT_S=<seconds>`` once and re-use
+    the value across all cargo kani invocations.
+
+    Falls back to 1800 on missing / non-integer env values to preserve
+    the pre-audit-020 behavior.
+    """
+    raw = os.environ.get("JELLEO_KANI_TIMEOUT_S")
+    if raw is None:
+        return 1800
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        return 1800
+    # Sanity floor: a 1-second timeout would guarantee timeout-as-failure
+    # on every harness, masking real verdicts. Refuse anything under 30s.
+    return max(30, v)
+
+
 def run_kani_proof(
     *,
     sidecar_dir: Path,
     harness_name: str,
-    timeout_s: int = 1800,
+    timeout_s: int | None = None,
 ) -> tuple[int, str]:
     """Compile + verify one harness in the sidecar workspace.
 
     Returns ``(returncode, combined_log)``. ``cargo kani`` can take
-    minutes; default timeout is 30m per harness.
+    minutes; default timeout is 30m per harness (override via
+    ``JELLEO_KANI_TIMEOUT_S`` env var or the ``timeout_s`` kwarg).
     """
+    if timeout_s is None:
+        timeout_s = _default_kani_timeout_s()
     env = os.environ.copy()
     env["PATH"] = _solana_augmented_path()
     cargo_bin = shutil.which("cargo", path=env["PATH"]) or "cargo"
