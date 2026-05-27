@@ -163,7 +163,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
   <div class="nav-right">
     <span class="nav-status">
       <span class="live-dot"></span>
-      Guidance · v1.0 · public
+      Guidance · v1.0.1 · public
     </span>
     <a href="/customer/" class="nav-portal">Customer portal</a>
     <a href="/integrate/" class="nav-cta">Request integration</a>
@@ -190,9 +190,9 @@ code { font-family: var(--mono); font-size: 0.92em; }
   <span class="hero-bracket br"></span>
   <div class="container">
     <div data-reveal>
-      <div class="hero-eyebrow">Solana security guidance · v1.0 · for Claude Code</div>
+      <div class="hero-eyebrow">Solana security guidance · v1.0.1 · for Claude Code</div>
       <h1 class="hero-title">Catch Solana bugs <span class="accent">as you write them.</span></h1>
-      <p class="hero-lede">A drop-in security ruleset for Anthropic's <a href="https://code.claude.com/docs/en/security-guidance" target="_blank" rel="noopener">Claude Code security-guidance plugin</a>. Two files into your <code>.claude/</code> folder and your IDE flags Solana-specific bug classes while you code — caller-controlled clock values, cross-market state asymmetry, wrapper handlers that drift from engine logic, missing Anchor constraints, and 16 more. All 20 rules drawn from real disclosed bounty findings.</p>
+      <p class="hero-lede">A drop-in security ruleset for Anthropic's <a href="https://code.claude.com/docs/en/security-guidance" target="_blank" rel="noopener">Claude Code security-guidance plugin</a>. Two files into your <code>.claude/</code> folder and your IDE flags Solana-specific bug classes while you code — caller-controlled clock values, cross-market state asymmetry, wrapper handlers that drift from engine logic, missing Anchor constraints, and 16 more. SOL-001 covers two confirmed-exploitable bounty wins; the other 19 rules are documented Solana audit patterns.</p>
 
       <figure class="hero-demo" data-reveal data-delay="1" style="margin: 36px 0 8px; max-width: 1080px;">
         <img src="/guidance-hero.png"
@@ -207,9 +207,9 @@ code { font-family: var(--mono); font-size: 0.92em; }
       <div class="install-block" data-reveal data-delay="2">
         <div class="install-head">Install — 30 seconds</div>
         <div class="install-cmd" id="install-cmd">mkdir -p .claude && \
-  curl -sL https://raw.githubusercontent.com/Copenhagen0x/solana-security-guidance/v1.0.0/claude-security-guidance.md \
+  curl -sL https://raw.githubusercontent.com/Copenhagen0x/solana-security-guidance/v1.0.1/claude-security-guidance.md \
        -o .claude/claude-security-guidance.md && \
-  curl -sL https://raw.githubusercontent.com/Copenhagen0x/solana-security-guidance/v1.0.0/security-patterns.yaml \
+  curl -sL https://raw.githubusercontent.com/Copenhagen0x/solana-security-guidance/v1.0.1/security-patterns.yaml \
        -o .claude/security-patterns.yaml</div>
         <button class="copy-btn" onclick="copyInstall(this)">Copy</button>
         <div class="install-note">Then <code>/plugin install security-guidance@claude-plugins-official</code> + <code>/reload-plugins</code> in your Claude Code session. <a href="https://github.com/Copenhagen0x/solana-security-guidance" target="_blank" rel="noopener">Source · MIT licensed →</a></div>
@@ -217,8 +217,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
       <div class="kpi-strip">
         <div class="kpi-cell"><div class="label">Rules</div><div class="value">20</div></div>
-        <div class="kpi-cell"><div class="label">Headline (bounty-backed)</div><div class="value">5</div></div>
-        <div class="kpi-cell"><div class="label">Disclosed findings</div><div class="value">38+</div></div>
+        <div class="kpi-cell"><div class="label">Confirmed bounty wins (SOL-001)</div><div class="value">2</div></div>
+        <div class="kpi-cell text"><div class="label">Maintainer-acknowledged</div><div class="value">Lean proofs</div></div>
         <div class="kpi-cell text"><div class="label">License</div><div class="value">MIT</div></div>
       </div>
 
@@ -264,16 +264,16 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">02 · The 20 rules</div>
       <h2 class="section-title">Solana bug classes the plugin will flag.</h2>
-      <p class="section-lede">5 headline rules trace to real published bounty findings. 15 generic rules cover the rest of the Solana attack surface — every common bug class an auditor checks for.</p>
+      <p class="section-lede">SOL-001 covers two confirmed-exploitable bounty wins. The other 19 rules are documented Solana audit patterns — some from our disclosures (with maintainer-triage classifications noted), some from public bug-class taxonomy.</p>
 
       <table class="rules-table">
         <thead><tr><th>ID</th><th>Catches</th><th>Source</th></tr></thead>
         <tbody>
-        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-001--unauthenticated-now_slot" target="_blank" rel="noopener">SOL-001</a></td><td>Unauthenticated <code>now_slot</code> / clock spoofing</td><td class="rule-src headline">Bounty 6 H2</td></tr>
-        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-002--cross-market-state-asymmetry" target="_blank" rel="noopener">SOL-002</a></td><td>Cross-market state asymmetry → counter inflation</td><td class="rule-src headline">Bounty 5 primary</td></tr>
-        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-003--wrapper-re-implements-engine" target="_blank" rel="noopener">SOL-003</a></td><td>Wrapper handler re-implements engine logic</td><td class="rule-src headline">Bounty 5 F1</td></tr>
-        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-004--penaltyhealth-terms-omitted" target="_blank" rel="noopener">SOL-004</a></td><td>Health/penalty terms omitted from calc</td><td class="rule-src headline">Bounty 5 F2</td></tr>
-        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-005--anchor-resize-without-checks" target="_blank" rel="noopener">SOL-005</a></td><td>Anchor <code>realloc()</code> without guards</td><td class="rule-src headline">Bounty 5 F12</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-001--unauthenticated-now_slot" target="_blank" rel="noopener">SOL-001</a></td><td>Unauthenticated <code>now_slot</code> / clock spoofing</td><td class="rule-src headline">2 bounty wins · #107 + #78 F33</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-002--cross-market-state-asymmetry" target="_blank" rel="noopener">SOL-002</a></td><td>Cross-market state asymmetry → counter inflation</td><td class="rule-src">Public class · #104</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-003--wrapper-re-implements-engine" target="_blank" rel="noopener">SOL-003</a></td><td>Wrapper handler re-implements engine logic</td><td class="rule-src">Pattern · #78 F1 (fixed in-flight)</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-004--penaltyhealth-terms-omitted" target="_blank" rel="noopener">SOL-004</a></td><td>Health/penalty terms omitted from calc</td><td class="rule-src">Pattern · #78 F2 (engine-side)</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-005--anchor-resize-without-checks" target="_blank" rel="noopener">SOL-005</a></td><td>Anchor <code>realloc()</code> without guards</td><td class="rule-src">Latent · #78 F12</td></tr>
         <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-006--missing-signer-check" target="_blank" rel="noopener">SOL-006</a></td><td>Missing signer check on privileged handler</td><td class="rule-src">Generic Solana</td></tr>
         <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-007--missing-owner-verification" target="_blank" rel="noopener">SOL-007</a></td><td>Missing <code>account.owner == program_id</code> check</td><td class="rule-src">Generic Solana</td></tr>
         <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-008--unverified-pda" target="_blank" rel="noopener">SOL-008</a></td><td>Unverified PDA derivation</td><td class="rule-src">Generic Solana</td></tr>
@@ -322,20 +322,20 @@ code { font-family: var(--mono); font-size: 0.92em; }
   <div class="container">
     <div data-reveal>
       <div class="section-label">04 · Why these rules</div>
-      <h2 class="section-title">Drawn from real disclosed bounty findings.</h2>
-      <p class="section-lede">Each headline rule traces to a bug we found and disclosed. Not heuristics from a checklist — patterns from production exploits.</p>
+      <h2 class="section-title">Honest provenance.</h2>
+      <p class="section-lede">SOL-001 covers two confirmed-exploitable bounty wins. The rest are documented Solana patterns — some surfaced in our disclosures and classified by the maintainer as already-fixed, engine-side, or latent. We list both kinds because all are real attack surfaces, but we don't claim bounty credit we didn't earn.</p>
 
       <ul>
-        <li><strong>SOL-001</strong> · Bounty 6 H2 — <a href="https://github.com/aeyakovenko/percolator-prog/issues/107" target="_blank" rel="noopener">percolator-prog#107</a>. Filed 2026-05-26, accepted + fixed by Toly the same day. Our suggested patch (<code>authenticated_slot_or_fallback</code>) shipped verbatim.</li>
-        <li><strong>SOL-002</strong> · The cross-market <code>pnl_pos_bound_tot</code> inflation class that drained the insurance fund 50025 → 25 atoms (Bounty 5 primary class).</li>
-        <li><strong>SOL-003</strong> · Bounty 5 F1 (Critical) — wrapper's <code>handle_close_resolved</code> re-implemented close inline. Filed at <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">percolator-cli#78</a>.</li>
-        <li><strong>SOL-004</strong> · Bounty 5 F2 (Critical) — health certificate omitted 9 spec-mandated penalty terms. percolator-cli#78.</li>
-        <li><strong>SOL-005</strong> · Bounty 5 F12 — anchor account resize without owner / size / rent guards. percolator-cli#78.</li>
+        <li><strong>SOL-001 · Two confirmed-exploitable bounty wins, same class.</strong> ACTIVATE branch at <a href="https://github.com/aeyakovenko/percolator-prog/issues/107" target="_blank" rel="noopener">percolator-prog#107</a> (fixed in <code>6512fa1</code>). RETIRE branch at <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">percolator-cli#78 F33</a> (fixed in <code>3fd9b1d</code>). Both maintainer-acknowledged via Lean theorem-prover models. Our suggested <code>authenticated_slot_or_fallback</code> patch shipped verbatim.</li>
+        <li><strong>SOL-002 · Public class, not our bounty.</strong> The cross-market <code>pnl_pos_bound_tot</code> inflation class was publicly disclosed at <a href="https://github.com/aeyakovenko/percolator-prog/issues/104" target="_blank" rel="noopener">percolator-prog#104</a> by another researcher. Included because the pattern is reproducible across perp-DEX programs.</li>
+        <li><strong>SOL-003 · Pattern from our bounty 5 disclosure.</strong> F1 was in our <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">#78</a> submission. Maintainer triage: F1 was independently fixed in <code>0925ed4</code> before our submission was triaged. Real pattern, not a paid bounty.</li>
+        <li><strong>SOL-004 · Pattern from our bounty 5 disclosure.</strong> F2 in <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">#78</a>. Maintainer classified as engine-side, not reproduced at the wrapper layer; separate disclosure pending at <code>aeyakovenko/percolator</code>.</li>
+        <li><strong>SOL-005 · Latent pattern from our bounty 5 disclosure.</strong> F12 in <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">#78</a>. Maintainer classified as latent — reachable only when the per-program 14-asset cap is lifted.</li>
       </ul>
 
       <p>All published cycle reports with PoCs, LiteSVM tests, Kani proofs, and Ed25519 signatures: <a href="/cycles/">/cycles</a>.</p>
 
-      <p>The 15 generic rules cover the rest of the Solana attack surface — every common bug class an auditor checks for. Together they give the Claude Code plugin enough Solana-specific context to catch issues before they reach a pull request.</p>
+      <p>The remaining 15 rules (SOL-006 through SOL-020) cover documented Solana audit patterns — signer/owner/PDA verification, Anchor constraints, CPI authority, lamport drains, Token Program ID confusion, integer overflow, etc. Standard auditor checklist territory.</p>
     </div>
   </div>
 </section>
@@ -421,7 +421,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     </div>
     <div class="footer-bottom">
       <span>© 2026 Jelleo · Apache-2.0 (platform) · MIT (guidance ruleset)</span>
-      <span>v1.0 · Guidance v1.0.0 · 2026-05-26</span>
+      <span>Guidance v1.0.1 · 2026-05-26 (honest-provenance correction)</span>
     </div>
   </div>
 </footer>
