@@ -12,13 +12,13 @@
 <meta property="og:url" content="https://jelleo.com/guidance.html">
 <meta property="og:title" content="Jelleo · Solana Security Guidance for Claude Code">
 <meta property="og:description" content="Drop-in Solana security ruleset for Anthropic's Claude Code security-guidance plugin. 20 rules drawn from 38+ disclosed bounty findings.">
-<meta property="og:image" content="https://jelleo.com/og.jpg?v=2">
+<meta property="og:image" content="https://jelleo.com/og-guidance.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Jelleo — The Underwriting Layer for Solana DeFi">
-<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:alt" content="Jelleo SOL-001 firing on a vulnerable Solana handler — Bounty 6 H2 case study">
+<meta property="og:image:type" content="image/png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://jelleo.com/og.jpg?v=2">
+<meta name="twitter:image" content="https://jelleo.com/og-guidance.png">
 <meta name="twitter:title" content="Jelleo · Solana Security Guidance for Claude Code">
 <meta name="twitter:description" content="Drop-in Solana security ruleset for Anthropic's Claude Code plugin. 20 rules from real bounty findings.">
 
@@ -194,7 +194,17 @@ code { font-family: var(--mono); font-size: 0.92em; }
       <h1 class="hero-title">Catch Solana bugs <span class="accent">as you write them.</span></h1>
       <p class="hero-lede">A drop-in security ruleset for Anthropic's <a href="https://code.claude.com/docs/en/security-guidance" target="_blank" rel="noopener">Claude Code security-guidance plugin</a>. Two files into your <code>.claude/</code> folder and your IDE flags Solana-specific bug classes while you code — caller-controlled clock values, cross-market state asymmetry, wrapper handlers that drift from engine logic, missing Anchor constraints, and 16 more. All 20 rules drawn from real disclosed bounty findings.</p>
 
-      <div class="install-block" data-reveal data-delay="1">
+      <figure class="hero-demo" data-reveal data-delay="1" style="margin: 36px 0 8px; max-width: 1080px;">
+        <img src="/guidance-hero.png"
+             alt="SOL-001 firing on a vulnerable Solana handler — Bounty 6 H2 case study"
+             style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 20px 50px rgba(0,0,0,0.5), 0 6px 20px rgba(245,184,0,0.06);"
+             loading="eager" decoding="async" width="1600" height="1000">
+        <figcaption style="font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-top: 12px; text-align: center;">
+          SOL-001 firing on a vulnerable handler · drawn from <a href="https://github.com/aeyakovenko/percolator-prog/issues/107" target="_blank" rel="noopener" style="color: var(--amber);">Bounty 6 H2 (percolator-prog#107)</a>
+        </figcaption>
+      </figure>
+
+      <div class="install-block" data-reveal data-delay="2">
         <div class="install-head">Install — 30 seconds</div>
         <div class="install-cmd" id="install-cmd">mkdir -p .claude && \
   curl -sL https://raw.githubusercontent.com/Copenhagen0x/solana-security-guidance/v1.0.0/claude-security-guidance.md \
@@ -212,7 +222,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
         <div class="kpi-cell text"><div class="label">License</div><div class="value">MIT</div></div>
       </div>
 
-      <div class="toc" data-reveal data-delay="2">
+      <div class="toc" data-reveal data-delay="3">
         <div class="toc-head">Sections</div>
         <ol>
           <li><span class="toc-num">01</span><a href="#what-you-get">What you get</a></li>
