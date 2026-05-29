@@ -655,7 +655,7 @@ pre::-webkit-scrollbar-thumb, .table-wrap::-webkit-scrollbar-thumb {
 }
 
 /* ============================== DOC PAGES (.doc) =================== */
-/* Promoted from per-page styles on methodology, security, bug-classes,
+/* Promoted from per-page styles on methodology, security, guidance,
    case-studies/f7-percolator. Same rules were duplicated 3-4 times. */
 section.doc { padding: 100px 0; }
 @media (max-width: 768px) { section.doc { padding: 64px 0; } }
@@ -719,7 +719,7 @@ section.doc td strong { color: var(--ink); }
   color: var(--amber); margin-bottom: 10px;
 }
 
-/* Table of Contents — used by methodology, bug-classes, security */
+/* Table of Contents — used by methodology, guidance, security */
 nav.toc, .toc {
   margin-top: 48px;
   background: var(--surface);

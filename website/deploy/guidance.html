@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jelleo · Solana Security Guidance for Claude Code</title>
+<meta name="description" content="Drop-in Solana security ruleset for Anthropic's Claude Code security-guidance plugin. 20 rules drawn from 38+ disclosed bounty findings. Free, MIT licensed.">
+<meta name="theme-color" content="#050504">
+<link rel="canonical" href="https://jelleo.com/guidance.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Jelleo">
+<meta property="og:url" content="https://jelleo.com/guidance.html">
+<meta property="og:title" content="Jelleo · Solana Security Guidance for Claude Code">
+<meta property="og:description" content="Drop-in Solana security ruleset for Anthropic's Claude Code security-guidance plugin. 20 rules drawn from 38+ disclosed bounty findings.">
+<meta property="og:image" content="https://jelleo.com/og-guidance.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Jelleo SOL-001 firing on a vulnerable Solana handler — Bounty 6 H2 case study">
+<meta property="og:image:type" content="image/png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://jelleo.com/og-guidance.png">
+<meta name="twitter:title" content="Jelleo · Solana Security Guidance for Claude Code">
+<meta name="twitter:description" content="Drop-in Solana security ruleset for Anthropic's Claude Code plugin. 20 rules from real bounty findings.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..900&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23050504'/%3E%3Cpath d='M58 28 H78 V48 M22 52 V72 H42' stroke='%23f5b800' stroke-width='5' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="/shared.css">
+
+<style>
+section.doc { padding: 100px 0; }
+@media (max-width: 768px) { section.doc { padding: 64px 0; } }
+section.doc h3 {
+  font-size: clamp(20px, 2vw, 26px); line-height: 1.25; font-weight: 600;
+  margin: 56px 0 18px; color: var(--ink); letter-spacing: -0.01em;
+}
+section.doc h4 { font-size: 16px; font-weight: 600; margin: 24px 0 8px; color: var(--ink); }
+section.doc p { color: var(--ink-2); margin-bottom: 16px; max-width: 80ch; line-height: 1.65; }
+section.doc ul, section.doc ol { color: var(--ink-2); margin: 0 0 16px 24px; max-width: 80ch; line-height: 1.7; }
+section.doc li { margin-bottom: 6px; }
+section.doc strong { color: var(--ink); }
+section.doc a { color: var(--amber); border-bottom: 1px solid rgba(245,184,0,0.3); transition: border-color .15s ease; }
+section.doc a:hover { border-bottom-color: var(--amber); }
+
+/* Install block — the hero of this page. Big copy-paste box. */
+.install-block {
+  margin: 40px 0 24px;
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 10px; padding: 24px 28px; max-width: 920px;
+  position: relative;
+}
+.install-head {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: 14px;
+}
+.install-cmd {
+  background: #0a0a08; border: 1px solid var(--rule); border-radius: 6px;
+  padding: 18px 22px; font-family: var(--mono); font-size: 13px; color: var(--ink);
+  line-height: 1.7; white-space: pre; overflow-x: auto; margin-bottom: 14px;
+}
+.install-note { font-size: 12px; color: var(--ink-3); font-family: var(--mono);
+                letter-spacing: 0.04em; }
+.install-note a { color: var(--amber); }
+.copy-btn {
+  position: absolute; top: 18px; right: 18px;
+  background: var(--rule); border: 1px solid var(--rule-2); color: var(--ink-2);
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+  padding: 6px 12px; border-radius: 4px; cursor: pointer;
+  text-transform: uppercase; transition: background .15s ease, color .15s ease;
+}
+.copy-btn:hover { background: var(--amber); color: #050504; }
+
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 32px 0; max-width: 920px; }
+@media (max-width: 720px) { .kpi-strip { grid-template-columns: 1fr 1fr; gap: 12px; } }
+@media (max-width: 380px) { .kpi-strip { grid-template-columns: 1fr; } }
+.kpi-cell { background: var(--surface); border: 1px solid var(--rule);
+            border-radius: 8px; padding: 18px 22px; }
+.kpi-cell .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
+                   text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px; }
+.kpi-cell .value { font-size: 28px; font-weight: 600; color: var(--amber);
+                   font-feature-settings: "tnum"; }
+.kpi-cell.text .value { font-size: 18px; color: var(--ink); font-weight: 500; }
+
+.toc { margin-top: 48px; background: var(--surface); border: 1px solid var(--rule);
+       border-radius: 10px; padding: 28px 32px; max-width: 920px; }
+.toc-head { font-family: var(--mono); font-size: 11px; letter-spacing: 0.22em;
+            text-transform: uppercase; color: var(--ink-3); margin-bottom: 18px; }
+.toc ol { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 40px; }
+@media (max-width: 720px) { .toc ol { columns: 1; } }
+.toc li { margin-bottom: 10px; font-size: 14px; break-inside: avoid; }
+.toc a { color: var(--ink-2); border-bottom: 1px dashed transparent;
+         transition: color .15s ease, border-color .15s ease; }
+.toc a:hover { color: var(--amber); border-bottom-color: var(--amber); }
+.toc .toc-num { font-family: var(--mono); color: var(--amber); font-size: 11px;
+                margin-right: 10px; letter-spacing: 0.06em; }
+
+.rules-table { width: 100%; max-width: 980px; border-collapse: collapse;
+               margin-top: 24px; font-size: 14px; }
+.rules-table thead th { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
+                        text-transform: uppercase; color: var(--ink-3); text-align: left;
+                        padding: 12px 14px; border-bottom: 1px solid var(--rule); }
+.rules-table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--rule);
+                        color: var(--ink-2); vertical-align: top; }
+.rules-table tbody tr:hover td { background: rgba(245,184,0,0.03); }
+.rules-table .rule-id { font-family: var(--mono); color: var(--amber); font-weight: 600;
+                        white-space: nowrap; }
+.rules-table .rule-src { font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+                         white-space: nowrap; }
+.rules-table .rule-src.headline { color: var(--amber); }
+.rules-table tbody td a { color: var(--ink); border-bottom: 1px dashed var(--rule-2); }
+.rules-table tbody td a:hover { color: var(--amber); border-bottom-color: var(--amber); }
+@media (max-width: 720px) {
+  .rules-table thead { display: none; }
+  .rules-table tbody tr { display: block; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+  .rules-table tbody td { display: block; padding: 4px 0; border-bottom: 0; }
+  .rules-table .rule-id { font-size: 13px; }
+}
+
+.callout { background: rgba(245,184,0,0.05); border-left: 3px solid var(--amber);
+           padding: 18px 22px; margin: 28px 0; font-size: 14px; color: var(--ink-2);
+           border-radius: 0 6px 6px 0; max-width: 80ch; line-height: 1.65; }
+.callout strong { color: var(--ink); }
+
+.hero-meta a { color: var(--amber); border-bottom: 1px solid rgba(245,184,0,0.3); }
+.hero-meta a:hover { border-bottom-color: var(--amber); }
+
+code { font-family: var(--mono); font-size: 0.92em; }
+</style>
+</head>
+<body>
+<a href="#main" class="skip-link">Skip to main content</a>
+
+<!-- BACKGROUND -->
+<div class="bg-aurora"></div>
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+<div class="bg-grid"></div>
+<canvas id="particles"></canvas>
+<div class="bg-scan"></div>
+<div class="bg-noise"></div>
+
+<div class="cursor-ring" id="ring"></div>
+<div class="cursor-dot" id="dot"></div>
+<div class="scroll-progress" id="progress"></div>
+
+<!-- NAV -->
+<nav class="nav" id="nav">
+  <a href="/" class="nav-logo">jelleo</a>
+  <div class="nav-center">
+      <a href="/protocols/">Protocols</a>
+      <a href="/guidance.html" class="active">Guidance</a>
+      <a href="/case-studies/f7-percolator/">Case study</a>
+      <a href="/methodology.html">Methodology</a>
+      <a href="/security.html">Security</a>
+      <a href="/status/">Status</a>
+      <a href="/cycles/">Cycles</a>
+    </div>
+  <div class="nav-right">
+    <span class="nav-status">
+      <span class="live-dot"></span>
+      Guidance · v1.0.1 · public
+    </span>
+    <a href="/customer/" class="nav-portal">Customer portal</a>
+    <a href="/integrate/" class="nav-cta">Request integration</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobile-menu" role="menu" aria-labelledby="nav-toggle">
+  <a href="/" role="menuitem">Home</a>
+  <a href="/methodology.html" role="menuitem">Methodology</a>
+  <a href="/guidance.html" role="menuitem">Solana Security Guidance</a>
+  <a href="/security.html" role="menuitem">Security</a>
+  <a href="/customer/" role="menuitem">Customer portal</a>
+  <a href="/cycles/" role="menuitem">Cycle archive</a>
+  <a href="https://github.com/Copenhagen0x/solana-security-guidance" target="_blank" rel="noopener" role="menuitem">Source</a>
+  <a href="/integrate/" role="menuitem" style="color: var(--amber);">Request integration →</a>
+</div>
+
+<!-- HERO -->
+<main id="main">
+<section class="hero">
+  <span class="hero-bracket tl"></span>
+  <span class="hero-bracket br"></span>
+  <div class="container">
+    <div data-reveal>
+      <div class="hero-eyebrow">Solana security guidance · v1.0.1 · for Claude Code</div>
+      <h1 class="hero-title">Catch Solana bugs <span class="accent">as you write them.</span></h1>
+      <p class="hero-lede">A drop-in security ruleset for Anthropic's <a href="https://code.claude.com/docs/en/security-guidance" target="_blank" rel="noopener">Claude Code security-guidance plugin</a>. Two files into your <code>.claude/</code> folder and your IDE flags Solana-specific bug classes while you code — caller-controlled clock values, cross-market state asymmetry, wrapper handlers that drift from engine logic, missing Anchor constraints, and 16 more. SOL-001 covers two confirmed-exploitable bounty wins; the other 19 rules are documented Solana audit patterns.</p>
+
+      <figure class="hero-demo" data-reveal data-delay="1" style="margin: 36px 0 8px; max-width: 1080px;">
+        <img src="/guidance-hero.png"
+             alt="SOL-001 firing on a vulnerable Solana handler — Bounty 6 H2 case study"
+             style="width: 100%; height: auto; border-radius: 10px; box-shadow: 0 20px 50px rgba(0,0,0,0.5), 0 6px 20px rgba(245,184,0,0.06);"
+             loading="eager" decoding="async" width="1600" height="1000">
+        <figcaption style="font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-top: 12px; text-align: center;">
+          SOL-001 firing on a vulnerable handler · drawn from <a href="https://github.com/aeyakovenko/percolator-prog/issues/107" target="_blank" rel="noopener" style="color: var(--amber);">Bounty 6 H2 (percolator-prog#107)</a>
+        </figcaption>
+      </figure>
+
+      <div class="install-block" data-reveal data-delay="2">
+        <div class="install-head">Install — 30 seconds</div>
+        <div class="install-cmd" id="install-cmd">mkdir -p .claude && \
+  curl -sL https://raw.githubusercontent.com/Copenhagen0x/solana-security-guidance/v1.0.1/claude-security-guidance.md \
+       -o .claude/claude-security-guidance.md && \
+  curl -sL https://raw.githubusercontent.com/Copenhagen0x/solana-security-guidance/v1.0.1/security-patterns.yaml \
+       -o .claude/security-patterns.yaml</div>
+        <button class="copy-btn" onclick="copyInstall(this)">Copy</button>
+        <div class="install-note">Then <code>/plugin install security-guidance@claude-plugins-official</code> + <code>/reload-plugins</code> in your Claude Code session. <a href="https://github.com/Copenhagen0x/solana-security-guidance" target="_blank" rel="noopener">Source · MIT licensed →</a></div>
+      </div>
+
+      <div class="kpi-strip">
+        <div class="kpi-cell"><div class="label">Rules</div><div class="value">20</div></div>
+        <div class="kpi-cell"><div class="label">Confirmed bounty wins (SOL-001)</div><div class="value">2</div></div>
+        <div class="kpi-cell text"><div class="label">Maintainer-acknowledged</div><div class="value">Lean proofs</div></div>
+        <div class="kpi-cell text"><div class="label">License</div><div class="value">MIT</div></div>
+      </div>
+
+      <div class="toc" data-reveal data-delay="3">
+        <div class="toc-head">Sections</div>
+        <ol>
+          <li><span class="toc-num">01</span><a href="#what-you-get">What you get</a></li>
+          <li><span class="toc-num">02</span><a href="#rules">The 20 rules</a></li>
+          <li><span class="toc-num">03</span><a href="#how-it-works">How it works</a></li>
+          <li><span class="toc-num">04</span><a href="#why-these">Why these rules</a></li>
+          <li><span class="toc-num">05</span><a href="#examples">Examples</a></li>
+          <li><span class="toc-num">06</span><a href="#contribute">Contribute</a></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 01 — WHAT YOU GET -->
+<section class="doc" id="what-you-get">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">01 · What you get</div>
+      <h2 class="section-title">Two files. Three review layers. 20 rules.</h2>
+      <p class="section-lede">Anthropic's plugin reads two files from your repo's <code>.claude/</code> folder. Our ruleset provides both, packaged for drop-in install.</p>
+
+      <h3 id="files"><code>claude-security-guidance.md</code></h3>
+      <p>Plain-markdown threat model + 20-rule review checklist (7.4 KB, under Anthropic's 8 KB cap). Read by the plugin's <strong>model-backed reviews</strong> (end-of-turn diff review + commit review). Tells the reviewer what Solana-specific patterns to look for.</p>
+
+      <h3><code>security-patterns.yaml</code></h3>
+      <p>15 deterministic regex/substring patterns. Read by the plugin's <strong>per-edit pattern check</strong> (no model call — fires instantly when you save a file). Each rule has a one-line reminder under Anthropic's 1 KB cap, prefixed with <code>Jelleo SOL-NNN:</code> so you can trace any flag back to its source.</p>
+
+      <div class="callout">
+        <strong>The two files work together.</strong> The YAML catches literal code patterns deterministically — fast, no model call, no cost. The Markdown extends the model-backed reviews with semantic guidance that catches the bug classes regex can't reach (cross-file reasoning, spec-vs-impl drift, authority confusion across modules).
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 02 — RULES -->
+<section class="doc" id="rules">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">02 · The 20 rules</div>
+      <h2 class="section-title">Solana bug classes the plugin will flag.</h2>
+      <p class="section-lede">SOL-001 covers two confirmed-exploitable bounty wins. The other 19 rules are documented Solana audit patterns — some from our disclosures (with maintainer-triage classifications noted), some from public bug-class taxonomy.</p>
+
+      <table class="rules-table">
+        <thead><tr><th>ID</th><th>Catches</th><th>Source</th></tr></thead>
+        <tbody>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-001--unauthenticated-now_slot" target="_blank" rel="noopener">SOL-001</a></td><td>Unauthenticated <code>now_slot</code> / clock spoofing</td><td class="rule-src headline">2 bounty wins · #107 + #78 F33</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-002--cross-market-state-asymmetry" target="_blank" rel="noopener">SOL-002</a></td><td>Cross-market state asymmetry → counter inflation</td><td class="rule-src">Public class · #104</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-003--wrapper-re-implements-engine" target="_blank" rel="noopener">SOL-003</a></td><td>Wrapper handler re-implements engine logic</td><td class="rule-src">Pattern · #78 F1 (fixed in-flight)</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-004--penaltyhealth-terms-omitted" target="_blank" rel="noopener">SOL-004</a></td><td>Health/penalty terms omitted from calc</td><td class="rule-src">Pattern · #78 F2 (engine-side)</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-005--anchor-resize-without-checks" target="_blank" rel="noopener">SOL-005</a></td><td>Anchor <code>realloc()</code> without guards</td><td class="rule-src">Latent · #78 F12</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-006--missing-signer-check" target="_blank" rel="noopener">SOL-006</a></td><td>Missing signer check on privileged handler</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-007--missing-owner-verification" target="_blank" rel="noopener">SOL-007</a></td><td>Missing <code>account.owner == program_id</code> check</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-008--unverified-pda" target="_blank" rel="noopener">SOL-008</a></td><td>Unverified PDA derivation</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-009--cpi-without-authority-check" target="_blank" rel="noopener">SOL-009</a></td><td>CPI without authority check</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-010--reinit-attack" target="_blank" rel="noopener">SOL-010</a></td><td>Reinit attack via <code>init_if_needed</code></td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-011--lamport-drain-via-close" target="_blank" rel="noopener">SOL-011</a></td><td>Lamport drain via account closure</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-012--rent-exemption-check-missing" target="_blank" rel="noopener">SOL-012</a></td><td>Rent exemption check missing</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-013--token-program-id-confusion" target="_blank" rel="noopener">SOL-013</a></td><td>Token Program ID confusion (Token vs Token-2022)</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-014--unchecked-integer-arithmetic" target="_blank" rel="noopener">SOL-014</a></td><td>Unchecked integer arithmetic</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-015--anchor-constraints-missing" target="_blank" rel="noopener">SOL-015</a></td><td>Anchor <code>has_one</code>/<code>constraint=</code> missing</td><td class="rule-src">Generic Anchor</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-016--bump-seed-unvalidated" target="_blank" rel="noopener">SOL-016</a></td><td>Bump seed not validated against canonical bump</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-017--raw-accountinfo-without-typed-deserialize" target="_blank" rel="noopener">SOL-017</a></td><td>Raw <code>AccountInfo</code> without typed deserialize</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-018--hardcoded-system-program-id" target="_blank" rel="noopener">SOL-018</a></td><td>Hardcoded System Program ID literal</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-019--missing-discriminator-check" target="_blank" rel="noopener">SOL-019</a></td><td>Missing discriminator check on deserialize</td><td class="rule-src">Generic Solana</td></tr>
+        <tr><td class="rule-id"><a href="https://github.com/Copenhagen0x/solana-security-guidance/blob/main/claude-security-guidance.md#sol-020--setauthority-without-verification" target="_blank" rel="noopener">SOL-020</a></td><td><code>SetAuthority</code> without prior verification</td><td class="rule-src">Generic Solana</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 03 — HOW IT WORKS -->
+<section class="doc" id="how-it-works">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">03 · How it works</div>
+      <h2 class="section-title">Three review layers, fired automatically by Claude Code.</h2>
+      <p class="section-lede">Anthropic's plugin reviews Claude's code edits at three points. Our files extend layers 1 and 2 with Solana-specific rules.</p>
+
+      <h3>Layer 1 · On each file edit</h3>
+      <p>Fast pattern match. No model call. No cost. The plugin reads <code>.claude/security-patterns.yaml</code> for regex/substring rules. <strong>Our file provides 15 deterministic patterns</strong> covering the bug classes that have clean textual signatures (caller-controlled <code>now_slot</code>, hardcoded program IDs, raw account access, unchecked integer arithmetic, missing discriminator checks, etc.).</p>
+
+      <h3>Layer 2 · At the end of each turn</h3>
+      <p>Background model review of the full diff. The plugin reads <code>.claude/claude-security-guidance.md</code> for semantic context. <strong>Our file provides the Solana threat model + 20-item review checklist</strong> — the patterns regex can't cleanly catch (spec-vs-impl drift, cross-file authority confusion, missing penalty terms in financial calc paths, wrapper handlers re-implementing engine logic).</p>
+
+      <h3>Layer 3 · On each commit Claude makes</h3>
+      <p>Deeper agentic review that reads surrounding code. Uses the same guidance file. Validates findings against your codebase's context before reporting.</p>
+
+      <p>Every time a rule fires, the reminder text includes the rule ID (<code>Jelleo SOL-001:</code>) and a link back to the GitHub source so you can see the underlying bounty case study.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 04 — WHY THESE RULES -->
+<section class="doc" id="why-these">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">04 · Why these rules</div>
+      <h2 class="section-title">Honest provenance.</h2>
+      <p class="section-lede">SOL-001 covers two confirmed-exploitable bounty wins. The rest are documented Solana patterns — some surfaced in our disclosures and classified by the maintainer as already-fixed, engine-side, or latent. We list both kinds because all are real attack surfaces, but we don't claim bounty credit we didn't earn.</p>
+
+      <ul>
+        <li><strong>SOL-001 · Two confirmed-exploitable bounty wins, same class.</strong> ACTIVATE branch at <a href="https://github.com/aeyakovenko/percolator-prog/issues/107" target="_blank" rel="noopener">percolator-prog#107</a> (fixed in <code>6512fa1</code>). RETIRE branch at <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">percolator-cli#78 F33</a> (fixed in <code>3fd9b1d</code>). Both maintainer-acknowledged via Lean theorem-prover models. Our suggested <code>authenticated_slot_or_fallback</code> patch shipped verbatim.</li>
+        <li><strong>SOL-002 · Public class, not our bounty.</strong> The cross-market <code>pnl_pos_bound_tot</code> inflation class was publicly disclosed at <a href="https://github.com/aeyakovenko/percolator-prog/issues/104" target="_blank" rel="noopener">percolator-prog#104</a> by another researcher. Included because the pattern is reproducible across perp-DEX programs.</li>
+        <li><strong>SOL-003 · Pattern from our bounty 5 disclosure.</strong> F1 was in our <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">#78</a> submission. Maintainer triage: F1 was independently fixed in <code>0925ed4</code> before our submission was triaged. Real pattern, not a paid bounty.</li>
+        <li><strong>SOL-004 · Pattern from our bounty 5 disclosure.</strong> F2 in <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">#78</a>. Maintainer classified as engine-side, not reproduced at the wrapper layer; separate disclosure pending at <code>aeyakovenko/percolator</code>.</li>
+        <li><strong>SOL-005 · Latent pattern from our bounty 5 disclosure.</strong> F12 in <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">#78</a>. Maintainer classified as latent — reachable only when the per-program 14-asset cap is lifted.</li>
+      </ul>
+
+      <p>All published cycle reports with PoCs, LiteSVM tests, Kani proofs, and Ed25519 signatures: <a href="/cycles/">/cycles</a>.</p>
+
+      <p>The remaining 15 rules (SOL-006 through SOL-020) cover documented Solana audit patterns — signer/owner/PDA verification, Anchor constraints, CPI authority, lamport drains, Token Program ID confusion, integer overflow, etc. Standard auditor checklist territory.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 05 — EXAMPLES -->
+<section class="doc" id="examples">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">05 · Examples</div>
+      <h2 class="section-title">Paired vulnerable / fixed snippets.</h2>
+      <p class="section-lede">5 paired examples in the GitHub repo — one per headline rule. Read the <code>vulnerable.rs</code> first, then compare against <code>fixed.rs</code>.</p>
+
+      <ul>
+        <li><a href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/examples/sol_001_unauth_now_slot" target="_blank" rel="noopener">SOL-001 · Caller-controlled <code>now_slot</code></a></li>
+        <li><a href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/examples/sol_002_cross_market_asymmetry" target="_blank" rel="noopener">SOL-002 · Cross-market counter inflation</a></li>
+        <li><a href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/examples/sol_003_wrapper_reimplements_engine" target="_blank" rel="noopener">SOL-003 · Wrapper re-implements engine logic</a></li>
+        <li><a href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/examples/sol_004_penalty_terms_omitted" target="_blank" rel="noopener">SOL-004 · Penalty/health terms omitted</a></li>
+        <li><a href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/examples/sol_005_realloc_no_guard" target="_blank" rel="noopener">SOL-005 · Anchor <code>realloc()</code> without guards</a></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 06 — CONTRIBUTE -->
+<section class="doc" id="contribute">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">06 · Contribute</div>
+      <h2 class="section-title">PRs welcome. Especially new rules from your own audits.</h2>
+      <p class="section-lede">This ruleset compounds with every cycle. Each new bounty finding becomes a new rule. PRs from the community are how it grows beyond what one team can audit.</p>
+
+      <ul>
+        <li><strong>New rules</strong> from your own audits — include a reference to the disclosed finding so reviewers can validate the case</li>
+        <li><strong>Tightened regexes</strong> that reduce false positives on real codebases</li>
+        <li><strong>Additional vulnerable/fixed example pairs</strong></li>
+      </ul>
+
+      <p>Open an issue first if you're proposing a new rule category. Keep rules focused: each one should catch a single bug class with a low false-positive rate.</p>
+
+      <p>Source · <a href="https://github.com/Copenhagen0x/solana-security-guidance" target="_blank" rel="noopener">github.com/Copenhagen0x/solana-security-guidance</a> · MIT licensed.</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-col footer-brand">
+        <div class="footer-logo">jelleo</div>
+        <p>Continuous Solana program audits — signed, Merkle-rooted, public.</p>
+        <p><a href="https://jelleo.com">jelleo.com</a></p>
+      </div>
+      <div class="footer-col">
+        <h5>Surfaces</h5>
+        <ul>
+          <li><a href="/#product">The four pillars</a></li>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a href="/cycles/">Cycle archive</a></li>
+          <li><a href="/guidance.html" class="active" style="color: var(--amber);">Solana Security Guidance</a></li>
+          <li><a href="/security.html">Security &amp; disclosure</a></li>
+          <li><a href="/customer/">Customer portal</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Open source</h5>
+        <ul>
+          <li><a href="https://github.com/Copenhagen0x/audit-pipeline-cli" target="_blank" rel="noopener">Platform</a></li>
+          <li><a href="https://github.com/Copenhagen0x/solana-security-guidance" target="_blank" rel="noopener">Solana Security Guidance</a></li>
+          <li><a href="https://github.com/aeyakovenko/percolator-prog/issues/107" target="_blank" rel="noopener">Bounty 6 H2 disclosure</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Contact</h5>
+        <ul>
+          <li><a href="mailto:security@jelleo.com">security@jelleo.com</a></li>
+          <li><a href="mailto:kirill@jelleo.com">kirill@jelleo.com</a></li>
+          <li><a href="mailto:info@jelleo.com">info@jelleo.com</a></li>
+          <li><a href="https://jelleo.com">jelleo.com</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Jelleo · Apache-2.0 (platform) · MIT (guidance ruleset)</span>
+      <span>Guidance v1.0.1 · 2026-05-26 (honest-provenance correction)</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+function copyInstall(btn) {
+  const cmd = document.getElementById('install-cmd').textContent;
+  navigator.clipboard.writeText(cmd).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.background = 'var(--amber)';
+    btn.style.color = '#050504';
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 1500);
+  });
+}
+</script>
+<script src="/shared.js"></script>
+</body>
+</html>

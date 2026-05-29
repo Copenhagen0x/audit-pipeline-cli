@@ -277,7 +277,7 @@ section.doc li { line-height: 1.65; }
   <a href="/" class="nav-logo">jelleo</a>
   <div class="nav-center">
       <a href="/protocols/">Protocols</a>
-      <a href="/bug-classes.html">Catalog</a>
+      <a href="/guidance.html">Guidance</a>
       <a href="/case-studies/f7-percolator/" class="active">Case study</a>
       <a href="/methodology.html">Methodology</a>
       <a href="/security.html">Security</a>
@@ -300,7 +300,7 @@ section.doc li { line-height: 1.65; }
   <a href="/" role="menuitem">Home</a>
   <a href="/protocols/" role="menuitem">Protocols</a>
   <a href="/methodology.html" role="menuitem">Methodology</a>
-  <a href="/bug-classes.html" role="menuitem">Bug-class catalog</a>
+  <a href="/guidance.html" role="menuitem">Solana Security Guidance</a>
   <a href="/security.html" role="menuitem">Security</a>
   <a href="/customer/" role="menuitem">Customer portal</a>
   <a href="/cycles/" role="menuitem">Cycle archive</a>
@@ -605,7 +605,7 @@ Insurance loss = (ΔK − 0.2)·N.
       </div>
 
       <h3 style="margin-top: 40px;">The six derived siblings</h3>
-      <p>Each sibling is a falsifiable claim about an invariant adjacent to F7's root cause. Together they form the structural perimeter of the <code><a href="/bug-classes.html#f7-derived">insurance-counter-vault-divergence</a></code> class.</p>
+      <p>Each sibling is a falsifiable claim about an invariant adjacent to F7's root cause. Together they form the structural perimeter of the <code><a href="/guidance.html#f7-derived">insurance-counter-vault-divergence</a></code> class.</p>
 
       <ul>
         <li><strong>SIB-V7-1</strong> · <code>insurance-counter-vault-divergence-on-liquidation</code> &mdash; during a liquidation absorbing a shortfall, the corresponding vault debit must occur atomically and match the absorbed amount exactly. <span class="sev sev-critical">Critical</span></li>
@@ -619,7 +619,7 @@ Insurance loss = (ΔK − 0.2)·N.
       <h3 style="margin-top: 40px;">Cross-protocol propagation status</h3>
       <p>The corpus sweep runs every regex signature for the F7 class plus the <code>insurance_balance_mutation</code> AST query against every <code>.rs</code> file in the indexed corpus on every confirmed Med+ finding. The "Confirmed siblings" counter above updates from <code>snapshot.json</code> as new findings clear the verification chain.</p>
 
-      <p>Each sibling that confirms fires the same disclosure pipeline F7 went through: <a href="/methodology.html#propagation">propagation methodology</a> &middot; <a href="/bug-classes.html">full bug-class catalog</a>.</p>
+      <p>Each sibling that confirms fires the same disclosure pipeline F7 went through: <a href="/methodology.html#propagation">propagation methodology</a> &middot; <a href="/guidance.html">full bug-class catalog</a>.</p>
 
       <div class="callout">
         <strong>Operator note</strong> &mdash; the per-finding chain page (parent &rarr; siblings &rarr; corpus sweep &rarr; queued L1 dispatches) is generated automatically via <code>audit-pipeline propagate chain &lt;finding-id&gt;</code> and surfaces in the customer dashboard manifest.

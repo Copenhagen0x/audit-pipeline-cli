@@ -221,7 +221,7 @@ small, .small { font-size: 12px; color: var(--ink-3); }
   <a href="/" class="nav-logo">jelleo</a>
   <div class="nav-center">
       <a href="/protocols/">Protocols</a>
-      <a href="/bug-classes.html">Catalog</a>
+      <a href="/guidance.html">Guidance</a>
       <a href="/case-studies/f7-percolator/">Case study</a>
       <a href="/methodology.html" class="active">Methodology</a>
       <a href="/security.html">Security</a>
@@ -245,7 +245,7 @@ small, .small { font-size: 12px; color: var(--ink-3); }
   <a href="/#product" role="menuitem">Product</a>
   <a href="/#live-ops" role="menuitem">Live ops</a>
   <a href="/methodology.html" role="menuitem">Methodology</a>
-  <a href="/bug-classes.html" role="menuitem">Bug-class catalog</a>
+  <a href="/guidance.html" role="menuitem">Solana Security Guidance</a>
   <a href="/security.html" role="menuitem">Security</a>
   <a href="/status/" role="menuitem">Status</a>
   <a href="/cycles/" role="menuitem">Cycle archive</a>
@@ -363,6 +363,11 @@ small, .small { font-size: 12px; color: var(--ink-3); }
       <p style="margin-top: 32px; max-width: 76ch; font-size: 14px; color: var(--ink-3);">
         <strong style="color: var(--ink-2);">Feedback loop:</strong> every confirmed finding feeds back into the hypothesis library — sibling claims auto-derive, the library compounds, the next cycle's coverage is broader. The pillars run continuously and in parallel, not as phases.
       </p>
+    </div>
+
+    <div class="callout" data-reveal data-delay="4" style="margin-top: 40px; max-width: 80ch;">
+      <span class="label">Shift-left distribution</span>
+      <p style="margin-top: 10px;">The same bug-class work also lands in your developers' IDEs. Jelleo maintains a public <a href="/guidance">Solana Security Guidance</a> ruleset for Anthropic's <a href="https://code.claude.com/docs/en/security-guidance" target="_blank" rel="noopener">Claude Code security-guidance plugin</a> — 20 rules total, headline rule SOL-001 covers two confirmed-exploitable bounty wins. Drop two files into <code>.claude/</code> and the plugin flags Solana-specific bug classes as your team writes code. MIT licensed at <a href="https://github.com/Copenhagen0x/solana-security-guidance" target="_blank" rel="noopener">github.com/Copenhagen0x/solana-security-guidance</a>.</p>
     </div>
   </div>
 </section>
@@ -943,7 +948,7 @@ Signed-Bytes: 142853
           <li><a href="/methodology.html">Methodology</a>
     <a href="/status/">Status</a>
     <a href="/cycles/">Cycles</a></li>
-          <li><a href="/bug-classes.html">Bug-class catalog</a></li>
+          <li><a href="/guidance.html">Solana Security Guidance</a></li>
           <li><a href="/security.html">Security &amp; disclosure</a></li>
           <li><a href="/customer/">Customer portal</a></li>
           <li><a href="/#case-study">F7 case study</a></li>
