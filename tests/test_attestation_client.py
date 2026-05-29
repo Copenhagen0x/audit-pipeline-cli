@@ -87,13 +87,19 @@ def test_instruction_data_layout_decodes():
     off += 8
     assert data[off:off + 32] == _FIXED_PROTO
     off += 32
-    (clen,) = struct.unpack_from("<I", data, off); off += 4
-    assert data[off:off + clen].decode() == "20260513-191318"; off += clen
-    (elen,) = struct.unpack_from("<I", data, off); off += 4
-    assert data[off:off + elen].decode() == "deadbeef"; off += elen
-    (count,) = struct.unpack_from("<I", data, off); off += 4
+    (clen,) = struct.unpack_from("<I", data, off)
+    off += 4
+    assert data[off:off + clen].decode() == "20260513-191318"
+    off += clen
+    (elen,) = struct.unpack_from("<I", data, off)
+    off += 4
+    assert data[off:off + elen].decode() == "deadbeef"
+    off += elen
+    (count,) = struct.unpack_from("<I", data, off)
+    off += 4
     assert count == 7
-    assert data[off:off + 32] == bytes([0xAB]) * 32; off += 32
+    assert data[off:off + 32] == bytes([0xAB]) * 32
+    off += 32
     assert off == len(data)  # no trailing bytes
 
 
@@ -101,8 +107,8 @@ def test_instruction_data_layout_decodes():
 
 
 def _args(**over):
-    base = dict(protocol=_FIXED_PROTO, cycle_id="c", engine_sha="sha",
-                invariant_count=1, merkle_root=b"\x00" * 32)
+    base = {"protocol": _FIXED_PROTO, "cycle_id": "c", "engine_sha": "sha",
+            "invariant_count": 1, "merkle_root": b"\x00" * 32}
     base.update(over)
     return ac.PublishArgs(**base)
 

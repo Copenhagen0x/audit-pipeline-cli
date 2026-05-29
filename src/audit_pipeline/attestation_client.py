@@ -59,7 +59,7 @@ def anchor_discriminator(ix_name: str) -> bytes:
     Same construction the litesvm harness uses (sha256 of "global:<ix>"),
     which is how Anchor routes instructions.
     """
-    return hashlib.sha256(f"global:{ix_name}".encode("utf-8")).digest()[:8]
+    return hashlib.sha256(f"global:{ix_name}".encode()).digest()[:8]
 
 
 def _borsh_string(s: str) -> bytes:

@@ -28,11 +28,11 @@ import urllib.request
 from pathlib import Path
 
 from audit_pipeline.attestation_client import (
-    PROGRAM_ID,
-    SYSTEM_PROGRAM_ID,
     _SEED_CONFIG,
     _SEED_CYCLE,  # noqa: F401  (re-exported for callers deriving the cycle PDA)
     _SEED_LATEST,
+    PROGRAM_ID,
+    SYSTEM_PROGRAM_ID,
     anchor_discriminator,
 )
 
@@ -126,7 +126,7 @@ def _solders():
     return Keypair, Pubkey, AccountMeta, Instruction, Hash, Transaction
 
 
-def load_keypair(path) -> "object":
+def load_keypair(path) -> object:
     """Load the operator's Solana keypair from a JSON file (64-int array) at
     the operator-supplied path. Secret bytes are never logged or returned as
     text — only the live solders Keypair object is returned for signing."""

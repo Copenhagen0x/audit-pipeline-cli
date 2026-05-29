@@ -156,9 +156,11 @@ def test_submit_blocks_mainnet_by_genesis_hash():
     # The real guard: even a devnet-named URL is refused if the RPC reports the
     # mainnet genesis hash (closes the loopback/substring bypass, #1).
     ix, kp = _ix_and_kp()
-    with patch("urllib.request.urlopen", _mock_urlopen({"getGenesisHash": s.MAINNET_GENESIS})):
-        with pytest.raises(s.AttestationSendError, match="mainnet-beta genesis"):
-            s.submit_and_confirm(_DEVNET, [ix], kp, dry_run=True)
+    with (
+        patch("urllib.request.urlopen", _mock_urlopen({"getGenesisHash": s.MAINNET_GENESIS})),
+        pytest.raises(s.AttestationSendError, match="mainnet-beta genesis"),
+    ):
+        s.submit_and_confirm(_DEVNET, [ix], kp, dry_run=True)
 
 
 def test_dry_run_builds_but_never_submits():
@@ -179,9 +181,11 @@ def test_null_send_result_raises_not_submitted():
     resp = {"getGenesisHash": _NONMAINNET_GENESIS,
             "getLatestBlockhash": {"value": {"blockhash": _FAKE_BLOCKHASH}},
             "sendTransaction": None}
-    with patch("urllib.request.urlopen", _mock_urlopen(resp)):
-        with pytest.raises(s.AttestationSendError, match="NOT submitted"):
-            s.submit_and_confirm(_DEVNET, [ix], kp, dry_run=False)
+    with (
+        patch("urllib.request.urlopen", _mock_urlopen(resp)),
+        pytest.raises(s.AttestationSendError, match="NOT submitted"),
+    ):
+        s.submit_and_confirm(_DEVNET, [ix], kp, dry_run=False)
 
 
 def test_real_send_confirms():
@@ -202,6 +206,8 @@ def test_real_send_onchain_failure_raises():
             "sendTransaction": "5SigNatureBase58Stub",
             "getSignatureStatuses": {"value": [{"err": {"InstructionError": [0, "Custom"]},
                                                  "confirmationStatus": "processed"}]}}
-    with patch("urllib.request.urlopen", _mock_urlopen(resp)):
-        with pytest.raises(s.AttestationSendError, match="FAILED on-chain"):
-            s.submit_and_confirm(_DEVNET, [ix], kp, dry_run=False)
+    with (
+        patch("urllib.request.urlopen", _mock_urlopen(resp)),
+        pytest.raises(s.AttestationSendError, match="FAILED on-chain"),
+    ):
+        s.submit_and_confirm(_DEVNET, [ix], kp, dry_run=False)
