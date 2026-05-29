@@ -176,6 +176,58 @@ mod tests {
         }
     }
 
+    fn cycle_pda(protocol: &Pubkey, cycle_id: &str) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[b"cycle", protocol.as_ref(), cycle_id.as_bytes()],
+            &program_id(),
+        )
+    }
+
+    /// Borsh-encode a String: 4-byte LE length prefix + UTF-8 bytes.
+    /// (Rust `str::len()` IS the UTF-8 byte count — intentional, matches borsh.)
+    fn borsh_string(s: &str) -> Vec<u8> {
+        let mut v = (s.len() as u32).to_le_bytes().to_vec();
+        v.extend_from_slice(s.as_bytes());
+        v
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn publish_attestation_ix(
+        authority: &Pubkey,
+        protocol: &Pubkey,
+        cycle_id: &str,
+        engine_sha: &str,
+        invariant_count: u32,
+        merkle_root: [u8; 32],
+    ) -> Instruction {
+        let mut data = ix_disc("publish_attestation").to_vec();
+        data.extend_from_slice(protocol.as_ref());
+        data.extend_from_slice(&borsh_string(cycle_id));
+        data.extend_from_slice(&borsh_string(engine_sha));
+        data.extend_from_slice(&invariant_count.to_le_bytes());
+        data.extend_from_slice(&merkle_root);
+        // Account order MUST match PublishAttestation<'info>:
+        // config(ro) | cycle_attestation(mut) | latest(mut) | authority(signer,mut) | system(ro)
+        Instruction {
+            program_id: program_id(),
+            accounts: vec![
+                AccountMeta::new_readonly(config_pda().0, false),
+                AccountMeta::new(cycle_pda(protocol, cycle_id).0, false),
+                AccountMeta::new(latest_pda(protocol).0, false),
+                AccountMeta::new(*authority, true),
+                AccountMeta::new_readonly(system_program(), false),
+            ],
+            data,
+        }
+    }
+
+    /// Read `latest.latest_cycle_id`. Layout: disc(8) | protocol(32) | string(4+len) | ...
+    fn read_latest_cycle_id(svm: &LiteSVM, protocol: &Pubkey) -> String {
+        let acct = svm.get_account(&latest_pda(protocol).0).expect("latest exists");
+        let len = u32::from_le_bytes(acct.data[40..44].try_into().unwrap()) as usize;
+        String::from_utf8(acct.data[44..44 + len].to_vec()).unwrap()
+    }
+
     // ============================ TESTS ============================
 
     #[test]
@@ -277,5 +329,128 @@ mod tests {
             .expect("cancel_rotation with a pending nomination should succeed");
         let (_, pending) = read_config(&svm);
         assert_eq!(pending, None, "pending cleared after cancel");
+    }
+
+    // ---- publish_attestation (P4 hardening: was previously untested) ----
+
+    /// Authority publishes a cycle: the per-cycle PDA is created (program-owned)
+    /// and the `latest` freshness pointer advances to that cycle_id.
+    #[test]
+    fn publish_attestation_happy_path() {
+        let mut svm = setup();
+        let auth = funded(&mut svm);
+        craft_config(&mut svm, &auth.pubkey(), None);
+        let protocol = unique();
+        send(&mut svm, &[register_protocol_ix(&auth.pubkey(), &protocol)], &auth, &[&auth])
+            .expect("register_protocol");
+        let cid = "20260101-000000";
+        send(
+            &mut svm,
+            &[publish_attestation_ix(&auth.pubkey(), &protocol, cid, "abc1234", 7, [0xAB; 32])],
+            &auth,
+            &[&auth],
+        )
+        .expect("authority publish should succeed");
+        let cyc = svm.get_account(&cycle_pda(&protocol, cid).0).expect("cycle attestation exists");
+        assert_eq!(cyc.owner, program_id(), "cycle PDA owned by the program");
+        assert_eq!(read_latest_cycle_id(&svm, &protocol), cid, "latest pointer advanced to this cycle");
+    }
+
+    /// A non-authority signer cannot publish (has_one = authority @ Unauthorized).
+    #[test]
+    fn publish_attestation_rejects_non_authority() {
+        let mut svm = setup();
+        let auth = funded(&mut svm);
+        craft_config(&mut svm, &auth.pubkey(), None);
+        let protocol = unique();
+        send(&mut svm, &[register_protocol_ix(&auth.pubkey(), &protocol)], &auth, &[&auth])
+            .expect("register_protocol");
+        let rando = funded(&mut svm);
+        assert!(
+            send(
+                &mut svm,
+                &[publish_attestation_ix(&rando.pubkey(), &protocol, "20260101-000000", "abc1234", 1, [0u8; 32])],
+                &rando,
+                &[&rando],
+            )
+            .is_err(),
+            "non-authority publish must fail (has_one Unauthorized)"
+        );
+    }
+
+    /// Re-publishing the same (protocol, cycle_id) fails — the per-cycle account is
+    /// plain `init`, so the registry is append-only / immutable per cycle.
+    #[test]
+    fn publish_attestation_duplicate_cycle_fails() {
+        let mut svm = setup();
+        let auth = funded(&mut svm);
+        craft_config(&mut svm, &auth.pubkey(), None);
+        let protocol = unique();
+        send(&mut svm, &[register_protocol_ix(&auth.pubkey(), &protocol)], &auth, &[&auth])
+            .expect("register_protocol");
+        let cid = "20260101-000000";
+        send(&mut svm, &[publish_attestation_ix(&auth.pubkey(), &protocol, cid, "abc1234", 1, [1u8; 32])], &auth, &[&auth])
+            .expect("first publish ok");
+        assert!(
+            send(&mut svm, &[publish_attestation_ix(&auth.pubkey(), &protocol, cid, "abc1234", 1, [2u8; 32])], &auth, &[&auth]).is_err(),
+            "duplicate (protocol, cycle_id) must fail — per-cycle account is plain init"
+        );
+    }
+
+    /// NEW guard: empty cycle_id is rejected on-chain (CycleIdEmpty).
+    #[test]
+    fn publish_attestation_rejects_empty_cycle_id() {
+        let mut svm = setup();
+        let auth = funded(&mut svm);
+        craft_config(&mut svm, &auth.pubkey(), None);
+        let protocol = unique();
+        send(&mut svm, &[register_protocol_ix(&auth.pubkey(), &protocol)], &auth, &[&auth])
+            .expect("register_protocol");
+        assert!(
+            send(&mut svm, &[publish_attestation_ix(&auth.pubkey(), &protocol, "", "abc1234", 1, [0u8; 32])], &auth, &[&auth]).is_err(),
+            "empty cycle_id must be rejected (CycleIdEmpty guard)"
+        );
+    }
+
+    /// NEW guard: empty engine_sha is rejected on-chain (EngineShaEmpty).
+    #[test]
+    fn publish_attestation_rejects_empty_engine_sha() {
+        let mut svm = setup();
+        let auth = funded(&mut svm);
+        craft_config(&mut svm, &auth.pubkey(), None);
+        let protocol = unique();
+        send(&mut svm, &[register_protocol_ix(&auth.pubkey(), &protocol)], &auth, &[&auth])
+            .expect("register_protocol");
+        assert!(
+            send(&mut svm, &[publish_attestation_ix(&auth.pubkey(), &protocol, "20260101-000000", "", 1, [0u8; 32])], &auth, &[&auth]).is_err(),
+            "empty engine_sha must be rejected (EngineShaEmpty guard)"
+        );
+    }
+
+    /// Publishing for a protocol that was never `register_protocol`'d fails —
+    /// the `latest` PDA does not exist, so the mut-account load fails.
+    #[test]
+    fn publish_attestation_unregistered_protocol_fails() {
+        let mut svm = setup();
+        let auth = funded(&mut svm);
+        craft_config(&mut svm, &auth.pubkey(), None);
+        let protocol = unique(); // NOT registered
+        assert!(
+            send(&mut svm, &[publish_attestation_ix(&auth.pubkey(), &protocol, "20260101-000000", "abc1234", 1, [0u8; 32])], &auth, &[&auth]).is_err(),
+            "publish for an unregistered protocol must fail (latest PDA missing)"
+        );
+    }
+
+    /// A non-authority cannot nominate a new authority (set_authority has_one).
+    #[test]
+    fn set_authority_rejects_non_authority() {
+        let mut svm = setup();
+        let auth = funded(&mut svm);
+        craft_config(&mut svm, &auth.pubkey(), None);
+        let rando = funded(&mut svm);
+        assert!(
+            send(&mut svm, &[set_authority_ix(&rando.pubkey(), &unique())], &rando, &[&rando]).is_err(),
+            "non-authority set_authority must fail (has_one Unauthorized)"
+        );
     }
 }

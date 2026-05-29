@@ -137,7 +137,19 @@ pub mod jelleo_attestation {
         invariant_count: u32,
         merkle_root: [u8; 32],
     ) -> Result<()> {
+        // Reject empty inputs on-chain. The CLI already guards these, but the
+        // program is the authoritative layer — a direct/hand-crafted ix (or a
+        // future CPI caller) bypassing the CLI must not be able to write a
+        // permanent blank-id / blank-engine cycle PDA (append-only = no undo).
+        // Reject empty inputs on-chain. The CLI already guards these, but the
+        // program is the authoritative layer — a direct/hand-crafted ix (or a
+        // future CPI caller) bypassing the CLI must not be able to write a
+        // permanent blank-id / blank-engine cycle PDA (append-only = no undo).
+        // (Proven by a mutation test: removing these flips the two empty-input
+        // litesvm tests to FAILED, confirming they exercise these guards.)
+        require!(!cycle_id.is_empty(), AttErr::CycleIdEmpty);
         require!(cycle_id.len() <= MAX_CYCLE_ID_LEN, AttErr::CycleIdTooLong);
+        require!(!engine_sha.is_empty(), AttErr::EngineShaEmpty);
         require!(engine_sha.len() <= MAX_ENGINE_SHA_LEN, AttErr::EngineShaTooLong);
 
         let clock = Clock::get()?;
@@ -348,4 +360,12 @@ pub enum AttErr {
     InvalidAuthority,
     #[msg("a rotation is already pending; cancel it first")]
     RotationPending,
+    // Appended at the END (not inserted mid-enum) so existing Anchor error codes
+    // (Unauthorized=6002, ProtocolMismatch=6003, ...) stay byte-stable for any
+    // consumer that pins them — threat-modeler P4. New variants land at
+    // CycleIdEmpty=6007, EngineShaEmpty=6008.
+    #[msg("cycle_id must not be empty")]
+    CycleIdEmpty,
+    #[msg("engine_sha must not be empty")]
+    EngineShaEmpty,
 }

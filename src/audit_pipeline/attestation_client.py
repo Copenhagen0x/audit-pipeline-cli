@@ -108,6 +108,12 @@ class PublishArgs:
         # valid JSON via \uXXXX escapes) must surface as AttestationError, not a
         # raw UnicodeEncodeError that escapes the caller's except-block as a
         # traceback (paranoid-goober P4.3 r3).
+        # Empty checks FIRST, mirroring the on-chain guard order (empty then
+        # length) — threat-modeler/code-reviewer P4. Both must be non-empty.
+        if not self.cycle_id:
+            raise AttestationError("cycle_id is empty (on-chain CycleIdEmpty)")
+        if not self.engine_sha:
+            raise AttestationError("engine_sha is empty — refusing to attest an unidentified engine")
         try:
             cid_len = len(self.cycle_id.encode("utf-8"))
             esha_len = len(self.engine_sha.encode("utf-8"))
@@ -120,8 +126,6 @@ class PublishArgs:
             raise AttestationError(
                 f"cycle_id exceeds {MAX_CYCLE_ID_LEN} bytes (on-chain CycleIdTooLong)"
             )
-        if not self.engine_sha:
-            raise AttestationError("engine_sha is empty — refusing to attest an unidentified engine")
         if esha_len > MAX_ENGINE_SHA_LEN:
             raise AttestationError(
                 f"engine_sha exceeds {MAX_ENGINE_SHA_LEN} bytes (on-chain EngineShaTooLong)"

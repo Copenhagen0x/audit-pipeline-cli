@@ -128,6 +128,13 @@ def test_validate_rejects_long_cycle_id():
         _args(cycle_id="x" * (ac.MAX_CYCLE_ID_LEN + 1)).validate()
 
 
+def test_validate_rejects_empty_cycle_id():
+    # Mirrors the on-chain CycleIdEmpty guard (threat-modeler P4): validate()
+    # must reject empty cycle_id symmetrically with empty engine_sha.
+    with pytest.raises(ac.AttestationError, match="cycle_id is empty"):
+        _args(cycle_id="").validate()
+
+
 def test_validate_rejects_empty_engine_sha():
     with pytest.raises(ac.AttestationError, match="engine_sha is empty"):
         _args(engine_sha="").validate()
