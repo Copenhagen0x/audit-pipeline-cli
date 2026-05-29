@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 # ─────────────────── pure-function tests ───────────────────
@@ -176,6 +177,33 @@ def test_cli_compute_writes_sidecar(tmp_path: Path) -> None:
     assert d["cycle_id"] == cid
     assert len(d["merkle_root"]) == 64
     assert d["n_findings"] == 2
+    # P4.4: with no --protocol, the field is omitted (no spurious key, byte-
+    # stable sidecars for protocol-less / rebuild-all cycles).
+    assert "protocol" not in d
+
+
+# ── P4.4 protocol-binding (producer side): `merkle compute --protocol` ──
+_WSOL = "So11111111111111111111111111111111111111112"  # a real valid pubkey
+
+
+def test_cli_compute_embeds_protocol(tmp_path: Path) -> None:
+    pytest.importorskip("solders")  # --protocol is validated via solders
+    cid = _seed(tmp_path)
+    r = _invoke(tmp_path, "compute", cid, "--no-sign", "--protocol", _WSOL)
+    assert r.exit_code == 0, r.output
+    d = json.loads((tmp_path / "hunts" / cid / "merkle.json").read_text(encoding="utf-8"))
+    assert d["protocol"] == _WSOL
+    # Embedding protocol must NOT change the merkle root (it's not a tree leaf).
+    r2 = _invoke(tmp_path, "compute", cid, "--no-sign")  # recompute without protocol
+    d2 = json.loads((tmp_path / "hunts" / cid / "merkle.json").read_text(encoding="utf-8"))
+    assert d2["merkle_root"] == d["merkle_root"]
+
+
+def test_cli_compute_rejects_bad_protocol(tmp_path: Path) -> None:
+    pytest.importorskip("solders")
+    cid = _seed(tmp_path)
+    r = _invoke(tmp_path, "compute", cid, "--no-sign", "--protocol", "not-base58!!!")
+    assert r.exit_code != 0  # refuse to sign a garbage protocol into the sidecar
 
 
 def test_cli_verify_passes_when_db_unchanged(tmp_path: Path) -> None:
@@ -322,6 +350,28 @@ def test_snapshot_excludes_per_finding_data(tmp_path: Path) -> None:
         assert set(entry.keys()) == allowed, (
             f"snapshot leaked extra keys: {set(entry.keys()) - allowed}"
         )
+
+
+def test_snapshot_excludes_protocol_even_when_present(tmp_path: Path) -> None:
+    # P4.4: even when a sidecar carries `protocol`, the public snapshot's
+    # key-whitelist must not surface it (no new public field slips through).
+    pytest.importorskip("solders")
+    cid = _seed(tmp_path)
+    _invoke(tmp_path, "compute", cid, "--no-sign", "--protocol", _WSOL)
+    from audit_pipeline.commands.dashboard import _recent_cycle_merkle_roots
+    roots = _recent_cycle_merkle_roots(tmp_path)
+    assert roots and all("protocol" not in entry for entry in roots)
+
+
+def test_cli_verify_passes_on_protocol_sidecar(tmp_path: Path) -> None:
+    # P4.4: a protocol-bearing sidecar must still pass `merkle verify` — protocol
+    # is metadata, not a tree leaf, so the recomputed root matches.
+    pytest.importorskip("solders")
+    cid = _seed(tmp_path)
+    _invoke(tmp_path, "compute", cid, "--no-sign", "--protocol", _WSOL)
+    r = _invoke(tmp_path, "verify", cid)
+    assert r.exit_code == 0, r.output
+    assert "OK" in r.output
 
 
 # ─────────────────── v4 enrichment (bundle_digest + cycle artifacts) ───────────────────

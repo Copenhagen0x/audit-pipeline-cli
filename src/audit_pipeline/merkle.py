@@ -204,10 +204,24 @@ def cycle_merkle_root(cycle: dict, findings: list[dict]) -> str:
     return merkle_root(cycle_leaves(cycle, findings)).hex()
 
 
-def cycle_merkle_summary(cycle: dict, findings: list[dict]) -> dict:
+def cycle_merkle_summary(
+    cycle: dict, findings: list[dict], *, protocol: str | None = None
+) -> dict:
     """Render a JSON-serializable summary suitable for snapshot.json or
-    a cycle's `merkle.json` sidecar."""
-    return {
+    a cycle's `merkle.json` sidecar.
+
+    `protocol` (base58 program id of the audited protocol), when provided, is
+    embedded as a top-level field. It is intentionally NOT part of the Merkle
+    root — the root is computed only from CYCLE_FIELDS/FINDING_FIELDS, so adding
+    it here keeps every existing root byte-for-byte stable. It rides in the
+    sidecar JSON, which the Ed25519 `.sig` covers in full, so the attested
+    (protocol, cycle, root) tuple becomes cryptographically bound. This lets
+    `merkle publish-onchain` read the protocol from the SIGNED sidecar instead
+    of an unbound CLI flag (P4.4 precondition: closes the confused-deputy where
+    a wrong --protocol could attest a real cycle against a protocol we never
+    audited). Omitted (no key) when not provided, so protocol-less cycles and
+    the bulk `rebuild-all` path produce identical sidecars to before."""
+    summary = {
         "schema":      f"jelleo-cycle-merkle-{SCHEMA_VERSION}",
         "cycle_id":    cycle.get("cycle_id"),
         "engine_sha":  cycle.get("engine_sha"),
@@ -219,3 +233,6 @@ def cycle_merkle_summary(cycle: dict, findings: list[dict]) -> dict:
             "finding": list(FINDING_FIELDS),
         },
     }
+    if protocol is not None:
+        summary["protocol"] = protocol
+    return summary

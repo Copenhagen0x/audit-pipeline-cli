@@ -154,14 +154,31 @@ def merkle_cmd() -> None:
 
 @merkle_cmd.command(name="compute")
 @click.argument("cycle_id", type=str)
+@click.option("--protocol", "protocol_b58", default=None,
+              help="base58 program id of the AUDITED protocol. When set, it is "
+                   "embedded in merkle.json and SIGNED, so `merkle publish-onchain` "
+                   "reads it from the signed sidecar (REQUIRED before this cycle "
+                   "can be attested on-chain — binds the (protocol, cycle, root) "
+                   "tuple cryptographically).")
 @click.option("--out", type=click.Path(path_type=Path), default=None,
               help="Output path (default: <workspace>/hunts/<cycle-id>/merkle.json)")
 @click.option("--sign/--no-sign", default=True, show_default=True,
               help="Auto-sign the merkle.json with the workspace Ed25519 key")
 @click.pass_context
-def compute_cmd(ctx: click.Context, cycle_id: str, out: Path | None, sign: bool) -> None:
+def compute_cmd(
+    ctx: click.Context, cycle_id: str, protocol_b58: str | None,
+    out: Path | None, sign: bool,
+) -> None:
     """Compute + persist the Merkle root for one cycle."""
     workspace = _ws(ctx)
+    # Validate the protocol pubkey BEFORE computing/signing — never sign a
+    # garbage protocol string into the attested sidecar.
+    if protocol_b58 is not None:
+        from audit_pipeline import attestation_client as _ac
+        try:
+            _ac.parse_pubkey(protocol_b58)
+        except _ac.AttestationError as e:
+            raise click.ClickException(str(e))
     db = open_findings_db(workspace)
     cycle = _cycle_record(db, cycle_id)
     if not cycle:
@@ -174,13 +191,15 @@ def compute_cmd(ctx: click.Context, cycle_id: str, out: Path | None, sign: bool)
     cycle = _enrich_cycle_for_merkle(workspace, cycle)
     findings = [_enrich_finding_for_merkle(workspace, f) for f in findings]
 
-    summary = cycle_merkle_summary(cycle, findings)
+    summary = cycle_merkle_summary(cycle, findings, protocol=protocol_b58)
     out = out or _merkle_path(workspace, cycle_id)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
     console.print(f"[green]wrote[/green] {out}")
     console.print(f"  root: {summary['merkle_root']}")
     console.print(f"  leaves: {summary['n_leaves']} (1 cycle + {summary['n_findings']} findings)")
+    if protocol_b58:
+        console.print(f"  protocol: {protocol_b58} [dim](signed; on-chain-attestable)[/dim]")
 
     if sign:
         try:
@@ -323,3 +342,259 @@ def rebuild_all_cmd(ctx: click.Context, sign: bool) -> None:
         n_built += 1
     console.print(f"[green]built[/green] {n_built} merkle root(s); skipped {n_skipped} existing; "
                    f"schema {SCHEMA_VERSION}")
+
+
+# ── live-send helpers (P4.4): shared by attest-init / attest-register / publish-onchain --send ──
+def _load_signer(keypair_path, *, must_be_authority: bool):
+    """Load the signing keypair from the operator-supplied path. For
+    authority-gated instructions, verify it IS the program authority — a
+    mismatch would just be rejected on-chain, so fail fast with a clear error.
+    The secret is never logged; only the live keypair object is returned."""
+    from audit_pipeline import attestation_client as ac
+    from audit_pipeline import attestation_send as asend
+    if not keypair_path:
+        raise click.ClickException("--send requires --keypair <path to the signing keypair>")
+    try:
+        kp = asend.load_keypair(keypair_path)
+    except asend.AttestationSendError as e:
+        raise click.ClickException(str(e))
+    if must_be_authority and str(kp.pubkey()) != ac.EXPECTED_AUTHORITY:
+        raise click.ClickException(
+            f"--keypair pubkey {kp.pubkey()} is NOT the program authority "
+            f"({ac.EXPECTED_AUTHORITY}); this instruction is authority-gated and the "
+            f"transaction would be rejected. Use the authority keypair."
+        )
+    return kp
+
+
+def _submit(cluster: str, ixs: list, kp) -> dict:
+    """Resolve the cluster (mainnet hard-blocked, incl. genesis check), submit +
+    confirm, and print the signature + explorer link."""
+    from audit_pipeline import attestation_send as asend
+    try:
+        url = asend.resolve_cluster(cluster)
+    except asend.AttestationSendError as e:
+        raise click.ClickException(str(e))
+    console.print(f"[yellow]SENDING[/yellow] {len(ixs)} instruction(s) to {url} as {kp.pubkey()} ...")
+    try:
+        res = asend.submit_and_confirm(url, ixs, kp, dry_run=False)
+    except asend.AttestationSendError as e:
+        raise click.ClickException(f"send failed: {e}")
+    # The signature is operator-RPC-sourced; validate it's a real base58 sig
+    # before composing the explorer link + returning it (a hostile custom RPC
+    # could otherwise return a string that corrupts the printed URL) — and use
+    # .get so a future return-shape change is a clean error, not a KeyError.
+    import re as _re
+    sig = res.get("signature")
+    if not isinstance(sig, str) or not _re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{86,90}", sig):
+        raise click.ClickException(f"submit returned an unexpected signature: {sig!r}")
+    _cl = cluster if cluster in ("devnet", "testnet") else "custom"
+    console.print(f"[bold green]submitted[/bold green] signature={sig}")
+    console.print(f"  explorer: https://explorer.solana.com/tx/{sig}?cluster={_cl}")
+    return res
+
+
+@merkle_cmd.command(name="publish-onchain")
+@click.argument("cycle_id", type=str)
+@click.option("--pubkey", type=click.Path(path_type=Path), default=None,
+              help="Ed25519 public key to verify the merkle.json.sig against "
+                   "(default: <workspace>/keys/jelleo.ed25519.pub)")
+@click.option("--out", "out_path", type=click.Path(path_type=Path), default=None,
+              help="Write the attestation request (JSON) here.")
+@click.option("--send/--no-send", default=False, show_default=True,
+              help="Submit the publish_attestation tx (devnet). Default is "
+                   "preview-only; requires --keypair (the authority).")
+@click.option("--keypair", "keypair_path", type=click.Path(path_type=Path), default=None,
+              help="Authority keypair path (the signer; must be EXPECTED_AUTHORITY). "
+                   "Required with --send.")
+@click.option("--cluster", default="devnet", show_default=True,
+              help="Solana cluster (devnet/testnet/localnet). Mainnet is BLOCKED.")
+@click.pass_context
+def publish_onchain_cmd(
+    ctx: click.Context, cycle_id: str, pubkey: Path | None, out_path: Path | None,
+    send: bool, keypair_path: Path | None, cluster: str,
+) -> None:
+    """Build a VERIFY-GATED publish_attestation instruction for one cycle.
+
+    This is the consumer of the signed merkle.json sidecar. Its FIRST action is
+    a strict Ed25519 verification (sign.verify_signature, expect_domain=
+    'merkle') — it will NOT construct an attestation for an unsigned, tampered,
+    wrong-domain, or rebound sidecar. The on-chain merkle_root is the bytes from
+    the SIGNED sidecar, never recomputed.
+
+    PREVIEW ONLY: derives the PDAs + builds the instruction + prints/writes the
+    request. The irreversible on-chain send (devnet, authority keypair) is wired
+    in P4.4 — never mainnet without the external audit (see build-inventory).
+    """
+    import json as _json
+
+    from audit_pipeline import attestation_client as ac
+    from audit_pipeline.commands.sign import SignError, verify_signature
+
+    workspace = _ws(ctx)
+    sidecar = _merkle_path(workspace, cycle_id)
+    if not sidecar.is_file():
+        raise click.ClickException(
+            f"no merkle.json at {sidecar} — run `merkle compute {cycle_id}` first"
+        )
+    sig_path = sidecar.parent / (sidecar.name + ".sig")
+    pub_path = pubkey or (workspace / "keys" / "jelleo.ed25519.pub")
+
+    # ── STEP 1 (FAIL-CLOSED): the sidecar must carry a valid Ed25519 signature
+    # under the 'merkle' domain before we will read a single field from it for
+    # on-chain use. A SignError here aborts the publish — nothing reaches chain.
+    try:
+        verified_bytes = verify_signature(sidecar, sig_path, pub_path, expect_domain="merkle")
+    except SignError as e:
+        raise click.ClickException(
+            f"refusing to publish — merkle.json signature check FAILED: {e}"
+        )
+    console.print(f"[green]signature verified[/green] (merkle domain) {sig_path.name}")
+
+    # ── STEP 2: parse the EXACT bytes verify_signature confirmed — NOT a second
+    # `sidecar.read_text()`. A re-read reopens a TOCTOU window where the file is
+    # swapped between verify and use (P4.3 review HIGH, all three reviewers).
+    # A signed-but-non-JSON / non-UTF-8 blob surfaces as a clean error, not a
+    # raw traceback (P4.3 r2 — goober + threat-modeler).
+    try:
+        merkle = _json.loads(verified_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, _json.JSONDecodeError) as e:
+        raise click.ClickException(
+            f"merkle.json passed signature verification but is not valid "
+            f"UTF-8 JSON: {e}"
+        )
+    try:
+        # protocol is read + validated from the SIGNED sidecar inside
+        # from_merkle_json — no operator-supplied --protocol flag (the bound
+        # tuple is (protocol, cycle, root), all signature-covered).
+        args = ac.from_merkle_json(merkle, expect_cycle_id=cycle_id)
+        pdas = ac.derive_pdas(args.protocol, args.cycle_id)
+        ix = ac.build_instruction(args, authority=ac.EXPECTED_AUTHORITY)
+    except ac.AttestationError as e:
+        raise click.ClickException(str(e))
+    # from_merkle_json validated merkle["protocol"] is a real base58 pubkey.
+    protocol_b58 = merkle["protocol"]
+
+    ix_data = args.instruction_data()
+    # ── STEP 3: preview. (No cluster contact — live send is P4.4.)
+    console.print()
+    console.print("[bold]publish_attestation — PREVIEW (verify-gated, nothing sent)[/bold]")
+    console.print(f"  program:    {ac.PROGRAM_ID}")
+    console.print(f"  authority:  {ac.EXPECTED_AUTHORITY}  [dim](only allowed signer)[/dim]")
+    console.print(f"  protocol:   {protocol_b58}")
+    console.print(f"  cycle_id:   {args.cycle_id}")
+    console.print(f"  engine_sha: {args.engine_sha}")
+    console.print(f"  invariants: {args.invariant_count}  [dim](= n_findings)[/dim]")
+    console.print(f"  merkle_root:{args.merkle_root.hex()}")
+    console.print(f"  PDA config: {pdas['config']}")
+    console.print(f"  PDA cycle:  {pdas['cycle']}")
+    console.print(f"  PDA latest: {pdas['latest']}  [dim](must be register_protocol'd first)[/dim]")
+    console.print(f"  ix data:    {len(ix_data)} bytes, {ix_data.hex()}")
+    console.print(
+        "[dim]protocol is read from the SIGNED sidecar (bound at "
+        "`merkle compute --protocol`) — the attested (protocol, cycle, root) "
+        "tuple is cryptographically fixed; there is no operator flag to fumble.[/dim]"
+    )
+    if not send:
+        console.print("[yellow]PREVIEW[/yellow] — add `--send --keypair <authority>` "
+                      "to submit (devnet only; mainnet is blocked).")
+
+    if out_path is not None:
+        request = {
+            "schema": "jelleo-attestation-request/v1",
+            "program_id": ac.PROGRAM_ID,
+            "authority": ac.EXPECTED_AUTHORITY,
+            "protocol": protocol_b58,
+            "cycle_id": args.cycle_id,
+            "engine_sha": args.engine_sha,
+            "invariant_count": args.invariant_count,
+            "merkle_root_hex": args.merkle_root.hex(),
+            "pdas": pdas,
+            "instruction_data_hex": ix_data.hex(),
+            "accounts": [
+                {"pubkey": str(m.pubkey), "is_signer": m.is_signer, "is_writable": m.is_writable}
+                for m in ix.accounts
+            ],
+        }
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(_json.dumps(request, indent=2, sort_keys=True), encoding="utf-8")
+        console.print(f"[green]wrote request[/green] {out_path}")
+
+    # ── STEP 4 (optional): actually submit. Default is preview-only; --send +
+    # --keypair (the authority) is required to put anything on devnet.
+    if send:
+        kp = _load_signer(keypair_path, must_be_authority=True)
+        _submit(cluster, [ix], kp)
+
+
+@merkle_cmd.command(name="attest-init")
+@click.option("--send/--no-send", default=False, show_default=True,
+              help="Submit the initialize tx (devnet). Default preview. Needs --keypair.")
+@click.option("--keypair", "keypair_path", type=click.Path(path_type=Path), default=None,
+              help="Funded keypair that pays + signs initialize. The on-chain "
+                   "authority is FORCED to EXPECTED_AUTHORITY regardless of payer.")
+@click.option("--cluster", default="devnet", show_default=True,
+              help="Solana cluster (devnet/testnet/localnet). Mainnet is BLOCKED.")
+@click.pass_context
+def attest_init_cmd(ctx: click.Context, send: bool, keypair_path: Path | None, cluster: str) -> None:
+    """One-time: create the on-chain attestation Config PDA. `initialize` forces
+    authority = EXPECTED_AUTHORITY, so the payer key is irrelevant to control
+    (front-run-safe). Preview by default; --send submits to devnet."""
+    from audit_pipeline import attestation_client as ac
+    from audit_pipeline import attestation_send as asend
+
+    kp = None
+    payer = ac.EXPECTED_AUTHORITY
+    if send:
+        kp = _load_signer(keypair_path, must_be_authority=False)
+        payer = str(kp.pubkey())
+    try:
+        ix = asend.build_initialize_ix(payer)
+    except asend.AttestationSendError as e:
+        raise click.ClickException(str(e))
+    console.print("[bold]initialize — attestation Config[/bold]")
+    console.print(f"  program:            {ac.PROGRAM_ID}")
+    console.print(f"  authority (forced): {ac.EXPECTED_AUTHORITY}")
+    console.print(f"  payer:              {payer}")
+    console.print(f"  ix data:            {bytes(ix.data).hex()}")
+    if send:
+        _submit(cluster, [ix], kp)
+    else:
+        console.print("[yellow]PREVIEW[/yellow] — payer shown is a placeholder; on "
+                      "--send it becomes your --keypair pubkey. Add `--send "
+                      "--keypair <funded key>` to submit (devnet).")
+
+
+@merkle_cmd.command(name="attest-register")
+@click.argument("protocol_b58", type=str)
+@click.option("--send/--no-send", default=False, show_default=True,
+              help="Submit the register_protocol tx (devnet). Default preview. Needs --keypair (authority).")
+@click.option("--keypair", "keypair_path", type=click.Path(path_type=Path), default=None,
+              help="Authority keypair (must be EXPECTED_AUTHORITY). Required with --send.")
+@click.option("--cluster", default="devnet", show_default=True,
+              help="Solana cluster (devnet/testnet/localnet). Mainnet is BLOCKED.")
+@click.pass_context
+def attest_register_cmd(ctx: click.Context, protocol_b58: str, send: bool,
+                        keypair_path: Path | None, cluster: str) -> None:
+    """One-time per audited protocol: create its `latest` freshness pointer.
+    Authority-gated — must be signed by EXPECTED_AUTHORITY. Preview by default."""
+    from audit_pipeline import attestation_client as ac
+    from audit_pipeline import attestation_send as asend
+
+    try:
+        protocol = ac.parse_pubkey(protocol_b58)
+        ix = asend.build_register_protocol_ix(ac.EXPECTED_AUTHORITY, protocol)
+        pdas = ac.derive_pdas(protocol, "")  # only config + latest are relevant here
+    except (ac.AttestationError, asend.AttestationSendError) as e:
+        raise click.ClickException(str(e))
+    console.print("[bold]register_protocol[/bold]")
+    console.print(f"  program:    {ac.PROGRAM_ID}")
+    console.print(f"  authority:  {ac.EXPECTED_AUTHORITY}")
+    console.print(f"  protocol:   {protocol_b58}")
+    console.print(f"  PDA latest: {pdas['latest']}")
+    console.print(f"  ix data:    {bytes(ix.data).hex()}")
+    if send:
+        kp = _load_signer(keypair_path, must_be_authority=True)
+        _submit(cluster, [ix], kp)
+    else:
+        console.print("[yellow]PREVIEW[/yellow] — add `--send --keypair <authority>` to submit (devnet).")

@@ -18,6 +18,7 @@ Programmatic API:
 from __future__ import annotations
 
 import base64
+import binascii
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -284,6 +285,249 @@ def default_key_path(workspace: Path) -> Path:
     return workspace / "keys" / "jelleo.ed25519"
 
 
+def _parse_sig_metadata(sig_text: str) -> dict:
+    """Parse a Jelleo .sig file into {schema, domain, signed_file, signed_bytes,
+    sig_b64}. Pure text parse, no crypto. Used by `verify_signature` (the CLI
+    `verify_cmd` keeps its own inline parse — NOT shared, by design).
+
+    TWO-PHASE parse, matching exactly how `sign_file` writes the block: header
+    lines, then a single blank separator line, then the base64 body up to the
+    END marker. Phase 1 records headers; Phase 2 (after the blank line)
+    accumulates the body. This replaces the old `":" not in line` heuristic
+    (code-reviewer P4.3 MED): a header value that happened to contain no colon
+    would have been mis-collected as base64. With the explicit separator, a
+    colon-bearing line that appears AFTER the separator is treated as body too
+    (and corrupts the base64 → the caller rejects), so a header injected after
+    the body cannot override a Phase-1 header.
+
+    FIRST-WINS on duplicate header keys (threat-modeler): a tampered .sig with
+    two `Domain:` lines must not let the second silently override the first —
+    the .sig headers are NOT covered by the Ed25519 signature, so be defensive.
+
+    Defaults are None ("absent") so a strict caller can distinguish a missing
+    header from a present one; signed_bytes is -1 for a present-but-malformed
+    value (distinct from None=absent).
+    """
+    meta = {
+        "schema": None,
+        "domain": None,
+        "signed_file": None,
+        "signed_bytes": None,
+        "sig_b64": "",
+    }
+    in_block = False
+    in_body = False
+    for line in sig_text.splitlines():
+        if line.startswith("-----BEGIN JELLEO"):
+            in_block = True
+            continue
+        if line.startswith("-----END JELLEO"):
+            break
+        if not in_block:
+            continue
+        if not in_body:
+            # Phase 1: headers, until the blank separator line flips us to body.
+            if not line:
+                in_body = True
+                continue
+            # first-wins: only record the FIRST occurrence of each header key.
+            if line.startswith("Schema:") and meta["schema"] is None:
+                meta["schema"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Domain:") and meta["domain"] is None:
+                meta["domain"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Signed-File:") and meta["signed_file"] is None:
+                meta["signed_file"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Signed-Bytes:") and meta["signed_bytes"] is None:
+                try:
+                    meta["signed_bytes"] = int(line.split(":", 1)[1].strip())
+                except ValueError:
+                    meta["signed_bytes"] = -1  # present-but-malformed (distinct from None=absent)
+            # any other / unknown header line in Phase 1 is ignored
+        else:
+            # Phase 2: base64 body. Skip blank lines; accumulate the rest. Any
+            # multi-line base64 wrapping is concatenated (sign_file emits one
+            # line, but standard base64 may wrap — accept both).
+            if line:
+                meta["sig_b64"] += line.strip()
+    return meta
+
+
+def verify_signature(
+    file_path: Path,
+    sig_path: Path,
+    pub_path: Path,
+    *,
+    expect_domain: str,
+) -> bytes:
+    """Programmatic STRICT v2 signature verification — the trusted-read
+    primitive for code that must refuse to act on an unverified/tampered file
+    (e.g. `merkle publish-onchain`, which must not push an unsigned/altered
+    Merkle root on-chain). Returns the VERIFIED file bytes on success, raises
+    SignError on ANY failure.
+
+    Callers MUST use the returned bytes rather than re-reading the file — a
+    second `read_bytes()`/`read_text()` reopens a TOCTOU window where the file
+    can be swapped between the verify and the use (P4.3 review HIGH, all three
+    reviewers). The returned bytes are exactly the bytes the signature covers.
+
+    Deliberately STRICTER than the `sign verify` CLI:
+      * refuses legacy v1 sigs entirely (no domain separation, no filename
+        binding) — an on-chain publisher must only trust v2 sigs;
+      * `expect_domain` (e.g. "merkle") is REQUIRED and PINS the domain so a
+        signature minted for another domain can't be re-presented as this one.
+        It must be a real, non-'raw' domain in SIGN_DOMAINS — there is no
+        "verify whatever domain it claims" mode, by design (P4.3 review:
+        an optional/None expect_domain was the #1 HIGH finding — a caller
+        that forgot to pin would silently accept any domain);
+      * enforces filename-binding + byte-length cross-checks (closes
+        sig-rebinding / Signed-Bytes:0 forgeries) and REQUIRES those headers
+        to be present — a v2 sig missing them is treated as a downgrade and
+        refused, not waved through with a permissive fallback.
+
+    Scope: this verifies v2 domain-separated artifacts on the on-chain publish
+    path (e.g. merkle.json sidecars). Because it refuses the legacy 'raw'
+    domain, it is intentionally NOT the verifier for historical cycle HTML/PDF
+    reports that were signed Schema v2 / Domain: raw — those stay verifiable via
+    the lenient `sign verify` CLI, by design (do NOT re-sign frozen artifacts).
+
+    The signed message is reconstructed exactly as `sign_file` composes it:
+    `domain_tag || filename || NUL || file_bytes`.
+    """
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import serialization
+    except ImportError as e:
+        raise SignError("`cryptography` package required. Run: pip install cryptography") from e
+
+    # Caller-contract check (programming error, not file tamper): the expected
+    # domain must be a real, non-legacy domain. Refuse 'raw' — an on-chain
+    # publisher must pin a v2 domain-separated tag, never the no-separation tag.
+    if expect_domain == "raw":
+        raise SignError(
+            "refusing to verify against the legacy 'raw' domain — pin a v2 "
+            "domain-separated domain (e.g. 'merkle')"
+        )
+    if expect_domain not in SIGN_DOMAINS:
+        raise SignError(
+            f"expect_domain {expect_domain!r} is not a known signing domain "
+            f"(valid: {sorted(d for d in SIGN_DOMAINS if d != 'raw')})"
+        )
+
+    for p, what in ((pub_path, "public key"), (file_path, "file"), (sig_path, "signature")):
+        if not p.exists():
+            raise SignError(f"no {what} at {p}")
+
+    meta = _parse_sig_metadata(sig_path.read_text(encoding="utf-8"))
+    if not meta["sig_b64"]:
+        raise SignError(f"could not extract signature bytes from {sig_path.name}")
+
+    # Strict: EXACT v2 schema match. `.startswith("jelleo-sign/v2")` would also
+    # accept a forged "jelleo-sign/v20" / "jelleo-sign/v2-legacy" — refuse those.
+    if meta["schema"] != "jelleo-sign/v2":
+        raise SignError(
+            f"refusing non-v2 signature (schema={meta['schema']!r}) — an on-chain "
+            f"publisher trusts only jelleo-sign/v2 domain-separated signatures"
+        )
+
+    # Domain must be present, non-'raw', known, and EXACTLY the pinned one.
+    domain_id = meta["domain"]
+    if domain_id is None:
+        raise SignError("signature has no Domain header — refusing")
+    if domain_id == "raw":
+        raise SignError("signature uses the legacy 'raw' domain — refusing")
+    if domain_id != expect_domain:
+        raise SignError(
+            f"signature domain is {domain_id!r} but {expect_domain!r} is required "
+            f"— refusing (cross-domain signature reuse)"
+        )
+    domain_tag = SIGN_DOMAINS.get(domain_id)
+    # `if not domain_tag` (not `is None`) also catches an empty b"" tag. Today
+    # only the already-rejected 'raw' domain maps to b"", but this guards a
+    # future SIGN_DOMAINS entry that accidentally gets an empty (no-separation)
+    # tag — such a tag must NEVER reach the signed-message reconstruction, or
+    # domain separation silently collapses (paranoid-goober P4.3 #3).
+    if not domain_tag:
+        raise SignError(
+            f"signature uses unknown / empty-tag domain {domain_id!r}; cannot verify"
+        )
+
+    # Filename binding: Signed-File MUST be present, non-empty, and match. A
+    # missing binding is a v2 downgrade — refuse rather than fall back to the
+    # on-disk name (which would let a sig with no binding verify any file).
+    signed_file_name = meta["signed_file"]
+    if not signed_file_name:
+        raise SignError(
+            "signature has no Signed-File header — refusing (v2 sigs are "
+            "filename-bound; a missing binding is a downgrade)"
+        )
+    if signed_file_name != file_path.name:
+        raise SignError(
+            f"signature was issued for {signed_file_name!r} but verifying against "
+            f"{file_path.name!r} — refusing (sig rebinding)"
+        )
+
+    # Byte-length cross-check: Signed-Bytes MUST be present and well-formed
+    # (_parse_sig_metadata stores -1 for a present-but-malformed header).
+    signed_bytes = meta["signed_bytes"]
+    if signed_bytes is None:
+        raise SignError("signature has no Signed-Bytes header — refusing")
+    if signed_bytes < 0:
+        raise SignError("signature has a malformed Signed-Bytes header — refusing")
+
+    # Read the file ONCE and use that single read for BOTH the length check and
+    # the signed-message reconstruction. The pre-hardening code did two
+    # independent `file_path.stat().st_size` reads plus a separate
+    # `file_path.read_bytes()` — a TOCTOU window where the file could be swapped
+    # between the length check and the bytes that actually get verified.
+    file_bytes = file_path.read_bytes()
+    if len(file_bytes) != signed_bytes:
+        raise SignError(
+            f"signature claims Signed-Bytes={signed_bytes} but file is "
+            f"{len(file_bytes)} bytes — refusing"
+        )
+
+    # Reconstruct exactly as sign_file composed it: tag || filename || NUL || bytes.
+    signed_message = (
+        domain_tag
+        + signed_file_name.encode("utf-8")
+        + b"\x00"
+        + file_bytes
+    )
+
+    # A malformed base64 body must surface as SignError, not a raw
+    # binascii.Error escaping to the caller. validate=True rejects any
+    # non-alphabet bytes rather than silently discarding them. (binascii.Error
+    # subclasses ValueError, so the tuple is belt-and-suspenders — keep it
+    # explicit so a future "simplify to ValueError" doesn't lose the intent.)
+    try:
+        sig_bytes = base64.b64decode(meta["sig_b64"], validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise SignError(f"malformed base64 signature in {sig_path.name}") from e
+
+    try:
+        pub = serialization.load_pem_public_key(pub_path.read_bytes())
+    except (ValueError, TypeError) as e:
+        raise SignError(f"could not load public key {pub_path.name}: {e}") from e
+    # Algorithm pinning (threat-modeler P4.3 #1): a well-formed but wrong-type
+    # public key (RSA/ECDSA/etc.) must be refused with a clear error, not left
+    # to dispatch into a different .verify() signature and surface as a
+    # confusing InvalidSignature / TypeError. The on-chain publisher signs only
+    # with Ed25519, so anything else is a wrong-key-file or substitution attempt.
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    if not isinstance(pub, Ed25519PublicKey):
+        raise SignError(
+            f"public key {pub_path.name} is {type(pub).__name__}, not Ed25519 — "
+            f"refusing (wrong key file or algorithm-substitution attempt)"
+        )
+    try:
+        pub.verify(sig_bytes, signed_message)
+    except InvalidSignature as e:
+        raise SignError(f"signature does not match {file_path.name}") from e
+    # Return the verified bytes so the caller parses EXACTLY what was signed
+    # (no second read → no TOCTOU window between verify and use).
+    return file_bytes
+
+
 @click.group(name="sign")
 def sign_cmd() -> None:
     """Cryptographic attestation for disclosure packages (Ed25519)."""
@@ -480,19 +724,25 @@ def verify_cmd(
             f"match Signed-File: header, or re-sign."
         )
 
-    # Cross-cutting audit Defect 09 cont.: also cross-check Signed-Bytes
-    # against the actual file length so a forged sig claiming
-    # ``Signed-Bytes: 0`` can't sneak through.
-    if signed_bytes_claim is not None:
-        actual_bytes = file_path.stat().st_size
-        if signed_bytes_claim != actual_bytes:
-            raise click.ClickException(
-                f"signature claims Signed-Bytes={signed_bytes_claim} but "
-                f"file is {actual_bytes} bytes — refusing."
-            )
+    # Cross-cutting audit Defect 09 cont.: cross-check Signed-Bytes against the
+    # actual file length so a forged sig claiming ``Signed-Bytes: 0`` can't
+    # sneak through. Read the file ONCE here and reuse `file_bytes` for both the
+    # length check and the signed-message reconstruction below — the strict
+    # `verify_signature` primitive does the same. Doing stat() then a separate
+    # read_bytes() left a TOCTOU window (threat-modeler P4.3 #5).
+    file_bytes = file_path.read_bytes()
+    if signed_bytes_claim is not None and signed_bytes_claim != len(file_bytes):
+        raise click.ClickException(
+            f"signature claims Signed-Bytes={signed_bytes_claim} but "
+            f"file is {len(file_bytes)} bytes — refusing."
+        )
 
     # Reconstruct the signed message exactly as sign_file did.
-    if schema.startswith("jelleo-sign/v2"):
+    # Exact v2 match (threat-modeler P4.3 #6): a forged "jelleo-sign/v20" must
+    # fall to the legacy branch (which requires explicit opt-in), not be treated
+    # as v2. Frozen artifacts are signed exactly "jelleo-sign/v2", so this does
+    # not break them.
+    if schema == "jelleo-sign/v2":
         domain_tag = SIGN_DOMAINS.get(domain_id)
         if domain_tag is None:
             raise click.ClickException(
@@ -502,7 +752,7 @@ def verify_cmd(
             domain_tag
             + (signed_file_name or file_path.name).encode("utf-8")
             + b"\x00"
-            + file_path.read_bytes()
+            + file_bytes
         )
     else:
         # P3+P4 audit Defect 06: previously the v1-legacy verify path was
@@ -536,7 +786,7 @@ def verify_cmd(
         # The audit block ONLY catches OSError; PermissionError etc. ARE
         # OSError subclasses but a future RuntimeError or non-IO exception
         # would escape.
-        signed_message = file_path.read_bytes()
+        signed_message = file_bytes
         from datetime import datetime as _dt
         from datetime import timezone as _tz
         try:
