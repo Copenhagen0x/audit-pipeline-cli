@@ -171,6 +171,11 @@ def compute_cmd(
 ) -> None:
     """Compute + persist the Merkle root for one cycle."""
     workspace = _ws(ctx)
+    # Validate cycle_id FIRST (charset + <=128 len), unconditionally. _merkle_path
+    # also validates, but it is SKIPPED when --out is given, so a crafted id (e.g.
+    # non-ASCII) could reach signing on the --protocol path (threat-modeler P4).
+    # Validating up front covers every path.
+    _validate_cycle_id(cycle_id)
     # Validate the protocol pubkey BEFORE computing/signing — never sign a
     # garbage protocol string into the attested sidecar.
     if protocol_b58 is not None:
@@ -179,6 +184,20 @@ def compute_cmd(
             _ac.parse_pubkey(protocol_b58)
         except _ac.AttestationError as e:
             raise click.ClickException(str(e))
+        # With --protocol this sidecar is meant for on-chain attestation. The
+        # Solana program AND PublishArgs.validate cap cycle_id at
+        # MAX_CYCLE_ID_LEN (32 UTF-8 bytes). _validate_cycle_id alone allows up
+        # to 128 chars, so a 33-128 char id used to pass here, get SIGNED, then
+        # fail at publish-onchain — a signed-but-unpublishable sidecar with no
+        # rollback (paranoid-goober P4 review). Enforce the on-chain cap BEFORE
+        # signing so a compute-able-for-attestation id is always publishable.
+        _cid_bytes = len(cycle_id.encode("utf-8"))
+        if _cid_bytes > _ac.MAX_CYCLE_ID_LEN:
+            raise click.ClickException(
+                f"cycle_id is {_cid_bytes} bytes but on-chain attestation caps "
+                f"it at {_ac.MAX_CYCLE_ID_LEN} (MAX_CYCLE_ID_LEN); shorten the "
+                f"cycle_id, or omit --protocol for a non-attested merkle.json."
+            )
     db = open_findings_db(workspace)
     cycle = _cycle_record(db, cycle_id)
     if not cycle:

@@ -206,6 +206,51 @@ def test_cli_compute_rejects_bad_protocol(tmp_path: Path) -> None:
     assert r.exit_code != 0  # refuse to sign a garbage protocol into the sidecar
 
 
+def test_cli_compute_rejects_oversized_cycle_id_with_protocol(tmp_path: Path) -> None:
+    """P4 review (paranoid-goober): with --protocol the sidecar is meant for
+    on-chain attestation, where cycle_id is capped at MAX_CYCLE_ID_LEN (32 bytes).
+    A 33-128 char id used to pass _validate_cycle_id, get SIGNED, then fail at
+    publish-onchain (signed-but-unpublishable, no rollback). The cap must fire
+    BEFORE the DB is opened / anything is signed."""
+    pytest.importorskip("solders")
+    long_id = "20260529-" + "x" * 30  # 39 chars > 32-byte cap, valid charset
+    r = _invoke(tmp_path, "compute", long_id, "--protocol", _WSOL)
+    assert r.exit_code != 0
+    flat = " ".join(r.output.split())
+    assert "MAX_CYCLE_ID_LEN" in flat  # the explicit cap error, not a coincidental "32"
+    # nothing signed/written for the unpublishable id
+    assert not (tmp_path / "hunts" / long_id / "merkle.json").exists()
+
+
+def test_cli_compute_no_protocol_skips_32byte_cap(tmp_path: Path) -> None:
+    """The 32-byte cap is ONLY for --protocol (attestable) compute. A plain
+    compute still tolerates a long id (here it fails later as 'not found', NOT on
+    the length cap) — guards against over-restricting non-attestation use."""
+    _seed(tmp_path)  # creates the findings DB
+    long_id = "x" * 40  # >32 bytes, <=128 chars, valid charset, not the seeded cycle
+    r = _invoke(tmp_path, "compute", long_id, "--no-sign")
+    assert r.exit_code != 0
+    flat = " ".join(r.output.split())
+    assert "MAX_CYCLE_ID_LEN" not in flat  # the 32-byte cap did NOT reject it
+    assert "not found" in flat.lower()
+
+
+def test_cli_compute_rejects_non_ascii_cycle_id_with_out(tmp_path: Path) -> None:
+    """threat-modeler P4: --out skips _merkle_path (and its _validate_cycle_id),
+    so the charset/length check must run UP FRONT. A non-ASCII cycle_id on the
+    --protocol path must be refused before anything is written/signed, even with
+    --out set."""
+    # No solders needed: _validate_cycle_id fires at the TOP of compute_cmd,
+    # before the --protocol block (parse_pubkey), so this regression must run
+    # even without solders installed (goober P4 final).
+    out = tmp_path / "evil.json"
+    r = _invoke(tmp_path, "compute", "café-cycle", "--protocol", _WSOL,
+                "--out", str(out))
+    assert r.exit_code != 0
+    assert "invalid cycle_id" in r.output.lower()
+    assert not out.exists()
+
+
 def test_cli_verify_passes_when_db_unchanged(tmp_path: Path) -> None:
     cid = _seed(tmp_path)
     _invoke(tmp_path, "compute", cid, "--no-sign")

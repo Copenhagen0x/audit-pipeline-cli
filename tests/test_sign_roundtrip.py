@@ -437,3 +437,108 @@ def test_verify_signature_rejects_empty_tag_domain(tmp_path, fresh_keypair, monk
     sig = sign_mod.sign_file(f, key_path=priv_path, domain="evil")
     with pytest.raises(sign_mod.SignError, match="empty-tag|unknown"):
         sign_mod.verify_signature(f, sig, pub_path, expect_domain="evil")
+
+
+# ────────── CLI `sign verify` / `keygen` hardening (P4 review: verify_cmd) ──────────
+# These exercise the click COMMAND path (verify_cmd / keygen_cmd), distinct from
+# the strict verify_signature primitive tested above. The P4 paranoid-goober
+# flagged the lenient CLI verify path: `domain_tag is None` let a v2 `Domain: raw`
+# sig through with NO separation, and the pubkey was used without an Ed25519 check.
+from click.testing import CliRunner  # noqa: E402
+
+
+def _cli_verify(workspace, f, sig, pub):
+    return CliRunner().invoke(
+        sign_mod.sign_cmd,
+        ["verify", str(f), str(sig), "--pubkey", str(pub)],
+        obj={"workspace": str(workspace)},
+    )
+
+
+def test_cli_verify_roundtrips(tmp_path, fresh_keypair):
+    priv_path, pub_path = fresh_keypair
+    f = tmp_path / "merkle.json"
+    f.write_text("{}", encoding="utf-8")
+    sig = sign_mod.sign_file(f, key_path=priv_path, domain="merkle")
+    r = _cli_verify(tmp_path, f, sig, pub_path)
+    assert r.exit_code == 0, r.output
+    assert "VALID" in r.output  # ASCII status word, no check-mark glyph (Windows-safe)
+
+
+def test_cli_verify_rejects_raw_domain_v2_sig(tmp_path, fresh_keypair):
+    """A v2 sig declaring `Domain: raw` (tag b"") must be refused — `is None` let
+    it verify with no domain separation; `not domain_tag` now catches it."""
+    priv_path, pub_path = fresh_keypair
+    f = tmp_path / "merkle.json"
+    f.write_text("{}", encoding="utf-8")
+    sig = sign_mod.sign_file(f, key_path=priv_path, domain="merkle")
+    sig.write_text(
+        sig.read_text(encoding="utf-8").replace("Domain: merkle", "Domain: raw"),
+        encoding="utf-8",
+    )
+    r = _cli_verify(tmp_path, f, sig, pub_path)
+    assert r.exit_code != 0
+    assert "domain" in r.output.lower()
+
+
+def test_cli_verify_rejects_non_ed25519_pubkey(tmp_path, fresh_keypair):
+    """verify_cmd loaded the pubkey without an algorithm check; an EC key could
+    reach pub.verify(). Refuse early with a clear Ed25519 message."""
+    from cryptography.hazmat.primitives.asymmetric import ec
+    priv_path, _ = fresh_keypair
+    f = tmp_path / "merkle.json"
+    f.write_text("{}", encoding="utf-8")
+    sig = sign_mod.sign_file(f, key_path=priv_path, domain="merkle")
+    ec_pub = tmp_path / "ec.pub"
+    ec_pub.write_bytes(
+        ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+    )
+    r = _cli_verify(tmp_path, f, sig, ec_pub)
+    assert r.exit_code != 0
+    assert "Ed25519" in r.output
+
+
+def test_cli_keygen_writes_key_with_ascii_note(tmp_path, monkeypatch):
+    """keygen must write the key, and its console output must be cp1252/ASCII-safe
+    (a glyph used to crash the Windows console BEFORE the key was written)."""
+    monkeypatch.setenv("JELLEO_SIGNING_KEY_PASSWORD", "test-pw")
+    r = CliRunner().invoke(
+        sign_mod.sign_cmd, ["keygen"], obj={"workspace": str(tmp_path)},
+    )
+    assert r.exit_code == 0, r.output
+    assert (tmp_path / "keys" / "jelleo.ed25519").is_file()
+    assert "encrypted" in r.output.lower()  # encryption note printed AFTER the write
+    # cp1252-safe is the real Windows-console invariant (em-dash `—` is ALLOWED —
+    # cp1252 0x97; the banned class is → ✓ ✗ ⚠ emoji). NOT the same as ASCII.
+    r.output.encode("cp1252")  # must not raise UnicodeEncodeError
+
+
+def test_cli_verify_rejects_corrupt_pubkey(tmp_path, fresh_keypair):
+    """A corrupt / non-PEM public key must surface as a clean ClickException, not
+    an uncaught ValueError/TypeError traceback (goober P4 HIGH; matches the
+    strict verify_signature primitive which wraps the same call)."""
+    priv_path, _ = fresh_keypair
+    f = tmp_path / "merkle.json"
+    f.write_text("{}", encoding="utf-8")
+    sig = sign_mod.sign_file(f, key_path=priv_path, domain="merkle")
+    bad_pub = tmp_path / "bad.pub"
+    bad_pub.write_text("this is not a PEM public key", encoding="utf-8")
+    r = _cli_verify(tmp_path, f, sig, bad_pub)
+    assert r.exit_code != 0
+    assert "could not parse" in r.output.lower()
+
+
+def test_cli_keygen_warns_unencrypted_without_password(tmp_path, monkeypatch):
+    """No JELLEO_SIGNING_KEY_PASSWORD -> the key is still written (unencrypted)
+    and a WARN note is printed AFTER the write, ASCII-safe."""
+    monkeypatch.delenv("JELLEO_SIGNING_KEY_PASSWORD", raising=False)
+    r = CliRunner().invoke(
+        sign_mod.sign_cmd, ["keygen"], obj={"workspace": str(tmp_path)},
+    )
+    assert r.exit_code == 0, r.output
+    assert (tmp_path / "keys" / "jelleo.ed25519").is_file()
+    assert "UNENCRYPTED" in r.output
+    r.output.encode("cp1252")  # cp1252-safe (em-dash allowed); must not raise

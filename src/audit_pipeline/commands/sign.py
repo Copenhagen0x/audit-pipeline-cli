@@ -567,16 +567,20 @@ def keygen_cmd(ctx: click.Context, key_dir: Path | None, force: bool) -> None:
     # env directly. This way if keygen is followed by sign_file in the same
     # process (which the test suite does), both share the cached password.
     _kg_pw_bytes = _cache_signing_password()
+    # Build the encryption note but DO NOT print it before the key is written:
+    # an exotic glyph here used to crash the Windows console (cp1252) BEFORE
+    # priv_path.write_bytes() ran, leaving NO key on disk. Side-effect first,
+    # decorative print after (feedback/cli-output-no-exotic-glyphs).
     if _kg_pw_bytes:
         _enc = serialization.BestAvailableEncryption(_kg_pw_bytes)
-        console.print(
-            "[green]→[/green] encrypting private key with "
+        _enc_note = (
+            "[green]OK:[/green] private key encrypted with "
             "$JELLEO_SIGNING_KEY_PASSWORD (BestAvailableEncryption)"
         )
     else:
         _enc = serialization.NoEncryption()
-        console.print(
-            "[yellow]WARN: JELLEO_SIGNING_KEY_PASSWORD not set — generating "
+        _enc_note = (
+            "[yellow]WARN: JELLEO_SIGNING_KEY_PASSWORD not set — generated "
             "UNENCRYPTED private key. To encrypt at rest: set the env var "
             "and re-run with --force, OR run `ssh-keygen -p -f <key>` after.[/yellow]"
         )
@@ -598,6 +602,7 @@ def keygen_cmd(ctx: click.Context, key_dir: Path | None, force: bool) -> None:
 
     console.print(f"[green]Generated[/green] {priv_path} (mode 600)")
     console.print(f"[green]Generated[/green] {pub_path}")
+    console.print(_enc_note)
     console.print()
     console.print("[bold]Public key (share this):[/bold]")
     console.print(pub_pem.decode())
@@ -681,7 +686,21 @@ def verify_cmd(
     if not pub_path.exists():
         raise click.ClickException(f"No public key at {pub_path}")
 
-    pub = serialization.load_pem_public_key(pub_path.read_bytes())
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PublicKey,
+    )
+    # Wrap the parse so a corrupt/non-PEM key file surfaces as a clean
+    # ClickException, not an uncaught ValueError/TypeError traceback — matching
+    # the strict verify_signature primitive (goober P4 HIGH).
+    try:
+        pub = serialization.load_pem_public_key(pub_path.read_bytes())
+    except (ValueError, TypeError) as e:
+        raise click.ClickException(f"could not parse public key at {pub_path}: {e}")
+    if not isinstance(pub, Ed25519PublicKey):
+        raise click.ClickException(
+            f"public key at {pub_path} is not an Ed25519 key; refusing to "
+            f"verify (matches the strict verify_signature primitive)."
+        )
 
     sig_text = sig_path.read_text(encoding="utf-8")
     sig_b64 = ""
@@ -744,9 +763,15 @@ def verify_cmd(
     # not break them.
     if schema == "jelleo-sign/v2":
         domain_tag = SIGN_DOMAINS.get(domain_id)
-        if domain_tag is None:
+        if not domain_tag:
+            # `is None` was insufficient: SIGN_DOMAINS["raw"] is b"", so a v2
+            # sig declaring `Domain: raw` slipped through with an EMPTY tag —
+            # i.e. no domain separation at all. `not domain_tag` rejects both
+            # an unknown domain (None) and an empty/raw tag (b""), matching the
+            # strict verify_signature primitive.
             raise click.ClickException(
-                f"signature uses unknown domain '{domain_id}'; cannot verify"
+                f"signature domain '{domain_id}' is unknown or carries no "
+                f"domain separation; refusing to verify under jelleo-sign/v2"
             )
         signed_message = (
             domain_tag
@@ -846,9 +871,9 @@ def verify_cmd(
         sig = base64.b64decode(sig_b64)
         pub.verify(sig, signed_message)
         console.print(
-            f"[bold green]✓ VALID[/bold green] {schema} ({domain_id}) "
+            f"[bold green]VALID[/bold green] {schema} ({domain_id}) "
             f"signature on {file_path}"
         )
     except InvalidSignature:
-        console.print(f"[bold red]✗ INVALID[/bold red] signature on {file_path}")
+        console.print(f"[bold red]INVALID[/bold red] signature on {file_path}")
         raise click.ClickException("Signature does not match.")
