@@ -119,3 +119,16 @@ reports/
 hunts/*/hunt_report.html
 hunts/*/*.sig
 *.report.md.sig
+
+# ── On-chain program (jelleo-attestation), folded into this repo 2026-05-29 ──
+# Key material — RECURSIVE + defense-in-depth. The program ships its own nested
+# .gitignore too, but private keys must never rely on a single ignore layer:
+**/*keypair*.json
+**/*-authority.json
+**/keys/*.ed25519
+**/secret.txt
+**/*.secret
+# Rust build output (the multi-MB .so is also matched by *.so above):
+**/target/
+# Throwaway devnet rehearsal workspace (sqlite DB + scratch hunts) — not source:
+**/rehearsal-workspace/

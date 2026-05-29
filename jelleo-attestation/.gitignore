@@ -1,0 +1,14 @@
+# Rust / Anchor build artifacts
+/target/
+**/*.rs.bk
+
+# NEVER commit signing keys or secrets.
+# The program's authority secret is OPERATOR-HELD, off-repo
+# (~/.audit-keys or ...\Jelleo\.audit-keys). These patterns are a
+# defense-in-depth backstop in case this dir is ever `git init`ed.
+keys/
+*-authority.json
+*keypair*.json
+secret.txt
+*.secret
+id.json

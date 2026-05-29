@@ -1,0 +1,20 @@
+[package]
+name = "jelleo-attestation"
+version = "0.1.0"
+edition = "2021"
+description = "Jelleo on-chain attestation registry — per-cycle signed Merkle roots"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "jelleo_attestation"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31.1"

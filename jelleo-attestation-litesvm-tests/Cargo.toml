@@ -1,0 +1,32 @@
+# Standalone litesvm test harness for the jelleo-attestation program (P4.2).
+# Deliberately SEPARATE from the program workspace (own [workspace] below) so it
+# resolves its own litesvm/solana-sdk versions without colliding with the
+# program's anchor-lang 0.31.1 / solana-program 2.3 tree. It loads the prebuilt
+# BPF .so and drives it with manually-encoded Anchor instructions (8-byte
+# discriminator + borsh args) — no anchor-lang dependency, no version coupling.
+[package]
+name = "jelleo-attestation-litesvm-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+
+[dev-dependencies]
+litesvm = "0.6"
+# Granular solana 2.2 crates pinned to MATCH litesvm 0.6.1's solana version
+# (it pulls solana-* 2.2.x). Using these instead of the `solana-sdk` umbrella
+# avoids (a) a 2.2-vs-2.3 type split with litesvm and (b) openssl-sys, which the
+# umbrella drags in via networking features and breaks the Windows MSVC build.
+solana-pubkey = "2.2"
+solana-keypair = "2.2"
+solana-signer = "2.2"
+solana-instruction = "2.2"
+solana-transaction = "2.2"
+solana-message = "2.2"
+solana-hash = "2.2"
+solana-account = "2.2"   # Account type for svm.set_account (craft test-controlled Config)
+sha2 = "0.10"
+borsh = "1"

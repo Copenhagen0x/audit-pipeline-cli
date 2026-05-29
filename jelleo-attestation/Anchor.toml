@@ -1,0 +1,20 @@
+[toolchain]
+
+[features]
+resolver = true
+skip-lint = false
+
+[programs.devnet]
+jelleo_attestation = "72TF95FUNttvDDsQSFzWEqY7Vu6Xm5h81fFNgoeRYPTk"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+# Built/deployed via cargo build-sbf + solana program deploy (anchor CLI not
+# required). Tested via litesvm harness (see tests/), per the bounty BPF pattern.
+test = "echo 'see tests/ litesvm harness'"
