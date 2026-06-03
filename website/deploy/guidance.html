@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Jelleo · Solana Security Standard (SOL-0XX)</title>
-<meta name="description" content="The Solana Security Standard (SOL-0XX): 28 rules from 38+ disclosed bounty findings — in your AI agent, editor, CI, and Semgrep. Free, MIT licensed.">
+<meta name="description" content="The Solana Security Standard (SOL-0XX): 28 rules drawn from real Solana exploits and auditor patterns — in your AI agent, CI, and Semgrep. Free, MIT licensed.">
 <meta name="theme-color" content="#050504">
 <link rel="canonical" href="https://jelleo.com/guidance.html">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="Jelleo">
 <meta property="og:url" content="https://jelleo.com/guidance.html">
 <meta property="og:title" content="Jelleo · Solana Security Standard (SOL-0XX)">
-<meta property="og:description" content="The Solana Security Standard (SOL-0XX): 28 rules from 38+ disclosed bounty findings — in your AI agent, editor, CI, and Semgrep.">
+<meta property="og:description" content="The Solana Security Standard (SOL-0XX): 28 rules drawn from real Solana exploits and auditor patterns — in your AI agent, CI, and Semgrep.">
 <meta property="og:image" content="https://jelleo.com/og-guidance.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -20,7 +20,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://jelleo.com/og-guidance.png">
 <meta name="twitter:title" content="Jelleo · Solana Security Standard (SOL-0XX)">
-<meta name="twitter:description" content="The Solana Security Standard (SOL-0XX): 28 rules from real bounty findings — in your AI agent, editor, CI, and Semgrep.">
+<meta name="twitter:description" content="The Solana Security Standard (SOL-0XX): 28 rules drawn from real Solana exploits and auditor patterns — in your AI agent, CI, and Semgrep.">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -192,7 +192,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="hero-eyebrow">Solana Security Standard · SOL-0XX · v1.8.0</div>
       <h1 class="hero-title">Catch Solana bugs <span class="accent">as you write them.</span></h1>
-      <p class="hero-lede">The <strong>Solana Security Standard</strong> — a drop-in <code>SOL-0XX</code> ruleset that flags Solana-specific bug classes while you code: caller-controlled clock values, cross-market state asymmetry, wrapper handlers that drift from engine logic, missing Anchor constraints, stale oracle prices, and 23 more. It runs in <strong>Claude Code, every major AI coding agent</strong> (Cursor, Copilot, Codex, Windsurf, Cline, Aider), your <strong>editor</strong> (VS Code), your <strong>CI</strong> (a GitHub Action + CLI), <strong>Semgrep</strong>, and any <strong>MCP</strong> client — all generated from one source. SOL-001 covers two confirmed-exploitable bounty wins; the other 27 rules are documented Solana audit patterns.</p>
+      <p class="hero-lede">The <strong>Solana Security Standard</strong> — a drop-in <code>SOL-0XX</code> ruleset that flags Solana-specific bug classes while you code: caller-controlled clock values, cross-market state asymmetry, wrapper handlers that drift from engine logic, missing Anchor constraints, stale oracle prices, and 23 more. It runs in <strong>Claude Code</strong>, <strong>every major AI coding agent</strong> (Cursor, Copilot, Codex, Windsurf, Cline, Aider), your <strong>CI</strong> (a GitHub Action + CLI), and <strong>Semgrep</strong> today — with a <strong>VS Code</strong> extension and an <strong>MCP</strong> server landing next, all generated from one source. SOL-001 covers two confirmed-exploitable bounty wins; the other 27 rules are documented Solana audit patterns.</p>
 
       <figure class="hero-demo" data-reveal data-delay="1" style="margin: 36px 0 8px; max-width: 1080px;">
         <img src="/guidance-hero.png"
@@ -230,8 +230,9 @@ code { font-family: var(--mono); font-size: 0.92em; }
           <li><span class="toc-num">02</span><a href="#rules">The 28 rules</a></li>
           <li><span class="toc-num">03</span><a href="#how-it-works">How it works</a></li>
           <li><span class="toc-num">04</span><a href="#why-these">Why these rules</a></li>
-          <li><span class="toc-num">05</span><a href="#examples">Examples</a></li>
-          <li><span class="toc-num">06</span><a href="#contribute">Contribute</a></li>
+          <li><span class="toc-num">05</span><a href="#hacks">Hacks database</a></li>
+          <li><span class="toc-num">06</span><a href="#examples">Examples</a></li>
+          <li><span class="toc-num">07</span><a href="#contribute">Contribute</a></li>
         </ol>
       </div>
     </div>
@@ -271,8 +272,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
   <div class="container">
     <div data-reveal>
       <div class="section-label">01 · What you get</div>
-      <h2 class="section-title">Two files. Three review layers. 28 rules.</h2>
-      <p class="section-lede">Anthropic's plugin reads two files from your repo's <code>.claude/</code> folder. Our ruleset provides both, packaged for drop-in install.</p>
+      <h2 class="section-title">Two files for Claude Code. One source for every tool.</h2>
+      <p class="section-lede">Claude Code reads two files from your repo's <code>.claude/</code> folder — our ruleset ships both. The <strong>same <code>SOL-0XX</code> source</strong> also generates the CLI &amp; GitHub Action, the Semgrep pack, and the six AI-agent rules files — with the VS Code extension and the MCP server landing next (see the <code>soon</code> cards above). One source for every surface, so nothing drifts.</p>
 
       <h3 id="files"><code>claude-security-guidance.md</code></h3>
       <p>Plain-markdown threat model + 28-rule review checklist (7.9 KB, under Anthropic's 8 KB cap). Read by the plugin's <strong>model-backed reviews</strong> (end-of-turn diff review + commit review). Tells the reviewer what Solana-specific patterns to look for.</p>
@@ -337,8 +338,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
   <div class="container">
     <div data-reveal>
       <div class="section-label">03 · How it works</div>
-      <h2 class="section-title">Three review layers, fired automatically by Claude Code.</h2>
-      <p class="section-lede">Anthropic's plugin reviews Claude's code edits at three points. Our files extend layers 1 and 2 with Solana-specific rules.</p>
+      <h2 class="section-title">In Claude Code: three review layers, fired automatically.</h2>
+      <p class="section-lede">Anthropic's plugin reviews Claude's code edits at three points. Our files extend layers 1 and 2 with Solana-specific rules. (Every other surface fires the same rules at its own trigger point — see the note below.)</p>
 
       <h3>Layer 1 · On each file edit</h3>
       <p>Fast pattern match. No model call. No cost. The plugin reads <code>.claude/security-patterns.yaml</code> for regex/substring rules. <strong>Our file provides 17 deterministic patterns</strong> covering the bug classes that have clean textual signatures (caller-controlled <code>now_slot</code>, hardcoded program IDs, raw account access, unchecked integer arithmetic, missing discriminator checks, etc.).</p>
@@ -350,6 +351,8 @@ code { font-family: var(--mono); font-size: 0.92em; }
       <p>Deeper agentic review that reads surrounding code. Uses the same guidance file. Validates findings against your codebase's context before reporting.</p>
 
       <p>Every time a rule fires, the reminder text includes the rule ID (<code>Jelleo SOL-001:</code>) and a link back to the GitHub source so you can see the underlying bounty case study.</p>
+
+      <p><strong>Outside Claude Code, the same rules fire at the equivalent point:</strong> the CLI &amp; GitHub Action scan on every PR, Semgrep runs the 17 deterministic patterns in your existing pipeline, and the six AI-agent rules files steer Cursor / Copilot / Codex / Windsurf / Cline / Aider. The VS Code extension (inline squiggles) and the MCP server (a scan tool for any MCP client) are shipping next. One source, generated into each — so a rule added once shows up everywhere.</p>
     </div>
   </div>
 </section>
@@ -368,22 +371,49 @@ code { font-family: var(--mono); font-size: 0.92em; }
         <li><strong>SOL-003 · Pattern from our bounty 5 disclosure.</strong> F1 was in our <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">#78</a> submission. Maintainer triage: F1 was independently fixed in <code>0925ed4</code> before our submission was triaged. Real pattern, not a paid bounty.</li>
         <li><strong>SOL-004 · Pattern from our bounty 5 disclosure.</strong> F2 in <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">#78</a>. Maintainer classified as engine-side, not reproduced at the wrapper layer; separate disclosure pending at <code>aeyakovenko/percolator</code>.</li>
         <li><strong>SOL-005 · Latent pattern from our bounty 5 disclosure.</strong> F12 in <a href="https://github.com/aeyakovenko/percolator-cli/issues/78" target="_blank" rel="noopener">#78</a>. Maintainer classified as latent — reachable only when the per-program 14-asset cap is lifted.</li>
+        <li><strong>SOL-021 / 022 / 023 · From our v16 engine audit.</strong> Three findings from our continuous audit of the v16 engine, generalized into reusable rules: F1 — terminal op gated on a live-only condition (maintainer "Finding C"); F2 — write-only "impaired" counter (percolator#74); F3 — fee rounds toward the user (Low).</li>
       </ul>
 
       <p>All published cycle reports with PoCs, LiteSVM tests, Kani proofs, and Ed25519 signatures: <a href="/cycles/">/cycles</a>.</p>
 
-      <p>The remaining 15 rules (SOL-006 through SOL-020) cover documented Solana audit patterns — signer/owner/PDA verification, Anchor constraints, CPI authority, lamport drains, Token Program ID confusion, integer overflow, etc. Standard auditor checklist territory.</p>
+      <p>The remaining rules — <strong>SOL-006 through SOL-020</strong> and <strong>SOL-024 through SOL-028</strong> — cover documented Solana audit patterns: signer / owner / PDA verification, Anchor constraints, CPI authority, lamport drains, Token Program ID confusion, integer overflow, stale oracle prices, sysvar look-alike spoofing, duplicate mutable accounts, and missing slippage bounds. Standard auditor-checklist territory — we never claim bounty credit we didn't earn.</p>
     </div>
   </div>
 </section>
 
-<!-- 05 — EXAMPLES -->
+<!-- 05 — HACKS DATABASE -->
+<section class="doc" id="hacks">
+  <div class="container">
+    <div data-reveal>
+      <div class="section-label">05 · Hacks database</div>
+      <h2 class="section-title">Real losses, mapped to the <span class="accent">rule that would catch them.</span></h2>
+      <p class="section-lede">The <a href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/hacks" target="_blank" rel="noopener">Solana Hacks Database</a> catalogs <strong>11 disclosed Solana exploits</strong>. <strong>8 were code-preventable</strong> (~$514M) — each mapped to the SOL-0XX rule that would have flagged it; <strong>3 were not</strong> (~$14M — stolen keys, an insider, a leaked seed phrase), which we list but mark as out of scope rather than pad the number.</p>
+
+      <table class="rules-table">
+        <thead><tr><th>Exploit</th><th>Loss</th><th>Rule that would catch it</th></tr></thead>
+        <tbody>
+        <tr><td>Wormhole bridge — guardian-signature forgery</td><td class="rule-src headline">$326M</td><td class="rule-id">SOL-025 · SOL-007</td></tr>
+        <tr><td>Mango Markets — oracle manipulation</td><td class="rule-src headline">$116M</td><td class="rule-id">SOL-024</td></tr>
+        <tr><td>Cashio — infinite mint via unvalidated collateral</td><td class="rule-src headline">$52.8M</td><td class="rule-id">SOL-015 · SOL-007</td></tr>
+        <tr><td>Crema Finance — fake tick-account fee drain</td><td class="rule-src">$8.8M</td><td class="rule-id">SOL-007 · SOL-017</td></tr>
+        <tr><td>Loopscale — RateX collateral price manipulation</td><td class="rule-src">$5.8M</td><td class="rule-id">SOL-024 · SOL-028</td></tr>
+        <tr><td>Nirvana — bonding-curve price manipulation</td><td class="rule-src">$3.5M</td><td class="rule-id">SOL-024 · SOL-028</td></tr>
+        <tr><td>Cypher Protocol — isolated-pool margin miscount</td><td class="rule-src">$1.04M</td><td class="rule-id">SOL-004</td></tr>
+        <tr><td>Solend — UpdateReserveConfig authority bypass</td><td class="rule-src">$16K</td><td class="rule-id">SOL-006 · SOL-007</td></tr>
+        </tbody>
+      </table>
+      <p>All eight code-preventable cases are shown above. The oracle / price-manipulation ones (Mango, Loopscale, Nirvana) are economic attacks that a confidence-interval or deviation guard mitigates rather than a single missing check — SOL-024 / SOL-028 flag the absent guard, not a one-line bug. Plus three out-of-scope cases (Slope, Raydium, Pump.fun) we include but mark as not code-preventable. Each entry carries its root cause, the mapped rule, and primary sources. Every one of the 28 rules also has a <a href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/content/rules" target="_blank" rel="noopener">per-rule explainer page</a> — definition, fix, the real hacks in its class, and a code example where one exists.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 06 — EXAMPLES -->
 <section class="doc" id="examples">
   <div class="container">
     <div data-reveal>
-      <div class="section-label">05 · Examples</div>
+      <div class="section-label">06 · Examples</div>
       <h2 class="section-title">Paired vulnerable / fixed snippets.</h2>
-      <p class="section-lede">5 paired examples in the GitHub repo — one per headline rule. Read the <code>vulnerable.rs</code> first, then compare against <code>fixed.rs</code>.</p>
+      <p class="section-lede">5 paired examples in the GitHub repo — for the founding SOL-001 through SOL-005 rules. Read the <code>vulnerable.rs</code> first, then compare against <code>fixed.rs</code>.</p>
 
       <ul>
         <li><a href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/examples/sol_001_unauth_now_slot" target="_blank" rel="noopener">SOL-001 · Caller-controlled <code>now_slot</code></a></li>
@@ -396,11 +426,11 @@ code { font-family: var(--mono); font-size: 0.92em; }
   </div>
 </section>
 
-<!-- 06 — CONTRIBUTE -->
+<!-- 07 — CONTRIBUTE -->
 <section class="doc" id="contribute">
   <div class="container">
     <div data-reveal>
-      <div class="section-label">06 · Contribute</div>
+      <div class="section-label">07 · Contribute</div>
       <h2 class="section-title">PRs welcome. Especially new rules from your own audits.</h2>
       <p class="section-lede">This ruleset compounds with every cycle. Each new bounty finding becomes a new rule. PRs from the community are how it grows beyond what one team can audit.</p>
 
@@ -458,7 +488,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     </div>
     <div class="footer-bottom">
       <span>© 2026 Jelleo · Apache-2.0 (platform) · MIT (guidance ruleset)</span>
-      <span>Standard v1.8.0 · 2026-06-03 · 28 rules · 6 tool surfaces</span>
+      <span>Standard v1.8.0 · 2026-06-03 · 28 rules · 6 surfaces (4 live, 2 soon)</span>
     </div>
   </div>
 </footer>
