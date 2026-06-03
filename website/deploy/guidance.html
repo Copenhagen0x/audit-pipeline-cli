@@ -192,7 +192,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="hero-eyebrow">Solana Security Standard · SOL-0XX · v1.8.0</div>
       <h1 class="hero-title">Catch Solana bugs <span class="accent">as you write them.</span></h1>
-      <p class="hero-lede">The <strong>Solana Security Standard</strong> — a drop-in <code>SOL-0XX</code> ruleset that flags Solana-specific bug classes while you code: caller-controlled clock values, cross-market state asymmetry, wrapper handlers that drift from engine logic, missing Anchor constraints, stale oracle prices, and 23 more. It runs in <strong>Claude Code</strong>, <strong>every major AI coding agent</strong> (Cursor, Copilot, Codex, Windsurf, Cline, Aider), your <strong>CI</strong> (a GitHub Action + CLI), and <strong>Semgrep</strong> today — with a <strong>VS Code</strong> extension and an <strong>MCP</strong> server landing next, all generated from one source. SOL-001 covers two confirmed-exploitable bounty wins; the other 27 rules are documented Solana audit patterns.</p>
+      <p class="hero-lede">The <strong>Solana Security Standard</strong> — a drop-in <code>SOL-0XX</code> ruleset that flags Solana-specific bug classes while you code: caller-controlled clock values, cross-market state asymmetry, wrapper handlers that drift from engine logic, missing Anchor constraints, stale oracle prices, and 23 more. It runs in <strong>Claude Code</strong>, <strong>every major AI coding agent</strong> (Cursor, Copilot, Codex, Windsurf, Cline, Aider), your <strong>CI</strong> (a GitHub Action + CLI), <strong>Semgrep</strong>, and any <strong>MCP</strong> client today — with a <strong>VS Code</strong> extension landing next, all generated from one source. SOL-001 covers two confirmed-exploitable bounty wins; the other 27 rules are documented Solana audit patterns.</p>
 
       <figure class="hero-demo" data-reveal data-delay="1" style="margin: 36px 0 8px; max-width: 1080px;">
         <img src="/guidance-hero.png"
@@ -261,7 +261,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
         <a class="tool-card" href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/extensions/vscode" target="_blank" rel="noopener"><div class="tool-name">VS Code · Cursor · Windsurf<span class="tool-soon">soon</span></div><div class="tool-cmd">install the extension</div><div class="tool-desc">Inline SOL-0XX squiggles as you type. 100% local — no telemetry.</div></a>
         <a class="tool-card" href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/cli" target="_blank" rel="noopener"><div class="tool-name">CLI · GitHub Action</div><div class="tool-cmd">npx @jelleo/solana-security-standard</div><div class="tool-desc">Scan from any terminal; the Action gates every PR and ships an adoption badge.</div></a>
         <a class="tool-card" href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/semgrep" target="_blank" rel="noopener"><div class="tool-name">Semgrep</div><div class="tool-cmd">semgrep --config https://raw.githubusercontent.com/Copenhagen0x/solana-security-guidance/main/semgrep/solana-security-standard.yaml</div><div class="tool-desc">The 17 machine-checkable rules as a Semgrep ruleset for any existing pipeline.</div></a>
-        <a class="tool-card" href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/mcp" target="_blank" rel="noopener"><div class="tool-name">MCP server<span class="tool-soon">soon</span></div><div class="tool-cmd">npx @jelleo/solana-security-mcp</div><div class="tool-desc">A scan tool + the rules for any MCP client (Cline, Copilot, Cursor, Claude, Windsurf).</div></a>
+        <a class="tool-card" href="https://github.com/Copenhagen0x/solana-security-guidance/tree/main/mcp" target="_blank" rel="noopener"><div class="tool-name">MCP server</div><div class="tool-cmd">npx @jelleo/solana-security-mcp</div><div class="tool-desc">A scan tool + the rules for any MCP client (Cline, Copilot, Cursor, Claude, Windsurf).</div></a>
       </div>
     </div>
   </div>
@@ -273,7 +273,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     <div data-reveal>
       <div class="section-label">01 · What you get</div>
       <h2 class="section-title">Two files for Claude Code. One source for every tool.</h2>
-      <p class="section-lede">Claude Code reads two files from your repo's <code>.claude/</code> folder — our ruleset ships both. The <strong>same <code>SOL-0XX</code> source</strong> also generates the CLI &amp; GitHub Action, the Semgrep pack, and the six AI-agent rules files — with the VS Code extension and the MCP server landing next (see the <code>soon</code> cards above). One source for every surface, so nothing drifts.</p>
+      <p class="section-lede">Claude Code reads two files from your repo's <code>.claude/</code> folder — our ruleset ships both. The <strong>same <code>SOL-0XX</code> source</strong> also generates the CLI &amp; GitHub Action, the Semgrep pack, the six AI-agent rules files, and the MCP server — with the VS Code extension landing next (see the <code>soon</code> card above). One source for every surface, so nothing drifts.</p>
 
       <h3 id="files"><code>claude-security-guidance.md</code></h3>
       <p>Plain-markdown threat model + 28-rule review checklist (7.9 KB, under Anthropic's 8 KB cap). Read by the plugin's <strong>model-backed reviews</strong> (end-of-turn diff review + commit review). Tells the reviewer what Solana-specific patterns to look for.</p>
@@ -352,7 +352,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
 
       <p>Every time a rule fires, the reminder text includes the rule ID (<code>Jelleo SOL-001:</code>) and a link back to the GitHub source so you can see the underlying bounty case study.</p>
 
-      <p><strong>Outside Claude Code, the same rules fire at the equivalent point:</strong> the CLI &amp; GitHub Action scan on every PR, Semgrep runs the 17 deterministic patterns in your existing pipeline, and the six AI-agent rules files steer Cursor / Copilot / Codex / Windsurf / Cline / Aider. The VS Code extension (inline squiggles) and the MCP server (a scan tool for any MCP client) are shipping next. One source, generated into each — so a rule added once shows up everywhere.</p>
+      <p><strong>Outside Claude Code, the same rules fire at the equivalent point:</strong> the CLI &amp; GitHub Action scan on every PR, Semgrep runs the 17 deterministic patterns in your existing pipeline, the six AI-agent rules files steer Cursor / Copilot / Codex / Windsurf / Cline / Aider, and the MCP server exposes a scan tool to any MCP client. The VS Code extension (inline squiggles) is shipping next. One source, generated into each — so a rule added once shows up everywhere.</p>
     </div>
   </div>
 </section>
@@ -488,7 +488,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
     </div>
     <div class="footer-bottom">
       <span>© 2026 Jelleo · Apache-2.0 (platform) · MIT (guidance ruleset)</span>
-      <span>Standard v1.8.0 · 2026-06-03 · 28 rules · 6 surfaces (4 live, 2 soon)</span>
+      <span>Standard v1.8.0 · 2026-06-03 · 28 rules · 6 surfaces (5 live, 1 soon)</span>
     </div>
   </div>
 </footer>
