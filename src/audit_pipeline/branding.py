@@ -670,6 +670,10 @@ def footer_html(extra: str = "", protocol_label: str = "Solana") -> str:
     # use a target-agnostic strapline instead.
     if protocol_label.startswith("C "):
         strapline = f"{PRODUCT_NAME} · Autonomous security audits for C / systems software"
+    elif protocol_label == "TypeScript":
+        strapline = f"{PRODUCT_NAME} · Autonomous security audits for TypeScript & web applications"
+    elif protocol_label == "Application":
+        strapline = f"{PRODUCT_NAME} · Autonomous security audits for application source code"
     else:
         ecosystem_label = "EVM" if protocol_label == "Solidity" else protocol_label
         strapline = f"{PRODUCT_NAME} · The underwriting layer for {ecosystem_label} DeFi"
@@ -897,7 +901,7 @@ def cover_page_html(
         <div class="cover-info">
           <div class="header">Platform · v0.1</div>
           <div class="body">
-            <strong>{PRODUCT_NAME}</strong> · {("Autonomous security audits for C / systems software" if protocol_label.startswith("C ") else f"The underwriting layer for {('EVM' if protocol_label == 'Solidity' else protocol_label)} DeFi")}.
+            <strong>{PRODUCT_NAME}</strong> · {("Autonomous security audits for C / systems software" if protocol_label.startswith("C ") else ("Autonomous security audits for TypeScript & web applications" if protocol_label == "TypeScript" else ("Autonomous security audits for application source code" if protocol_label == "Application" else f"The underwriting layer for {('EVM' if protocol_label == 'Solidity' else protocol_label)} DeFi")))}.
             <div class="row"><span class="key">Methodology</span><a href="https://jelleo.com/methodology.html">jelleo.com/methodology.html</a></div>
             <div class="row"><span class="key">Disclosure</span><a href="https://jelleo.com/security.html">jelleo.com/security.html</a></div>
             <div class="row"><span class="key">Source</span><a href="https://github.com/Copenhagen0x/audit-pipeline-cli">github.com/Copenhagen0x/audit-pipeline-cli</a></div>

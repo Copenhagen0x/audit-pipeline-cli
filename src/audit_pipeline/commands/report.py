@@ -69,6 +69,47 @@ _C_SEVERITY_RUBRIC: dict[Severity, str] = {
     ),
 }
 
+# Severity rubric for TypeScript / JavaScript / Node targets — web apps,
+# CLIs, serverless APIs, and on-chain *integrator* code (web3.js tx
+# senders). The default `DEFINITIONS` frames severity around on-chain
+# Solana-DeFi loss-of-funds, which is wrong for an off-chain TS service
+# whose failure modes are remote code execution, authentication /
+# authorization bypass, secret exfiltration, denial-of-service / cost
+# amplification, correctness defects in core logic, and dependency /
+# supply-chain risk. The report's appendix-A renderer picks this dict
+# when language is "typescript" (and the neutral wording also serves
+# "generic" cycles).
+_TS_SEVERITY_RUBRIC: dict[Severity, str] = {
+    Severity.CRITICAL: (
+        "Remote code execution, authentication bypass on a privileged "
+        "endpoint, or exfiltration of stored secrets / credentials / "
+        "signing keys reachable from unauthenticated or attacker-shaped "
+        "input. No special preconditions. Must be patched immediately."
+    ),
+    Severity.HIGH: (
+        "Significant authorization gap, secret leakage, injection, or "
+        "loss-of-integrity under realistic preconditions (a specific "
+        "configuration, an authenticated lower-privilege caller, or an "
+        "attacker-controlled environment / file). Patch should ship in "
+        "the next release."
+    ),
+    Severity.MEDIUM: (
+        "Hardening issue: unauthenticated resource amplification / "
+        "denial-of-service, unbounded fetch or disk growth, overly "
+        "permissive CORS, or a correctness defect that yields wrong "
+        "(but not catastrophic) output. Worth fixing in normal cadence."
+    ),
+    Severity.LOW: (
+        "Minor issue with no plausible path to code execution, auth "
+        "bypass, or secret loss. Code-quality or defense-in-depth "
+        "concern."
+    ),
+    Severity.INFO: (
+        "Informational. No security impact. Documentation or style "
+        "suggestion."
+    ),
+}
+
 console = Console()
 
 
@@ -500,7 +541,9 @@ def _table_of_contents(
 
 def _detect_language(workspace: Path, cycle_id: str) -> str:
     """Return ``"aptos"`` (Move), ``"solidity"`` (EVM), ``"c"`` (systems
-    software), or ``"solana"`` (default).
+    software), ``"typescript"`` (TypeScript / JavaScript / Node — web
+    apps, CLIs, serverless APIs, web3.js integrator code), ``"generic"``
+    (any other language, neutral framing), or ``"solana"`` (default).
 
     Detection order (cheap → expensive):
       1. ``workspace.json`` ``language`` field (authoritative)
@@ -508,18 +551,36 @@ def _detect_language(workspace: Path, cycle_id: str) -> str:
          ``workspace/tests/<lang>/*`` exists
       3. ``hunts/<cycle>/hunt.log.jsonl`` contains an event with the language tag
       4. Default to ``"solana"`` (back-compat for the existing renderer)
+
+    Ecosystem aliases (``ts`` / ``tsx`` / ``javascript`` / ``js`` /
+    ``node`` / ``nodejs`` → ``typescript``; ``other`` → ``generic``) are
+    normalized so callers can use the natural name in ``workspace.json``.
     """
     import json as _json
+
+    def _norm(raw: str) -> str:
+        r = (raw or "").strip().lower()
+        if r in ("typescript", "ts", "tsx", "javascript", "js",
+                 "node", "nodejs", "deno", "bun"):
+            return "typescript"
+        if r in ("generic", "other"):
+            return "generic"
+        if r in ("aptos", "solidity", "c", "solana"):
+            return r
+        return ""
+
     ws_cfg_path = workspace / "workspace.json"
     if ws_cfg_path.is_file():
         try:
             cfg = _json.loads(ws_cfg_path.read_text(encoding="utf-8"))
-            cfg_lang = str(cfg.get("language") or "").strip().lower()
-            if cfg_lang in ("aptos", "solidity", "c", "solana"):
+            cfg_lang = _norm(str(cfg.get("language") or ""))
+            if cfg_lang:
                 return cfg_lang
         except (OSError, _json.JSONDecodeError):
             pass
-    for lang in ("aptos", "solidity", "c"):
+    # Directory-based detection. ``generic`` has no canonical sidecar
+    # layout, so it is only ever set explicitly via workspace.json.
+    for lang in ("aptos", "solidity", "c", "typescript"):
         if (workspace / "formal" / lang).is_dir():
             return lang
         if (workspace / "fuzz" / lang).is_dir():
@@ -530,12 +591,9 @@ def _detect_language(workspace: Path, cycle_id: str) -> str:
     if log.is_file():
         try:
             for line in log.read_text(encoding="utf-8", errors="replace").splitlines()[:500]:
-                if '"language": "aptos"' in line or '"language":"aptos"' in line:
-                    return "aptos"
-                if '"language": "solidity"' in line or '"language":"solidity"' in line:
-                    return "solidity"
-                if '"language": "c"' in line or '"language":"c"' in line:
-                    return "c"
+                for lang in ("aptos", "solidity", "c", "typescript"):
+                    if f'"language": "{lang}"' in line or f'"language":"{lang}"' in line:
+                        return lang
         except OSError:
             pass
     return "solana"
@@ -565,6 +623,7 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
     is_aptos = language == "aptos"
     is_solidity = language == "solidity"
     is_c = language == "c"
+    is_typescript = language in ("typescript", "generic")
 
     # Resolve the actual findings.db that hunt.py wrote to: prefer
     # workspace-local, then the parent ``workspaces/`` dir, then the
@@ -640,6 +699,29 @@ def _artifact_paths_section(workspace: Path, cycle_id: str) -> str:
             ("Layer 4 AFL++ fuzz harnesses",
              "fuzz/c/<slug>/afl_<slug>.c",
              workspace / "fuzz" / "c", ""),
+        ])
+    elif is_typescript:
+        # TypeScript / Node (and neutral "generic") cycles. L3 is a
+        # property-based (fast-check) harness; L4 is a live end-to-end run
+        # against the real target (the off-chain analogue of LiteSVM).
+        # generic cycles get their own tests|formal|fuzz/generic/ subdir.
+        _sub = "typescript" if language == "typescript" else "generic"
+        _ext = "ts" if language == "typescript" else "<ext>"
+        _src_label = "TypeScript" if language == "typescript" else "source"
+        _log_pfx = "ts" if language == "typescript" else "gen"
+        entries.extend([
+            (f"Layer 2 PoC sources ({_src_label})",
+             f"tests/{_sub}/test_<slug>.{_ext}",
+             workspace / "tests" / _sub, ""),
+            ("Layer 2 PoC run logs",
+             f"hunts/<cycle>/poc/{_log_pfx}_<slug>.log",
+             cycle_dir / "poc", ""),
+            ("Layer 3 property-based harnesses + verdicts",
+             f"formal/{_sub}/prop_<slug>.{_ext}",
+             workspace / "formal" / _sub, ""),
+            ("Layer 4 live end-to-end reproductions",
+             f"fuzz/{_sub}/live_<slug>.{_ext}",
+             workspace / "fuzz" / _sub, ""),
         ])
     else:
         # Solana cycle artifacts. The isolated L3 (Kani) and L4
@@ -837,6 +919,17 @@ def _executive_summary_section(
         formal_phrase = "a CBMC bounded-model-check proof where the formal layer ran"
         fuzz_phrase = "an AFL++ coverage-guided fuzz reproduction"
         poc_phrase = "an ASan/UBSan-instrumented"
+    elif language in ("typescript", "generic"):
+        formal_phrase = (
+            "a fast-check property-based proof where the property layer ran"
+            if language == "typescript"
+            else "a property-based test where the property layer ran"
+        )
+        fuzz_phrase = "a live end-to-end reproduction against the real target"
+        poc_phrase = (
+            "a TypeScript/Node-executed" if language == "typescript"
+            else "an executable"
+        )
     else:
         formal_phrase = "a Kani-bounded model-checker proof where the formal layer ran"
         fuzz_phrase = "an on-chain BPF reproduction through LiteSVM"
@@ -932,6 +1025,41 @@ def _scope_section(
                     for p in sorted(src_dir.rglob(ext))
                     if "tests" not in p.parts
                 )
+    elif language in ("typescript", "generic"):
+        # TypeScript / Node (or neutral "generic") workspace. Walk the
+        # common source roots recursively for code files, skipping
+        # vendored deps, build output, type-decl stubs and test trees.
+        # Capped so a large monorepo doesn't render a hundred-row table.
+        _ts_exts = (
+            ("*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs")
+            if language == "typescript"
+            else ("*.ts", "*.tsx", "*.js", "*.py", "*.go", "*.rb")
+        )
+        _ts_skip = {
+            "node_modules", "dist", "build", "out", ".next",
+            "coverage", "vendor", "tests", "__tests__", "test",
+        }
+        _seen_ts: set[str] = set()
+        for _root in (engine_root / "src", engine_root):
+            if not _root.is_dir():
+                continue
+            for ext in _ts_exts:
+                for p in sorted(_root.rglob(ext)):
+                    # Skip-check against the path RELATIVE to the walk root,
+                    # not the absolute path — otherwise an ancestor dir of the
+                    # workspace named build/out/dist/etc. (common on CI / dev
+                    # machines) would match and silently drop every file.
+                    if any(part in _ts_skip for part in p.relative_to(_root).parts):
+                        continue
+                    if (p.name.endswith(".d.ts")
+                            or ".test." in p.name or ".spec." in p.name):
+                        continue
+                    _seen_ts.add(str(p.relative_to(engine_root)))
+            if _seen_ts:
+                break
+        sources.extend(sorted(_seen_ts)[:80])
+        if len(_seen_ts) > 80:
+            sources.append(f"… and {len(_seen_ts) - 80} more source file(s)")
     else:
         # Percolator workspace: src/*.rs at engine root.
         for sub in ("src",):
@@ -978,15 +1106,15 @@ def _scope_section(
       <tr><td style="width:160px;color:var(--text-3)">Target workspace</td>
           <td><code>{html.escape(target_name)}</code></td></tr>
       <tr><td style="color:var(--text-3)">Protocol</td>
-          <td>{("Move smart-contract framework (Aptos)" if language == "aptos" else ("Solidity smart contracts (EVM / Foundry)" if language == "solidity" else ("C systems software (clang / CBMC / AFL++)" if language == "c" else "Solana BPF program")))}</td></tr>
+          <td>{("Move smart-contract framework (Aptos)" if language == "aptos" else ("Solidity smart contracts (EVM / Foundry)" if language == "solidity" else ("C systems software (clang / CBMC / AFL++)" if language == "c" else ("TypeScript / Node application (npm / tsc)" if language == "typescript" else ("Application source code" if language == "generic" else "Solana BPF program")))))}</td></tr>
       <tr><td style="color:var(--text-3)">Engine commit</td>
           <td><code>{html.escape(engine_sha_short)}</code> {('<span style="color:var(--text-3);font-size:11px">(' + html.escape(engine_sha_full) + ')</span>') if engine_sha_full and len(engine_sha_full) > 10 else ''}</td></tr>
       <tr><td style="color:var(--text-3)">Source files</td>
           <td><table style="border:none;margin:0;background:none"><tbody>{files_rows}</tbody></table></td></tr>
       <tr><td style="color:var(--text-3)">Hypothesis library</td>
-          <td>{n_hyps_in_library} invariant claim(s) {("covering memory safety (off-by-one, OOB, UAF, double-free), filesystem-race (TOCTOU, predictable-path, symlink-follow), format-string injection, authorization (missing role gates, weak token entropy), and integer-overflow." if language == "c" else "covering authorization, arithmetic safety, accounting consistency, capability handling, event auditability, and oracle / time freshness")}</td></tr>
+          <td>{n_hyps_in_library} invariant claim(s) {("covering memory safety (off-by-one, OOB, UAF, double-free), filesystem-race (TOCTOU, predictable-path, symlink-follow), format-string injection, authorization (missing role gates, weak token entropy), and integer-overflow." if language == "c" else ("covering input validation, authentication and authorization, secret / credential handling, resource bounds (denial-of-service and cost amplification), correctness of core computations, and dependency / supply-chain hygiene." if language in ("typescript", "generic") else "covering authorization, arithmetic safety, accounting consistency, capability handling, event auditability, and oracle / time freshness"))}</td></tr>
       <tr><td style="color:var(--text-3)">Out of scope</td>
-          <td style="color:var(--text-2)">{("System libraries (libc, libpthread, libcrypto); kernel-side syscall behavior; build scripts and Makefile / build.sh logic; the test harness itself under tests/. Vendored third-party code under src/vendor/ IS in scope when the pipeline patches it." if language == "c" else "Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>" + ("Move.toml" if language == "aptos" else ("foundry.toml" if language == "solidity" else "Cargo.toml")) + "</code> beyond their declared interfaces.")}</td></tr>
+          <td style="color:var(--text-2)">{("System libraries (libc, libpthread, libcrypto); kernel-side syscall behavior; build scripts and Makefile / build.sh logic; the test harness itself under tests/. Vendored third-party code under src/vendor/ IS in scope when the pipeline patches it." if language == "c" else ("Third-party npm packages beyond their declared interfaces; the Node.js / V8 runtime and framework internals; build tooling and bundler configuration; CI / deployment configuration except where it gates a security boundary. Dependencies are pinned in <code>package.json</code> and the lockfile." if language == "typescript" else ("Third-party dependencies beyond their declared interfaces; language runtime and standard-library internals; build tooling and packaging configuration; CI / deployment configuration except where it gates a security boundary." if language == "generic" else "Off-chain components (indexers, frontends, oracles); deployment scripts; framework / standard-library code; dependencies pinned in <code>" + ("Move.toml" if language == "aptos" else ("foundry.toml" if language == "solidity" else "Cargo.toml")) + "</code> beyond their declared interfaces.")))}</td></tr>
     </tbody>
   </table>
 """
@@ -2232,9 +2360,22 @@ def _findings_writeup(
     c_tests_dir = workspace / "tests" / "c"
     c_formal_dir = workspace / "formal" / "c"
     c_fuzz_dir = workspace / "fuzz" / "c"
+    # TypeScript / generic workspaces mirror the layout under
+    # tests|formal|fuzz/<language>/ — a generic cycle gets its own subdir
+    # so a non-TS PoC isn't looked up under tests/typescript/. (Only used
+    # by the typescript/generic L2 arm; value is inert for other langs.)
+    _ts_subdir = "typescript" if language == "typescript" else "generic"
+    ts_tests_dir = workspace / "tests" / _ts_subdir
+    ts_formal_dir = workspace / "formal" / _ts_subdir
+    ts_fuzz_dir = workspace / "fuzz" / _ts_subdir
+    # L3/L4 adapter results are read from the hunt log for every
+    # non-Solana language (Solana stores them as Kani/LiteSVM sidecars
+    # read separately below). typescript/generic MUST be included here or
+    # every TS finding's L3/L4 status renders "—".
     aptos_layer_results = (
         _aptos_layer_results_from_log(workspace, cycle_id)
-        if language in ("aptos", "solidity", "c") else {"l3": {}, "l4": {}}
+        if language in ("aptos", "solidity", "c", "typescript", "generic")
+        else {"l3": {}, "l4": {}}
     )
 
     # Full claims from the hypothesis library (DB stores claim[:120]
@@ -2323,6 +2464,14 @@ def _findings_writeup(
                 "assertGt", "assertLt", "assertGe", "assertLe",
                 "assertApproxEq", "vm.expectRevert",
             )
+            # TypeScript / JS test-framework assertions (jest / vitest / chai /
+            # node:assert / ava). Gated on language so the firing-line anchor
+            # for Move/Rust/Solidity/C cycles is byte-identical to before.
+            if language in ("typescript", "generic"):
+                firing_prefixes = firing_prefixes + (
+                    "expect(", "await expect(", "assert.", "assert(",
+                    "throw ", "t.throws(", "t.is(",
+                )
             firing_idx = -1
             for i_, ln in enumerate(parts):
                 s = ln.lstrip()
@@ -2447,6 +2596,26 @@ def _findings_writeup(
                 except OSError:
                     pass
             l2_lang = "c"
+        elif language in ("typescript", "generic"):
+            # TypeScript PoCs live at workspace/tests/typescript/test_<slug>.ts.
+            # Fall back to a prefix / any-extension glob (slug length caps,
+            # or a non-.ts file for a generic cycle) so the report still
+            # surfaces the L2 source.
+            ts_poc = ts_tests_dir / f"test_{hyp_slug}.ts"
+            if not ts_poc.is_file():
+                _ts_cands = (
+                    list(ts_tests_dir.glob(f"test_{hyp_slug}.*"))
+                    or list(ts_tests_dir.glob(f"test_{hyp_slug[:55]}*"))
+                )
+                if _ts_cands:
+                    ts_poc = _ts_cands[0]
+            if ts_poc.is_file():
+                try:
+                    pt = ts_poc.read_text(encoding="utf-8", errors="replace")
+                    l2_excerpt = _cap_with_firing_tail(pt)
+                except OSError:
+                    pass
+            l2_lang = "typescript" if language == "typescript" else "none"
         else:
             # Prefer the Layer 4 LiteSVM test source over the Layer 2 PoC
             # excerpt when present. Rationale: L2 PoCs are LLM-authored against
@@ -2589,6 +2758,30 @@ def _findings_writeup(
                 l3_status = (
                     "Not run for this hypothesis — L2 PoC + L4 AFL++ are the primary signal."
                 )
+        elif language in ("typescript", "generic"):
+            _prop_tool = "fast-check" if language == "typescript" else "the property test"
+            ev = aptos_layer_results.get("l3", {}).get(hyp_id)
+            if ev and ev.get("counterexample") is True:
+                l3_status = (
+                    f"✓ {_prop_tool} shrank a counterexample — the property "
+                    "fails across the sampled input space (minimal failing "
+                    "case in the formal/typescript log)."
+                )
+            elif ev and ev.get("proved") is True:
+                l3_status = (
+                    f"No counterexample within the {_prop_tool} sample budget "
+                    "(bounded property safety — L2 PoC remains authoritative)."
+                )
+            elif ev and ev.get("compile_error"):
+                l3_status = (
+                    "Inconclusive — the property harness failed to run "
+                    "(L2 PoC + L4 live reproduction remain the primary signal)."
+                )
+            else:
+                l3_status = (
+                    "Not run for this hypothesis — L2 PoC + L4 live "
+                    "reproduction are the primary signal."
+                )
         else:
             # Modern adapter writes per-slug subdir; legacy Percolator
             # path lives directly under kani/. Try both.
@@ -2722,6 +2915,37 @@ def _findings_writeup(
                         "the authoritative bug signal."
                         + (f" (adapter note: {reason})" if reason else "")
                     )
+        elif language in ("typescript", "generic"):
+            ev = aptos_layer_results.get("l4", {}).get(hyp_id)
+            if not ev:
+                l4_status = (
+                    "Not run — L4 live end-to-end stage was skipped for this "
+                    "hypothesis (L2 PoC is the authoritative bug signal)"
+                )
+            elif ev.get("crash_found") is True:
+                l4_status = (
+                    "✓ Reproduced end-to-end against the live target — bug "
+                    "demonstrably reachable through the real execution path."
+                )
+                l4_witness = (ev.get("reason") or "")[:500]
+            elif ev.get("compile_error") or "compile error" in (ev.get("reason") or "").lower():
+                l4_status = (
+                    "Not run for this hypothesis — the live reproduction "
+                    "harness did not run against the target. L2 PoC remains "
+                    "the authoritative bug signal."
+                )
+            elif ev.get("ran_clean"):
+                l4_status = (
+                    "Live reproduction ran clean — behavior not reproduced "
+                    "(L2 PoC remains authoritative)."
+                )
+            else:
+                reason = (ev.get("reason") or "")[:200]
+                l4_status = (
+                    "Not run for this hypothesis — L2 PoC remains the "
+                    "authoritative bug signal."
+                    + (f" (adapter note: {reason})" if reason else "")
+                )
         else:
             # Anchor L4 adapter writes per-hyp logs to
             #   hunts/<cycle>/litesvm/<slug>/test_<slug>_litesvm.log  (FINAL)
@@ -2916,6 +3140,18 @@ def _findings_writeup(
                                 "no litesvm_test_name registered for this bug class",
                                 "n/a for C cycles; AFL++ verdict reported at L4 above",
                             )
+                        elif language in ("typescript", "generic") and g_name == "kani_proof_holds":
+                            display_name = "fastcheck_property_holds"
+                            reason = reason.replace(
+                                "no kani_harness registered for this bug class",
+                                "no fast-check property harness registered for this bug class",
+                            )
+                        elif language in ("typescript", "generic") and g_name == "litesvm_exploit_neutralized":
+                            display_name = "live_repro_neutralized"
+                            reason = reason.replace(
+                                "no litesvm_test_name registered for this bug class",
+                                "no live end-to-end reproduction registered for this bug class",
+                            )
                         else:
                             display_name = g_name
                         p3_gates.append((icon, display_name, reason, passed))
@@ -2936,19 +3172,32 @@ def _findings_writeup(
         # L2 engine PoC is what gets rendered. Naming the header by what's
         # actually shown avoids the mislabeled "Layer 2" content that's
         # really an L4 LiteSVM test.
+        # LiteSVM substitution is Solana-only. Tightened from
+        # ``language != "aptos"`` to ``== "solana"`` so a non-Solana
+        # cycle can never be mislabeled by a stray .rs in the slot
+        # (value is unchanged for aptos/solidity/c — all already False).
         litesvm_present = (
-            language != "aptos"
+            language == "solana"
             and (cycle_dir / "litesvm" / hyp_slug
                  / f"test_{hyp_slug}_litesvm.rs").is_file()
         )
         l2_header = (
             "Layer 4 — LiteSVM exploit reproduction (test source)"
             if litesvm_present
-            else "Layer 2 — Concrete proof of concept (engine-direct)"
+            else ("Layer 2 — Concrete proof of concept"
+                  if language in ("typescript", "generic")
+                  else "Layer 2 — Concrete proof of concept (engine-direct)")
+        )
+        # Omit the Prism language class when there's no real grammar
+        # (generic cycles use l2_lang "none") so the autoloader doesn't
+        # 404 on a nonexistent prism-none component.
+        _l2_code_class = (
+            f' class="language-{l2_lang}"'
+            if l2_lang and l2_lang != "none" else ""
         )
         l2_section = (
             f'<h4>{l2_header}</h4>'
-            f'<pre class="code-block code-tight"><code class="language-{l2_lang}">{html.escape(l2_excerpt)}</code></pre>'
+            f'<pre class="code-block code-tight"><code{_l2_code_class}>{html.escape(l2_excerpt)}</code></pre>'
         ) if l2_excerpt else (
             '<h4>Layer 2 — Concrete proof of concept</h4>'
             '<p style="color:var(--text-3)">No PoC source on file</p>'
@@ -2960,6 +3209,8 @@ def _findings_writeup(
             l4_label = "Layer 4 — Forge fuzz / invariant"
         elif language == "c":
             l4_label = "Layer 4 — AFL++ coverage-guided fuzz"
+        elif language in ("typescript", "generic"):
+            l4_label = "Layer 4 — Live end-to-end reproduction"
         else:
             l4_label = "Layer 4 — On-chain BPF reproduction"
         l4_section = (
@@ -3023,6 +3274,12 @@ def _findings_writeup(
             l3_label = "Layer 3 — Symbolic verification (Halmos)"
         elif language == "c":
             l3_label = "Layer 3 — Bounded model checking (CBMC)"
+        elif language in ("typescript", "generic"):
+            l3_label = (
+                "Layer 3 — Property-based testing (fast-check)"
+                if language == "typescript"
+                else "Layer 3 — Property-based testing"
+            )
         else:
             l3_label = "Layer 3 — Symbolic verification (Kani)"
 
@@ -3655,6 +3912,10 @@ def _render_cycle_html(
         protocol_label = "Solidity"
     elif language == "c":
         protocol_label = "C / systems-software"
+    elif language == "typescript":
+        protocol_label = "TypeScript"
+    elif language == "generic":
+        protocol_label = "Application"
     else:
         protocol_label = "Solana"
 
@@ -4067,7 +4328,7 @@ pre code.language-c .token.punctuation   {{ color: rgba(245,243,237,0.55); }}
     <thead><tr><th style="width:120px">Tier</th><th>Definition</th></tr></thead>
     <tbody>{''.join(
         f'<tr><td><span class="sev {s.value.lower()}">{s.value}</span></td>'
-        f'<td style="color:var(--text-2)">{html.escape(_C_SEVERITY_RUBRIC[s] if language == "c" else DEFINITIONS[s])}</td></tr>'
+        f'<td style="color:var(--text-2)">{html.escape(_TS_SEVERITY_RUBRIC[s] if language in ("typescript", "generic") else (_C_SEVERITY_RUBRIC[s] if language == "c" else DEFINITIONS[s]))}</td></tr>'
         for s in Severity
     )}</tbody>
   </table>
@@ -4083,15 +4344,15 @@ pre code.language-c .token.punctuation   {{ color: rgba(245,243,237,0.55); }}
       <tr><td><code>Layer 1.5</code></td>
           <td style="color:var(--text-2)">Adversarial debate. Contested verdicts (NEEDS_L2 or split verdicts) are promoted through a single-round attacker / defender debate, with a separate judge resolving the final verdict.</td></tr>
       <tr><td><code>Layer 2</code></td>
-          <td style="color:var(--text-2)">Concrete proof-of-concept. An inverted-assertion test is authored in {("Move and run via <code>aptos move test</code>" if language == "aptos" else ("Solidity and run via <code>forge test</code>" if language == "solidity" else ("C and compiled with <code>clang</code> + ASan/UBSan/SignedOverflowSan" if language == "c" else "Rust and run via <code>cargo test</code>")))}. The test &quot;fires&quot; iff an abort {("from the sanitizer or an explicit <code>assert(0)</code>" if language == "c" else "with a custom error code")} originates in the target module (not stdlib / setup).</td></tr>
+          <td style="color:var(--text-2)">Concrete proof-of-concept. An inverted-assertion test is authored in {("Move and run via <code>aptos move test</code>" if language == "aptos" else ("Solidity and run via <code>forge test</code>" if language == "solidity" else ("C and compiled with <code>clang</code> + ASan/UBSan/SignedOverflowSan" if language == "c" else ("TypeScript and run via <code>tsx</code> / <code>node</code>" if language == "typescript" else ("the target's native test runner" if language == "generic" else "Rust and run via <code>cargo test</code>")))))}. The test &quot;fires&quot; iff an abort {("from the sanitizer or an explicit <code>assert(0)</code>" if language == "c" else ("via a thrown assertion (<code>assert</code> / <code>expect</code>)" if language in ("typescript", "generic") else "with a custom error code"))} originates in the target module (not stdlib / setup).</td></tr>
       <tr><td><code>Layer 2.5</code></td>
           <td style="color:var(--text-2)">Triage. An LLM judge classifies each fire as <code>STRONG</code> (real bug), <code>SOFT</code> (wrong invariant), <code>FALSE</code> (artifactual abort), or <code>LOST</code> (signal missing). STRONG fires are clustered by (engine_function, target_file) so the same code-site bug under multiple hypothesis IDs collapses to one root cause.</td></tr>
       <tr><td><code>Layer 3</code></td>
-          <td style="color:var(--text-2)">Symbolic verification. {("Move Prover with Boogie + Z3 / CVC5 backends. The spec asserts the violated invariant; the prover either finds a counterexample (bug confirmed by SMT) or proves the invariant holds within the spec's bounded model." if language == "aptos" else ("Halmos symbolic execution with Z3 backend. An LLM-authored harness encodes the violated invariant as a <code>check_*</code> function; Halmos either finds a concrete counterexample (bug confirmed by SMT) or proves the invariant holds within bounded depth." if language == "solidity" else ("CBMC bounded model checking with built-in <code>--bounds-check</code>, <code>--pointer-check</code>, and integer-overflow checks. The harness drives the function under test with symbolic inputs; CBMC either reports a concrete counterexample (sanitizer-equivalent FAILURE at the bug site) or proves the invariant holds within the unwind bound." if language == "c" else "Kani-based bounded model checking. The harness asserts the violated invariant; Kani either finds a counterexample within the bounded depth or proves safety.")))}</td></tr>
+          <td style="color:var(--text-2)">{("Property-based testing. " if language in ("typescript", "generic") else "Symbolic verification. ")}{("Move Prover with Boogie + Z3 / CVC5 backends. The spec asserts the violated invariant; the prover either finds a counterexample (bug confirmed by SMT) or proves the invariant holds within the spec's bounded model." if language == "aptos" else ("Halmos symbolic execution with Z3 backend. An LLM-authored harness encodes the violated invariant as a <code>check_*</code> function; Halmos either finds a concrete counterexample (bug confirmed by SMT) or proves the invariant holds within bounded depth." if language == "solidity" else ("CBMC bounded model checking with built-in <code>--bounds-check</code>, <code>--pointer-check</code>, and integer-overflow checks. The harness drives the function under test with symbolic inputs; CBMC either reports a concrete counterexample (sanitizer-equivalent FAILURE at the bug site) or proves the invariant holds within the unwind bound." if language == "c" else ("A harness encodes the violated invariant as a property; a randomized-input runner (<code>fast-check</code>) either shrinks a concrete counterexample to a minimal failing case (bug confirmed) or finds none within the sample budget (bounded property safety)." if language == "typescript" else ("A harness encodes the violated invariant as a property; a randomized-input property runner either shrinks a concrete counterexample to a minimal failing case (bug confirmed) or finds none within the sample budget (bounded property safety)." if language == "generic" else "Kani-based bounded model checking. The harness asserts the violated invariant; Kani either finds a counterexample within the bounded depth or proves safety.")))))}</td></tr>
       <tr><td><code>Layer 4</code></td>
-          <td style="color:var(--text-2)">{("Property-based fuzzing via <code>aptos move test</code>. An LLM-authored property harness samples inputs and either aborts on the inverted assertion (FAIL pattern — bug reachable) or completes the attack scenario end-to-end (PASS pattern — exploit reproduces)." if language == "aptos" else ("Property-based fuzzing + invariant testing via <code>forge test</code>. An LLM-authored harness uses Foundry's fuzz / invariant runner — either a counterexample fires the inverted assertion (bug reachable) or the harness completes the attack scenario end-to-end." if language == "solidity" else ("Coverage-guided fuzzing via <code>AFL++</code> with <code>afl-clang-fast</code> + ASan/UBSan. An LLM-authored harness reads attacker-shaped bytes from stdin and feeds them to the function under test. AFL records as a 'crash' any input that triggers a sanitizer abort or explicit <code>abort()</code>." if language == "c" else "On-chain BPF reproduction. The Solana program is deployed into LiteSVM and the PoC re-executed through the deployed instructions, confirming the wrapper-side defenses don't catch the bug.")))}</td></tr>
+          <td style="color:var(--text-2)">{("Property-based fuzzing via <code>aptos move test</code>. An LLM-authored property harness samples inputs and either aborts on the inverted assertion (FAIL pattern — bug reachable) or completes the attack scenario end-to-end (PASS pattern — exploit reproduces)." if language == "aptos" else ("Property-based fuzzing + invariant testing via <code>forge test</code>. An LLM-authored harness uses Foundry's fuzz / invariant runner — either a counterexample fires the inverted assertion (bug reachable) or the harness completes the attack scenario end-to-end." if language == "solidity" else ("Coverage-guided fuzzing via <code>AFL++</code> with <code>afl-clang-fast</code> + ASan/UBSan. An LLM-authored harness reads attacker-shaped bytes from stdin and feeds them to the function under test. AFL records as a 'crash' any input that triggers a sanitizer abort or explicit <code>abort()</code>." if language == "c" else ("Live end-to-end reproduction. The confirmed defect is exercised against the real running target — the deployed service, CLI, or API (or a mainnet RPC for integrator code) — confirming the bug reproduces through the actual execution path rather than only in an isolated unit test." if language in ("typescript", "generic") else "On-chain BPF reproduction. The Solana program is deployed into LiteSVM and the PoC re-executed through the deployed instructions, confirming the wrapper-side defenses don't catch the bug."))))}</td></tr>
       <tr><td><code>Layer P3</code></td>
-          <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 6-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass, and a language-specific symbolic/runtime check — Kani for Solana, Move Prover for Aptos, Halmos for Solidity, CBMC for C). Gates auto-skip when the language doesn&rsquo;t apply (the symbolic / runtime gates of one toolchain skip on cycles authored against another, with that language&rsquo;s verdict already reported under Layer 3 / Layer 4); the test-suite gate skips for eval targets that ship without a unified runner. Operator authorization is required before any upstream PR is opened.</td></tr>
+          <td style="color:var(--text-2)">Fix-bundle pipeline. The LLM authors a structural patch against the confirmed root cause and verifies it through a 6-gate machine check (well-formed diff, single-function scope, PoC fails pre-patch, PoC passes post-patch, existing tests still pass, and a language-specific symbolic/runtime check — Kani for Solana, Move Prover for Aptos, Halmos for Solidity, CBMC for C, fast-check property testing for TypeScript). Gates auto-skip when the language doesn&rsquo;t apply (the symbolic / runtime gates of one toolchain skip on cycles authored against another, with that language&rsquo;s verdict already reported under Layer 3 / Layer 4); the test-suite gate skips for eval targets that ship without a unified runner. Operator authorization is required before any upstream PR is opened.</td></tr>
     </tbody>
   </table>
 
@@ -4101,7 +4362,7 @@ pre code.language-c .token.punctuation   {{ color: rgba(245,243,237,0.55); }}
     Every finding originates as a falsifiable invariant claim from a per-protocol
     hypothesis library, dispatched to Layer 1 multi-agent recon, promoted on
     contested verdicts via Layer 1.5 adversarial debate, and confirmed empirically
-    through {"a Layer 2 <code>aptos move test</code> proof-of-concept" if language == "aptos" else ("a Layer 2 <code>forge test</code> proof-of-concept" if language == "solidity" else ("a Layer 2 clang + ASan/UBSan proof-of-concept" if language == "c" else "a Layer 2 <code>cargo test</code> proof-of-concept"))}.
+    through {"a Layer 2 <code>aptos move test</code> proof-of-concept" if language == "aptos" else ("a Layer 2 <code>forge test</code> proof-of-concept" if language == "solidity" else ("a Layer 2 clang + ASan/UBSan proof-of-concept" if language == "c" else ("a Layer 2 <code>tsx</code> / <code>node</code> proof-of-concept" if language == "typescript" else ("a Layer 2 executable proof-of-concept" if language == "generic" else "a Layer 2 <code>cargo test</code> proof-of-concept"))))}.
     Layer 2.5 triage classifies each fire as
     <code>STRONG</code> / <code>SOFT</code> / <code>FALSE</code> / <code>LOST</code>;
     only STRONG cluster representatives advance to <code>confirmed</code> and
