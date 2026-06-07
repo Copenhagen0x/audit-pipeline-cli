@@ -179,19 +179,24 @@ def write_yaml(report: SynthReport, path: Path) -> Path:
         },
         "hypotheses": report.hypotheses,
     }
-    path = Path(path).resolve()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # Resolve the PARENT only — do NOT resolve the full path, because .resolve() FOLLOWS a leaf
+    # symlink and would make the guard below check (and the write hit) the link's target. Keeping
+    # the leaf name unresolved lets the symlink/junction guard actually see a planted link.
+    path = Path(path)
+    parent = path.parent.resolve()
+    parent.mkdir(parents=True, exist_ok=True)
+    dest = parent / path.name
     # only a PRE-EXISTING symlink/junction at the destination is a risk; a not-yet-existing
     # target is the normal case (lexists is False for it, so we don't false-refuse a fresh write).
-    if os.path.lexists(path) and _is_link_or_junction(path):
-        raise OSError(f"refusing to write through a symlink/junction at {path}")
-    if path.is_dir():  # directory-squat: a repo could pre-create the dest as a dir; fail clearly
-        raise OSError(f"refusing to write: destination {path} is a directory")
-    fd, tmpname = tempfile.mkstemp(dir=str(path.parent), suffix=".l1.tmp")
+    if os.path.lexists(dest) and _is_link_or_junction(dest):
+        raise OSError(f"refusing to write through a symlink/junction at {dest}")
+    if dest.is_dir():  # directory-squat: a repo could pre-create the dest as a dir; fail clearly
+        raise OSError(f"refusing to write: destination {dest} is a directory")
+    fd, tmpname = tempfile.mkstemp(dir=str(parent), suffix=".l1.tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             yaml.safe_dump(doc, f, sort_keys=False, allow_unicode=True)
-        os.replace(tmpname, path)  # atomic; replaces the name, never follows a symlink target
+        os.replace(tmpname, dest)  # atomic; replaces the (unresolved) name, never follows a link
     except BaseException:
         try:
             os.unlink(tmpname)
