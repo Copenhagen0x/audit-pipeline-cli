@@ -14,7 +14,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from audit_pipeline.l1.candidates import Candidate  # noqa: E402
 from audit_pipeline.l1.synthesize import (  # noqa: E402
-    SynthReport, synthesize, synthesize_repo, write_yaml,
+    SynthReport,
+    synthesize,
+    synthesize_repo,
+    write_yaml,
 )
 from audit_pipeline.l1.triage_filter import FilterReport, FilterVerdict  # noqa: E402
 from audit_pipeline.scoping import _ID_RE, _normalize_and_validate, load_hypotheses  # noqa: E402

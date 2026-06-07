@@ -10,14 +10,29 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from audit_pipeline.l1.candidates import (  # noqa: E402
-    SURFACE_TYPE_BUGCLASSES, _FALLBACK, _arith_extras, label_repo, label_surfaces,
+    _FALLBACK,
+    SURFACE_TYPE_BUGCLASSES,
+    label_repo,
+    label_surfaces,
 )
 from audit_pipeline.l1.surfaces import (  # noqa: E402
-    ALL_SURFACE_TYPES, S_ARITH, S_CLOSE, S_CPI, S_DESERIALIZE, S_INIT, S_ORACLE,
-    Surface, SurfaceReport,
+    ALL_SURFACE_TYPES,
+    S_ARITH,
+    S_CLOSE,
+    S_CPI,
+    S_DESERIALIZE,
+    S_INIT,
+    S_ORACLE,
+    Surface,
+    SurfaceReport,
 )
+
 # Use the LIVE loader regex (not a local copy) so the test can't drift from what actually gates.
-from audit_pipeline.scoping import _BUG_CLASS_RE, KNOWN_CLASSES, _normalize_and_validate  # noqa: E402
+from audit_pipeline.scoping import (  # noqa: E402
+    _BUG_CLASS_RE,
+    KNOWN_CLASSES,
+    _normalize_and_validate,
+)
 
 _RICH = """
 pub fn handle_withdraw(ctx: Context<W>, amount: u64) -> Result<()> {

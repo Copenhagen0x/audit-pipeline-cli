@@ -43,9 +43,9 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
 
 from audit_pipeline.l1.candidates import _VALID_STATUS, Candidate
 from audit_pipeline.l1.entrypoints import _is_link_or_junction  # reuse the symlink/junction guard
@@ -105,7 +105,7 @@ def _read_context(repo_root: Path, target_file: str, line: int, context_lines: i
 # ---------------------------------------------------------------------------
 # tolerant JSON-array extraction from a model response
 # ---------------------------------------------------------------------------
-def _extract_json_array(text: str) -> Optional[list]:
+def _extract_json_array(text: str) -> list | None:
     """Pull the JSON array out of a model response. Tries the whole text first, then scans for
     the first BALANCED `[...]` span (depth-counted, string-aware) so trailing prose or stray
     brackets can't corrupt the match the way a greedy regex would. Returns None on any failure —
@@ -319,7 +319,7 @@ def _resolve_complete(complete_fn: CompleteFn | None) -> tuple[CompleteFn | None
         return None, False
 
 
-def _call(complete_fn: CompleteFn, system: str, user: str, model: str) -> tuple[Optional[list], float]:
+def _call(complete_fn: CompleteFn, system: str, user: str, model: str) -> tuple[list | None, float]:
     """One model call. Returns (parsed_json_array_or_None, cost_usd). Never raises — any
     error yields (None, 0.0) so the caller keeps the affected candidates."""
     try:

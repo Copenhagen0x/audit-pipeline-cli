@@ -18,8 +18,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from audit_pipeline.l1.candidates import Candidate  # noqa: E402
 from audit_pipeline.l1.triage_filter import (  # noqa: E402
-    FilterReport, _context_is_poisoned, _extract_json_array, _read_context,
-    _unique_by_i, filter_candidates, filter_repo,
+    FilterReport,
+    _context_is_poisoned,
+    _extract_json_array,
+    _read_context,
+    _unique_by_i,
+    filter_candidates,
+    filter_repo,
 )
 
 

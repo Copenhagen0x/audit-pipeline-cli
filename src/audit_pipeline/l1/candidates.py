@@ -34,7 +34,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from audit_pipeline.l1.surfaces import (
-    ALL_SURFACE_TYPES,
     S_ARITH,
     S_AUTH,
     S_CLOSE,

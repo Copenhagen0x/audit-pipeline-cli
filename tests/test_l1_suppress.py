@@ -14,10 +14,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from audit_pipeline.l1.candidates import (  # noqa: E402
-    Candidate, CandidateReport, label_repo,
+    Candidate,
+    CandidateReport,
 )
 from audit_pipeline.l1.suppress import (  # noqa: E402
-    SuppressionReport, suppress_candidates, suppress_repo,
+    SuppressionReport,
+    suppress_candidates,
+    suppress_repo,
 )
 
 
@@ -56,8 +59,8 @@ def test_checked_set_matches_surfaces_arith_methods():
     # guard against drift: the suppressor's checked_* set MUST equal the checked_* subset of
     # surfaces.py's _ARITH_METHODS, or surfaces could emit a checked_* detail we never suppress
     # (harmless) or we could list one surfaces never emits (dead rule). Keep them in lock-step.
-    from audit_pipeline.l1.surfaces import _ARITH_METHODS  # noqa: PLC0415
     from audit_pipeline.l1.suppress import _CHECKED_OVERFLOW_SAFE  # noqa: PLC0415
+    from audit_pipeline.l1.surfaces import _ARITH_METHODS  # noqa: PLC0415
     checked_subset = {m for m in _ARITH_METHODS if m.startswith("checked_")}
     assert checked_subset == _CHECKED_OVERFLOW_SAFE, (checked_subset ^ _CHECKED_OVERFLOW_SAFE)
 

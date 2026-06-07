@@ -9,8 +9,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from audit_pipeline.l1.surfaces import (  # noqa: E402
-    ALL_SURFACE_TYPES, S_ARITH, S_AUTH, S_CLOSE, S_CPI, S_DESERIALIZE, S_HANDLER,
-    S_INIT, S_ORACLE, S_PDA, S_REALLOC, S_REMAINING, extract_surfaces,
+    ALL_SURFACE_TYPES,
+    S_ARITH,
+    S_AUTH,
+    S_CLOSE,
+    S_CPI,
+    S_DESERIALIZE,
+    S_HANDLER,
+    S_INIT,
+    S_ORACLE,
+    S_PDA,
+    S_REALLOC,
+    S_REMAINING,
+    extract_surfaces,
 )
 
 

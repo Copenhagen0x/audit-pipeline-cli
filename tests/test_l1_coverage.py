@@ -12,7 +12,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from audit_pipeline.l1.coverage import (  # noqa: E402
-    CoverageReport, coverage, coverage_repo,
+    CoverageReport,
+    coverage,
+    coverage_repo,
 )
 from audit_pipeline.l1.entrypoints import Entrypoint, EntrypointAuthority  # noqa: E402
 from audit_pipeline.l1.surfaces import Surface, SurfaceReport  # noqa: E402

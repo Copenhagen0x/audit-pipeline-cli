@@ -42,9 +42,9 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from audit_pipeline.l1.candidates import (
     _VALID_STATUS,

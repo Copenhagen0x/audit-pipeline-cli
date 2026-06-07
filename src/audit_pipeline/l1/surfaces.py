@@ -52,7 +52,6 @@ from audit_pipeline.l1.entrypoints import (
     _PARSE_TIMEOUT_S,
     _parse_with_timeout,
     _rs_files,
-    _text,
 )
 
 # ---- surface-type vocabulary (kebab-case, stable; step 2 maps these to bug classes) ----
@@ -155,7 +154,7 @@ class SurfaceReport:
             self.notes.append(f"... (further notes suppressed past {_MAX_NOTES})")
 
     def by_type(self) -> dict[str, int]:
-        counts: dict[str, int] = {t: 0 for t in ALL_SURFACE_TYPES}
+        counts: dict[str, int] = dict.fromkeys(ALL_SURFACE_TYPES, 0)
         for s in self.surfaces:
             counts[s.surface_type] = counts.get(s.surface_type, 0) + 1
         return counts
