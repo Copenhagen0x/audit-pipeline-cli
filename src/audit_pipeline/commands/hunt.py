@@ -77,6 +77,18 @@ console = Console()
     ),
 )
 @click.option(
+    "--surface-scan",
+    type=click.Path(exists=True, file_okay=False),
+    default=None,
+    help=(
+        "Run the new L1 surface-coverage layer on the given repo to AUTO-GENERATE the "
+        "hypotheses (steps 1-5) instead of using a hand-written file, so deep checking runs "
+        "on the complete list. Mutually exclusive with --hypotheses and --protocol-class. "
+        "Spends cheap-model $ for the step-4 false-alarm filter; if the LLM is unavailable it "
+        "degrades to keep-all (and the run is flagged COVERAGE_INCOMPLETE)."
+    ),
+)
+@click.option(
     "--diff-since-sha",
     default=None,
     envvar="AUDIT_DIFF_SINCE_SHA",
@@ -338,6 +350,7 @@ def hunt_cmd(
     ctx: click.Context,
     hypotheses: str | None,
     protocol_class: str | None,
+    surface_scan: str | None,
     diff_since_sha: str | None,
     target_name: str | None,
     budget_cap_usd: float,
@@ -445,12 +458,12 @@ def hunt_cmd(
             "--source-sha requires --source-repo to be set."
         )
 
-    # --hypotheses and --protocol-class are mutually exclusive. If neither
-    # is passed we fall back to <workspace>/hypotheses.yaml. If --protocol-class
-    # is passed, materialize the merged class library to a temp file.
-    if hypotheses and protocol_class:
+    # --hypotheses / --protocol-class / --surface-scan are mutually exclusive sources. If none
+    # is passed we fall back to <workspace>/hypotheses.yaml. --protocol-class materializes the
+    # merged class library to a temp file; --surface-scan runs the L1 layer to generate one.
+    if sum(bool(x) for x in (hypotheses, protocol_class, surface_scan)) > 1:
         raise click.ClickException(
-            "--hypotheses and --protocol-class are mutually exclusive."
+            "--hypotheses, --protocol-class, and --surface-scan are mutually exclusive."
         )
     # POST-AUDIT FIX: every NamedTemporaryFile(delete=False) below leaked
     # a /tmp YAML per cycle. Register atexit cleanup so each temp file
@@ -462,7 +475,42 @@ def hunt_cmd(
             _os_hunt.unlink(path)
         except (OSError, FileNotFoundError):
             pass
-    if protocol_class:
+    if surface_scan:
+        import tempfile
+        from pathlib import Path as _Path_ss
+
+        from audit_pipeline.l1.synthesize import synthesize_repo, write_yaml
+        _ss_rep = synthesize_repo(_Path_ss(surface_scan))
+        # ABORT on a false-clean scan: 0 hypotheses + not-complete means enumeration FAILED
+        # (wrong language / parser error / all skipped), not "clean repo". Launching a hunt here
+        # would produce a deceptively-green 0-finding cycle — the cardinal sin this layer prevents.
+        if _ss_rep.is_false_clean():
+            raise click.ClickException(
+                f"--surface-scan produced 0 hypotheses with status={_ss_rep.status} — aborting to "
+                f"avoid a false-clean cycle. Inspect the L1 coverage notes (run `surface-scan` "
+                f"directly), confirm the repo language, or pass an explicit --hypotheses file."
+            )
+        console.print(
+            f"  [cyan]surface-scan: {len(_ss_rep.hypotheses)} hyps generated "
+            f"(status={_ss_rep.status}, spend=${_ss_rep.spend_usd:.4f})[/cyan]"
+        )
+        if not _ss_rep.complete:
+            # never silently treat a partial L1 inventory as complete (coverage-safe contract)
+            console.print(
+                f"  [yellow]L1 coverage {_ss_rep.status}: hypothesis set may be INCOMPLETE — "
+                f"deep checking will run on a partial list. See l1_meta in the generated yaml.[/yellow]"
+            )
+        # write via the hardened writer so the temp file carries l1_meta (status/complete) —
+        # downstream readers can then tell a partial inventory from a complete one.
+        import shutil as _shutil_ss
+        _ss_dir = tempfile.mkdtemp(prefix="l1-surface-")
+        _ss_path = str(_Path_ss(_ss_dir) / "hypotheses.l1.yaml")
+        write_yaml(_ss_rep, _Path_ss(_ss_path))
+        hypotheses = _ss_path
+        # remove the whole temp dir (file + dir) at exit, not just the file, so we don't leak an
+        # empty directory per cycle.
+        _atexit_hunt.register(_shutil_ss.rmtree, _ss_dir, True)  # rmtree(path, ignore_errors=True)
+    elif protocol_class:
         import tempfile
 
         import yaml as _yaml

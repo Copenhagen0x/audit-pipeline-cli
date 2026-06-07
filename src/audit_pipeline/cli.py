@@ -50,6 +50,7 @@ from audit_pipeline.commands import (
     shadow,
     sign,
     spec_check,
+    surface_scan,
     sync,
     synth_kani,
     triage,
@@ -141,6 +142,7 @@ main.add_command(watch.watch_cmd)                  # continuous source-code watc
 # Autonomous hunt loop (the production entry point)
 main.add_command(hunt.hunt_cmd)                    # recon -> debate -> PoC -> Kani -> report
 main.add_command(hunt_deep.hunt_deep_cmd)          # tool-using deep hunt (read_file, grep, find_function)
+main.add_command(surface_scan.surface_scan_cmd)    # L1: generate hypotheses.yaml from surface coverage
 main.add_command(learn.learn_cmd)                  # generate hyps from public disclosures
 main.add_command(lint_hypotheses.lint_hypotheses_cmd)  # pre-cycle YAML schema + duplicate + symbol-existence check
 main.add_command(expand_coverage.expand_coverage_cmd)  # generate hyps from spec, kani-gaps, wrapper
