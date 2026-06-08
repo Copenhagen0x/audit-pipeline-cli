@@ -3,6 +3,7 @@
 [![CI](https://github.com/Copenhagen0x/audit-pipeline-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/Copenhagen0x/audit-pipeline-cli/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776ab.svg)](https://www.python.org/downloads/)
+[![Solana Security Standard](https://img.shields.io/badge/Solana%20Security%20Standard-SOL--0XX-a855f7?labelColor=6d28d9)](https://github.com/Copenhagen0x/solana-security-standard)
 
 > **What this is:** the Python CLI that runs Jelleo's continuous security hunt loop —
 > multi-language (Rust/Anchor, Move, Solidity, C). Reads protocol source, dispatches
