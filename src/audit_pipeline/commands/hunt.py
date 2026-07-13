@@ -588,12 +588,53 @@ def hunt_cmd(
             filter_hypotheses_by_diff,
             load_hypotheses,
         )
-        engine_dir = workspace / config["engine"]["local"]
-        changed = changed_files_between(engine_dir, diff_since_sha, "HEAD")
+        if source_repo:
+            # Source-mode has no local clone to `git diff`. Resolve the
+            # changed set via the GitHub compare API so continuous
+            # per-commit scoping actually works on the deploy path (WS6):
+            # base = the last audited SHA, head = the snapshot's pinned
+            # commit. Without this, source-mode silently fell back to a
+            # full-library re-scan every commit.
+            from audit_pipeline.utils.github import (
+                changed_files_via_compare,
+                get_latest_commit,
+                parse_github_repo,
+            )
+            _owner, _repo = parse_github_repo(source_repo)
+            if not source_sha:
+                # Pin HEAD to a concrete SHA ONCE so the diff baseline here and
+                # the audited snapshot opened later (GitHubSnapshot) resolve to
+                # the SAME commit — a new upstream commit landing mid-cycle must
+                # not desync them (which would drop a hyp whose file only
+                # changed in that newest commit). Reassigning the local
+                # `source_sha` makes the later snapshot use this pinned value.
+                try:
+                    source_sha = get_latest_commit(_owner, _repo, "HEAD")["sha"]
+                except Exception:  # noqa: BLE001
+                    source_sha = None
+            if source_sha:
+                changed = changed_files_via_compare(
+                    _owner, _repo, diff_since_sha, source_sha,
+                )
+            else:
+                # Couldn't pin a concrete head (GitHub error) — the compare
+                # baseline and the snapshot opened later would independently
+                # re-resolve "HEAD" and could desync (TOCTOU). Fail CLOSED to
+                # the full library rather than diff against an unpinned HEAD.
+                console.print(
+                    "  [yellow]--diff-since-sha: could not resolve source head "
+                    "(GitHub error) — running full library[/yellow]"
+                )
+                changed = set()
+            diff_src = f"{source_repo}@compare"
+        else:
+            engine_dir = workspace / config["engine"]["local"]
+            changed = changed_files_between(engine_dir, diff_since_sha, "HEAD")
+            diff_src = str(engine_dir)
         if not changed:
             console.print(
                 f"  [yellow]--diff-since-sha={diff_since_sha[:10]}: no diff "
-                f"info from {engine_dir} — running full library[/yellow]"
+                f"info from {diff_src} — running full library[/yellow]"
             )
         else:
             console.print(
