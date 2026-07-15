@@ -52,8 +52,19 @@ console = Console()
 
 
 def _slug_for_finding(finding: dict) -> str:
-    """Derive the slug used by derive_siblings to name the YAML file."""
-    return (finding.get("hypothesis_id") or f"finding-{finding.get('id')}").replace("/", "-")
+    """Derive the slug used by derive_siblings to name the YAML file.
+
+    Uses the hardened `safe_hyp_slug` rather than a bare `.replace("/", "-")`: the
+    latter is POSIX-only, so a Windows `..\\..\\evil` hypothesis id would escape the
+    derived dir. Nothing can currently plant such an id (`scoping._ID_RE` rejects it at
+    `load_hypotheses`), but that is safety by a regex in another module with no test
+    tying it to this write — and `converge` now derives filenames from this slug
+    unattended. No filename churn: safe_hyp_slug("H1-parent") == "H1-parent".
+    """
+    from audit_pipeline.utils.safe_slug import safe_hyp_slug
+
+    return safe_hyp_slug(finding.get("hypothesis_id"),
+                         fallback=f"finding-{finding.get('id')}")
 
 
 def _find_sibling_file(workspace: Path, finding_id: int) -> tuple[Path, str] | None:

@@ -105,6 +105,26 @@ console = Console()
         "Implies --auto-pull is OFF (mutually exclusive)."
     ),
 )
+@click.option(
+    "--diff-scope/--no-diff-scope",
+    default=False,
+    show_default=True,
+    help=(
+        "OPT-IN (OFF by default). Scope the downstream --on-update hunt to only "
+        "the files changed since the last SUCCESSFULLY-audited commit "
+        "(auto-appends --diff-since-sha <prev_sha> unless the command already "
+        "sets it). Off by default because narrowing what gets scanned is a "
+        "security-relevant choice, not a silent behavior flip: enable it only "
+        "once --on-update runs a REAL hunt (not a no-op shim) and you accept a "
+        "first full-library baseline pass. The FIRST scoped run per component "
+        "full-scans to establish that baseline; later commits are diff-scoped. "
+        "In local (non-source) mode only engine commits are scoped (hunt diffs "
+        "the engine clone); wrapper commits full-scan. Use THIS flag to scope — "
+        "a hand-written --diff-since-sha inside --on-update is respected but "
+        "bypasses the first-run-full-library and repo-correctness guards (logged "
+        "when detected)."
+    ),
+)
 @click.pass_context
 def watch_cmd(
     ctx: click.Context,
@@ -117,6 +137,7 @@ def watch_cmd(
     once: bool,
     output: Path | None,
     source_mode: bool,
+    diff_scope: bool,
 ) -> None:
     """Continuously watch the workspace's repos for new commits.
 
@@ -201,6 +222,19 @@ def watch_cmd(
         )
     )
 
+    # WS6: make the per-commit scoping behavior visible on boot — default-on
+    # means an existing `watch --on-update` deploy now re-audits only the diff
+    # since the last successful audit instead of the full library each commit.
+    if on_update:
+        _scope_msg = (
+            "diff-scope ON — on-update hunts re-audit only files changed since "
+            "the last successful audit (--no-diff-scope for full-library)"
+            if diff_scope
+            else "diff-scope OFF — on-update hunts re-audit the full library each commit"
+        )
+        console.print(f"[cyan]{_scope_msg}[/cyan]")
+        _log(log_path, _scope_msg)
+
     poll_count = 0
     while True:
         poll_count += 1
@@ -284,34 +318,100 @@ def watch_cmd(
                     f"  [green]workspace.json {component}.sha -> {latest_sha[:10]}[/green]"
                 )
 
+            # WS6 (opt-in via --diff-scope): the diff baseline is the last
+            # SUCCESSFULLY-diff-scoped SHA. `None` => no baseline yet => the
+            # FIRST scoped run for this component full-scans (never scope to the
+            # first observed commit — that would skip everything the pin already
+            # contained). Only where hunt can diff the RIGHT repo is a component
+            # scopeable: source-mode compares the component's own repo (engine OR
+            # wrapper); local mode only diffs the ENGINE clone, so a wrapper
+            # commit in local mode is left full-scan (safe), never diffed wrong.
+            last_scoped = state.get(component, {}).get("last_scoped_sha")
+            can_scope = source_mode or component == "engine"
+            audit_ok = False
+            operator_scoped = False
             if on_update:
-                cmd = on_update.format(sha=latest_sha, component=component)
-                argv = shlex.split(cmd)
-                # In source-mode, append the snapshot flags so the
-                # downstream hunt cycle reads source from a fresh GitHub
-                # snapshot pinned to this exact commit. No local clone
-                # touched.
-                if source_mode:
-                    argv += [
-                        "--source-repo", f"{owner}/{repo}",
-                        "--source-sha", latest_sha,
-                    ]
-                console.print(
-                    f"  [bold]running on-update:[/bold] "
-                    f"{shlex.join(argv) if hasattr(shlex, 'join') else ' '.join(argv)}"
-                )
                 try:
-                    subprocess.run(
-                        argv,
-                        cwd=str(workspace), check=False, timeout=3600,
+                    cmd = on_update.format(sha=latest_sha, component=component)
+                except Exception as e:  # noqa: BLE001 — a bad template must not crash the daemon
+                    console.print(f"  [red]bad --on-update template: {e}[/red]")
+                    _log(log_path, f"  on-update TEMPLATE ERROR: {e}")
+                    cmd = None
+                if cmd is not None:
+                    argv = shlex.split(cmd)
+                    # In source-mode, append the snapshot flags so the
+                    # downstream hunt cycle reads source from a fresh GitHub
+                    # snapshot pinned to this exact commit. No local clone
+                    # touched.
+                    if source_mode:
+                        argv += [
+                            "--source-repo", f"{owner}/{repo}",
+                            "--source-sha", latest_sha,
+                        ]
+                    operator_scoped = any(
+                        a == "--diff-since-sha" or a.startswith("--diff-since-sha=")
+                        for a in argv
                     )
-                except Exception as e:  # noqa: BLE001
-                    console.print(f"  [red]on-update failed: {e}[/red]")
-                    _log(log_path, f"  on-update FAILED: {e}")
+                    if operator_scoped:
+                        # The operator hand-supplied --diff-since-sha. Respect it,
+                        # but our auto diff-scope guards (first-run-full-library,
+                        # repo-correctness, the managed baseline) do NOT apply to an
+                        # operator-chosen value — log it honestly and don't touch
+                        # our baseline this cycle (see the persist gate below).
+                        _log(
+                            log_path,
+                            f"  operator-supplied --diff-since-sha in effect for "
+                            f"{component}"
+                            + (" — auto diff-scope guards bypassed" if diff_scope else ""),
+                        )
+                    elif diff_scope and can_scope:
+                        if last_scoped:
+                            argv += ["--diff-since-sha", last_scoped]
+                            _log(log_path, f"  diff-scope baseline {last_scoped[:10]}")
+                        else:
+                            _log(
+                                log_path,
+                                f"  diff-scope: first run for {component} — full "
+                                f"library baseline (scope from next commit)",
+                            )
+                    elif diff_scope and not can_scope:
+                        _log(
+                            log_path,
+                            f"  diff-scope skipped for {component} (local mode "
+                            f"only diffs the engine repo) — full library",
+                        )
+                    console.print(
+                        f"  [bold]running on-update:[/bold] "
+                        f"{shlex.join(argv) if hasattr(shlex, 'join') else ' '.join(argv)}"
+                    )
+                    try:
+                        cp = subprocess.run(
+                            argv,
+                            cwd=str(workspace), check=False, timeout=3600,
+                        )
+                        audit_ok = cp.returncode == 0
+                        if not audit_ok:
+                            console.print(
+                                f"  [red]on-update exit {cp.returncode} — scoping "
+                                f"baseline NOT advanced (re-scoped next cycle)[/red]"
+                            )
+                            _log(log_path, f"  on-update exit {cp.returncode}")
+                    except Exception as e:  # noqa: BLE001
+                        console.print(f"  [red]on-update failed: {e}[/red]")
+                        _log(log_path, f"  on-update FAILED: {e}")
 
-            # Persist state
+            # Persist state. `last_seen_sha` always advances (we observed the
+            # commit, don't re-fire it). `last_scoped_sha` advances ONLY when WE
+            # managed the scoping for this component — diff-scope enabled AND
+            # scopeable AND the cycle succeeded AND the operator did not hand-supply
+            # their own --diff-since-sha. So scoping-off runs (incl. a no-op
+            # on_update shim), never-scoped components (wrapper in local mode),
+            # operator-overridden cycles, and failed/crashed cycles never establish
+            # or advance a baseline a later auto-scoped run would trust.
             state.setdefault(component, {})["last_seen_sha"] = latest_sha
             state[component]["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+            if diff_scope and can_scope and audit_ok and not operator_scoped:
+                state[component]["last_scoped_sha"] = latest_sha
             state_path.write_text(json.dumps(state, indent=2))
 
         if once:

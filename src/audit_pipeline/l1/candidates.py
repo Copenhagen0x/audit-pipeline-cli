@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from audit_pipeline.l1.surfaces import (
+    S_ACCOUNT,
     S_ARITH,
     S_AUTH,
     S_CLOSE,
@@ -45,6 +46,7 @@ from audit_pipeline.l1.surfaces import (
     S_PDA,
     S_REALLOC,
     S_REMAINING,
+    S_UNCHECKED,
     Surface,
     SurfaceReport,
     extract_surfaces,
@@ -135,6 +137,18 @@ SURFACE_TYPE_BUGCLASSES: dict[str, list[BugClassSpec]] = {
         BugClassSpec("account-validation", "init-if-needed-repeated-write",
                      "uses init-if-needed; the account is touched on every call, so post-init mutations may not be idempotent/guarded."),
     ],
+    S_UNCHECKED: [
+        BugClassSpec("account-validation", "unchecked-account",
+                     "is a raw UncheckedAccount/AccountInfo whose owner/key/type may not be validated, letting an attacker substitute an arbitrary account."),
+        BugClassSpec("account-validation", "missing-owner-check",
+                     "is a raw account used without confirming account.owner == the expected program id."),
+    ],
+    S_ACCOUNT: [
+        BugClassSpec("authorization", "authorization-bypass",
+                     "is a writable account with no has_one/constraint/address/seeds identity tie, so it may not be bound to the authorized owner/state."),
+        BugClassSpec("account-validation", "account-substitution",
+                     "is a writable account that may be substitutable for another account of the same type without a uniqueness/identity constraint."),
+    ],
 }
 
 # detail-aware EXTRA bug classes for arithmetic surfaces (keyed off Surface.detail = the operator
@@ -166,6 +180,18 @@ _FALLBACK = BugClassSpec("logic", "unclassified-surface",
                          "is a bug-prone surface with no specific bug-class mapping yet — review manually.")
 
 
+# An unrecognized/type-aliased account (S_ACCOUNT detail carries `kind=unknown`) MIGHT be a raw
+# AccountInfo behind a `type` alias. surfaces.py can't resolve aliases cross-file, so it surfaces it
+# as S_ACCOUNT — but we additionally attach the raw-account bug classes so the owner/type checks fire
+# (completeness-first: never let an aliased raw account skip the missing-owner-check hypothesis).
+_UNKNOWN_ACCOUNT_EXTRAS = [
+    BugClassSpec("account-validation", "missing-owner-check",
+                 "is a writable account of an unrecognized/aliased type whose owner program may not be validated."),
+    BugClassSpec("account-validation", "unchecked-account",
+                 "is a writable account of an unrecognized/aliased type that may be a raw, unvalidated account."),
+]
+
+
 def _specs_for(surface: Surface) -> list[BugClassSpec]:
     base = SURFACE_TYPE_BUGCLASSES.get(surface.surface_type)
     if not base:
@@ -174,6 +200,8 @@ def _specs_for(surface: Surface) -> list[BugClassSpec]:
         # label off the SANITIZED detail so spec-selection matches the stored Candidate.detail
         # (surfaces.py already strips, but keep the two in lock-step for any future detail form).
         return base + _arith_extras(_san(surface.detail))
+    if surface.surface_type == S_ACCOUNT and "kind=unknown" in (surface.detail or ""):
+        return base + _UNKNOWN_ACCOUNT_EXTRAS
     return list(base)
 
 

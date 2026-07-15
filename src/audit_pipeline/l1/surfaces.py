@@ -34,13 +34,34 @@ that the downstream FP-filter + L2-L7 + macro note cover; documented so they're 
   * the per-file/total surface caps truncate by line order under DoS — flagged COVERAGE_INCOMPLETE.
   * a bare raw-pointer dereference with NO cast/call (`unsafe { *ptr }`, ptr already typed) yields
     no surface; the common form `*(p as *const T)` IS caught (the cast → arithmetic surface).
+  * Anchor account-field detector (_detect_anchor_account_fields) — accepted residuals (all
+    OVER-detect or metadata-only; never a dropped surface):
+      - UncheckedAccount/AccountInfo are matched by SUBSTRING (a false "unchecked" is harmless
+        over-detection); a custom type whose NAME merely contains those strings over-fires
+        S_UNCHECKED — L2 confirms. signer/infra/account are matched on the WRAPPER identifier (the
+        name before `<`), so a generic parameter like `ProgramState`/`FeeSignerConfig` can NOT
+        misclassify-and-skip the field.
+      - a TYPE ALIAS of a raw account (`type RawVault = AccountInfo`) is unrecognized → surfaced as
+        S_ACCOUNT `kind=unknown` (never dropped) rather than S_UNCHECKED. candidates.py ALSO attaches
+        the raw-account bug classes (unchecked-account / missing-owner-check) for kind=unknown, so
+        those checks still fire — no cross-file alias resolution, but no lost coverage.
+      - `signer` counts as binding: it proves the account SIGNED, not that it equals a stored
+        authorized key — `bound=True` here means "authenticated", not "identity-pinned to state".
+      - `seeds` binds only WITH `bump`; `constraint=<expr>`, `owner=`, `token::mint`, `mint::*`,
+        and `associated_token::mint` alone do NOT suppress (they restrict a property, not which
+        account), so an unbound writable account still surfaces. CHECK-doc detection requires the
+        Anchor `CHECK:` token (colon); a turbofish with internal commas in a constraint expr may
+        over-split into harmless extra entries (binding keys always lead their entry, so none is
+        missed).
 
 Deps: tree_sitter + tree_sitter_rust (via entrypoints.py).
 """
 from __future__ import annotations
 
 import json
+import re
 import sys
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,10 +87,13 @@ S_REALLOC = "account_realloc"
 S_DESERIALIZE = "deserialize"
 S_REMAINING = "remaining_accounts"
 S_INIT = "account_init"
+S_UNCHECKED = "unchecked_account"   # raw UncheckedAccount/AccountInfo field in an Accounts struct
+S_ACCOUNT = "account_constraint"    # writable Anchor account field with no identity/authority tie
 
 ALL_SURFACE_TYPES = (
     S_HANDLER, S_AUTH, S_CPI, S_ARITH, S_ORACLE, S_PDA,
     S_CLOSE, S_REALLOC, S_DESERIALIZE, S_REMAINING, S_INIT,
+    S_UNCHECKED, S_ACCOUNT,
 )
 
 # ---- DoS bounds (per-file AST traversal, per-file surfaces, whole-scan surfaces) ----
@@ -244,6 +268,7 @@ _WANTED_TYPES = (
     "call_expression", "binary_expression", "compound_assignment_expr",
     "type_cast_expression", "macro_invocation", "field_expression",
     "attribute_item", "assignment_expression", "function_item", "index_expression",
+    "struct_item",
 )
 
 
@@ -390,9 +415,385 @@ def _detect_remaining_accounts(buckets, rel, src, lines, out):
             out.append(_mk(S_REMAINING, rel, fe, src, lines, ".remaining_accounts"))
 
 
+# ---- Anchor account-context field analysis (covers what the attribute detectors can't) ----
+# The existing attribute detectors only fire on constraints that are PRESENT (has_one / seeds /
+# init / close ...). The dangerous Anchor cases are about what is ABSENT: an UncheckedAccount /
+# AccountInfo with no owner/key check, or a writable Account with no identity/authority tie. Those
+# fields emit nothing above, so they were invisible. This detector enumerates the FIELDS of every
+# `#[derive(Accounts)]` struct and surfaces the missing-constraint cases (completeness-first).
+_MAX_FIELDS_PER_STRUCT = 4_000   # DoS bound: an adversarial struct can't make this unbounded
+_MAX_ATTR_LOOKBACK = 256         # DoS bound on the preceding-attribute sibling walk (real structs
+                                 # rarely stack >20 attrs; 256 leaves wide headroom before giving up)
+_ATTR_TEXT_CAP = 8192            # attribute text can be long (multi-seed PDAs + constraint exprs);
+                                 # read up to 8KB so a late binding key isn't truncated (still a DoS
+                                 # bound — an attribute past 8KB is adversarial, not real Anchor)
+_DERIVE_ACCOUNTS_RE = re.compile(r"\bAccounts\b")
+_CHECK_DOC_RE = re.compile(r"\bCHECK:")  # Anchor honors EXACTLY `CHECK:` — colon REQUIRED, NO space
+                                         # before it (`CHECK :` is not honored), case-SENSITIVE
+                                         # (uppercase). Bare/lowercase 'check'/'checkbox'/'CHECK :'
+                                         # must NOT match — else a repo could spoof check_doc=True to
+                                         # down-weight an unvalidated account.
+
+# Anchor account WRAPPER types, matched on the wrapper IDENTIFIER (the name immediately before a
+# `<`), NOT a raw substring — so a generic PARAMETER named e.g. `FeeSignerConfig` or `ProgramState`
+# can never misclassify the field (that was a false-negative: the field got skipped as a "signer"
+# or "infra" primitive). UncheckedAccount/AccountInfo are matched by substring on purpose: a false
+# "unchecked" is harmless over-detection, whereas a false "signer"/"infra" SKIP is the cardinal
+# under-detection failure. Box/Option/Cow wrappers are transparent (the inner Anchor wrapper is
+# also captured, since it too is followed by `<`).
+_SIGNER_WRAPPERS = frozenset({"Signer"})
+_INFRA_WRAPPERS = frozenset({"Program", "Sysvar", "Interface"})  # protocol-fixed addresses -> skip
+_ACCOUNT_WRAPPERS = frozenset({  # checked + writable matters; SystemAccount/LazyAccount included
+    "Account", "AccountLoader", "InterfaceAccount", "SystemAccount", "LazyAccount"})
+_WRAPPER_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*<")  # identifiers used as generic wrappers
+_TRAILING_IDENT_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*$")  # bare type name (no generics)
+
+# Account-constraint KEYS that genuinely FIX which account is passed (address-equality, PDA-seed
+# derivation, signer authentication, has_one link to a stored key, ATA/token-owner derivation).
+# These are matched as the KEY of a TOP-LEVEL `#[account(...)]` entry (the token before `=`), NEVER
+# as a substring of the whole attribute — so a binding word inside a `constraint = <expr>` value
+# (e.g. `ctx.accounts.signer.key()`) can never falsely suppress a surface (that was a cardinal
+# false-negative + an adversarial silence vector). Keys that restrict a PROPERTY without fixing
+# identity are deliberately EXCLUDED (completeness-first):
+#   * `constraint = <expr>` — arbitrary logic; may enforce nothing about identity.
+#   * `owner = <program>`   — fixes the owner PROGRAM, not which account (still substitutable).
+#   * `token::mint` / `mint::*` — fix the mint, not the token-account OWNER (recipient still free).
+# EXACT top-level entry keys that fix identity. Exact match (not substring/prefix) so neither a
+# binding word inside a `constraint=<expr>` value NOR a look-alike key (`token::authority_bump`,
+# `associated_token::mint`) can falsely suppress a surface. `associated_token::mint` alone fixes the
+# mint but NOT the owner (recipient still substitutable) → deliberately absent. `seeds` fixes
+# identity only together with `bump` (Anchor verifies the derived PDA only when both are present),
+# handled in _account_constraints.
+_BINDING_KEYS = frozenset({"has_one", "address",
+                           "token::authority", "associated_token::authority"})
+# `signer` is intentionally NOT a binding key: it proves the account SIGNED, not that it equals a
+# stored authorized key (the classic wrong-signer authorization bypass). It is reported as a
+# SEPARATE `signer=` flag in the surface detail so L2 sees "authenticated" distinct from
+# "identity-pinned"; a signer-only writable account still surfaces (completeness-first).
+
+
+def _attr_is_derive_accounts(node: Node, src: bytes) -> bool:
+    if node.type != "attribute_item":
+        return False
+    # read with the larger attribute cap: a long derive list could push `Accounts` past 512 bytes,
+    # and a truncated read would silently drop the whole struct (under-detection).
+    end = min(node.end_byte, node.start_byte + _ATTR_TEXT_CAP)
+    # strip invisibles too: a zero-width char inside `derive`/`Accounts` must not defeat the gate
+    # (otherwise the WHOLE struct goes undetected — the cardinal failure).
+    t = _strip_invisible(src[node.start_byte:end].decode("utf-8", "replace"))
+    return "derive" in t and _DERIVE_ACCOUNTS_RE.search(t) is not None
+
+
+def _is_accounts_struct(struct_node: Node, src: bytes) -> bool:
+    """True if `struct_node` is decorated with `#[derive(..., Accounts, ...)]`. Handles BOTH grammar
+    models (mirroring anchor_entrypoints._item_has_program_attr): the attribute as a CHILD of the
+    struct node, AND the common model where outer attributes are PRECEDING SIBLINGS. Without the
+    child check, a tree-sitter-rust version that nests outer attributes under the item would make the
+    whole detector silently emit nothing — the cardinal under-detection failure."""
+    for c in struct_node.children:  # grammar variation: attribute modeled as a child of the struct
+        if _attr_is_derive_accounts(c, src):
+            return True
+    # Light separators that CANNOT own a `#[derive(...)]` (skip past them) + comments + ERROR.
+    _skip = ("line_comment", "block_comment", "doc_comment", "outer_doc_comment_marker",
+             "inner_doc_comment_marker", "ERROR", "use_declaration", "const_item", "type_item",
+             "static_item", "extern_crate_declaration")
+    cur = struct_node.prev_named_sibling  # common model: attribute is a preceding sibling
+    hops = 0
+    while cur is not None and hops < _MAX_ATTR_LOOKBACK:
+        end = min(cur.end_byte, cur.start_byte + _ATTR_TEXT_CAP)
+        txt = _strip_invisible(src[cur.start_byte:end].decode("utf-8", "replace"))
+        if txt.startswith("#["):
+            # ANY attribute (matched by TEXT, not node type) is transparent — robust to a grammar
+            # that models `#[instruction(...)]` as a non-`attribute_item` node. Check it for derive.
+            if "derive" in txt and _DERIVE_ACCOUNTS_RE.search(txt):
+                return True
+        elif cur.type not in _skip:
+            break  # a HEAVY item (struct/fn/impl/enum/mod) — it OWNS the derive, so the run ends.
+        cur = cur.prev_named_sibling
+        hops += 1
+    return False
+
+
+def _field_decl_list(struct_node: Node) -> Node | None:
+    for ch in struct_node.named_children:
+        if ch.type == "field_declaration_list":
+            return ch
+    return None
+
+
+def _anchor_kind(type_text: str) -> str | None:
+    """Classify a field's Anchor account type → 'unchecked' | 'signer' | 'infra' | 'account' | None.
+
+    Raw accounts (UncheckedAccount/AccountInfo) are matched by SUBSTRING — a false positive here is
+    harmless over-detection. signer/infra/account are matched on the WRAPPER identifier set (names
+    immediately before a `<`, or the bare type name when there are no generics), so a generic
+    PARAMETER like `ProgramState` / `FeeSignerConfig` can NEVER misclassify the field as a primitive
+    and get it skipped (that was the cardinal under-detection failure). `None` = unrecognized type
+    (e.g. a type alias); the caller surfaces a writable unrecognized field rather than skipping it.
+    SystemAccount/LazyAccount count as 'account' (Anchor does not pin their address, so a writable
+    unbound one is substitutable). Program/Sysvar/Interface are true infra (protocol-fixed)."""
+    if "UncheckedAccount" in type_text or "AccountInfo" in type_text:
+        return "unchecked"
+    wrappers = set(_WRAPPER_RE.findall(type_text))
+    if not wrappers:  # bare type name with no generics (e.g. a type alias) — use the trailing ident
+        m = _TRAILING_IDENT_RE.search(type_text.strip())
+        if m:
+            wrappers = {m.group(1)}
+    if wrappers & _SIGNER_WRAPPERS:
+        return "signer"
+    if wrappers & _ACCOUNT_WRAPPERS:
+        return "account"
+    if wrappers & _INFRA_WRAPPERS:
+        return "infra"
+    return None
+
+
+def _field_name_and_type(field_node: Node, src: bytes) -> tuple[str, str]:
+    name_node = field_node.child_by_field_name("name")
+    type_node = field_node.child_by_field_name("type")
+    if name_node is None:  # robustness if the grammar field name ever drifts
+        name_node = next((c for c in field_node.named_children if c.type == "field_identifier"), None)
+    if type_node is None:
+        type_node = next(
+            (c for c in field_node.named_children
+             if c.type in ("generic_type", "type_identifier", "reference_type",
+                           "scoped_type_identifier")),
+            None,
+        )
+    name = _node_text_capped(name_node, src) if name_node is not None else "?"
+    type_text = _node_text_capped(type_node, src) if type_node is not None else ""
+    return name, type_text
+
+
+def _is_check_doc(node: Node, src: bytes) -> bool:
+    """True for an Anchor `/// CHECK:` doc — a `///` LINE doc comment (the only form Anchor honors)
+    whose text contains the `CHECK:` token. Detection is by the `///` SIGIL IN THE TEXT only, never
+    by node-type/marker children: routing on node type alone let a `// CHECK:` plain comment (with a
+    doc-marker child on some grammars) OR a `/** CHECK: */` block comment (modeled as `doc_comment`
+    on some grammars) forge check_doc=True and down-weight an unvalidated account in L2. The text
+    sigil is the ground truth on the pinned tree-sitter-rust grammar (verified)."""
+    # read with the larger cap: a real `/// CHECK:` rationale can run past 512 bytes, and a
+    # truncated read would drop the token and mislabel a checked account as unchecked.
+    end = min(node.end_byte, node.start_byte + _ATTR_TEXT_CAP)
+    # Verify the `///` sigil on the RAW text (only leading whitespace trimmed). Do NOT strip
+    # invisibles/whitespace before this check: stripping would FUSE `// /CHECK:` or `////CHECK:`
+    # into `///CHECK:` and forge check_doc=True on a comment Anchor does not honor. Require EXACTLY
+    # three slashes. The CHECK: token is matched on raw text — an invisible char between CHECK and
+    # `:` just yields check_doc=False (conservative; the surface is emitted regardless).
+    text = src[node.start_byte:end].decode("utf-8", "replace")
+    s = text.lstrip()
+    if not (s.startswith("///") and not s.startswith("////")):  # only a 3-slash line doc qualifies
+        return False
+    return _CHECK_DOC_RE.search(text) is not None
+
+
+def _field_account_attr(field_node: Node, src: bytes) -> str:
+    """Grammar-variant fallback: some tree-sitter-rust versions nest a field's `#[account(...)]`
+    attribute as a CHILD of the field_declaration rather than as a preceding sibling in
+    field_declaration_list. Scan the field's own children too so the mut/binding analysis is never
+    lost (the cardinal failure) — mirrors _field_has_check_doc for the CHECK doc."""
+    parts = []
+    for c in field_node.children:
+        if c.type == "attribute_item":
+            end = min(c.end_byte, c.start_byte + _ATTR_TEXT_CAP)
+            at = _strip_invisible(src[c.start_byte:end].decode("utf-8", "replace"))
+            if at.startswith("#[account("):
+                parts.append(at)
+    return "".join(parts)
+
+
+def _field_has_check_doc(field_node: Node, src: bytes) -> bool:
+    """A `/// CHECK:` doc placed BETWEEN the `#[account(...)]` attr and the field (Anchor's other
+    accepted placement, used in darkdrop's initialize*.rs) can be modeled by some grammar versions
+    as a CHILD of the field_declaration rather than a sibling in field_declaration_list — scan the
+    field's own children too so check_doc metadata stays correct under either model."""
+    return any(
+        c.type in ("line_comment", "doc_comment",
+                   "outer_doc_comment_marker", "inner_doc_comment_marker") and _is_check_doc(c, src)
+        for c in field_node.children
+    )
+
+
+def _strip_invisible(s: str) -> str:
+    """Drop ALL whitespace AND Unicode format/control characters (categories Cf/Cc — zero-width
+    space U+200B, RLM/LRM, BOM, etc.). Plain `\\s` does NOT cover the zero-width/format chars, so an
+    attacker could prefix `#[account(...)]` with one to defeat the `startswith('#[account(')` check
+    and silently suppress a surface (under-detection). The text is already cap-bounded by the
+    caller, so the per-char pass is cheap."""
+    return "".join(c for c in s if not c.isspace() and unicodedata.category(c) not in ("Cf", "Cc"))
+
+
+def _account_inner(flat: str):
+    """Yield the paren-matched inside of each `#[account(...)]` block in the (whitespace-stripped)
+    attribute text. Only the Anchor `account` attribute is matched (not `#[my_account(..)]`)."""
+    i = 0
+    needle = "#[account("
+    while True:
+        j = flat.find(needle, i)
+        if j < 0:
+            return
+        k = j + len(needle)
+        depth = 1
+        start = k
+        while k < len(flat) and depth > 0:
+            c = flat[k]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+            k += 1
+        yield flat[start:k - 1]
+        i = k
+
+
+def _split_top_level(inner: str) -> list[str]:
+    """Split an `account(...)` inner string on DEPTH-0 commas, tracking ()/[]/{} nesting (NOT <>,
+    which would corrupt on `<`/`>` comparison operators inside constraint expressions). Commas
+    inside a `seeds = [...]` array or a `foo(a, b)` call stay within their entry."""
+    out: list[str] = []
+    depth = 0
+    cur: list[str] = []
+    for c in inner:
+        if c in "([{":
+            depth += 1
+            cur.append(c)
+        elif c in ")]}":
+            depth = max(0, depth - 1)  # clamp: a malformed unbalanced ')' can't drive depth negative
+            cur.append(c)
+        elif c == "," and depth == 0:
+            out.append("".join(cur))
+            cur = []
+        else:
+            cur.append(c)
+    if cur:
+        out.append("".join(cur))
+    return out
+
+
+def _entry_key(entry: str) -> str:
+    """The KEY of an `account(...)` entry: the leading identifier path before `=` (or the whole bare
+    token, e.g. `mut` / `signer`). Driving the binding check off this — never a raw substring —
+    means a binding word inside a `constraint = <expr>` VALUE can't falsely mark the field bound."""
+    lhs = entry.split("=", 1)[0]
+    m = re.match(r"([A-Za-z_][A-Za-z0-9_:]*)", lhs)
+    return m.group(1) if m else ""
+
+
+def _account_constraints(attr_text: str) -> tuple[bool, bool, bool, bool]:
+    """Parse the accumulated `#[account(...)]` text into (is_mut, is_bound, is_signer, has_constraint)
+    from the KEYS of the top-level entries. is_bound is True when an identity-FIXING key is present
+    (_BINDING_KEYS) or when `seeds` AND `bump` are both present. is_signer / has_constraint are
+    reported separately for L2 context (a `signer` authenticates but doesn't pin identity; a
+    `constraint = <expr>` may or may not bind, so it doesn't suppress but L2 should see it)."""
+    flat = _strip_invisible(attr_text)
+    keys: set[str] = set()
+    for inner in _account_inner(flat):
+        for entry in _split_top_level(inner):
+            keys.add(_entry_key(entry))
+    # `init`/`init_if_needed`/`close` all create or destroy+drain the account, so they imply writable
+    # even without an explicit `mut` (an init-without-PDA or close-without-binding account is a real
+    # surface that a bare `mut`-only check would miss).
+    is_mut = bool(keys & {"mut", "init", "init_if_needed", "close"})
+    # `seeds` pins identity ONLY together with `bump` (Anchor verifies the derived PDA only then);
+    # `bump` alone is NOT binding and must never be added to _BINDING_KEYS.
+    bound = bool(keys & _BINDING_KEYS) or ("seeds" in keys and "bump" in keys)
+    is_signer = "signer" in keys
+    has_constraint = "constraint" in keys  # a `constraint = <expr>` is present (may or may not bind)
+    return is_mut, bound, is_signer, has_constraint
+
+
+def _emit_account_field(field_node, attr_text, has_check, rel, src, lines, out):
+    name, type_text = _field_name_and_type(field_node, src)
+    kind = _anchor_kind(type_text)
+    if kind in ("signer", "infra"):
+        return  # signers / programs / sysvars / interfaces are the safe, address-fixed primitives
+    # combine sibling-accumulated attrs with any nested under the field node (grammar variants).
+    is_mut, bound, is_signer, has_constraint = _account_constraints(
+        attr_text + _field_account_attr(field_node, src))
+    if kind == "unchecked":
+        # ALWAYS surface a raw account — Anchor does NO owner/type/key validation on it; the CHECK
+        # doc + binding/signer/constraint flags are recorded so L2 can judge whether they suffice.
+        out.append(_mk(S_UNCHECKED, rel, field_node, src, lines,
+                       f"UncheckedAccount/AccountInfo `{name}` mut={is_mut} check_doc={has_check} "
+                       f"bound={bound} signer={is_signer} constraint={has_constraint}"))
+        return
+    # A recognized Account/AccountLoader/InterfaceAccount is Anchor-validated when read-only, so it
+    # surfaces only when WRITABLE + unbound. An UNRECOGNIZED/aliased type (kind is None) might be a
+    # raw AccountInfo behind a `type` alias — Anchor does no owner/type check on those even when the
+    # address is PDA-bound, so it is ALWAYS surfaced (never silently dropped, regardless of bound),
+    # completeness-first. Cross-file alias resolution (is it really raw?) is L2's job.
+    emit = (is_mut and not bound) if kind == "account" else True
+    if emit:
+        label = type_text[:48] if kind == "account" else f"{type_text[:40]} kind=unknown"
+        out.append(_mk(S_ACCOUNT, rel, field_node, src, lines,
+                       f"mut={is_mut} {label} `{name}` no-auth-constraint "
+                       f"bound={bound} signer={is_signer} constraint={has_constraint}"))
+
+
+def _detect_anchor_account_fields(buckets, rel, src, lines, out):
+    """Enumerate fields of every `#[derive(Accounts)]` struct and surface the missing-constraint
+    cases: raw UncheckedAccount/AccountInfo (no Anchor validation) and writable accounts with no
+    identity/authority tie. Pairs each field with its preceding `#[account(...)]` + `/// CHECK` doc
+    the way Rust associates outer attributes/docs with the following item."""
+    for st in buckets["struct_item"]:
+        if not _is_accounts_struct(st, src):
+            continue
+        flist = _field_decl_list(st)
+        if flist is None:
+            continue
+        pending_attr = ""
+        has_check = False
+        nfields = 0
+        for ch in flist.children:
+            ct = ch.type
+            if ct == "attribute_item":
+                # read with the larger attribute cap so a late binding key in a long multi-seed/
+                # constraint attribute isn't truncated (which would over-fire S_ACCOUNT); strip
+                # invisibles so a zero-width char before `#` can't defeat the prefix check.
+                end = min(ch.end_byte, ch.start_byte + _ATTR_TEXT_CAP)
+                at_flat = _strip_invisible(src[ch.start_byte:end].decode("utf-8", "replace"))
+                # cap accumulation at 2x the single-attr cap: real Anchor #[account(...)] blocks are
+                # tiny, but this still admits a second stacked binding attr after one large block (so
+                # an oversized first attr can't drop a `has_one` in the next) while bounding DoS.
+                # A NON-account attribute (#[cfg]/#[allow]/...) does NOT reset has_check: in Rust a
+                # `/// CHECK:` doc and an interleaved attribute BOTH bind to the same following field,
+                # so the CHECK genuinely documents that field (a field_declaration always resets
+                # has_check, so it can never bleed PAST the field it precedes).
+                if at_flat.startswith("#[account(") and len(pending_attr) + len(at_flat) <= _ATTR_TEXT_CAP * 2:
+                    pending_attr += at_flat
+            elif ct in ("line_comment", "doc_comment",
+                        "outer_doc_comment_marker", "inner_doc_comment_marker"):
+                if _is_check_doc(ch, src):
+                    has_check = True
+            elif ct == "block_comment":
+                # a /* */ comment is benign (NOT an Anchor CHECK doc) — keep BOTH pending_attr and
+                # has_check: a real `/// CHECK:` placed before it still applies to the next field.
+                pass
+            elif ct == "field_declaration":
+                nfields += 1
+                if nfields > _MAX_FIELDS_PER_STRUCT:
+                    break
+                # OR-in a CHECK doc that the grammar nested under the field node (doc-after-attr).
+                _emit_account_field(ch, pending_attr,
+                                    has_check or _field_has_check_doc(ch, src), rel, src, lines, out)
+                pending_attr = ""
+                has_check = False
+            else:
+                # Punctuation / ERROR-recovery / any unexpected node. KEEP pending_attr — an outer
+                # attr belongs to the FOLLOWING field, so a parse-error token between `#[account(mut)]`
+                # and the field must NOT drop the `mut` (missing that surface is the cardinal failure).
+                # But RESET has_check: a `/// CHECK:` separated from its field by a parse-error/unknown
+                # node is untrustworthy and must not bleed forward as a forged check_doc=True (a
+                # benign block_comment is handled above, so only genuinely-unexpected nodes reset).
+                # (Non-`#[account(` attributes are handled in the attribute_item branch and do NOT
+                # reset has_check — a `/// CHECK:` above a `#[cfg(..)]` still applies to the field.)
+                has_check = False
+
+
 _DETECTORS = (
     _detect_handlers, _detect_authority, _detect_calls, _detect_arithmetic,
     _detect_close, _detect_init_attr, _detect_pda_attr, _detect_remaining_accounts,
+    _detect_anchor_account_fields,
 )
 
 

@@ -182,17 +182,25 @@ PROTOCOL_CLASSES: dict[str, dict[str, Any]] = {
 def changed_files_between(repo_dir: Path, prev_sha: str, new_sha: str = "HEAD") -> set[str]:
     """Return the set of file paths changed between two SHAs in `repo_dir`.
 
-    Uses `git diff --name-only <prev>..<new>`. Returns posix-style relative
-    paths. Empty set on git error or if either SHA is unreachable. The
-    caller should treat an empty set as "no diff information available"
-    and run the full library, not as "nothing changed."
+    Uses `git diff --name-only --no-renames <prev>..<new>`. Returns posix-style
+    relative paths. Empty set on git error or if either SHA is unreachable. The
+    caller should treat an empty set as "no diff information available" and run
+    the full library, not as "nothing changed."
+
+    `--no-renames` is deliberate: with rename detection ON (git's default when
+    `diff.renames` is set), a renamed+modified file collapses to only the NEW
+    path, so a hypothesis pinned to the OLD `target_file` would silently stop
+    matching. Disabling rename detection reports a rename as delete(old) +
+    add(new), so BOTH paths land in the changed set and the old-path hyp still
+    fires. (The compare-API sibling `changed_files_via_compare` achieves the
+    same by unioning `previous_filename`.)
     """
     import subprocess
     if not repo_dir.is_dir() or not (repo_dir / ".git").exists():
         return set()
     try:
         r = subprocess.run(
-            ["git", "-C", str(repo_dir), "diff", "--name-only",
+            ["git", "-C", str(repo_dir), "diff", "--name-only", "--no-renames",
              f"{prev_sha}..{new_sha}"],
             capture_output=True, text=True, timeout=30, check=True,
         )
