@@ -31,6 +31,19 @@ import audit_pipeline.commands.converge as cv
 from audit_pipeline.cli import main
 from audit_pipeline.commands.hunt import hunt_cmd
 
+
+def _flat(output: str) -> str:
+    """Collapse rich's terminal-width line wrapping before matching a phrase.
+
+    rich wraps console output at the terminal width, which differs between a local run
+    and CI — and shifts with the length of the tmp path interpolated into a message. So
+    asserting a raw multi-word phrase against `res.output` is flaky by construction:
+    `triage-siblings list` arrived as `triage-siblings \\nlist` on Linux CI (longer
+    /tmp/pytest-of-runner path) while passing on Windows. Normalize whitespace first;
+    never assert on rich's line breaks.
+    """
+    return " ".join(output.split())
+
 # ---- arg stripping ---------------------------------------------------------
 
 def test_strip_drops_surface_scan_AND_its_path():
@@ -284,35 +297,35 @@ def test_dry_run_prints_plan_without_running(monkeypatch, tmp_path):
     monkeypatch.setattr(cv.subprocess, "run", lambda *a, **k: called.__setitem__("n", called["n"] + 1))
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--dry-run", "--skip-poc"])
     assert res.exit_code == 0, res.output
-    assert "converge plan" in res.output
-    assert "PENDING" in res.output              # the autonomous posture is disclosed
+    assert "converge plan" in _flat(res.output)
+    assert "PENDING" in _flat(res.output)              # the autonomous posture is disclosed
     assert called["n"] == 0
 
 
 def test_dry_run_discloses_approved_only(tmp_path):
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--dry-run", "--approved-only"])
     assert res.exit_code == 0, res.output
-    assert "APPROVED only" in res.output
+    assert "APPROVED only" in _flat(res.output)
 
 
 def test_missing_workspace_errors(tmp_path):
     res = CliRunner().invoke(main, ["-w", str(tmp_path), "converge", "--skip-poc"])
     assert res.exit_code != 0
-    assert "workspace.json" in res.output
+    assert "workspace.json" in _flat(res.output)
 
 
 def test_negative_sibling_cap_rejected(tmp_path):
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge",
                                     "--max-siblings-per-round", "-1"])
     assert res.exit_code != 0
-    assert "--max-siblings-per-round" in res.output
+    assert "--max-siblings-per-round" in _flat(res.output)
 
 
 def test_bad_hunt_args_fail_preflight_once(tmp_path):
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge",
                                     "--surface-scan", "/no/such/dir"])
     assert res.exit_code != 0
-    assert "hunt rejected these arguments" in res.output
+    assert "hunt rejected these arguments" in _flat(res.output)
 
 
 # ---- CLI: the loop ---------------------------------------------------------
@@ -377,8 +390,8 @@ def test_derivation_failure_is_diagnosed_not_called_converged(monkeypatch, tmp_p
            derive_rc=1)
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--max-rounds", "1"])
     assert res.exit_code != 0, res.output
-    assert "ANTHROPIC_API_KEY" in res.output
-    assert "converged —" not in res.output
+    assert "ANTHROPIC_API_KEY" in _flat(res.output)
+    assert "converged —" not in _flat(res.output)
 
 
 def test_derivation_fails_fast_instead_of_spawning_the_doomed_tail(monkeypatch, tmp_path):
@@ -396,9 +409,9 @@ def test_approved_only_parks_siblings_for_review_and_does_not_abort(monkeypatch,
     _patch(monkeypatch, findings=[{"id": 1, "hypothesis_id": "H1", "status": "confirmed"}])
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--approved-only",
                                     "--max-rounds", "1"])
-    assert "awaiting review" in res.output
-    assert "converge incomplete" in res.output           # not "aborted"
-    assert "triage-siblings list" in res.output          # tells the operator what to do
+    assert "awaiting review" in _flat(res.output)
+    assert "converge incomplete" in _flat(res.output)           # not "aborted"
+    assert "triage-siblings list" in _flat(res.output)          # tells the operator what to do
 
 
 def test_budget_warning_does_not_fire_without_an_explicit_cap(monkeypatch, tmp_path):
@@ -408,14 +421,14 @@ def test_budget_warning_does_not_fire_without_an_explicit_cap(monkeypatch, tmp_p
     _patch(monkeypatch, findings=[])
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--skip-poc",
                                     "--max-rounds", "1"])
-    assert "PER CYCLE" not in res.output
+    assert "PER CYCLE" not in _flat(res.output)
 
 
 def test_budget_warning_fires_when_the_operator_sets_a_cap(monkeypatch, tmp_path):
     _patch(monkeypatch, findings=[])
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--max-rounds", "2",
                                     "--budget-cap-usd", "100"])
-    assert "PER CYCLE" in res.output
+    assert "PER CYCLE" in _flat(res.output)
 
 
 def test_max_total_usd_stops_before_paying_for_derivation(monkeypatch, tmp_path):
@@ -426,7 +439,7 @@ def test_max_total_usd_stops_before_paying_for_derivation(monkeypatch, tmp_path)
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--max-total-usd",
                                     "1.00", "--max-rounds", "1"])
     assert state["derives"] == 0, "spent before checking the budget"
-    assert "exceeds --max-total-usd" in res.output
+    assert "exceeds --max-total-usd" in _flat(res.output)
     assert res.exit_code != 0
 
 
@@ -438,7 +451,7 @@ def test_rejected_siblings_are_not_re_derived(monkeypatch, tmp_path):
     monkeypatch.setattr("audit_pipeline.commands.triage_siblings._find_sibling_file",
                         lambda ws, fid: (Path("x/H1-siblings.yaml"), "rejected"))
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--max-rounds", "1"])
-    assert "REJECTED by an operator" in res.output
+    assert "REJECTED by an operator" in _flat(res.output)
 
 
 def test_history_seeds_the_dispatched_set(monkeypatch, tmp_path):
@@ -448,7 +461,7 @@ def test_history_seeds_the_dispatched_set(monkeypatch, tmp_path):
     _patch(monkeypatch, findings=[],
            history=[{"hypothesis_id": "OLD-1"}, {"hypothesis_id": "OLD-2"}])
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--max-rounds", "1"])
-    assert "2 hypothesis id(s) already audited" in res.output
+    assert "2 hypothesis id(s) already audited" in _flat(res.output)
 
 
 def test_converges_when_nothing_left_to_audit(monkeypatch, tmp_path):
@@ -457,7 +470,7 @@ def test_converges_when_nothing_left_to_audit(monkeypatch, tmp_path):
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--skip-poc",
                                     "--max-rounds", "3"])
     assert res.exit_code == 0, res.output
-    assert "converged — nothing left to audit" in res.output
+    assert "converged — nothing left to audit" in _flat(res.output)
 
 
 def test_failed_round_exits_nonzero(monkeypatch, tmp_path):
@@ -466,8 +479,8 @@ def test_failed_round_exits_nonzero(monkeypatch, tmp_path):
     _patch(monkeypatch, returncode=2)
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--skip-poc"])
     assert res.exit_code != 0, res.output
-    assert "exited 2" in res.output
-    assert "converge aborted" in res.output
+    assert "exited 2" in _flat(res.output)
+    assert "converge aborted" in _flat(res.output)
 
 
 def test_invisible_cycle_aborts_instead_of_reporting_clean(monkeypatch, tmp_path):
@@ -477,8 +490,8 @@ def test_invisible_cycle_aborts_instead_of_reporting_clean(monkeypatch, tmp_path
     _patch(monkeypatch, returncode=0, cycles_after_run=False)
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--skip-poc"])
     assert res.exit_code != 0, res.output
-    assert "no new cycle is visible" in res.output
-    assert "converged" not in res.output.replace("converge aborted", "")
+    assert "no new cycle is visible" in _flat(res.output)
+    assert "converged" not in _flat(res.output).replace("converge aborted", "")
 
 
 def test_derives_siblings_from_confirmed_findings(monkeypatch, tmp_path):
@@ -515,7 +528,7 @@ def test_resume_cycle_is_warned_and_not_forwarded(monkeypatch, tmp_path):
     _patch(monkeypatch, findings=[], argvs=argvs)
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge",
                                     "--resume-cycle", "c-old"])
-    assert "--resume-cycle is not forwarded" in res.output
+    assert "--resume-cycle is not forwarded" in _flat(res.output)
     hunt_argv = [a for a in argvs if "hunt" in a][0]
     assert "--resume-cycle" not in hunt_argv, hunt_argv     # round 1 too
     assert "c-old" not in hunt_argv, hunt_argv
@@ -534,10 +547,10 @@ def test_zero_dispatch_cycle_never_claims_converged(monkeypatch, tmp_path):
     _patch(monkeypatch, returncode=0, findings=[], n_dispatched=0)
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--skip-poc"])
     assert res.exit_code != 0, res.output                 # never a clean bill of health
-    assert "dispatched 0 hypotheses" in res.output
-    assert "converge incomplete" in res.output            # not "aborted": nothing crashed
-    assert "cannot tell which" in res.output              # no false diagnosis
-    assert "converged —" not in res.output
+    assert "dispatched 0 hypotheses" in _flat(res.output)
+    assert "converge incomplete" in _flat(res.output)            # not "aborted": nothing crashed
+    assert "cannot tell which" in _flat(res.output)              # no false diagnosis
+    assert "converged —" not in _flat(res.output)
 
 
 def test_no_derive_with_confirmed_findings_is_not_a_convergence(monkeypatch, tmp_path):
@@ -547,7 +560,7 @@ def test_no_derive_with_confirmed_findings_is_not_a_convergence(monkeypatch, tmp
     res = CliRunner().invoke(main, ["-w", _ws(tmp_path), "converge", "--no-derive",
                                     "--max-rounds", "1"])
     assert res.exit_code != 0, res.output
-    assert "never expanded into siblings" in res.output
+    assert "never expanded into siblings" in _flat(res.output)
 
 
 def test_derivation_uses_triage_siblings_naming(monkeypatch, tmp_path):
