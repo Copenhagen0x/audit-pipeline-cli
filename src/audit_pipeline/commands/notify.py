@@ -73,9 +73,14 @@ def notify_test(ctx: click.Context, to: str, dry_run: bool) -> None:
 @click.option("--finding-id", type=int, required=True, help="Confirmed finding to notify on")
 @click.option("--repro-link", default="", help="Optional repro URL (PoC, GitHub issue, etc.)")
 @click.option("--dry-run", is_flag=True, help="Render the message without SMTP send")
+@click.option("--allow-unproven-publish", is_flag=True, default=False,
+              help="WS4: email even an UNPROVEN Critical/High (no Kani proof, no on-chain "
+                   "exploit). Default OFF — the customer-alert email is the highest-trust "
+                   "door out of the firm, so it is proof-gated like the others.")
 @click.pass_context
 def notify_critical(
     ctx: click.Context, finding_id: int, repro_link: str, dry_run: bool,
+    allow_unproven_publish: bool,
 ) -> None:
     """Send the immediate Critical/High alert for a confirmed finding."""
     workspace = Path(ctx.obj["workspace"])
@@ -90,6 +95,26 @@ def notify_critical(
             f"Finding {finding_id} severity is {severity!r}; immediate alert "
             f"is reserved for Critical/High. Use `notify cadence` for the rollup."
         )
+
+    # WS4 proof-carrying gate — the customer email is a door out of the firm, and
+    # publish_cycle.sh selects on status='confirmed' (which includes L4-REFUTED rows the
+    # cycle-level gate no longer holds), so the proof check MUST be at THIS door too.
+    # Without it a customer gets an "exploit confirmed" email for a bug whose exploit the
+    # pipeline's own L4 layer refuted.
+    from audit_pipeline.gates.post_cycle import unproven_block_reason
+    _hold = unproven_block_reason(finding)
+    if _hold and not allow_unproven_publish:
+        raise click.ClickException(
+            f"Finding {finding_id} ({finding.get('severity')}) is {_hold}. Refusing to "
+            f"email an unproven Critical/High alert. Prove it (Kani or on-chain exploit) "
+            f"or pass --allow-unproven-publish to override.")
+    if _hold and allow_unproven_publish:
+        from audit_pipeline.utils.event_log import emit_event
+        console.print(f"[yellow]--allow-unproven-publish: emailing UNPROVEN finding "
+                      f"{finding_id} ({finding.get('severity')}) — {_hold}[/yellow]")
+        emit_event("emailed_unproven_override", finding_id=finding_id,
+                   cycle_id=finding.get("cycle_id"),
+                   severity=finding.get("severity"), reason=_hold[:200])
 
     target = next((t for t in db.list_targets() if t["id"] == finding["target_id"]), None)
     target_name = (target or {}).get("name", "(unknown target)")
