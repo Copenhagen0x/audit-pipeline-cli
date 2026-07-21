@@ -183,6 +183,12 @@ console = Console()
     help="Skip Pillar 4 Merkle attestation at end of cycle.",
 )
 @click.option(
+    "--allow-unproven-publish/--no-allow-unproven-publish", default=False, show_default=True,
+    help="WS4 escape hatch: allow auto-publish of a Critical/High finding that is NOT "
+         "proof-carrying (no Kani proof and no on-chain LiteSVM exploit). Default OFF "
+         "= proof-carrying by default; the finding is signed but held from publish.",
+)
+@click.option(
     "--skip-litesvm", is_flag=True, default=False, show_default=True,
     help="Skip Layer-4 LiteSVM exploit-chain authoring on PoC-fired findings",
 )
@@ -365,6 +371,7 @@ def hunt_cmd(
     skip_propagate: bool,
     skip_bundle: bool,
     skip_merkle: bool,
+    allow_unproven_publish: bool,
     skip_narrative: bool,
     refinement_rounds: int,
     ground_code: bool,
@@ -797,6 +804,7 @@ def hunt_cmd(
             skip_propagate=skip_propagate,
             skip_bundle=skip_bundle,
             skip_merkle=skip_merkle,
+            allow_unproven_publish=allow_unproven_publish,
             skip_narrative=skip_narrative,
             refinement_rounds=refinement_rounds,
             ground_code=ground_code,
@@ -839,6 +847,7 @@ def _hunt_run(
     skip_propagate: bool,
     skip_bundle: bool,
     skip_merkle: bool,
+    allow_unproven_publish: bool,
     skip_narrative: bool,
     refinement_rounds: int,
     ground_code: bool,
@@ -3782,6 +3791,13 @@ def _hunt_run(
             details={
                 "debate": debate_results.get(hyp_id),
                 "kani": kani_results.get(hyp_id),
+                # WS4 proof-carrying: persist the L4 LiteSVM outcome alongside kani so a
+                # finding's proof status is queryable from its DB row (not just from the
+                # in-memory hunt_summary). The post-cycle publish gate reads DB rows, and
+                # "proof-carrying" is Kani-proved OR LiteSVM-exploited — without this only
+                # the kani half was on the row. Bonus: it's now committed tamper-evidently
+                # into the signed Merkle leaf via details_digest.
+                "litesvm": litesvm_results.get(hyp_id),
                 "triage": triage_info or None,
                 "input_tokens": v.get("input_tokens"),
                 "output_tokens": v.get("output_tokens"),
@@ -4151,6 +4167,7 @@ def _hunt_run(
         # F11/F13 hallucinations and the residual-conservation cluster's
         # PoCs that contain pseudo-pass markers.
         from audit_pipeline.gates.post_cycle import (
+            PostCycleReport,
             check_post_cycle,
             write_block_sentinel,
         )
@@ -4203,19 +4220,54 @@ def _hunt_run(
             # have <100 confirmed findings each; if you ever approach
             # the cap, switch to `list_findings_by_cycle(cycle_id)`
             # which has no limit (see merkle.py for the pattern).
+            # WS4: the gate must proof-check only the findings that will ACTUALLY be
+            # published — the in-memory `confirmed` set (poc_fired AND, when L4 ran,
+            # l4.fired). Filtering the DB rows on `poc_fired` alone also caught findings
+            # that fired L2 but were REFUTED at L4 (a common, by-design outcome that
+            # `confirmed` drops), so an L4-refuted unproven row would hold the whole
+            # cycle even when every *published* finding is proven. Intersect with the
+            # published hyp-ids to gate exactly what leaves the firm.
+            _published_hyp_ids = {c["hypothesis_id"] for c in confirmed}
             db_confirmed = [
                 f for f in _db.list_findings(limit=1000)
                 if f.get("cycle_id") == cycle_id and f.get("poc_fired")
+                and f.get("hypothesis_id") in _published_hyp_ids
             ]
             post_report = check_post_cycle(
                 cycle_dir=cycle_dir,
                 confirmed_findings=db_confirmed,
                 engine_src_dir=engine_src,
                 wrapper_src_dir=wrapper_src,
+                require_proof_for_high=not allow_unproven_publish,
             )
             log("post_cycle_qa", passed=post_report.passed,
                 n_findings=post_report.n_findings,
                 n_failed=post_report.n_failed)
+            # WS4 escape-hatch attestation: when the operator overrides the proof gate,
+            # record WHICH unproven Critical/Highs are being published anyway, so the
+            # override is never a silent bypass. Re-evaluate WITH proof required (a dry
+            # run — this is not the gate) purely to enumerate what would have been held.
+            if allow_unproven_publish:
+                # This is ATTESTATION ONLY (a dry re-eval to enumerate what's going out
+                # unproven). It must never veto a publish the operator explicitly
+                # authorized — so its own errors are swallowed here rather than bubbling
+                # to the fail-closed outer except.
+                try:
+                    _dry = check_post_cycle(
+                        cycle_dir=cycle_dir, confirmed_findings=db_confirmed,
+                        engine_src_dir=engine_src, wrapper_src_dir=wrapper_src,
+                        require_proof_for_high=True)
+                    _unproven = [r.get("finding_id") for r in _dry.rows
+                                 if r.get("proof_required") and r.get("proof_carrying") is False]
+                    if _unproven:
+                        console.print(
+                            f"[yellow]--allow-unproven-publish: publishing "
+                            f"{len(_unproven)} UNPROVEN Critical/High finding(s) "
+                            f"{_unproven} without a Kani proof or on-chain exploit.[/yellow]")
+                        log("published_unproven_override",
+                            finding_ids=_unproven, count=len(_unproven), cycle_id=cycle_id)
+                except Exception as _attest_err:  # noqa: BLE001
+                    log("published_unproven_override_attest_error", error=str(_attest_err))
             if not post_report.passed:
                 sentinel = write_block_sentinel(cycle_dir, post_report)
                 console.print(
@@ -4229,10 +4281,21 @@ def _hunt_run(
                     sentinel=str(sentinel))
                 return        # short-circuit: do not run publish_cycle.sh
         except Exception as e:  # noqa: BLE001
-            # Don't let a bug in the gate itself block legitimate cycles.
-            # Log + fail-open here (single layer; the gate itself is the
-            # belt; publish_cycle.sh sentinel check is the suspenders).
-            log("post_cycle_qa_error", error=str(e))
+            # FAIL CLOSED. A bug/exception in the gate must NOT let an un-vetted cycle
+            # publish — post-WS4 that would ship an unproven Critical/High exploit
+            # claim. Write the block sentinel (publish_cycle.sh honors it) and abort
+            # auto-publish; a false hold is recoverable, a false publish is not.
+            log("post_cycle_qa_error", error=str(e), failed_closed=True)
+            try:
+                sentinel = write_block_sentinel(cycle_dir, PostCycleReport(
+                    passed=False, n_findings=0, n_failed=1,
+                    rows=[{"passed": False, "reason": f"post-cycle gate errored: {e}"}]))
+                console.print(f"[red]Post-cycle QA ERRORED[/red] — failing CLOSED, wrote "
+                              f"sentinel to {sentinel}. Auto-publish ABORTED.")
+            except Exception as e2:  # noqa: BLE001 — even the sentinel write failed
+                console.print(f"[red]Post-cycle QA errored AND sentinel write failed "
+                              f"({e2}) — aborting auto-publish anyway.[/red]")
+            return            # do not fall through to publish on a gate error
 
         rc_html = _run([
             _audit_pipeline_bin(), "--workspace", str(workspace),

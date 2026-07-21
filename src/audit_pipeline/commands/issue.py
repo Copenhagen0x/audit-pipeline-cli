@@ -72,6 +72,13 @@ def draft_cmd(ctx: click.Context, finding_id: int, output: Path | None) -> None:
                   "in --repo. Pass this only when you've verified the SHA "
                   "manually (cross-repo references etc.)."
               ))
+@click.option("--allow-unproven-publish", is_flag=True, default=False,
+              help=(
+                  "WS4: bypass the proof-carrying gate. By default a Critical/High "
+                  "finding is refused disclosure unless it is Kani-proved OR has an "
+                  "on-chain (LiteSVM) exploit. Pass this to disclose an unproven "
+                  "Critical/High anyway (recorded as an override)."
+              ))
 @click.pass_context
 def file_cmd(
     ctx: click.Context,
@@ -82,6 +89,7 @@ def file_cmd(
     tracking_issue: int | None,
     dry_run: bool,
     allow_mixed_pin: bool,
+    allow_unproven_publish: bool,
 ) -> None:
     """Open a GitHub issue (or post a comment) from a finding via `gh`."""
     workspace = Path(ctx.obj["workspace"])
@@ -89,6 +97,27 @@ def file_cmd(
     finding = db.get_finding(finding_id)
     if not finding:
         raise click.ClickException(f"Finding {finding_id} not found")
+
+    # WS4 proof-carrying gate — disclosure is a door out of the firm, same as
+    # auto-publish. A Critical/High with no Kani proof and no on-chain exploit is
+    # refused (fail-closed) unless the operator explicitly overrides.
+    from audit_pipeline.gates.post_cycle import unproven_block_reason
+    _hold = unproven_block_reason(finding)
+    if _hold and not allow_unproven_publish:
+        raise click.ClickException(
+            f"Finding {finding_id} ({finding.get('severity')}) is {_hold}. Refusing to "
+            f"disclose an unproven Critical/High. Prove it (Kani or on-chain exploit) "
+            f"or pass --allow-unproven-publish to override.")
+    if _hold and allow_unproven_publish:
+        from audit_pipeline.utils.event_log import emit_event
+        console.print(f"[yellow]--allow-unproven-publish: disclosing UNPROVEN finding "
+                      f"{finding_id} ({finding.get('severity')}) — {_hold}[/yellow]")
+        # Attest the override with a structured event (matching hunt's cycle-level
+        # `published_unproven_override`), so the per-finding disclosure override leaves a
+        # durable record too — never a silent bypass.
+        emit_event("disclosed_unproven_override", finding_id=finding_id,
+                   cycle_id=finding.get("cycle_id"),
+                   severity=finding.get("severity"), repo=repo, reason=_hold[:200])
 
     severity = finding.get("severity", "Medium")
     title = (
@@ -315,7 +344,7 @@ def auto_file_cmd(
     # quality wasn't re-checked, and the disclosure_history gate wasn't
     # re-run. Yesterday's 20 false-positive cycle would have auto-filed
     # through this path with zero protection. Now: hard gates.
-    from audit_pipeline.gates.post_cycle import _check_one_poc
+    from audit_pipeline.gates.post_cycle import _check_one_poc, unproven_block_reason
     eligible: list = []
     skipped: list = []
     cycle_dir = workspace / "hunts" / cycle_id
@@ -355,6 +384,13 @@ def auto_file_cmd(
             if not row.get("passed"):
                 skipped.append((f["id"], f"PoC re-check failed: {row.get('reason', '')[:160]}"))
                 continue
+        # Gate 3 (WS4): a Critical/High must be proof-carrying (Kani proof OR on-chain
+        # exploit) to be auto-disclosed. Skip (don't crash the batch) — the operator can
+        # still file an individual one with `issue file --allow-unproven-publish`.
+        _hold = unproven_block_reason(f)
+        if _hold:
+            skipped.append((f["id"], _hold[:160]))
+            continue
         eligible.append(f)
 
     if skipped:

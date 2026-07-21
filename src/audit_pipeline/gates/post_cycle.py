@@ -51,6 +51,92 @@ _PSEUDO_PASS_MARKERS = (
     "Insufficient source grounding",
 )
 
+# WS4 proof-carrying by default: severities that must be PROVEN before a finding may
+# be published/disclosed. Compared case-insensitively against the finding row's
+# `severity` (stored as the Severity enum's .value, e.g. "Critical"/"High").
+_PROOF_REQUIRED_SEVERITIES = frozenset({"CRITICAL", "HIGH"})
+
+
+def proof_carrying(finding: dict) -> tuple[bool, str]:
+    """Is this finding PROVEN — Kani-proved OR demonstrated on-chain via LiteSVM?
+
+    WS4's core predicate. Both signals are persisted per-finding in ``details_json``
+    (``kani`` written at hunt persistence; ``litesvm`` added there for exactly this
+    gate). Fail-closed: anything other than an explicit positive proof is "not proven"
+    — a missing/None/unparseable ``details`` block, a Kani ``cannot_verify`` /
+    counterexample / compile-error, a ``--skip-kani`` or daily-cap-halt run, or the
+    legacy synth-kani path that records only a returncode. Returns ``(is_proven,
+    reason)``.
+
+    "Proven" here means one of two DISTINCT things, per operator decision 2026-07-17:
+      * ``details.kani.proved is True``  — the invariant was formally proved, OR
+      * ``details.litesvm.fired is True`` — the exploit was reproduced on-chain (L4).
+    Many Solana bugs cannot be Kani-modeled but ARE L4-exploit-confirmed, so requiring
+    Kani alone would refuse to publish real, demonstrated exploits; requiring EITHER is
+    the standard. Note: L2 ``poc_fired`` alone is NOT sufficient — a PoC is a cargo
+    test, not a formal proof or an on-chain exploit witness.
+    """
+    import json
+
+    raw = finding.get("details_json")
+    if isinstance(raw, str) and raw:
+        try:
+            details = json.loads(raw)
+        except (ValueError, TypeError):
+            return False, "proof status unreadable: details_json is not valid JSON"
+    elif isinstance(finding.get("details"), dict):
+        details = finding["details"]  # already-deserialized row (test/in-memory callers)
+    else:
+        return False, "no proof recorded: finding has no details block"
+
+    if not isinstance(details, dict):
+        return False, "no proof recorded: details block is not an object"
+
+    kani = details.get("kani")
+    if isinstance(kani, dict) and kani.get("proved") is True:
+        return True, "Kani formally proved the invariant"
+
+    # L4 runtime witness — require a CONCRETE failure/abort, the same standard across
+    # adapters, because a mere "ran without crashing" is the case a mis-authored harness
+    # can fake:
+    #   * Anchor/Solana records `fired` (test result FAILED + an engine-authored bug
+    #     witness), or
+    #   * the GENERIC runtime-fuzz adapter (Move/Solidity/C — this pipeline is NOT
+    #     Solana-only) records `crash_found` from an inverted-assertion harness that
+    #     ABORTED, i.e. `ran_clean is False` — an assertion actually fired.
+    # The generic adapter ALSO sets `crash_found=True` for a clean PASS ("ran end-to-end
+    # without abort"); that weaker, harness-correctness-dependent case does NOT count as
+    # proof on its own — such a finding is held for a Kani proof or an abort witness.
+    # (Binding these signals to structured tool output rather than LLM-authored-harness
+    # text is a tracked follow-up.)
+    litesvm = details.get("litesvm")
+    if isinstance(litesvm, dict) and (
+        litesvm.get("fired") is True
+        or (litesvm.get("crash_found") is True and litesvm.get("ran_clean") is False)
+    ):
+        return True, "exploit reproduced at runtime — assertion/abort witness (L4)"
+
+    return False, ("not proof-carrying: no Kani proof (kani.proved is not True) and no "
+                   "runtime exploit with an abort/failure witness (litesvm.fired, or "
+                   "crash_found with ran_clean=False)")
+
+
+def unproven_block_reason(finding: dict) -> str | None:
+    """Reason to HOLD this finding from publish/disclosure, or None if it may proceed.
+
+    THE single source of truth for WS4's severity+proof rule, shared by the post-cycle
+    auto-publish gate AND the manual disclosure exits (`issue file` /
+    `auto-file-confirmed`) — so proof-carrying holds at EVERY door out of the firm, not
+    just auto-publish. A finding is held iff it is Critical/High AND not
+    ``proof_carrying``; lower-severity and severity-less rows are never held.
+    """
+    raw_sev = finding.get("severity")
+    sev = str(getattr(raw_sev, "value", raw_sev) or "").upper()
+    if sev not in _PROOF_REQUIRED_SEVERITIES:
+        return None
+    ok, why = proof_carrying(finding)
+    return None if ok else why
+
 
 @dataclass
 class PostCycleReport:
@@ -148,6 +234,7 @@ def check_post_cycle(
     confirmed_findings: list[dict],
     engine_src_dir: Path | None = None,
     wrapper_src_dir: Path | None = None,
+    require_proof_for_high: bool = True,
 ) -> PostCycleReport:
     """Re-run cheap pre-disclosure gates over every confirmed finding.
 
@@ -160,10 +247,20 @@ def check_post_cycle(
                              filename).
         engine_src_dir:      path to engine ``src/`` for grep
         wrapper_src_dir:     optional wrapper ``src/`` for grep
+        require_proof_for_high: WS4 proof-carrying gate (default ON). When set, a
+                             Critical/High finding that is NOT proof-carrying
+                             (see ``proof_carrying`` — no Kani proof, no on-chain
+                             LiteSVM exploit) FAILS the gate, so its cycle is held
+                             from auto-publish. Signing already happened one step
+                             earlier, so the proof status is committed in the signed
+                             record; this only holds PUBLISH. Lower-severity findings
+                             and findings with no severity are never proof-gated.
+                             The operator escape hatch is ``hunt --allow-unproven-publish``.
 
     Returns:
         ``PostCycleReport`` with ``passed=True`` only when every confirmed
-        finding's PoC clears the cheap checks. Caller decides what to do:
+        finding's PoC clears the cheap checks AND (when ``require_proof_for_high``)
+        every Critical/High finding is proof-carrying. Caller decides what to do:
         ``hunt.py`` writes ``.publish-blocked`` sentinel and aborts
         auto-publish on failure.
     """
@@ -239,6 +336,28 @@ def check_post_cycle(
         row = _check_one_poc(poc_path, test_name, search_dirs)
         row["hypothesis_id"] = hyp_id
         row["finding_id"] = f.get("id")
+
+        # WS4 proof-carrying gate — Critical/High only, default ON. A finding may pass
+        # the PoC re-check yet still not be PROVEN; both must hold to publish.
+        # Normalize via .value FIRST: `str(Severity.CRITICAL)` is "Severity.CRITICAL",
+        # which would silently miss the set (fail-OPEN) if an in-memory caller passed
+        # the enum object rather than the stored "Critical" string.
+        raw_sev = f.get("severity")
+        sev = str(getattr(raw_sev, "value", raw_sev) or "").upper()
+        if require_proof_for_high and sev in _PROOF_REQUIRED_SEVERITIES:
+            proven, why = proof_carrying(f)
+            row["proof_required"] = True
+            row["proof_carrying"] = proven
+            row["proof_detail"] = why
+            if not proven:
+                # Hold publish. Combine with any PoC reason rather than clobber it, so
+                # a finding that fails BOTH reports both.
+                prior = row.get("reason")
+                row["passed"] = False
+                row["reason"] = f"{prior} | {why}" if prior else why
+        else:
+            row["proof_required"] = False
+
         rows.append(row)
 
     n_failed = sum(1 for r in rows if not r.get("passed"))
