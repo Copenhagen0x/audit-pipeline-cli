@@ -615,11 +615,17 @@ def converge_cmd(ctx: click.Context, max_rounds: int, max_siblings_per_round: in
             spent_usd += float(c.get("total_cost_usd") or 0.0)
 
         # A cycle that dispatched NOTHING is evidence the round did not run — never
-        # evidence of convergence. hunt's Layer-1 failure path (hunt.py:1266-1269 —
-        # recon timeout / crash / API outage) finishes the cycle with n_dispatched=0
-        # and RETURNS EXIT 0, so rc==0 and a new cycle both look healthy. Without this
-        # check converge reports "converged, 0 findings, exit 0" for an audit that
-        # never happened: the exact lie this module exists to refuse.
+        # evidence of convergence.
+        #
+        # KEEP THIS CHECK. hunt's Layer-1 no-summary path (recon timeout / crash /
+        # missing binary) used to finish the cycle with n_dispatched=0 and RETURN EXIT 0,
+        # so rc==0 and a new cycle both looked healthy, and this was the only thing
+        # standing between converge and a false "converged". hunt now exits 1 there
+        # (2026-07-25), so that specific case is caught earlier by the rc!=0 break above
+        # — but this check is NOT redundant. It still covers: a gate legitimately
+        # emptying the hypothesis library, a total API outage (recon records per-hyp
+        # errors as data, writes a summary, and still exits 0), and DB divergence where
+        # converge cannot see hunt's real output.
         n_dispatched = sum(int(c.get("n_dispatched") or 0) for c in new_cycles)
         if n_dispatched == 0 and not round_dispatched:
             # Do NOT assert a cause here. From the DB alone converge cannot tell an

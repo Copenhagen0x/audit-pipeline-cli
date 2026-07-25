@@ -1224,6 +1224,7 @@ def _hunt_run(
                 f"[yellow]Layer 1 resume blocked — recon_summary.json is "
                 f"corrupt ({e}). Re-running Layer 1.[/yellow]"
             )
+    rc: int | None = None   # set only when Layer 1 actually runs (None on the resume path)
     if summary_is_valid_for_resume:
         log("layer1_resumed_from_existing", path=str(summary_path))
         console.print(
@@ -1271,10 +1272,53 @@ def _hunt_run(
         log("layer1_done", returncode=rc)
 
     if not summary_path.exists():
-        log("layer1_no_summary", path=str(summary_path))
-        console.print(f"[red]Layer 1 did not produce a summary at {summary_path}[/red]")
+        # FAIL LOUD — this is a DEAD audit, not a clean one, and it must NOT exit 0.
+        #
+        # `recon` writes recon_summary.json unconditionally at the end of its work —
+        # even when every hypothesis is filtered out of scope, and even when every
+        # verdict comes back FALSE. So the file is missing ONLY when recon itself died:
+        # timeout (rc=124), crash, missing binary (rc=127), or a kill mid-run. There is
+        # no legitimate "nothing to do" case that reaches this branch — those still
+        # produce a summary and correctly exit 0 further down.
+        #
+        # NOT covered here (do not overclaim): a TOTAL API OUTAGE. recon catches
+        # per-hypothesis exceptions and records them as {"ok": False, ...} data, so it
+        # still writes a summary (every verdict status=ERROR) and exits 0 — hunt then
+        # proceeds to a 0-finding cycle and exits 0. Same coverage hole, different door.
+        # Closing it needs a separate check on the summary (e.g. n_ok == 0 while
+        # n_hypotheses > 0); tracked as a follow-up, deliberately not bundled here.
+        #
+        # Exiting 0 here told every unattended runner that a dead audit passed.
+        #
+        # LATENT, not a live incident (verified 2026-07-25 — do not overstate this):
+        # `watch` gates its WS6 diff-scope baseline on `audit_ok = returncode == 0`
+        # (watch.py), so a crashed run WOULD advance `last_scoped_sha` past a commit that
+        # was never audited, permanently excluding that commit's changes from every
+        # future scan. It cannot bite in the CURRENT deployed config: jelleo-watch.service
+        # passes no `--diff-scope` (so the baseline is never written) and
+        # deploy/watch_on_update.sh is the neutered shim (it never invokes hunt). The
+        # hole opens the moment watch is re-armed with a real hunt + --diff-scope.
+        # `ctx.exit(1)` closes it ahead of that, and makes every other unattended caller
+        # (converge, CI, any cron) able to tell a dead audit from a clean one.
+        #
+        # WRAPPER CAVEAT: a shell wrapper that pipes hunt through `tee` discards this
+        # exit code (bash reports the LAST pipeline stage). Any wrapper must use
+        # `set -o pipefail` or ${PIPESTATUS[0]}, or this fix is silently undone.
+        reason = (
+            "recon timed out" if rc == RC_TIMEOUT
+            else "recon binary not found" if rc == RC_NOT_FOUND
+            else f"recon exited {rc}" if rc is not None
+            else "recon did not run"
+        )
+        log("layer1_no_summary", path=str(summary_path), rc=rc, reason=reason,
+            failed_closed=True)
+        console.print(
+            f"[red]Layer 1 produced no summary at {summary_path} ({reason}) — the audit "
+            f"did NOT run. Failing with exit 1 so callers do not read this as a clean "
+            f"cycle.[/red]"
+        )
         db.finish_cycle(cycle_id, n_dispatched=0, n_confirmed=0, total_cost_usd=0)
-        return
+        ctx.exit(1)
 
     summary = json.loads(summary_path.read_text())
     layer1_cost = float(summary.get("total_cost_usd", 0.0))
